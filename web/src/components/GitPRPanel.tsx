@@ -1,4 +1,4 @@
-// 移动端 PR/MR 面板：列出仓库的 PR/MR，展开查看详情，可在浏览器打开创建页面
+// 移动端 PR/MR 面板：列表行与详情页切换，支持在浏览器创建或打开 PR/MR
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -11,13 +11,20 @@ import {
   type RemoteGitPRSummary
 } from '../context/remoteGitApi';
 import type { RemoteGitStatusResult } from '../types/contract';
+import { formatRelativeTime } from '../utils/date';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
+  ArrowLeftIcon,
+  ArrowPathIcon,
   CheckCircleIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
+  CircleCheckIcon,
+  CircleXIcon,
   ExclamationTriangleIcon,
-  EyeIcon
+  HalfRingIcon,
+  PencilIcon,
+  PlusIcon,
+  UserRoundCheckIcon
 } from './Icons';
 
 export interface GitPRPanelProps {
@@ -29,7 +36,7 @@ export interface GitPRPanelProps {
   status?: RemoteGitStatusResult | null;
   /** 推送成功后通知外层刷新工作区与分支列表。 */
   onWorkspaceChanged?: () => void;
-  /** 宿主支持 git.pr.createUrl：显示「创建 PR/MR」。 */
+  /** 宿主支持 git.pr.createUrl：显示「创建 PR」按钮。 */
   canCreatePR?: boolean;
   /** 宿主支持 git.push：未推送的分支可以先推送。 */
   canPush?: boolean;
@@ -39,53 +46,26 @@ export interface GitPRPanelProps {
   onBusyChange?: (key: string | null) => void;
 }
 
+export type PRStatusStripTone = 'success' | 'danger' | 'neutral' | 'plan';
+
 const PR_CREATE_BUSY_KEY = 'pr-create';
 const PR_PUSH_BUSY_KEY = 'pr-push';
 /** 本面板自己发起的占用键：这些键不算外部占用。 */
 const OWN_BUSY_KEYS = new Set([PR_CREATE_BUSY_KEY, PR_PUSH_BUSY_KEY]);
 
-function ExternalLinkIcon({ className = 'w-4 h-4' }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M13.5 5.25h5.25v5.25M18.75 5.25 11.25 12.75M18 13.5v4.5A1.5 1.5 0 0 1 16.5 19.5h-10.5A1.5 1.5 0 0 1 4.5 18V7.5A1.5 1.5 0 0 1 6 6h4.5"
-      />
-    </svg>
-  );
-}
+type NormalizedCheckKind = 'success' | 'failure' | 'pending' | 'none';
 
-/** PR/MR 状态的中文说明与配色。 */
-function gitExtPRState(state: string, isDraft: boolean): { label: string; className: string } {
-  if (isDraft) {
-    return {
-      label: '草稿',
-      className: 'bg-[var(--border)] text-[var(--foreground-muted)]'
-    };
-  }
-  switch (state.trim().toLowerCase()) {
-    case 'open':
-    case 'opened':
-      return {
-        label: '打开',
-        className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-      };
-    case 'merged':
-      return {
-        label: '已合并',
-        className: 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-      };
-    case 'closed':
-      return {
-        label: '已关闭',
-        className: 'bg-red-500/15 text-red-600 dark:text-red-400'
-      };
+function normalizeCheckKind(state?: string): NormalizedCheckKind {
+  switch ((state ?? '').trim().toLowerCase()) {
+    case 'success':
+      return 'success';
+    case 'failure':
+    case 'failed':
+      return 'failure';
+    case 'pending':
+      return 'pending';
     default:
-      return {
-        label: state.trim() || '未知',
-        className: 'bg-[var(--border)] text-[var(--foreground-muted)]'
-      };
+      return 'none';
   }
 }
 
@@ -107,18 +87,214 @@ function gitExtCheckLabel(state: string): string {
   }
 }
 
-/** 把 RFC3339 时间显示成短格式，解析不到时退回原文。 */
-function gitExtFormatTime(value?: string): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+/** 详情顶部状态条的判定（按优先级从高到低收敛为单条结论）。 */
+export function prStatusStrip(detail: RemoteGitPRDetail): {
+  tone: PRStatusStripTone;
+  text: string;
+} {
+  const normalizedState = detail.state.trim().toLowerCase();
+  if (normalizedState === 'merged') {
+    return { tone: 'plan', text: `已合并到 ${detail.baseBranch}` };
+  }
+  if (normalizedState === 'closed') {
+    return { tone: 'neutral', text: '已关闭' };
+  }
+  if (detail.isDraft) {
+    return { tone: 'neutral', text: '草稿' };
+  }
+  if (detail.mergeable === 'CONFLICTING') {
+    return { tone: 'danger', text: '有冲突' };
+  }
+
+  let failedCount = 0;
+  let pendingCount = 0;
+  for (const check of detail.checks) {
+    const kind = normalizeCheckKind(check.state);
+    if (kind === 'failure') failedCount += 1;
+    else if (kind === 'pending') pendingCount += 1;
+  }
+
+  if (failedCount > 0) {
+    return { tone: 'danger', text: `${failedCount} 项检查失败` };
+  }
+  if (pendingCount > 0) {
+    return { tone: 'neutral', text: `${pendingCount} 项检查进行中` };
+  }
+
+  const decision = (detail.reviewDecision ?? '').trim().toUpperCase();
+  if (decision === 'CHANGES_REQUESTED') {
+    return { tone: 'danger', text: '需要修改' };
+  }
+  if (decision === 'REVIEW_REQUIRED') {
+    return { tone: 'neutral', text: '等待评审' };
+  }
+
+  return { tone: 'success', text: '可以合并' };
 }
+
+function statusDotClass(state: string, isDraft: boolean): string {
+  const normalized = state.trim().toLowerCase();
+  if (normalized === 'merged') return 'bg-mc-plan';
+  if (isDraft || normalized === 'closed') return 'bg-mc-text-secondary';
+  if (normalized === 'open' || normalized === 'opened') return 'bg-mc-success';
+  return 'bg-mc-text-secondary';
+}
+
+function renderCIIcon(checksState?: string): React.ReactNode {
+  const kind = normalizeCheckKind(checksState);
+  if (kind === 'success') {
+    return (
+      <span
+        className="inline-flex items-center text-mc-success"
+        title="CI 通过"
+        aria-label="CI 通过"
+        data-ci-state="success"
+      >
+        <CircleCheckIcon className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+  if (kind === 'failure') {
+    return (
+      <span
+        className="inline-flex items-center text-mc-danger"
+        title="CI 失败"
+        aria-label="CI 失败"
+        data-ci-state="failure"
+      >
+        <CircleXIcon className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+  if (kind === 'pending') {
+    return (
+      <span
+        className="inline-flex items-center text-mc-warning"
+        title="CI 进行中"
+        aria-label="CI 进行中"
+        data-ci-state="pending"
+      >
+        <HalfRingIcon className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+  return null;
+}
+
+function renderReviewIcon(reviewDecision?: string): React.ReactNode {
+  const decision = (reviewDecision ?? '').trim().toUpperCase();
+  if (decision === 'APPROVED') {
+    return (
+      <span
+        className="inline-flex items-center text-mc-success"
+        title="已批准"
+        aria-label="已批准"
+        data-review-decision="APPROVED"
+      >
+        <UserRoundCheckIcon className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+  if (decision === 'CHANGES_REQUESTED') {
+    return (
+      <span
+        className="inline-flex items-center text-mc-warning"
+        title="需要修改"
+        aria-label="需要修改"
+        data-review-decision="CHANGES_REQUESTED"
+      >
+        <PencilIcon className="w-3.5 h-3.5" />
+      </span>
+    );
+  }
+  return null;
+}
+
+function renderStripIcon(detail: RemoteGitPRDetail, tone: PRStatusStripTone): React.ReactNode {
+  const state = detail.state.trim().toLowerCase();
+  if (state === 'merged' || tone === 'success') {
+    return <CircleCheckIcon className="w-4 h-4 shrink-0" />;
+  }
+  if (state === 'closed' || detail.isDraft) {
+    return <span className="w-[7px] h-[7px] rounded-full bg-current shrink-0" />;
+  }
+  if (detail.mergeable === 'CONFLICTING') {
+    return <ExclamationTriangleIcon className="w-4 h-4 shrink-0" />;
+  }
+  if (detail.checks.some((c) => normalizeCheckKind(c.state) === 'failure')) {
+    return <CircleXIcon className="w-4 h-4 shrink-0" />;
+  }
+  if (detail.checks.some((c) => normalizeCheckKind(c.state) === 'pending')) {
+    return <HalfRingIcon className="w-4 h-4 shrink-0" />;
+  }
+  return <PencilIcon className="w-4 h-4 shrink-0" />;
+}
+
+function stripToneStyle(tone: PRStatusStripTone): React.CSSProperties {
+  switch (tone) {
+    case 'success':
+      return {
+        backgroundColor: 'color-mix(in srgb, var(--mc-success) 12%, transparent)',
+        color: 'var(--mc-success)'
+      };
+    case 'danger':
+      return {
+        backgroundColor: 'color-mix(in srgb, var(--mc-danger) 12%, transparent)',
+        color: 'var(--mc-danger)'
+      };
+    case 'plan':
+      return {
+        backgroundColor: 'color-mix(in srgb, var(--mc-plan) 12%, transparent)',
+        color: 'var(--mc-plan)'
+      };
+    case 'neutral':
+    default:
+      return {
+        backgroundColor: 'var(--mc-overlay-hover)',
+        color: 'var(--mc-text-secondary)'
+      };
+  }
+}
+
+export interface GitPRListRowProps {
+  item: RemoteGitPRSummary;
+  onSelect: (item: RemoteGitPRSummary) => void;
+}
+
+/** PR 列表单行：第一行状态点、标题与 CI/评审图标；第二行次要信息。 */
+export const GitPRListRow: React.FC<GitPRListRowProps> = ({ item, onSelect }) => {
+  const dotClass = statusDotClass(item.state, item.isDraft);
+  const ciIcon = renderCIIcon(item.checksState);
+  const reviewIcon = renderReviewIcon(item.reviewDecision);
+  const relTime = item.updatedAt ? formatRelativeTime(item.updatedAt) : '';
+  const metaParts = [`#${item.number}`];
+  if (item.author) metaParts.push(item.author);
+  if (relTime) metaParts.push(relTime);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className="w-full min-h-[44px] px-3 py-2 rounded-lg text-left flex flex-col gap-1 hover:bg-mc-overlay-hover active:bg-mc-overlay-pressed transition-colors"
+    >
+      <span className="flex items-center gap-2 min-w-0 w-full">
+        <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${dotClass}`} />
+        <span className="flex-1 min-w-0 truncate text-mc-body font-medium text-mc-text-primary">
+          {item.title || '（无标题）'}
+        </span>
+        {(ciIcon || reviewIcon) && (
+          <span className="flex items-center gap-1.5 shrink-0">
+            {ciIcon}
+            {reviewIcon}
+          </span>
+        )}
+      </span>
+      <span className="pl-[15px] text-mc-caption text-mc-text-secondary truncate block">
+        {metaParts.join(' · ')}
+      </span>
+    </button>
+  );
+};
 
 export const GitPRPanel: React.FC<GitPRPanelProps> = ({
   threadID,
@@ -134,7 +310,8 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
   const [items, setItems] = useState<RemoteGitPRSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
+  const [checksExpanded, setChecksExpanded] = useState(false);
   const [details, setDetails] = useState<Record<number, RemoteGitPRDetail>>({});
   const [detailLoading, setDetailLoading] = useState<number | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -182,16 +359,18 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
       .then((result) => {
         if (!mountedRef.current || reqId !== reqIdRef.current) return;
         setItems(result.items);
-        // 列表刷新后详情可能已变，清掉缓存并收起展开项
+        // 列表刷新后详情可能已变，清掉缓存并回到列表页
         setDetails({});
-        setExpanded(null);
+        setSelectedNumber(null);
+        setChecksExpanded(false);
         setDetailError(null);
       })
       .catch((err: unknown) => {
         if (!mountedRef.current || reqId !== reqIdRef.current) return;
         setItems([]);
         setDetails({});
-        setExpanded(null);
+        setSelectedNumber(null);
+        setChecksExpanded(false);
         setLoadError(err instanceof Error ? err.message : '读取 PR/MR 列表失败');
       })
       .finally(() => {
@@ -221,16 +400,23 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
     [call, threadID]
   );
 
-  const toggleExpand = useCallback(
+  const openDetail = useCallback(
     (item: RemoteGitPRSummary) => {
       setDetailError(null);
-      setExpanded((prev) => (prev === item.number ? null : item.number));
+      setChecksExpanded(false);
+      setSelectedNumber(item.number);
       if (!details[item.number] && detailLoading !== item.number) {
         void loadDetail(item.number);
       }
     },
     [detailLoading, details, loadDetail]
   );
+
+  const closeDetail = useCallback(() => {
+    setSelectedNumber(null);
+    setChecksExpanded(false);
+    setDetailError(null);
+  }, []);
 
   const openInBrowser = useCallback((url?: string) => {
     if (!url) return;
@@ -297,45 +483,270 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
     void doCreate();
   }, [busy, canCreatePR, canPush, doCreate, needsPush]);
 
+  const selectedItem =
+    selectedNumber !== null ? items.find((item) => item.number === selectedNumber) ?? null : null;
+  const activeDetail = selectedNumber !== null ? details[selectedNumber] ?? null : null;
+
   return (
     <div className="space-y-3">
-      {canCreatePR && (
-        <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--card)] space-y-2">
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            <span className="text-xs font-semibold text-[var(--foreground)] truncate">
-              新建 PR/MR
-            </span>
-            {needsPush && canPush && (
-              <span className="px-1.5 py-0.5 rounded text-mc-caption font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
-                需先推送
-              </span>
-            )}
+      {selectedNumber !== null ? (
+        <div key={`detail-${selectedNumber}`} className="pr-view-enter space-y-3">
+          {/* 详情顶部栏：返回按钮 + 单行标题 */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              onClick={closeDetail}
+              aria-label="返回"
+              className="inline-flex items-center justify-center w-11 h-11 -ml-2 rounded-lg text-mc-text-secondary hover:bg-mc-overlay-hover hover:text-mc-text-primary active:bg-mc-overlay-pressed shrink-0 transition-colors"
+            >
+              <ArrowLeftIcon className="w-4 h-4" />
+            </button>
+            <h2 className="flex-1 min-w-0 truncate text-mc-title font-semibold text-mc-text-primary">
+              {activeDetail?.title || selectedItem?.title || '（无标题）'}
+            </h2>
           </div>
-          <p className="text-mc-caption leading-relaxed text-[var(--foreground-muted)]">
-            在浏览器中打开创建页面，标题与正文会一并带上。
-          </p>
-          <button
-            type="button"
-            onClick={requestCreate}
-            disabled={busy || loading}
-            className="primary-button min-h-[44px] w-full"
-          >
-            {creating ? (
-              <>
-                <span className="loading-spinner loading-spinner--small shrink-0" />
-                <span>{localBusy === PR_PUSH_BUSY_KEY ? '推送并创建中...' : '创建中...'}</span>
-              </>
-            ) : (
-              <>
-                <ExternalLinkIcon className="w-4 h-4" />
-                <span>{needsPush && canPush ? '推送并建 PR/MR' : '创建 PR/MR'}</span>
-              </>
-            )}
-          </button>
+
+          {/* 标题下一行：作者 · head → base · +增 −删 */}
+          {(activeDetail || selectedItem) && (
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-mc-footnote text-mc-text-secondary">
+              {(activeDetail?.author || selectedItem?.author) && (
+                <>
+                  <span className="select-text">
+                    {activeDetail?.author || selectedItem?.author}
+                  </span>
+                  <span>·</span>
+                </>
+              )}
+              <span className="font-mono text-mc-code text-mc-text-primary break-all">
+                {activeDetail?.headBranch || selectedItem?.headBranch}
+                {(activeDetail?.baseBranch || selectedItem?.baseBranch)
+                  ? ` → ${activeDetail?.baseBranch || selectedItem?.baseBranch}`
+                  : ''}
+              </span>
+              {activeDetail && (
+                <>
+                  <span>·</span>
+                  <span className="font-mono text-mc-code text-mc-success">
+                    +{activeDetail.additions}
+                  </span>
+                  <span className="font-mono text-mc-code text-mc-danger">
+                    −{activeDetail.deletions}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+
+          {detailLoading === selectedNumber && !activeDetail && (
+            <div className="flex items-center gap-2 py-2 text-xs text-mc-text-secondary">
+              <span className="loading-spinner loading-spinner--small shrink-0" />
+              <span>正在读取详情...</span>
+            </div>
+          )}
+
+          {detailError && detailLoading !== selectedNumber && (
+            <div className="inline-alert inline-alert--danger" role="alert">
+              <div className="flex items-start gap-2 min-w-0 flex-1">
+                <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-mc-danger" />
+                <span className="break-words select-text">{detailError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadDetail(selectedNumber)}
+                className="inline-alert__action min-h-[44px] px-2 flex items-center"
+              >
+                重试
+              </button>
+            </div>
+          )}
+
+          {activeDetail && (
+            <div className="space-y-4">
+              {/* 顶部状态条：只显示一条结论，右侧仅在有链接时放「在浏览器打开」 */}
+              {(() => {
+                const strip = prStatusStrip(activeDetail);
+                const activeUrl = activeDetail.url || selectedItem?.url;
+                return (
+                  <div
+                    className="w-full rounded-lg px-3 py-2.5 flex items-center justify-between gap-3"
+                    style={stripToneStyle(strip.tone)}
+                  >
+                    <span className="flex items-center gap-2 min-w-0 text-mc-body font-medium">
+                      {renderStripIcon(activeDetail, strip.tone)}
+                      <span className="truncate">{strip.text}</span>
+                    </span>
+                    {activeUrl && (
+                      <button
+                        type="button"
+                        onClick={() => openInBrowser(activeUrl)}
+                        className="shrink-0 min-h-[36px] px-3 rounded-md border border-mc-border bg-mc-surface-raised text-mc-text-primary text-mc-footnote font-medium hover:bg-mc-overlay-hover transition-colors"
+                      >
+                        在浏览器打开
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* 正文 */}
+              {activeDetail.body && (
+                <p className="select-text text-mc-prose leading-relaxed text-mc-text-primary whitespace-pre-wrap break-words">
+                  {activeDetail.body}
+                </p>
+              )}
+
+              {/* 检查：默认收起为「检查 通过数/总数」，点击展开逐项 */}
+              {activeDetail.checks.length > 0 && (() => {
+                const passedCount = activeDetail.checks.filter(
+                  (check) => normalizeCheckKind(check.state) === 'success'
+                ).length;
+                return (
+                  <div className="rounded-lg border border-mc-hairline overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setChecksExpanded((prev) => !prev)}
+                      aria-expanded={checksExpanded}
+                      className="w-full min-h-[44px] px-3 py-2 flex items-center justify-between gap-2 text-mc-body font-medium text-mc-text-primary hover:bg-mc-overlay-hover transition-colors"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        {renderCIIcon(activeDetail.checksState)}
+                        <span>
+                          检查 {passedCount}/{activeDetail.checks.length}
+                        </span>
+                      </span>
+                      <span
+                        className={`pr-chevron-rot text-mc-text-tertiary shrink-0${checksExpanded ? ' is-open' : ''}`}
+                      >
+                        <ChevronRightIcon className="w-4 h-4" />
+                      </span>
+                    </button>
+                    <div
+                      className={`pr-checks-collapse${checksExpanded ? ' is-open border-t border-mc-hairline' : ''}`}
+                      aria-hidden={!checksExpanded}
+                    >
+                      <div className="pr-checks-collapse__inner">
+                        <ul className="divide-y divide-mc-hairline">
+                          {activeDetail.checks.map((check, idx) => {
+                            const content = (
+                              <>
+                                <span className="flex items-center gap-2 min-w-0">
+                                  {renderCIIcon(check.state)}
+                                  <span className="select-text font-mono text-mc-footnote text-mc-text-primary truncate min-w-0">
+                                    {check.name}
+                                  </span>
+                                </span>
+                                <span className="shrink-0 text-mc-caption text-mc-text-tertiary">
+                                  {gitExtCheckLabel(check.state)}
+                                </span>
+                              </>
+                            );
+                            return (
+                              <li key={`${check.name}-${idx}`}>
+                                {check.url ? (
+                                  <a
+                                    href={check.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    tabIndex={checksExpanded ? undefined : -1}
+                                    className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-mc-overlay-hover transition-colors"
+                                  >
+                                    {content}
+                                  </a>
+                                ) : (
+                                  <div className="flex items-center justify-between gap-3 px-3 py-2">
+                                    {content}
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 评论 */}
+              {activeDetail.comments.length > 0 && (
+                <ul className="space-y-3">
+                  {activeDetail.comments.map((comment, idx) => {
+                    const initial = (comment.author || '?').slice(0, 1).toUpperCase();
+                    const commentTime = comment.createdAt
+                      ? formatRelativeTime(comment.createdAt)
+                      : '';
+                    return (
+                      <li key={`${comment.author}-${idx}`} className="flex items-start gap-2.5">
+                        <span className="w-6 h-6 rounded-full bg-mc-overlay-selected text-mc-text-secondary text-mc-caption font-semibold inline-flex items-center justify-center shrink-0">
+                          {initial}
+                        </span>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="text-mc-footnote font-semibold text-mc-text-primary truncate">
+                              {comment.author}
+                            </span>
+                            {commentTime && (
+                              <span className="text-mc-caption text-mc-text-tertiary shrink-0">
+                                {commentTime}
+                              </span>
+                            )}
+                          </div>
+                          <p className="select-text text-mc-footnote leading-relaxed text-mc-text-primary break-words whitespace-pre-wrap">
+                            {comment.body}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div key="list" className="pr-view-enter space-y-2.5">
+          {/* 列表顶部栏：右侧放刷新与加号创建按钮 */}
+          <div className="flex items-center justify-between gap-2 px-0.5">
+            <span className="text-mc-footnote text-mc-text-secondary">
+              {loading ? '正在读取...' : `共 ${items.length} 条`}
+            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setReloadToken((prev) => prev + 1)}
+                disabled={loading}
+                aria-label="刷新列表"
+                title="刷新列表"
+                className="inline-flex items-center justify-center w-11 h-11 rounded-lg text-mc-text-secondary hover:bg-mc-overlay-hover hover:text-mc-text-primary active:bg-mc-overlay-pressed disabled:opacity-40 transition-colors"
+              >
+                <ArrowPathIcon className="w-4 h-4" />
+              </button>
+              {canCreatePR && (
+                <button
+                  type="button"
+                  onClick={requestCreate}
+                  disabled={busy || loading}
+                  aria-label="创建 PR"
+                  title="创建 PR"
+                  className="inline-flex items-center justify-center w-11 h-11 rounded-lg text-mc-text-secondary hover:bg-mc-overlay-hover hover:text-mc-text-primary active:bg-mc-overlay-pressed disabled:opacity-40 transition-colors"
+                >
+                  {creating ? (
+                    <span className="loading-spinner loading-spinner--small shrink-0" />
+                  ) : (
+                    <PlusIcon className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
 
           {createNotice && (
             <div
-              className="flex items-start gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-600 dark:text-emerald-400"
+              className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs text-mc-success"
+              style={{
+                backgroundColor: 'color-mix(in srgb, var(--mc-success) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--mc-success) 30%, transparent)'
+              }}
               role="status"
             >
               <CheckCircleIcon className="w-4 h-4 shrink-0 mt-0.5" />
@@ -350,7 +761,6 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
               rel="noopener noreferrer"
               className="secondary-button min-h-[44px] w-full text-xs"
             >
-              <ExternalLinkIcon className="w-3.5 h-3.5 shrink-0" />
               <span className="truncate select-text">{fallbackURL}</span>
             </a>
           )}
@@ -358,237 +768,53 @@ export const GitPRPanel: React.FC<GitPRPanelProps> = ({
           {createError && (
             <div className="inline-alert inline-alert--danger" role="alert">
               <div className="flex items-start gap-2 min-w-0">
-                <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-[var(--danger-foreground)]" />
+                <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-mc-danger" />
                 <span className="break-words select-text">{createError}</span>
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <span className="text-xs text-[var(--foreground-muted)]">
-          {loading ? '正在读取...' : `共 ${items.length} 条`}
-        </span>
-        <button
-          type="button"
-          onClick={() => setReloadToken((prev) => prev + 1)}
-          disabled={loading}
-          className="secondary-button min-h-[44px] px-2.5 text-xs"
-        >
-          刷新列表
-        </button>
-      </div>
-
-      {loadError && (
-        <div className="inline-alert inline-alert--danger" role="alert">
-          <div className="flex items-start gap-2 min-w-0 flex-1">
-            <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-[var(--danger-foreground)]" />
-            <span className="break-words select-text">{loadError}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setReloadToken((prev) => prev + 1)}
-            disabled={loading}
-            className="inline-alert__action min-h-[44px] px-2 flex items-center"
-          >
-            重试
-          </button>
-        </div>
-      )}
-
-      {loading && items.length === 0 && (
-        <div className="empty-state">
-          <span className="loading-spinner mb-1" />
-          <h2>正在读取 PR/MR</h2>
-          <p className="text-xs text-[var(--foreground-muted)]">
-            正在通过 gh / glab 读取仓库的 Pull Request 与 Merge Request...
-          </p>
-        </div>
-      )}
-
-      {!loading && !loadError && items.length === 0 && (
-        <div className="empty-state">
-          <h2>没有开放的 PR/MR</h2>
-          <p className="text-xs text-[var(--foreground-muted)]">
-            当前仓库没有可展示的 Pull Request 或 Merge Request。
-          </p>
-        </div>
-      )}
-
-      {items.length > 0 && (
-        <ul className="space-y-1.5">
-          {items.map((item) => {
-            const isExpanded = expanded === item.number;
-            const detail = details[item.number];
-            const state = gitExtPRState(item.state, item.isDraft);
-            return (
-              <li
-                key={item.number}
-                className="rounded-lg border border-[var(--border)] bg-[var(--card)] overflow-hidden"
+          {loadError && (
+            <div className="inline-alert inline-alert--danger" role="alert">
+              <div className="flex items-start gap-2 min-w-0 flex-1">
+                <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-mc-danger" />
+                <span className="break-words select-text">{loadError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReloadToken((prev) => prev + 1)}
+                disabled={loading}
+                className="inline-alert__action min-h-[44px] px-2 flex items-center"
               >
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(item)}
-                  aria-expanded={isExpanded}
-                  className="w-full text-left p-2.5 min-h-[44px] flex items-start gap-2"
-                >
-                  <span className="mt-0.5 shrink-0 text-[var(--foreground-muted)]">
-                    {isExpanded ? (
-                      <ChevronDownIcon className="w-4 h-4" />
-                    ) : (
-                      <ChevronRightIcon className="w-4 h-4" />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1 space-y-1">
-                    <span className="block text-xs font-semibold text-[var(--foreground)] break-words leading-snug">
-                      #{item.number} · {item.title || '（无标题）'}
-                    </span>
-                    <span className="flex flex-wrap items-center gap-1.5 text-mc-caption text-[var(--foreground-muted)]">
-                      <span className={`px-1.5 py-0.5 rounded font-semibold ${state.className}`}>
-                        {state.label}
-                      </span>
-                      {item.author && (
-                        <span className="select-text truncate max-w-[10rem]">@{item.author}</span>
-                      )}
-                      <span className="font-mono break-all">
-                        {item.headBranch}
-                        {item.baseBranch ? ` → ${item.baseBranch}` : ''}
-                      </span>
-                    </span>
-                  </span>
-                </button>
+                重试
+              </button>
+            </div>
+          )}
 
-                {isExpanded && (
-                  <div className="border-t border-[var(--border)] p-2.5 space-y-2">
-                    {detailLoading === item.number && !detail && (
-                      <div className="flex items-center gap-2 py-1 text-xs text-[var(--foreground-muted)]">
-                        <span className="loading-spinner loading-spinner--small shrink-0" />
-                        <span>正在读取详情...</span>
-                      </div>
-                    )}
+          {loading && items.length === 0 && (
+            <div className="empty-state">
+              <span className="loading-spinner mb-1" />
+              <h2>正在读取 PR/MR</h2>
+            </div>
+          )}
 
-                    {detailError && detailLoading !== item.number && (
-                      <div className="inline-alert inline-alert--danger" role="alert">
-                        <div className="flex items-start gap-2 min-w-0 flex-1">
-                          <ExclamationTriangleIcon className="w-4 h-4 shrink-0 mt-0.5 text-[var(--danger-foreground)]" />
-                          <span className="break-words select-text">{detailError}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void loadDetail(item.number)}
-                          className="inline-alert__action min-h-[44px] px-2 flex items-center"
-                        >
-                          重试
-                        </button>
-                      </div>
-                    )}
+          {!loading && !loadError && items.length === 0 && (
+            <div className="empty-state">
+              <h2>没有开放的 PR/MR</h2>
+            </div>
+          )}
 
-                    {detail && (
-                      <>
-                        <div className="flex items-center gap-3 flex-wrap text-mc-caption text-[var(--foreground-muted)]">
-                          <span className="text-emerald-600 dark:text-emerald-400">
-                            +{detail.additions}
-                          </span>
-                          <span className="text-red-600 dark:text-red-400">
-                            -{detail.deletions}
-                          </span>
-                          <span>{detail.changedFiles} 个文件</span>
-                          {detail.updatedAt && (
-                            <span>更新于 {gitExtFormatTime(detail.updatedAt)}</span>
-                          )}
-                          {detail.reviewDecision && (
-                            <span>评审: {detail.reviewDecision}</span>
-                          )}
-                          {detail.checksState && (
-                            <span>检查: {gitExtCheckLabel(detail.checksState)}</span>
-                          )}
-                        </div>
-
-                        {detail.body && (
-                          <p className="select-text text-xs leading-relaxed text-[var(--foreground)] whitespace-pre-wrap break-words">
-                            {detail.body}
-                          </p>
-                        )}
-
-                        {detail.checks.length > 0 && (
-                          <div className="space-y-1">
-                            <span className="block text-mc-caption font-semibold text-[var(--foreground-muted)]">
-                              CI 检查 ({detail.checks.length})
-                            </span>
-                            <ul className="space-y-0.5">
-                              {detail.checks.map((check, idx) => (
-                                <li
-                                  key={`${check.name}-${idx}`}
-                                  className="flex items-center justify-between gap-2 text-mc-caption text-[var(--foreground-muted)]"
-                                >
-                                  <span className="select-text font-mono truncate min-w-0">
-                                    {check.name}
-                                  </span>
-                                  <span className="shrink-0">{gitExtCheckLabel(check.state)}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {detail.comments.length > 0 && (
-                          <div className="space-y-1">
-                            <span className="block text-mc-caption font-semibold text-[var(--foreground-muted)]">
-                              评论 ({detail.comments.length})
-                            </span>
-                            <ul className="space-y-1">
-                              {detail.comments.map((comment, idx) => (
-                                <li
-                                  key={`${comment.author}-${idx}`}
-                                  className="p-2 rounded-lg bg-[var(--screen)] space-y-0.5"
-                                >
-                                  <span className="block text-mc-caption font-semibold text-[var(--foreground)] truncate">
-                                    @{comment.author}
-                                    {comment.createdAt
-                                      ? ` · ${gitExtFormatTime(comment.createdAt)}`
-                                      : ''}
-                                  </span>
-                                  <span className="select-text block text-mc-caption leading-relaxed text-[var(--foreground)] break-words whitespace-pre-wrap">
-                                    {comment.body}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {item.url ? (
-                      <button
-                        type="button"
-                        onClick={() => openInBrowser(item.url)}
-                        className="secondary-button min-h-[44px] w-full text-xs"
-                      >
-                        <ExternalLinkIcon className="w-3.5 h-3.5" />
-                        <span>在浏览器打开</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 text-mc-caption text-[var(--foreground-muted)]">
-                        <EyeIcon className="w-3.5 h-3.5 shrink-0" />
-                        <span>该记录没有可打开的链接</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+          {items.length > 0 && (
+            <ul className="space-y-1">
+              {items.map((item) => (
+                <li key={item.number}>
+                  <GitPRListRow item={item} onSelect={openDetail} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
-
-      <div className="p-3 rounded-xl border border-[var(--border)] bg-[var(--screen)] text-xs text-[var(--foreground-muted)] space-y-1">
-        <p className="font-semibold text-[var(--foreground)]">查看与创建</p>
-        <p className="leading-relaxed">
-          移动端可以查看 PR/MR 详情，并按当前分支在浏览器里创建新的 PR/MR；评审与合并仍需在 Mac 桌面端或网页端完成。
-        </p>
-      </div>
 
       <ConfirmDialog
         isOpen={pendingCreate}
