@@ -1215,7 +1215,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 						if stewardID := s.stewardThreadID(); stewardID != "" && ((currentThread != nil && currentThread.ID == stewardID) || (currentThread == nil && selectedID == stewardID)) {
 							renderStewardComposerModel(c, s)
 						} else if currentThread != nil {
-							renderModePermissionCombo(c, s, currentThread.ID, interactionMode, prefsSaving || sending)
+							renderModePermissionCombo(c, s, currentThread.ID, interactionMode, prefsSaving || sending, buttonRadius)
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)
 						}
@@ -1526,7 +1526,7 @@ func composerPermissionIcon(mode string) *ui.SVG {
 }
 
 // renderModePermissionCombo 渲染输入框底栏的「构建/计划 + 权限」组合按钮与权限弹出菜单。
-func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactionMode string, disabled bool) {
+func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactionMode string, disabled bool, buttonRadius float32) {
 	modeTitle := "构建"
 	if interactionMode == "plan" {
 		modeTitle = "计划"
@@ -1538,29 +1538,23 @@ func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactio
 	permTitle := runtimeModeTitle(permMode)
 	permTooltip := "权限：" + permTitle
 
-	segHeight := ControlMD - 2*Hairline
 	var permBtn ui.Element
 
 	ui.Row(c.Key("composer-mode-perm-combo")).
-		Height(ControlMD).
-		Radius(RadiusXL).
-		Background(ThemeOverlayHover(c)).
-		Border(Hairline, ThemeBorder(c)).
 		AlignItems(ui.Center).
-		Clip().
+		Gap(Space1).
 		Children(func() {
 			modeBtn := ui.ButtonBase(c.Key("composer-interaction-toggle")).
 				Label(modeTitle).
 				Disabled(disabled).
 				Tooltip(modeTitle+" · "+shortcutDisplay("⇧⌘M")).
-				Height(segHeight).
-				Padding(0, Space2).
-				Center().
+				Size(composerActionBtnSize, composerActionBtnSize).
+				Radius(buttonRadius).
 				Transition(motionFeedback(c)).
 				OnClick(func() {
 					s.toggleInteractionMode()
 				})
-			modeColor := ThemeSecondaryText(c)
+			modeColor := ThemePrimaryText(c)
 			modeHovered := modeBtn.Hovered() && !disabled
 			if interactionMode == "plan" {
 				modeBtn.Background(ThemePlan(c).Alpha(0.18))
@@ -1568,70 +1562,36 @@ func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactio
 					modeBtn.Background(ThemePlan(c).Alpha(0.26))
 				}
 				modeColor = ThemePlan(c)
-			} else if modeHovered {
-				modeBtn.Background(ThemeHover(c))
-				modeColor = ThemePrimaryText(c)
 			} else {
-				modeBtn.Background(ui.Transparent)
+				composerHoverBg(c, modeBtn, modeHovered)
 			}
 			modeScale := motionPressScale(c, modeBtn, "button-press-scale", !disabled && modeBtn.Pressed())
 			modeBtn.Scale(modeScale, modeScale)
 			modeBtn.Children(func() {
-				ui.Icon(c, interactionModeIcon(interactionMode)).Size(IconSM, IconSM).TextColor(modeColor)
+				ui.Icon(c, interactionModeIcon(interactionMode)).Size(composerControlIconSize, composerControlIconSize).TextColor(modeColor)
 			})
-
-			ui.Box(c.Key("composer-mode-perm-divider")).
-				Width(Hairline).
-				Height(IconSM).
-				Background(ThemeHairline(c)).
-				Shrink(0)
 
 			permBtn = ui.ButtonBase(c.Key("composer-permission-btn")).
 				Label(permTooltip).
 				Tooltip(permTooltip).
 				Disabled(disabled).
-				Height(segHeight).
-				Padding(0, Space2).
-				Center().
+				Size(composerActionBtnSize, composerActionBtnSize).
+				Radius(buttonRadius).
 				Transition(motionFeedback(c)).
 				OnClick(func() {
 					togglePopoverOpen(&s.composerView.permissionMenuOpen)
 					s.invalidate()
 				})
 			permHovered := permBtn.Hovered() && !disabled
-			var permColor, permBg ui.Color
-			switch permMode {
-			case "supervised":
-				permColor = ThemeAccent(c)
-				permBg = ThemeAccentSubtle(c)
-				if permHovered || s.composerView.permissionMenuOpen {
-					permBg = ThemeAccent(c).Alpha(0.20)
-				}
-			case "fullAccess":
+			composerHoverBg(c, permBtn, permHovered || s.composerView.permissionMenuOpen)
+			permColor := ThemePrimaryText(c)
+			if permMode == "fullAccess" {
 				permColor = ThemeWarning(c)
-				permBg = ThemeWarning(c).Alpha(0.14)
-				if permHovered || s.composerView.permissionMenuOpen {
-					permBg = ThemeWarning(c).Alpha(0.22)
-				}
-			default:
-				permColor = ThemeSecondaryText(c)
-				permBg = ui.Transparent
-				if permHovered || s.composerView.permissionMenuOpen {
-					permColor = ThemePrimaryText(c)
-					permBg = ThemeHover(c)
-				}
 			}
-			permBtn.Background(permBg)
 			permScale := motionPressScale(c, permBtn, "button-press-scale", !disabled && permBtn.Pressed())
 			permBtn.Scale(permScale, permScale)
 			permBtn.Children(func() {
-				ui.Row(c.Key("composer-permission-content")).
-					AlignItems(ui.Center).
-					Gap(3).
-					Children(func() {
-						ui.Icon(c, composerPermissionIcon(permMode)).Size(IconSM, IconSM).TextColor(permColor)
-						ui.Icon(c, IconChevronDown()).Size(10, 10).TextColor(permColor)
-					})
+				ui.Icon(c, composerPermissionIcon(permMode)).Size(composerControlIconSize, composerControlIconSize).TextColor(permColor)
 			})
 		})
 

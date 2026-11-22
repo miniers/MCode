@@ -50,15 +50,16 @@ func TestInteractionModeToggleIconAndTooltip(t *testing.T) {
 			t.Run(composerChinTierName(width)+tc.title, func(t *testing.T) {
 				s := newChatState(NewFakeClient())
 				t.Cleanup(s.close)
+				_, radius := composerShellRadii(false)
 				tt := ui.NewTester(func(c *ui.Context) {
-					renderModePermissionCombo(c, s, "t1", tc.mode, false)
+					renderModePermissionCombo(c, s, "t1", tc.mode, false, radius)
 				}, width, 400)
 				bounds, found := tt.Find(tc.title)
 				if !found {
 					t.Fatalf("找不到模式按钮 %s", tc.title)
 				}
-				if bounds.W <= 0 || bounds.H != ControlMD-2*Hairline {
-					t.Fatalf("组合按钮左段尺寸异常，bounds=%+v", bounds)
+				if bounds.W != composerActionBtnSize || bounds.H != composerActionBtnSize {
+					t.Fatalf("模式按钮应为方形图标按钮，bounds=%+v", bounds)
 				}
 				tt.Move(bounds.X+bounds.W/2, bounds.Y+bounds.H/2)
 				tt.Advance(time.Second)
