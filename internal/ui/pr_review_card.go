@@ -11,24 +11,79 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 )
 
-// prReviewItem 表示 pr-review 代码块 JSON 数组中的单条审查意见。
+// prReviewItem 表示 pr-review 代码块中的单条审查意见。
 type prReviewItem struct {
 	Path string `json:"path"`
 	Line int    `json:"line"`
 	Body string `json:"body"`
 }
 
-// parsePRReviewItems 解析 pr-review 代码块中的 JSON 数组；非数组或非法 JSON 返回 false。
-func parsePRReviewItems(raw string) ([]prReviewItem, bool) {
-	var items []prReviewItem
-	if err := json.Unmarshal([]byte(raw), &items); err != nil || items == nil {
-		return nil, false
+// prReviewResult 表示 pr-review 代码块的审查结论与意见列表。
+type prReviewResult struct {
+	Verdict  string         `json:"verdict"`
+	Summary  string         `json:"summary"`
+	Comments []prReviewItem `json:"comments"`
+}
+
+// prReviewVerdictLabel 返回审查结论对应的标题标签；未知结论返回空字符串。
+func prReviewVerdictLabel(verdict string) string {
+	switch verdict {
+	case "merge":
+		return "可以合并"
+	case "comment":
+		return "评论给作者"
+	case "fix":
+		return "合并后修复"
+	case "close":
+		return "不建议合并"
+	default:
+		return ""
 	}
-	return items, true
+}
+
+// parsePRReview 解析 pr-review 代码块中的 JSON 对象或旧版 JSON 数组；非法输入返回 false。
+func parsePRReview(raw string) (prReviewResult, bool) {
+	trimmed := strings.TrimSpace(raw)
+	switch {
+	case strings.HasPrefix(trimmed, "["):
+		var items []prReviewItem
+		if err := json.Unmarshal([]byte(trimmed), &items); err != nil || items == nil {
+			return prReviewResult{}, false
+		}
+		return prReviewResult{Comments: items}, true
+	case strings.HasPrefix(trimmed, "{"):
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(trimmed), &fields); err != nil || fields == nil {
+			return prReviewResult{}, false
+		}
+		_, hasVerdict := fields["verdict"]
+		_, hasSummary := fields["summary"]
+		_, hasComments := fields["comments"]
+		if !hasVerdict && !hasSummary && !hasComments {
+			return prReviewResult{}, false
+		}
+		var res prReviewResult
+		if err := json.Unmarshal([]byte(trimmed), &res); err != nil {
+			return prReviewResult{}, false
+		}
+		res.Verdict = strings.TrimSpace(res.Verdict)
+		if prReviewVerdictLabel(res.Verdict) == "" {
+			res.Verdict = ""
+		}
+		return res, true
+	default:
+		return prReviewResult{}, false
+	}
 }
 
 // prReviewCardTitle 返回审查卡片标题栏左侧文字。
-func prReviewCardTitle(count int) string {
+func prReviewCardTitle(verdict string, count int) string {
+	if label := prReviewVerdictLabel(verdict); label != "" {
+		if count > 0 {
+			return fmt.Sprintf("%s · %d 个问题", label, count)
+		}
+		return label
+	}
 	if count <= 0 {
 		return "没有发现问题"
 	}
@@ -69,6 +124,22 @@ func openPRReviewLocation(s *chatState, path string, line int) {
 	openTurnFileAt(s, threadID, workDir, turnEditedFile{path: p, abs: abs}, first, last)
 }
 
+// renderPRReviewBodyText 渲染审查摘要与问题正文的统一文本块。
+func renderPRReviewBodyText(c *ui.Context, key, text string) {
+	ui.Box(c.Key(key)).
+		FillWidth().
+		Padding(0, Space2, Space1, Space2).
+		Children(func() {
+			ui.Text(c, text).
+				FontSize(scaledFont(TypeBody)).
+				LineHeight(1.45).
+				TextColor(ThemePrimaryText(c)).
+				FillWidth().
+				MinWidth(0).
+				Selectable()
+		})
+}
+
 // renderPRReviewCard 把 ```pr-review 代码块渲染为审查卡片；流式未闭合或 JSON 解析失败时
 // 退回通用代码块容器原样显示，避免丢失内容。
 func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) {
@@ -79,11 +150,13 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 		renderCodeBlockContainer(c, s, b)
 		return
 	}
-	items, ok := parsePRReviewItems(b.Code())
+	res, ok := parsePRReview(b.Code())
 	if !ok {
 		renderCodeBlockContainer(c, s, b)
 		return
 	}
+	summary := strings.TrimSpace(res.Summary)
+	items := res.Comments
 
 	key := fmt.Sprintf("code-block-%d", b.Index)
 	codeFont := "monospace"
@@ -104,11 +177,11 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 				AlignItems(ui.Center).
 				Padding(Space1, Space2).
 				Background(ThemeHover(c))
-			if len(items) > 0 {
+			if summary != "" || len(items) > 0 {
 				header.BorderWidth(0, 0, 1, 0).BorderColor(ThemeBorder(c))
 			}
 			header.Children(func() {
-				ui.Text(c, prReviewCardTitle(len(items))).
+				ui.Text(c, prReviewCardTitle(res.Verdict, len(items))).
 					FontSize(scaledFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
 					Unselectable()
@@ -127,12 +200,21 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 				})
 			})
 
+			if summary != "" {
+				ui.Column(c.Key(key + "-summary")).
+					FillWidth().
+					Padding(Space2, Space2).
+					Children(func() {
+						renderPRReviewBodyText(c, key+"-summary-body", summary)
+					})
+			}
+
 			for i, item := range items {
 				itemCol := ui.Column(c.Key(fmt.Sprintf("%s-item-%d", key, i))).
 					FillWidth().
 					Padding(Space2, Space2).
 					Gap(Space0)
-				if i > 0 {
+				if i > 0 || summary != "" {
 					itemCol.BorderWidth(Hairline, 0, 0, 0).BorderColor(ThemeBorder(c))
 				}
 				itemCol.Children(func() {
@@ -168,18 +250,7 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 						})
 					}
 					if body := strings.TrimSpace(item.Body); body != "" {
-						ui.Box(c.Key(fmt.Sprintf("%s-body-%d", key, i))).
-							FillWidth().
-							Padding(0, Space2, Space1, Space2).
-							Children(func() {
-								ui.Text(c, body).
-									FontSize(scaledFont(TypeBody)).
-									LineHeight(1.45).
-									TextColor(ThemePrimaryText(c)).
-									FillWidth().
-									MinWidth(0).
-									Selectable()
-							})
+						renderPRReviewBodyText(c, fmt.Sprintf("%s-body-%d", key, i), body)
 					}
 				})
 			}
