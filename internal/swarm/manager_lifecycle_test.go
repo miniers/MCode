@@ -278,7 +278,7 @@ func TestManager_DispatchSingleEntryWithProfile(t *testing.T) {
 	if started.Provider != "codex" || started.Model != "gpt-5" || started.Effort != "high" {
 		t.Fatalf("SessionRequest 未采用 Profile 配置: %+v", started)
 	}
-	if !IsBeePrompt(started.Prompt) || !strings.HasPrefix(started.Prompt, "你是子代理 Aspen") {
+	if !IsBeePrompt(started.Prompt) || !strings.HasPrefix(started.Prompt, "你是子代理 Aria") {
 		t.Fatalf("Prompt 应以 bee 前言开头: %q", started.Prompt)
 	}
 	if !strings.Contains(started.Prompt, "## 档位要求\n专用人设\n\n## 工作方式") {

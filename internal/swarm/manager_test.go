@@ -1083,9 +1083,9 @@ func TestManager_DispatchFromReply_OnReport(t *testing.T) {
 	if len(bees) != 1 {
 		t.Fatalf("expected 1 bee, got %d", len(bees))
 	}
-	// "Ives" 未知名字，回落到第一个顺序名字 "Aspen"
-	if bees[0].Name != "Aspen" {
-		t.Errorf("expected bee name 'Aspen', got %s", bees[0].Name)
+	// "Ives" 未知名字，回落到第一个顺序名字 "Aria"
+	if bees[0].Name != "Aria" {
+		t.Errorf("expected bee name 'Aria', got %s", bees[0].Name)
 	}
 
 	// 模拟该 bee 完成
@@ -1112,8 +1112,8 @@ func TestManager_DispatchFromReply_OnReport(t *testing.T) {
 	if !strings.HasPrefix(firstReport, ReportPrefix) {
 		t.Errorf("expected report message to start with %q, got: %s", ReportPrefix, firstReport)
 	}
-	if !strings.Contains(firstReport, "Aspen") {
-		t.Errorf("expected report message to contain bee name 'Aspen', got: %s", firstReport)
+	if !strings.Contains(firstReport, "Aria") {
+		t.Errorf("expected report message to contain bee name 'Aria', got: %s", firstReport)
 	}
 
 	// 第二次 Tick：没有新结束的 bee，不应再次调用 OnReport
@@ -1279,7 +1279,7 @@ func TestManager_Restore_SkipsPersistForUnchangedLeads(t *testing.T) {
 	}
 }
 
-// 验证 DispatchFromReply 中 "dune"、"Ember 2" 精确采用名字与项目解析
+// 验证 DispatchFromReply 中 "dean"、"Eva 2" 精确采用名字与项目解析
 func TestManager_DispatchFromReply_NameAndProject(t *testing.T) {
 	t.Parallel()
 	runner, dir := initTestRepo(t)
@@ -1303,12 +1303,12 @@ func TestManager_DispatchFromReply_NameAndProject(t *testing.T) {
 	leadID := "lead-reply-names"
 	reply := "```swarm\n" + `[
   {
-    "bee": "dune",
+    "bee": "dean",
     "prompt": "Prompt 1",
     "project": "known-proj"
   },
   {
-    "bee": "Ember 2",
+    "bee": "Eva 2",
     "prompt": "Prompt 2",
     "repo": "unknown-repo"
   }
@@ -1328,9 +1328,9 @@ func TestManager_DispatchFromReply_NameAndProject(t *testing.T) {
 		t.Fatalf("expected 2 bees, got %d", len(bees))
 	}
 
-	// "dune" -> "Dune"
-	if bees[0].Name != "Dune" {
-		t.Errorf("expected 'Dune', got %s", bees[0].Name)
+	// "dean" -> "Dean"
+	if bees[0].Name != "Dean" {
+		t.Errorf("expected 'Dean', got %s", bees[0].Name)
 	}
 	if bees[0].ProjectID != "proj-known-id" {
 		t.Errorf("expected ProjectID 'proj-known-id', got %s", bees[0].ProjectID)
@@ -1340,8 +1340,8 @@ func TestManager_DispatchFromReply_NameAndProject(t *testing.T) {
 	}
 
 	// 名字的显示轮次不参与派发。
-	if bees[1].Name != "Ember" {
-		t.Errorf("expected 'Ember', got %s", bees[1].Name)
+	if bees[1].Name != "Eva" {
+		t.Errorf("expected 'Eva', got %s", bees[1].Name)
 	}
 	if bees[1].ProjectID != "proj-lead" {
 		t.Errorf("expected ProjectID 'proj-lead', got %s", bees[1].ProjectID)

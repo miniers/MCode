@@ -72,7 +72,7 @@ func TestLeadPolicyOmitsOnDemandRules(t *testing.T) {
 	t.Parallel()
 	for _, plansOnly := range []bool{false, true} {
 		got := LeadPolicy(plansOnly, "off", false)
-		for _, unwanted := range []string{".patch", "swarm-answer", "then Aspen 2"} {
+		for _, unwanted := range []string{".patch", "swarm-answer", "then Aria 2"} {
 			if strings.Contains(got, unwanted) {
 				t.Fatalf("plansOnly=%v 的常驻策略不应包含按需说明 %q:\n%s", plansOnly, unwanted, got)
 			}
@@ -273,11 +273,11 @@ func TestRosterPromptSection(t *testing.T) {
 			name: "超过 12 个时合并成 and N more running",
 			bees: many,
 			want: []string{
-				`- Aspen (id t-0, tier edit): "task 0", running 4m`,
+				`- Aria (id t-0, tier edit): "task 0", running 4m`,
 				"- and 1 more running",
 			},
 			notWant: []string{
-				`- Moss (id t-12,`,
+				`- Milo (id t-12,`,
 			},
 		},
 		{

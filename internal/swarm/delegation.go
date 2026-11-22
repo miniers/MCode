@@ -14,14 +14,14 @@ import (
 
 // Roster 定义编排子代理的标准名字轮转表（共 25 位）。
 var Roster = []string{
-	"Aspen", "Birch", "Cove", "Dune", "Ember",
-	"Flint", "Grove", "Heath", "Isle", "Jade",
-	"Kestrel", "Larch", "Moss", "Nimbus", "Onyx",
-	"Pike", "Quill", "Reed", "Sage", "Tide",
-	"Umber", "Vale", "Wren", "Yarrow", "Zephyr",
+	"Aria", "Bram", "Cora", "Dean", "Eva",
+	"Finn", "Gwen", "Hugo", "Iris", "Jude",
+	"Kai", "Leo", "Milo", "Nora", "Owen",
+	"Pia", "Quinn", "Remy", "Sora", "Theo",
+	"Uma", "Vera", "Wynn", "Yuki", "Zoe",
 }
 
-// RosterName 根据索引返回协作者名字；超过 25 个后追加轮次后缀（如 "Aspen 2"）。
+// RosterName 根据索引返回协作者名字；超过 25 个后追加轮次后缀（如 "Aria 2"）。
 func RosterName(index int) string {
 	count := len(Roster)
 	if count == 0 {

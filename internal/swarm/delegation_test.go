@@ -11,41 +11,43 @@ import (
 func TestRosterNameAndIndex(t *testing.T) {
 	t.Parallel()
 	// 基础索引与轮次
-	if got := RosterName(0); got != "Aspen" {
-		t.Errorf("expected Aspen, got %s", got)
+	if got := RosterName(0); got != "Aria" {
+		t.Errorf("expected Aria, got %s", got)
 	}
-	if got := RosterName(24); got != "Zephyr" {
-		t.Errorf("expected Zephyr, got %s", got)
+	if got := RosterName(24); got != "Zoe" {
+		t.Errorf("expected Zoe, got %s", got)
 	}
-	if got := RosterName(25); got != "Aspen 2" {
-		t.Errorf("expected Aspen 2, got %s", got)
+	if got := RosterName(25); got != "Aria 2" {
+		t.Errorf("expected Aria 2, got %s", got)
 	}
-	if got := RosterName(29); got != "Ember 2" {
-		t.Errorf("expected Ember 2, got %s", got)
+	if got := RosterName(29); got != "Eva 2" {
+		t.Errorf("expected Eva 2, got %s", got)
 	}
 
-	// "dune" 大小写不敏感精确解析
-	idx, ok := RosterIndex("dune")
+	// "dean" 大小写不敏感精确解析
+	idx, ok := RosterIndex("dean")
 	if !ok || idx != 3 {
-		t.Errorf("expected (3, true) for 'dune', got (%d, %v)", idx, ok)
+		t.Errorf("expected (3, true) for 'dean', got (%d, %v)", idx, ok)
 	}
-	if got := RosterName(idx); got != "Dune" {
-		t.Errorf("expected Dune, got %s", got)
+	if got := RosterName(idx); got != "Dean" {
+		t.Errorf("expected Dean, got %s", got)
 	}
 
-	// "Ember 2" 轮次解析
-	idx, ok = RosterIndex("Ember 2")
+	// "Eva 2" 轮次解析
+	idx, ok = RosterIndex("Eva 2")
 	if !ok || idx != 4 {
-		t.Errorf("expected (4, true) for 'Ember 2', got (%d, %v)", idx, ok)
+		t.Errorf("expected (4, true) for 'Eva 2', got (%d, %v)", idx, ok)
 	}
-	if got := RosterName(idx); got != "Ember" {
-		t.Errorf("expected Ember, got %s", got)
+	if got := RosterName(idx); got != "Eva" {
+		t.Errorf("expected Eva, got %s", got)
 	}
 
-	// 未知名字 "Ives"
-	idx, ok = RosterIndex("Ives")
-	if ok {
-		t.Errorf("expected ok=false for 'Ives', got index %d", idx)
+	// 旧名字 "Aspen" 与未知名字 "Ives" 均返回 ok=false
+	for _, oldName := range []string{"Aspen", "Ives"} {
+		idx, ok = RosterIndex(oldName)
+		if ok {
+			t.Errorf("expected ok=false for %q, got index %d", oldName, idx)
+		}
 	}
 }
 

@@ -194,7 +194,7 @@ func testSwarmChatDispatchMergeReportAndQueuedFollowUp(t *testing.T, review bool
 		return !thread.IsRunning && len(mgr.State("lead").Bees) == 1
 	})
 	state := mgr.State("lead")
-	if state.Bees[0].Name != "Aspen" {
+	if state.Bees[0].Name != "Aria" {
 		t.Fatalf("unknown name did not fall back: %+v", state.Bees)
 	}
 	queue, _ := backend.QueueList(ctx, "lead")
@@ -1572,7 +1572,7 @@ func TestSwarmStreamDispatcherNamesStartedEntriesOnParseFailure(t *testing.T) {
 	if len(notices) != 1 {
 		t.Fatalf("解析失败应回送一条提示，实际 %d 条: %q", len(notices), notices)
 	}
-	for _, want := range []string{"委派块没能解析", "任务甲", "任务乙", "Aspen", "Birch", "不要重发"} {
+	for _, want := range []string{"委派块没能解析", "任务甲", "任务乙", "Aria", "Bram", "不要重发"} {
 		if !strings.Contains(notices[0], want) {
 			t.Fatalf("解析失败提示缺少 %q: %q", want, notices[0])
 		}
@@ -1604,7 +1604,7 @@ func TestSwarmStreamDispatcherSkipsEntriesDispatchedEarlierInRequest(t *testing.
 	if len(notices) != 1 {
 		t.Fatalf("跳过说明应只有一条，实际 %d 条: %q", len(notices), notices)
 	}
-	for _, want := range []string{"跳过 2 条", "任务甲", "任务乙", "Aspen", "Birch", "不要重发"} {
+	for _, want := range []string{"跳过 2 条", "任务甲", "任务乙", "Aria", "Bram", "不要重发"} {
 		if !strings.Contains(notices[0], want) {
 			t.Fatalf("跳过说明缺少 %q: %q", want, notices[0])
 		}
@@ -1768,7 +1768,7 @@ func TestSwarmStreamDispatcherSkipsByTaskTitleAcrossRequests(t *testing.T) {
 	if len(notices) != 1 {
 		t.Fatalf("应回送一条跳过说明，实际 %d 条: %q", len(notices), notices)
 	}
-	for _, want := range []string{"跳过 1 条", "Migrate DB", "Aspen"} {
+	for _, want := range []string{"跳过 1 条", "Migrate DB", "Aria"} {
 		if !strings.Contains(notices[0], want) {
 			t.Fatalf("跳过说明缺少 %q: %q", want, notices[0])
 		}
@@ -1812,7 +1812,7 @@ func TestSwarmStreamDispatcherStopsReplacedBee(t *testing.T) {
 
 	// 同一个任务换措辞重写：不带 replaces 会被跳过，带了就应当取代。
 	d.beginRequest("lead")
-	replacing := "```swarm\n" + `[{"prompt":"alpha v2","task":"任务甲","replaces":"aspen"}]` + "\n```"
+	replacing := "```swarm\n" + `[{"prompt":"alpha v2","task":"任务甲","replaces":"aria"}]` + "\n```"
 	d.reset("lead")
 	d.feed("lead", "project", replacing)
 	d.settleTurn("lead", "project", replacing)

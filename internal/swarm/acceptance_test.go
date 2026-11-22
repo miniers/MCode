@@ -840,7 +840,7 @@ func TestAcceptanceLintRejectsEntryBeforeStart(t *testing.T) {
 	if state := m.State("lintsingle"); len(state.Bees) != 0 {
 		t.Fatalf("被拒条目不应写入 state.Bees: %+v", state.Bees)
 	}
-	// 改正后重新派发仍拿到首个花名册名字 Aspen。
+	// 改正后重新派发仍拿到首个花名册名字 Aria。
 	fixed, _, err := m.DispatchSingleEntry(ctx, SingleEntryRequest{
 		LeadThreadID: "lintsingle",
 		ProjectID:    "proj",
