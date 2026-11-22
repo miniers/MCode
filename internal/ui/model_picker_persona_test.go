@@ -8,6 +8,18 @@ import (
 	"mcode/internal/testenv"
 )
 
+// localThreadPersona 读取本地会话列表里指定会话的人设，以及其偏好是否仍在保存中。
+func localThreadPersona(s *chatState, threadID string) (persona string, saving bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, th := range s.threads {
+		if th.ID == threadID {
+			return th.Persona, s.composerPrefsSaving[threadID]
+		}
+	}
+	return "", s.composerPrefsSaving[threadID]
+}
+
 func TestModelPickerPersonaButton(t *testing.T) {
 	t.Run("输入框有人设时模型浮窗顶栏显示人设按钮并写入", func(t *testing.T) {
 		testenv.TempHome(t)
