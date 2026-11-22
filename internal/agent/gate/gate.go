@@ -1400,7 +1400,7 @@ func controlPlaneTarget(in Input, dirs []string, inside bool, wd, realWD, target
 }
 
 var procEnviron = regexp.MustCompile(`/proc/(self|[0-9]+)/environ\b`)
-var envFile = regexp.MustCompile(`(^|[\\/\s"'` + "`" + `=])\.env(\.[^\s\\/'"` + "`" + `=;:,&|]+)?`)
+var envFile = regexp.MustCompile(`(^|[\\/\s"'` + "`" + `={}])\.env(\.[^\s\\/'"` + "`" + `=;:,&|{}]+)?`)
 
 // mcodeConfigJSON 判断 text 是否指向 mcode 数据目录下的 JSON 配置文件。
 func mcodeConfigJSON(text, home string) bool {
@@ -1420,10 +1420,11 @@ func mcodeConfigJSON(text, home string) bool {
 			}
 			rest = rest[idx+len(root):]
 			name := rest
-			if end := strings.IndexAny(name, " \t\r\n\"'`=;:,&|/\\"); end >= 0 {
+			if end := strings.IndexAny(name, " \t\r\n\"'`=;|&:/\\"); end >= 0 {
 				name = name[:end]
 			}
-			if strings.HasSuffix(strings.ToLower(name), ".json") {
+			lower := strings.ToLower(name)
+			if strings.Contains(name, "{") || strings.HasSuffix(lower, ".json") || strings.Contains(lower, ".json,") {
 				return true
 			}
 		}
@@ -1445,6 +1446,16 @@ func credential(text, project string, insideRoots []string) bool {
 			return true
 		}
 	}
+	if strings.Contains(text, "{") {
+		for _, d := range []string{"~/.docker/", "/.docker/", "~/.kube/", "/.kube/", "~/.pi/agent/", "/.pi/agent/"} {
+			if strings.Contains(original, d) || strings.Contains(text, d) {
+				return true
+			}
+			if home != "" && strings.HasPrefix(d, "~/") && strings.Contains(text, filepath.ToSlash(filepath.Join(home, d[2:]))+"/") {
+				return true
+			}
+		}
+	}
 	// mcode 数据目录下的 JSON 都是控制面配置（always_allow.json、config.json、mcp.json 等）。
 	if mcodeConfigJSON(stripWorkDir(text, insideRoots...), home) {
 		return true
@@ -1455,10 +1466,10 @@ func credential(text, project string, insideRoots []string) bool {
 	// 示例文件不是凭证；fullAccess 下项目内 .env 也可直接访问。
 	for _, loc := range envFile.FindAllStringSubmatchIndex(text, -1) {
 		start, end := loc[0], loc[1]
-		if currentOS != "windows" && text[start] == '\\' && strings.HasPrefix(text[start+1:], ".env") {
+		if currentOS != "windows" && text[start] == '\\' && start > 0 && isEnvNameByte(text[start-1]) && strings.HasPrefix(text[start+1:], ".env") {
 			continue
 		}
-		if end < len(text) && !strings.ContainsRune("\\/ \t\r\n\"'`=;:,&|", rune(text[end])) {
+		if end < len(text) && !strings.ContainsRune("\\/ \t\r\n\"'`=;:,&|{}", rune(text[end])) {
 			continue
 		}
 		ext := ""
@@ -1470,7 +1481,7 @@ func credential(text, project string, insideRoots []string) bool {
 		}
 		idx := strings.Index(text[start:end], ".env") + start
 		tokenStart := idx
-		for tokenStart > 0 && !strings.ContainsRune(" \t\r\n\"'`=;:,&|", rune(text[tokenStart-1])) {
+		for tokenStart > 0 && !strings.ContainsRune(" \t\r\n\"'`=;:,&|{}", rune(text[tokenStart-1])) {
 			tokenStart--
 		}
 		// 保留 Windows 盘符，避免把 C:/... 截成 /...。

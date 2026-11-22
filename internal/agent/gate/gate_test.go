@@ -718,7 +718,7 @@ func TestOnlyReadsRelaxations(t *testing.T) {
 		}{
 			{`rg -n "process\.env" web/src`, harness.ModeAuto, Allow, ""},
 			{`rg -n "process\.env" web/src`, harness.ModeReadOnly, Allow, ""},
-			{`rg '\.env' src/`, harness.ModeReadOnly, Allow, ""},
+			{`rg -n "import\.meta\.env" web/src`, harness.ModeReadOnly, Allow, ""},
 			{`cat .env`, harness.ModeAuto, Ask, "credential"},
 			{`cat ./.env`, harness.ModeAuto, Ask, "credential"},
 			{`cat /path/.env`, harness.ModeAuto, Ask, "credential"},
@@ -943,4 +943,52 @@ func TestOnlyReadsRelaxations(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestCredentialBraceAndEscapedDotEnv(t *testing.T) {
+	origOS := currentOS
+	t.Cleanup(func() { currentOS = origOS })
+	currentOS = "darwin"
+
+	work := t.TempDir()
+	home := t.TempDir()
+	testenv.SetHome(t, home)
+
+	for _, cmd := range []string{
+		`cat \.env`,
+		`cat .env{,.local}`,
+		`cat {.env,.env.local}`,
+		`cat ~/.mcode/{config,other}.json`,
+		`cat ~/.mcode/config.{json,bak}`,
+		`cat "$HOME/.mcode/{config,other}.json"`,
+		`cat ~/.docker/{config,other}.json`,
+		`cat ~/.kube/{config,other}`,
+		`cat ~/.pi/agent/{auth,other}.json`,
+	} {
+		args, _ := json.Marshal(map[string]string{"command": cmd})
+		if got := SensitiveFor(harness.RequestKindCommand, "bash", args, cmd, work); got != "credential" {
+			t.Errorf("SensitiveFor(%q) = %q, want credential", cmd, got)
+		}
+		if got := Check(Input{Mode: harness.ModeAuto, ToolName: "bash", Args: args, WorkDir: work}); got.Action != Ask || got.Request.Sensitive != "credential" {
+			t.Errorf("Check(%q, %s) = %+v, want Ask/credential", cmd, harness.ModeAuto, got)
+		}
+		if got := Check(Input{Mode: harness.ModeReadOnly, ToolName: "bash", Args: args, WorkDir: work}); got.Action == Allow || (got.Action == Ask && got.Request.Sensitive != "credential") {
+			t.Errorf("Check(%q, %s) = %+v, want non-Allow (or Ask/credential)", cmd, harness.ModeReadOnly, got)
+		}
+	}
+
+	for _, cmd := range []string{
+		`rg -n "process\.env" web/src`,
+		`rg -n "import\.meta\.env" web/src`,
+		`cat ~/.mcode/logs/mcode.log`,
+	} {
+		args, _ := json.Marshal(map[string]string{"command": cmd})
+		if got := SensitiveFor(harness.RequestKindCommand, "bash", args, cmd, work); got == "credential" {
+			t.Errorf("SensitiveFor(%q) = %q, want non-credential", cmd, got)
+		}
+		got := Check(Input{Mode: harness.ModeReadOnly, ToolName: "bash", Args: args, WorkDir: work})
+		if got.Action != Allow || got.Request.Sensitive != "" {
+			t.Errorf("Check(%q, %s) = %+v, want Allow/empty sensitive", cmd, harness.ModeReadOnly, got)
+		}
+	}
 }
