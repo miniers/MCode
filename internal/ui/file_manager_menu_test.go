@@ -413,3 +413,39 @@ func TestFileManagerEntryMenuIgnoreInGit(t *testing.T) {
 	}
 	tt.CloseMenu()
 }
+
+// 行尾「更多操作」打开的菜单在指针离开行后仍然生效：菜单按钮只在行悬停时渲染，
+// 而选中项只交给下一帧仍在构建的那个按钮。
+func TestFileManagerMoreMenuChoiceAfterPointerLeaves(t *testing.T) {
+	_, _, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	row, ok := tt.Find("a.txt")
+	if !ok {
+		t.Fatal("找不到文件行 a.txt")
+	}
+	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
+	btn, ok := tt.Find("更多操作")
+	if !ok {
+		t.Fatal("悬停文件行后没有更多操作按钮")
+	}
+	tt.ClickAt(btn.X+btn.W/2, btn.Y+btn.H/2)
+	tt.Frame()
+	if tt.Menu() == nil {
+		t.Fatal("更多操作菜单没有打开")
+	}
+	tt.Move(btn.X+btn.W+80, btn.Y+btn.H+80)
+	tt.Frame()
+	if err := tt.ChooseMenuItem("复制相对路径"); err != nil {
+		t.Fatalf("选择复制相对路径失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.Clipboard() == "a.txt" })
+
+	// 选择完成后钉子解除：指针不在任何文件行上时不再显示按钮。
+	tt.Move(5, 5)
+	tt.Frame()
+	if _, ok := tt.Find("更多操作"); ok {
+		t.Fatal("菜单关闭后仍显示更多操作按钮")
+	}
+}

@@ -474,7 +474,8 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		Radius(RadiusXS).
 		Gap(Space2).
 		AlignItems(ui.Center)
-	if row.Hovered() && !props.protected {
+	rowHovered := row.Hovered()
+	if rowHovered && !props.protected {
 		row.Background(ThemeHover(c))
 	}
 
@@ -549,8 +550,10 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			})
 		}
 
-		// 「更多操作」按钮：悬停时出现，按下即开菜单（与行右键同一个构建函数）。
-		if row.Hovered() {
+		// 「更多操作」按钮：悬停时出现，菜单打开期间继续渲染。菜单在按下时打开并拿走
+		// 这次抬起，选中项只交给下一帧仍在构建的这个按钮；指针移进菜单后行失去悬停，
+		// 按钮被卸掉则选择无处交付。行不能设为可聚焦，否则会抢走文件树的键盘焦点。
+		if rowHovered || s.fileMenuRowKey == props.key {
 			more := ui.ButtonBase(c.Key(props.key+"-more")).
 				Label("更多操作").
 				Tooltip("更多操作").
@@ -565,7 +568,15 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			if more.Pressed() {
 				morePressed = true
 			}
-			more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
+			more.Menu(func(m *ui.Menu) {
+				s.mu.Lock()
+				if s.fileMenuRowKey != props.key {
+					s.fileMenuRowKey = props.key
+					c.Invalidate()
+				}
+				s.mu.Unlock()
+				fileManagerEntryMenu(c, s, props.threadID, props.entry)(m)
+			})
 			more.Children(func() {
 				ui.Icon(c, IconMoreHorizontal()).
 					Size(IconSM, IconSM).
