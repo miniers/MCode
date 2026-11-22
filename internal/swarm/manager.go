@@ -1364,8 +1364,9 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		}
 	}
 
+	// 共享档位靠档位提示词约束写入范围。
 	// 写入白名单不为空的 bee 与只读 bee 一样不能走共享工作区，否则无法过滤白名单外的改动。
-	isShared := (settings.WorkspaceMode == "shared" && !spec.ReadOnly && len(spec.WritePaths) == 0) || sharedNoGit
+	isShared := (settings.WorkspaceMode == "shared" && !spec.ReadOnly && len(spec.WritePaths) == 0) || (spec.SharedWorkspace && !spec.ReadOnly) || sharedNoGit
 
 	var wtPath, branch, baseCommit string
 	// reusedWorktree 表示复用了上一个子代理失败时保留的工作副本：这种副本不能在建会话失败时删掉，
@@ -1497,6 +1498,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		Profile:           spec.Profile,
 		Tier:              spec.Tier,
 		ReadOnly:          spec.ReadOnly,
+		SharedWorkspace:   isShared,
 		WritePaths:        append([]string(nil), spec.WritePaths...),
 		Acceptance:        append([]string(nil), spec.Acceptance...),
 		RuntimeMode:       sessionReq.RuntimeMode,
@@ -1965,8 +1967,9 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 		FastMode:       cfg.FastMode,
 		Profile:        cfg.Profile,
 		Tier:           cfg.Tier,
-		ReadOnly:       cfg.ReadOnly,
-		WritePaths:     append([]string(nil), cfg.WritePaths...),
+		ReadOnly:        cfg.ReadOnly,
+		SharedWorkspace: cfg.SharedWorkspace,
+		WritePaths:      append([]string(nil), cfg.WritePaths...),
 		Brief:          d.Prompt,
 		Files:          append([]string(nil), d.Files...),
 		Acceptance:     append([]string(nil), d.Acceptance...),
@@ -2797,8 +2800,9 @@ func (m *Manager) Tick(ctx context.Context) {
 						FastMode:    tgt.bee.FastMode,
 						Profile:     tgt.bee.Profile,
 						Tier:        tgt.bee.Tier,
-						ReadOnly:    tgt.bee.ReadOnly,
-						WritePaths:  append([]string(nil), tgt.bee.WritePaths...),
+						ReadOnly:        tgt.bee.ReadOnly,
+						SharedWorkspace: tgt.bee.SharedWorkspace,
+						WritePaths:      append([]string(nil), tgt.bee.WritePaths...),
 						Acceptance:  append([]string(nil), tgt.bee.Acceptance...),
 						RuntimeMode: tgt.bee.RuntimeMode,
 						DirectModel: tgt.bee.DirectModel,
@@ -3060,7 +3064,10 @@ func (m *Manager) Tick(ctx context.Context) {
 // 已汇报的已结束 bee 与之前一致；未汇报时仅放开已完成且不在待审、待合、待验收、驳回或已丢弃状态的 bee，
 // 避免误激活失败、停止、中断或仍在审查/验收流程里的 bee。
 func isReactivateCandidate(h Bee) bool {
-	if h.Status == StatusRunning || h.PendingMerge || h.WorktreePath == "" {
+	if h.Status == StatusRunning || h.PendingMerge {
+		return false
+	}
+	if h.WorktreePath == "" && !h.SharedWorkspace && !h.SharedNoGit {
 		return false
 	}
 	if h.Reported {
@@ -3128,8 +3135,9 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 
 		// 上一轮的改动已经落地：先把工作副本的当前状态固化为新基线，之后只落地续跑产生的增量，
 		// 否则已合并的改动会被再合并一次。固化失败则放弃这次重新激活，保持原状态。
+		// 共享工作区的 bee 没有独立工作副本，不建基线也不走合并。
 		baseCommit := ""
-		if c.bee.Merged {
+		if c.bee.Merged && !c.bee.SharedWorkspace && !c.bee.SharedNoGit && c.bee.WorktreePath != "" {
 			sha, ok := m.settleResumeBaseline(ctx, c.bee.WorktreePath)
 			if !ok {
 				continue
@@ -4619,6 +4627,7 @@ func (m *Manager) handbackConflict(ctx context.Context, leadThreadID, targetWork
 		Profile:         h.Profile,
 		Tier:            h.Tier,
 		ReadOnly:        h.ReadOnly,
+		SharedWorkspace: h.SharedWorkspace,
 		WritePaths:      append([]string(nil), h.WritePaths...),
 		Acceptance:      append([]string(nil), h.Acceptance...),
 		Brief:           h.Brief,
@@ -6687,8 +6696,9 @@ func (m *Manager) respawnBeeWithHandoff(ctx context.Context, leadThreadID string
 		FastMode:    old.FastMode,
 		Profile:     old.Profile,
 		Tier:        old.Tier,
-		ReadOnly:    old.ReadOnly,
-		WritePaths:  append([]string(nil), old.WritePaths...),
+		ReadOnly:        old.ReadOnly,
+		SharedWorkspace: old.SharedWorkspace,
+		WritePaths:      append([]string(nil), old.WritePaths...),
 		Acceptance:  append([]string(nil), old.Acceptance...),
 		Brief:       old.Brief,
 		Files:       append([]string(nil), old.Files...),

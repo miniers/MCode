@@ -9,16 +9,17 @@ import (
 
 // Tier 描述编排的一个执行档位：主会话在派发时选择档位，档位映射到具体模型。
 type Tier struct {
-	ID           string
-	Name         string
-	Description  string
-	ReadOnly     bool
-	WritePaths   []string
-	Provider     string
-	Model        string
-	Effort       string
-	FastMode     bool
-	SystemPrompt string
+	ID              string
+	Name            string
+	Description     string
+	ReadOnly        bool
+	SharedWorkspace bool
+	WritePaths      []string
+	Provider        string
+	Model           string
+	Effort          string
+	FastMode        bool
+	SystemPrompt    string
 }
 
 // TierOverride 描述针对特定档位的覆盖配置。

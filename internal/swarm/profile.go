@@ -80,8 +80,9 @@ type BeeConfig struct {
 	SystemPrompt   string
 	Profile        string
 	PairID         string
-	Tier           string
-	ReadOnly       bool
+	Tier            string
+	ReadOnly        bool
+	SharedWorkspace bool
 	// WritePaths 非空时该 bee 只能把匹配这些 glob 的改动合并回主工作区。
 	WritePaths  []string
 	DirectModel bool
@@ -141,7 +142,10 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 			cfg.SystemPrompt = tier.SystemPrompt
 		}
 		cfg.ReadOnly = tier.ReadOnly
-		cfg.WritePaths = append([]string(nil), tier.WritePaths...)
+		cfg.SharedWorkspace = tier.SharedWorkspace && !tier.ReadOnly
+		if !cfg.SharedWorkspace {
+			cfg.WritePaths = append([]string(nil), tier.WritePaths...)
+		}
 		cfg.Tier = tier.ID
 	}
 

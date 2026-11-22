@@ -69,16 +69,17 @@ func swarmTiersFromConfig(tiers []config.SwarmTier) []swarm.Tier {
 	out := make([]swarm.Tier, 0, len(tiers))
 	for _, t := range tiers {
 		out = append(out, swarm.Tier{
-			ID:           t.ID,
-			Name:         t.Name,
-			Description:  t.Description,
-			ReadOnly:     t.ReadOnly,
-			WritePaths:   append([]string(nil), t.WritePaths...),
-			Provider:     t.Provider,
-			Model:        t.Model,
-			Effort:       t.Effort,
-			FastMode:     t.FastMode,
-			SystemPrompt: t.SystemPrompt,
+			ID:              t.ID,
+			Name:            t.Name,
+			Description:     t.Description,
+			ReadOnly:        t.ReadOnly,
+			SharedWorkspace: t.SharedWorkspace,
+			WritePaths:      append([]string(nil), t.WritePaths...),
+			Provider:        t.Provider,
+			Model:           t.Model,
+			Effort:          t.Effort,
+			FastMode:        t.FastMode,
+			SystemPrompt:    t.SystemPrompt,
 		})
 	}
 	return out

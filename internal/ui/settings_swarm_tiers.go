@@ -126,6 +126,7 @@ func swarmTierDraftIsDefault(draft config.SwarmTier, writePathsText string) bool
 	}
 	if draft.ReadOnly {
 		draft.WritePaths = nil
+		draft.SharedWorkspace = false
 	} else {
 		draft.WritePaths = parseWritePaths(writePathsText)
 	}
@@ -316,8 +317,24 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 				}).render(c, st, setting{ID: "swarm-tier-readonly-" + popKey, Title: "只读模式"})
 			})
 
-		// 4.1 写入白名单（只读档没有写权限，不渲染）
+		// 4.1 共享工作区与写入白名单（只读档没有写权限，不渲染）
 		if !uiSt.draft.ReadOnly {
+			ui.Row(c.Key("row-swarm-tier-shared-workspace-" + popKey)).
+				AlignItems(ui.Center).
+				Justify(ui.SpaceBetween).
+				Children(func() {
+					ui.Text(c, "共享工作区").
+						FontSize(uiFont(TypeFootnote)).
+						FontWeight(500).
+						TextColor(ThemePrimaryText(c)).
+						Tooltip("打开后，该档子代理直接在主工作区运行，不建独立工作树，也不走合并流程")
+					toggleFunc(func(*SettingsState) (bool, bool) {
+						return uiSt.draft.SharedWorkspace, false
+					}, func(_ *SettingsState, on bool) {
+						uiSt.draft.SharedWorkspace = on
+					}).render(c, st, setting{ID: "swarm-tier-shared-workspace-" + popKey, Title: "共享工作区"})
+				})
+
 			ui.Column(c.Key("sec-tier-writepaths-" + popKey)).
 				Gap(Space1).
 				Children(func() {
@@ -334,6 +351,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 						Multiline:   true,
 						MinLines:    2,
 						MaxLines:    5,
+						Disabled:    uiSt.draft.SharedWorkspace,
 						FillWidth:   true,
 					})
 				})
@@ -539,6 +557,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							uiSt.draft.ID = strings.ToLower(strings.TrimSpace(uiSt.draft.ID))
 							if uiSt.draft.ReadOnly {
 								uiSt.draft.WritePaths = nil
+								uiSt.draft.SharedWorkspace = false
 							} else {
 								uiSt.draft.WritePaths = parseWritePaths(uiSt.writePathsText)
 							}

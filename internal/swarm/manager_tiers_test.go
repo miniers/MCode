@@ -703,3 +703,99 @@ func TestDefaultEffortOverridesTierEffort(t *testing.T) {
 		}
 	})
 }
+
+// TestTierSharedWorkspace 验证档位 SharedWorkspace 为真且非只读时，即使全局 WorkspaceMode 为 worktree
+// 也不建立工作副本，且不过滤 WritePaths；只读档位仍建立独立工作副本。
+func TestTierSharedWorkspace(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runner, dir := initTestRepo(t)
+	driver := newFakeDriver()
+
+	var startedRequests []kanban.SessionRequest
+	driver.onStart = func(req kanban.SessionRequest) {
+		startedRequests = append(startedRequests, req)
+	}
+
+	wtDir := t.TempDir()
+	mgr := NewManager(Options{
+		Git:         runner,
+		Driver:      driver,
+		WorktreeDir: wtDir,
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{
+			Enabled:       true,
+			AutoDelegate:  true,
+			WorkspaceMode: "worktree",
+			Tiers: []Tier{
+				{
+					ID:              "design",
+					Name:            "设计",
+					SharedWorkspace: true,
+					WritePaths:      []string{".mcode/design/*.html"},
+				},
+				{
+					ID:              "ro-shared",
+					Name:            "只读共享",
+					ReadOnly:        true,
+					SharedWorkspace: true,
+				},
+				{
+					ID:   "edit",
+					Name: "执行",
+				},
+			},
+		}
+	})
+
+	designBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-tier-shared",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "画设计稿", Prompt: "在 .mcode/design/index.html 写设计稿", Tier: "design"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(design) failed: %v", err)
+	}
+	if designBee.WorktreePath != "" {
+		t.Fatalf("SharedWorkspace 档位不应建工作副本，得到 WorktreePath=%q", designBee.WorktreePath)
+	}
+	if !designBee.SharedWorkspace {
+		t.Fatalf("SharedWorkspace 档位派出的 bee 应置位 SharedWorkspace=true")
+	}
+	if len(startedRequests) != 1 || startedRequests[0].WorkDir != dir {
+		t.Fatalf("SharedWorkspace 档位会话工作目录应为主工作区 %q，实际 %+v", dir, startedRequests)
+	}
+	if entries, err := os.ReadDir(wtDir); err != nil || len(entries) != 0 {
+		t.Fatalf("WorktreeDir 不应创建任何副本，entries=%v err=%v", entries, err)
+	}
+
+	// 只读档位即便配置了 SharedWorkspace，也必须建独立 worktree。
+	roBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-ro-shared",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "只读调研", Prompt: "检查代码", Tier: "ro-shared"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(ro-shared) failed: %v", err)
+	}
+	if roBee.WorktreePath == "" || roBee.SharedWorkspace {
+		t.Fatalf("只读档位应建独立工作副本且 SharedWorkspace=false，实际 path=%q shared=%v", roBee.WorktreePath, roBee.SharedWorkspace)
+	}
+
+	// 普通非共享档位在 worktree 模式下仍建独立 worktree。
+	editBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-edit-shared",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "改代码", Prompt: "修改实现", Tier: "edit"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(edit) failed: %v", err)
+	}
+	if editBee.WorktreePath == "" || editBee.SharedWorkspace {
+		t.Fatalf("普通档位在 worktree 模式下应建独立工作副本且 SharedWorkspace=false，实际 path=%q shared=%v", editBee.WorktreePath, editBee.SharedWorkspace)
+	}
+}

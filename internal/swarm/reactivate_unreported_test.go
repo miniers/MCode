@@ -329,3 +329,154 @@ func TestWatchdogStopEmptyLastAssistantTextUnchanged(t *testing.T) {
 		t.Fatalf("无有效文本时 Summary 应等于 MergeError，实际 summary=%q mergeError=%q", got.Summary, got.MergeError)
 	}
 }
+
+// TestSharedBeeReactivate 验证已汇报且 WorktreePath 为空的共享 bee 可被续跑探测唤醒，
+// 续跑完成后不走合并、仅重新汇报给主会话；同样条件的非共享 bee 不会被纳入续跑候选。
+func TestSharedBeeReactivate(t *testing.T) {
+	t.Parallel()
+
+	sharedCandidate := Bee{
+		ThreadID:        "bee-shared-reported",
+		Status:          StatusCompleted,
+		Reported:        true,
+		Merged:          true,
+		SharedWorkspace: true,
+		WorktreePath:    "",
+	}
+	if !isReactivateCandidate(sharedCandidate) {
+		t.Fatal("已汇报、WorktreePath 为空的共享 bee 应为续跑候选")
+	}
+
+	nonSharedCandidate := Bee{
+		ThreadID:        "bee-nonshared-empty-wt",
+		Status:          StatusCompleted,
+		Reported:        true,
+		Merged:          true,
+		SharedWorkspace: false,
+		WorktreePath:    "",
+	}
+	if isReactivateCandidate(nonSharedCandidate) {
+		t.Fatal("WorktreePath 为空的非共享 bee 不应成为续跑候选")
+	}
+
+	runner, dir := initTestRepo(t)
+	ctx := context.Background()
+	clock := newTestClock()
+	driver := newFakeDriver()
+
+	var reportMu sync.Mutex
+	var reports []string
+
+	mgr := NewManager(Options{
+		Git:         runner,
+		Driver:      driver,
+		WorktreeDir: t.TempDir(),
+		Now:         clock.Now,
+		OnReport: func(leadThreadID, message string) error {
+			reportMu.Lock()
+			reports = append(reports, message)
+			reportMu.Unlock()
+			return nil
+		},
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{
+			Enabled:       true,
+			AutoDelegate:  true,
+			WorkspaceMode: "worktree",
+			ReviewMode:    "human",
+			Tiers: []Tier{
+				{ID: "design", Name: "设计", SharedWorkspace: true},
+			},
+		}
+	})
+
+	const leadID = "lead-shared-reactivate"
+	bee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: leadID,
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "画设计稿", Prompt: "第一轮设计", Tier: "design"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry failed: %v", err)
+	}
+	if !bee.SharedWorkspace || bee.WorktreePath != "" {
+		t.Fatalf("期望共享 bee 且 WorktreePath 为空，实际: %+v", bee)
+	}
+
+	// 插入一条同为已汇报且 WorktreePath 为空的非共享 bee，确认探测不会误激活它。
+	const nonSharedID = "bee-reclaimed-nonshared"
+	driver.setSessionState(nonSharedID, kanban.SessionState{Running: true})
+	mgr.mu.Lock()
+	mgr.leads[leadID].bees = append(mgr.leads[leadID].bees, Bee{
+		ThreadID:     nonSharedID,
+		Index:        99,
+		Name:         "Reclaimed",
+		Status:       StatusCompleted,
+		Reported:     true,
+		Merged:       true,
+		WorktreePath: "",
+	})
+	mgr.mu.Unlock()
+
+	// 第一轮完成并汇报。
+	driver.setSessionState(bee.ThreadID, kanban.SessionState{
+		Running:           false,
+		LastAssistantText: "第一轮设计完成",
+	})
+	mgr.Tick(ctx)
+
+	got := beeByThread(t, mgr, leadID, bee.ThreadID)
+	if got.Status != StatusCompleted || !got.Reported || !got.Merged || got.PendingMerge {
+		t.Fatalf("第一轮结束后共享 bee 应已完成、已汇报且不进待合并，实际: %+v", got)
+	}
+	reportMu.Lock()
+	if len(reports) != 1 || !strings.Contains(reports[0], "第一轮设计完成") {
+		reportMu.Unlock()
+		t.Fatalf("第一轮应投递 1 次汇报，实际: %v", reports)
+	}
+	reportMu.Unlock()
+
+	// 用户在共享 bee 会话里发消息续聊，连续两次探测到 Running 后唤醒。
+	driver.setSessionState(bee.ThreadID, kanban.SessionState{
+		Running:           true,
+		LastAssistantText: "第一轮设计完成",
+	})
+	clock.Advance(reactivateProbeInterval)
+	mgr.Tick(ctx)
+	if mid := beeByThread(t, mgr, leadID, bee.ThreadID); mid.Status != StatusCompleted {
+		t.Fatalf("首次探测不应立即激活，实际状态: %s", mid.Status)
+	}
+
+	clock.Advance(reactivateProbeInterval)
+	mgr.Tick(ctx)
+	got = beeByThread(t, mgr, leadID, bee.ThreadID)
+	if got.Status != StatusRunning || got.Reported || !got.SharedWorkspace {
+		t.Fatalf("二次探测后共享 bee 应回到 Running 且保留 SharedWorkspace，实际: %+v", got)
+	}
+	if nonShared := beeByThread(t, mgr, leadID, nonSharedID); nonShared.Status != StatusCompleted {
+		t.Fatalf("WorktreePath 为空的非共享 bee 不应被唤醒，实际状态: %s", nonShared.Status)
+	}
+
+	// 续跑轮完成，应跳过合并/审查并重新汇报给主会话。
+	driver.setSessionState(bee.ThreadID, kanban.SessionState{
+		Running:           false,
+		LastAssistantText: "第二轮修改完成",
+	})
+	clock.Advance(2 * time.Second)
+	mgr.Tick(ctx)
+
+	got = beeByThread(t, mgr, leadID, bee.ThreadID)
+	if got.Status != StatusCompleted || !got.Reported || !got.Merged || got.PendingMerge || got.MergeError != "" {
+		t.Fatalf("续跑完成后应直接完成并汇报、不走合并且无错误，实际: %+v", got)
+	}
+	reportMu.Lock()
+	defer reportMu.Unlock()
+	if len(reports) != 2 {
+		t.Fatalf("续跑完成后应重新汇报给主会话，期望 2 次汇报，实际 %d 次: %v", len(reports), reports)
+	}
+	if !strings.Contains(reports[1], "第二轮修改完成") {
+		t.Fatalf("第二次汇报应包含最新输出，实际:\n%s", reports[1])
+	}
+}
