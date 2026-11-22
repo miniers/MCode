@@ -337,6 +337,36 @@ func TestBrowserTabsUISelectsWithoutReload(t *testing.T) {
 	}
 }
 
+func TestBrowserTabCloseButtonClick(t *testing.T) {
+	s := &chatState{}
+	defer inspectorDisposeAllSessions(s)
+	first, _ := browserAttachTestPage(s, "https://example.test/a")
+	inspectorSelect(s, sidePanePreviewID, false)
+	browserNewTab(s)
+	browserAttachTestPage(s, "https://example.test/b")
+	previewMu.Lock()
+	initialCount := len(first.owner.tabs)
+	previewMu.Unlock()
+	if initialCount != 2 {
+		t.Fatalf("初始标签数=%d，期望 2", initialCount)
+	}
+	tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 480, 600)
+	tester.Frame()
+	tester.Advance(DurSheet + 50*time.Millisecond)
+	closeBtn, ok := tester.AccessByRole(ui.RoleButton, "关闭网页标签")
+	if !ok {
+		t.Fatal("未找到关闭网页标签按钮")
+	}
+	tester.ClickAt(closeBtn.Bounds.X+closeBtn.Bounds.W/2, closeBtn.Bounds.Y+closeBtn.Bounds.H/2)
+	tester.Frame()
+	previewMu.Lock()
+	remainingCount := len(first.owner.tabs)
+	previewMu.Unlock()
+	if remainingCount != 1 {
+		t.Fatalf("点击关闭按钮后标签数=%d，期望 1", remainingCount)
+	}
+}
+
 func TestBrowserWindowDisposesCallbacks(t *testing.T) {
 	s := sidePaneTestState(t)
 	_, pageA := browserAttachTestPage(s, "https://example.test/a")

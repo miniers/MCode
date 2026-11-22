@@ -59,13 +59,13 @@ type browserTab struct {
 	consoleListResetSeq         uint64
 	annotating                  bool
 	annotations                 []previewAnnotation
-	annotPolling, annotSending bool
-	annotOps                   previewAnnotationOps
-	annotHighlight, annotFocus uint64
-	annotLastPoll              time.Time
-	feedbackText               string
-	feedbackSending            bool
-	pollDone                   chan struct{}
+	annotPolling, annotSending  bool
+	annotOps                    previewAnnotationOps
+	annotHighlight, annotFocus  uint64
+	annotLastPoll               time.Time
+	feedbackText                string
+	feedbackSending             bool
+	pollDone                    chan struct{}
 	pollCancel                  context.CancelFunc
 }
 
@@ -460,12 +460,12 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 	row := ui.Row(c.Key("browser-tabs-row")).FillWidth().Height(ControlMD).Shrink(0)
 	selection := ui.Local(row, "selection", func() int { return selected })
 	*selection = selected
-	var closeID uint64
 	row.Children(func() {
 		tabs := ui.TabsBase(c.Key("browser-tabs"), selection, len(items))
 		tabs.List.Grow(1).Shrink(1).MinWidth(0).Children(func() {
 			for i, item := range items {
-				ui.Row(c.Key(fmt.Sprintf("browser-tab-%d", item.id))).Transition(motionListItem(c)).Shrink(1).Children(func() {
+				id := item.id
+				ui.Row(c.Key(fmt.Sprintf("browser-tab-%d", id))).Transition(motionListItem(c)).Shrink(1).Children(func() {
 					tab := tabs.Tab(i).Label(item.title).Height(ControlMD).Padding(0, Space2).MinWidth(0).Shrink(1)
 					target := float32(0)
 					if *selection == i {
@@ -479,14 +479,12 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 						ui.Text(c, item.title).FontSize(uiFont(TypeCaption)).SingleLine().MaxWidth(160)
 						ui.Box(c).Absolute().Left(Space2).Right(Space2).Bottom(0).Height(Hairline).Background(ThemeAccent(c).Alpha(ink))
 					})
-					IconButton(c, IconButtonProps{Key: fmt.Sprintf("browser-close-%d", item.id), Icon: IconX(), Label: "关闭网页标签", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { closeID = item.id }})
+					IconButton(c, IconButtonProps{Key: fmt.Sprintf("browser-close-%d", id), Icon: IconX(), Label: "关闭网页标签", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { browserCloseTab(s, st, id) }})
 				})
 			}
 		})
 	})
-	if closeID != 0 {
-		browserCloseTab(s, st, closeID)
-	} else if *selection >= 0 && *selection < len(items) && *selection != selected {
+	if *selection >= 0 && *selection < len(items) && *selection != selected {
 		browserActivateTab(s, st, items[*selection].id)
 	}
 }
