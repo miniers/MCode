@@ -694,3 +694,236 @@ func TestBrowserAnnotationSendDrainsLastClick(t *testing.T) {
 		req.finish <- nil
 	}
 }
+
+func TestPreviewAnnotateSendNow(t *testing.T) {
+	t.Run("decision", func(t *testing.T) {
+		p := previewAnnotationSendDecision(false, "t1", "t1", "草稿", 2, nil)
+		if p.shouldSend || p.toast != "已添加 2 条标注和截图" {
+			t.Fatalf("send=false 决策错误: %+v", p)
+		}
+		p = previewAnnotationSendDecision(false, "t1", "t1", "草稿", 2, errors.New("shot failed"))
+		if p.shouldSend || p.toast != "标注已添加，截图失败：shot failed" {
+			t.Fatalf("send=false 截图失败决策错误: %+v", p)
+		}
+		p = previewAnnotationSendDecision(true, "t1", "t2", "草稿", 2, nil)
+		if p.shouldSend || p.toast != "标注已添加" {
+			t.Fatalf("非当前会话决策错误: %+v", p)
+		}
+		p = previewAnnotationSendDecision(true, "t1", "t1", "  修复样式  ", 2, nil)
+		if !p.shouldSend || p.draftText != "修复样式" || p.toast != "已发送 2 条标注" {
+			t.Fatalf("当前会话发送决策错误: %+v", p)
+		}
+		p = previewAnnotationSendDecision(true, "t1", "t1", "修复样式", 2, errors.New("shot failed"))
+		if !p.shouldSend || p.draftText != "修复样式" || p.toast != "已发送 2 条标注，截图失败：shot failed" {
+			t.Fatalf("截图失败仍应发送: %+v", p)
+		}
+	})
+
+	waitSentWithAttachments := func(t *testing.T, client *inspectorContextClient, want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			got := len(client.sendWithAttachCalls)
+			client.mu.Unlock()
+			if got >= want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatalf("等待 SendWithAttachments 超时")
+	}
+
+	t.Run("send_true_active_thread", func(t *testing.T) {
+		s, client := inspectorContextSetup(t)
+		tab, _ := browserAttachTestPage(s, "https://example.test")
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating = page, true, true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#btn", Comment: "修边距"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+		s.mu.Lock()
+		s.draft = "  请按标注修改  "
+		s.mu.Unlock()
+
+		previewSubmitAnnotations(s, token, true)
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 1)
+
+		client.mu.Lock()
+		call := client.sendWithAttachCalls[0]
+		client.mu.Unlock()
+		if call.ThreadID != "t1" || call.Text != "请按标注修改" || len(call.AttachmentIDs) != 2 {
+			t.Fatalf("发送参数错误: %+v", call)
+		}
+		s.mu.Lock()
+		toast := s.toastMessage
+		s.mu.Unlock()
+		if toast != "已发送 1 条标注" {
+			t.Fatalf("发送成功提示错误: %q", toast)
+		}
+	})
+
+	t.Run("send_true_capture_error_still_sends", func(t *testing.T) {
+		s, client := inspectorContextSetup(t)
+		tab, _ := browserAttachTestPage(s, "https://example.test")
+		page := &screenshotTestPage{err: errors.New("capture boom")}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating = page, true, true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#btn"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+		s.mu.Lock()
+		s.draft = "只带文本标注"
+		s.mu.Unlock()
+
+		previewSubmitAnnotations(s, token, true)
+		req := inspectorUpload(t, client)
+		req.finish <- nil
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 1)
+
+		client.mu.Lock()
+		call := client.sendWithAttachCalls[0]
+		client.mu.Unlock()
+		if call.ThreadID != "t1" || call.Text != "只带文本标注" || len(call.AttachmentIDs) != 1 {
+			t.Fatalf("截图失败时发送参数错误: %+v", call)
+		}
+		s.mu.Lock()
+		toast := s.toastMessage
+		s.mu.Unlock()
+		if !strings.Contains(toast, "已发送 1 条标注") || !strings.Contains(toast, "capture boom") {
+			t.Fatalf("截图失败发送提示错误: %q", toast)
+		}
+	})
+
+	t.Run("send_true_inactive_thread_only_adds", func(t *testing.T) {
+		s, client := inspectorContextSetup(t)
+		tab, _ := browserAttachTestPage(s, "https://example.test")
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating = page, true, true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#btn"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitAnnotations(s, token, true)
+		req1 := inspectorUpload(t, client)
+		req2 := inspectorUpload(t, client)
+
+		// 附件已添加到原会话、上传完成前切换活动会话：不再触发发送，提示保留「标注已添加」。
+		s.mu.Lock()
+		s.selectedThreadID = "t2"
+		s.mu.Unlock()
+		req1.finish <- nil
+		req2.finish <- nil
+		waitPreviewAnnotationSend(t, tab)
+
+		client.mu.Lock()
+		sentCount := len(client.sendCalls) + len(client.sendWithAttachCalls)
+		client.mu.Unlock()
+		if sentCount != 0 {
+			t.Fatalf("非当前活动会话不应触发发送，实际发送 %d 次", sentCount)
+		}
+		s.mu.Lock()
+		toast := s.toastMessage
+		attCount := len(s.attachments)
+		s.mu.Unlock()
+		if toast != "标注已添加" || attCount != 2 {
+			t.Fatalf("非当前会话降级为仅添加状态错误: toast=%q atts=%d", toast, attCount)
+		}
+	})
+
+	t.Run("send_false_does_not_send", func(t *testing.T) {
+		s, client := inspectorContextSetup(t)
+		tab, _ := browserAttachTestPage(s, "https://example.test")
+		previewMu.Lock()
+		tab.visible = true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#stay"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitAnnotations(s, token, false)
+		waitPreviewAnnotationSend(t, tab)
+		req := inspectorUpload(t, client)
+		req.finish <- nil
+
+		client.mu.Lock()
+		sentCount := len(client.sendCalls) + len(client.sendWithAttachCalls)
+		client.mu.Unlock()
+		if sentCount != 0 {
+			t.Fatalf("send=false 不应触发发送，实际发送 %d 次", sentCount)
+		}
+	})
+
+	t.Run("drawer_buttons_and_disabled_state", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		s, client := inspectorContextSetup(t)
+		tab, _ := browserAttachTestPage(s, "https://example.test")
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.visible = page, true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta"}}
+		previewMu.Unlock()
+		s.mu.Lock()
+		s.draft = "来自抽屉按钮"
+		s.mu.Unlock()
+
+		tester := ui.NewTesterWith(func(c *ui.Context) {
+			previewMu.Lock()
+			snap := previewSnapshotLocked(tab)
+			previewMu.Unlock()
+			if len(snap.annotations) > 0 {
+				renderPreviewAnnotateDrawer(c, s, snap)
+			}
+		}, 600, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		addRect, ok := tester.Find("添加到对话")
+		if !ok {
+			t.Fatal("未找到「添加到对话」按钮")
+		}
+		sendRect, ok := tester.Find("发送")
+		if !ok {
+			t.Fatal("未找到「发送」按钮")
+		}
+		if sendRect.X <= addRect.X {
+			t.Fatalf("「发送」应在「添加到对话」右边: add=%+v send=%+v", addRect, sendRect)
+		}
+
+		previewMu.Lock()
+		tab.annotSending = true
+		previewMu.Unlock()
+		tester.Frame()
+		if btn, ok := tester.Access("添加到对话"); !ok || !btn.Disabled {
+			t.Fatalf("annotSending 时「添加到对话」应禁用: ok=%v disabled=%v", ok, btn.Disabled)
+		}
+		if btn, ok := tester.Access("发送"); !ok || !btn.Disabled {
+			t.Fatalf("annotSending 时「发送」应禁用: ok=%v disabled=%v", ok, btn.Disabled)
+		}
+
+		previewMu.Lock()
+		tab.annotSending = false
+		previewMu.Unlock()
+		tester.Frame()
+		if err := tester.Click("发送"); err != nil {
+			t.Fatalf("点击「发送」失败: %v", err)
+		}
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 1)
+	})
+}

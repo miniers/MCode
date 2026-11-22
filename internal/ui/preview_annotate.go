@@ -466,8 +466,75 @@ func previewResetAnnotationsLocked(st *browserTab) {
 	st.annotLastPoll = time.Time{}
 }
 
+type previewAnnotationSendPlan struct {
+	shouldSend bool
+	draftText  string
+	toast      string
+}
+
+// previewAnnotationSendDecision 根据提交模式、当前活动会话与截图结果决定是否触发发送与提示文案。
+func previewAnnotationSendDecision(send bool, threadID, activeThreadID, draft string, count int, captureErr error) previewAnnotationSendPlan {
+	if !send {
+		toast := fmt.Sprintf("已添加 %d 条标注和截图", count)
+		if captureErr != nil {
+			toast = "标注已添加，截图失败：" + captureErr.Error()
+		}
+		return previewAnnotationSendPlan{toast: toast}
+	}
+	if threadID == "" || threadID != activeThreadID {
+		toast := "标注已添加"
+		if captureErr != nil {
+			toast = "标注已添加，截图失败：" + captureErr.Error()
+		}
+		return previewAnnotationSendPlan{toast: toast}
+	}
+	toast := fmt.Sprintf("已发送 %d 条标注", count)
+	if captureErr != nil {
+		toast = fmt.Sprintf("已发送 %d 条标注，截图失败：%s", count, captureErr.Error())
+	}
+	return previewAnnotationSendPlan{
+		shouldSend: true,
+		draftText:  strings.TrimSpace(draft),
+		toast:      toast,
+	}
+}
+
+func (s *chatState) waitThreadAttachmentsReady(threadID string) (active bool, ready bool) {
+	deadline := time.Now().Add(attachmentUploadTimeout + 5*time.Second)
+	for {
+		s.mu.Lock()
+		if s.closed || s.selectedThreadID != threadID {
+			s.mu.Unlock()
+			return false, false
+		}
+		uploading, failed := false, false
+		for _, att := range s.attachments {
+			if att.Uploading {
+				uploading = true
+				break
+			}
+			if att.Err != "" || att.ID == "" {
+				failed = true
+			}
+		}
+		s.mu.Unlock()
+		if !uploading {
+			return true, !failed
+		}
+		if time.Now().After(deadline) {
+			return true, false
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 // previewSendAnnotations 把已标注元素作为附件加入发起时的会话。
 func previewSendAnnotations(s *chatState, token previewPageToken) {
+	previewSubmitAnnotations(s, token, false)
+}
+
+// previewSubmitAnnotations 把已标注元素作为附件加入发起时的会话；send 为真且仍处于该会话时立即发送草稿。
+func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 	if s == nil {
 		return
 	}
@@ -570,11 +637,33 @@ func previewSendAnnotations(s *chatState, token previewPageToken) {
 		if page != nil {
 			_, _ = page.Eval(previewAnnotateClearMarksScript + previewAnnotateStopScript)
 		}
-		if captureErr != nil {
-			s.setToast("标注已添加，截图失败：" + captureErr.Error())
-		} else {
-			s.setToast(fmt.Sprintf("已添加 %d 条标注和截图", len(items)))
+		if !send {
+			plan := previewAnnotationSendDecision(false, threadID, "", "", len(items), captureErr)
+			s.setToast(plan.toast)
+			return
 		}
+		activeThread, ready := s.waitThreadAttachmentsReady(threadID)
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+		activeID, draft := s.selectedThreadID, s.draft
+		existingToast := s.toastMessage
+		s.mu.Unlock()
+		plan := previewAnnotationSendDecision(true, threadID, activeID, draft, len(items), captureErr)
+		if !plan.shouldSend {
+			s.setToast(plan.toast)
+			return
+		}
+		if !activeThread || !ready {
+			if existingToast == "" {
+				s.setToast("标注已添加")
+			}
+			return
+		}
+		s.sendDraft(threadID, plan.draftText)
+		s.setToast(plan.toast)
 	}()
 }
 
@@ -583,7 +672,12 @@ func previewSendAnnotations(s *chatState, token previewPageToken) {
 func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapshot) {
 	items := append([]previewAnnotation(nil), snap.annotations...)
 	var removeID, hoveredPID uint64
-	clearItems, sendItems := false, false
+	clearItems := false
+	submit := func(send bool) {
+		if previewCommitAnnotationEdits(s, snap.token, items, 0, false) {
+			previewSubmitAnnotations(s, snap.token, send)
+		}
+	}
 	ui.Column(c.Key("preview-annotate-drawer")).
 		Transition(motionCollapse(c)).Height(previewAnnotateDrawerHeight).Shrink(0).
 		FillWidth().Background(ThemeWindowBg(c)).
@@ -592,22 +686,23 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 			Gap(Space2).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
 			ui.Text(c, fmt.Sprintf("标注 %d", len(items))).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c))
 			ui.Spacer(c)
-			sendBtn := ui.ButtonBase(c.Key("preview-annotate-send")).Label("添加到对话").Disabled(snap.annotSending).
-				Radius(RadiusXS).Padding(Space0, Space3)
-			scale := motionPressScale(c, sendBtn, "button-press-scale", sendBtn.Pressed())
-			sendBtn.Scale(scale, scale)
-			if sendBtn.Hovered() {
-				sendBtn.Background(ThemeHover(c))
-			}
-			if sendBtn.Clicked() && !snap.annotSending {
-				sendItems = true
-			}
-			sendBtn.Children(func() {
-				color := ThemeAccent(c)
-				if snap.annotSending {
-					color = ThemeSecondaryText(c)
-				}
-				ui.Text(c, "添加到对话").FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(color)
+			Button(c, ButtonOpts{
+				Key:      "preview-annotate-send",
+				Text:     "添加到对话",
+				Label:    "添加到对话",
+				Size:     ControlXS,
+				Variant:  ButtonSecondary,
+				Disabled: snap.annotSending,
+				OnClick:  func() { submit(false) },
+			})
+			Button(c, ButtonOpts{
+				Key:      "preview-annotate-send-now",
+				Text:     "发送",
+				Label:    "发送",
+				Size:     ControlXS,
+				Variant:  ButtonPrimary,
+				Disabled: snap.annotSending,
+				OnClick:  func() { submit(true) },
 			})
 			IconButton(c, IconButtonProps{Key: "preview-annotate-clear", Icon: IconTrash2(), Label: "清空", Tooltip: "清空所有标注", Size: ControlXS, Variant: ButtonGhost, Disabled: snap.annotSending, OnClick: func() { clearItems = true }})
 		})
@@ -655,9 +750,6 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 		return
 	}
 	previewHighlightAnnotation(s, snap.token, hoveredPID)
-	if sendItems {
-		previewSendAnnotations(s, snap.token)
-	}
 }
 
 // previewHighlightAnnotation 只在悬停编号改变时排队执行页面脚本。
