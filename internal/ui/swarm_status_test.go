@@ -124,6 +124,36 @@ func TestSemanticStatusColors(t *testing.T) {
 	tt.Frame()
 }
 
+// TestSwarmStatusAwaitingFinalize 验证待定稿状态映射、文案与提醒色，且不影响普通 completed。
+func TestSwarmStatusAwaitingFinalize(t *testing.T) {
+	awaiting := SwarmBee{Status: "completed", AwaitingFinalize: true}
+	if got := MapSwarmBeeStatus(awaiting); got != swarmStatusAwaitingFinalize {
+		t.Fatalf("MapSwarmBeeStatus(awaiting) = %q, want %q", got, swarmStatusAwaitingFinalize)
+	}
+	if got := swarmStatusLabel(swarmStatusAwaitingFinalize); got != "待定稿" {
+		t.Fatalf("swarmStatusLabel(%q) = %q, want 待定稿", swarmStatusAwaitingFinalize, got)
+	}
+	if got := normalizeSwarmStatus(swarmStatusAwaitingFinalize); got != swarmStatusAwaitingFinalize {
+		t.Fatalf("normalizeSwarmStatus(%q) = %q, want %q", swarmStatusAwaitingFinalize, got, swarmStatusAwaitingFinalize)
+	}
+
+	completed := SwarmBee{Status: "completed"}
+	if got := MapSwarmBeeStatus(completed); got != swarmStatusCompleted {
+		t.Fatalf("MapSwarmBeeStatus(completed) = %q, want %q", got, swarmStatusCompleted)
+	}
+	if got := swarmStatusLabel(MapSwarmBeeStatus(completed)); got != "已完成" {
+		t.Fatalf("swarmStatusLabel(completed) = %q, want 已完成", got)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		dot, col := swarmStatusTone(c, swarmStatusAwaitingFinalize)
+		if dot != StatusAttention || col != ThemeWarning(c) {
+			t.Errorf("swarmStatusTone(%q) = (%v, %v), want (%v, %v)", swarmStatusAwaitingFinalize, dot, col, StatusAttention, ThemeWarning(c))
+		}
+	}, 200, 200)
+	tt.Frame()
+}
+
 // TestSwarmReportStatusText 验证汇报条目匹配仍使用历史状态文案。
 func TestSwarmReportStatusText(t *testing.T) {
 	cases := map[string]string{

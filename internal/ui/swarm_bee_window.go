@@ -309,10 +309,7 @@ func beeStatusText(b SwarmBee, childRunning bool, background int) string {
 	if b.ReviewState == "running" {
 		return "审查中"
 	}
-	if MapSwarmBeeStatus(b) == swarmStatusWaitingReview {
-		return swarmStatusLabel(swarmStatusWaitingReview)
-	}
-	return swarmStatusLabel(b.Status)
+	return swarmStatusLabel(MapSwarmBeeStatus(b))
 }
 
 // beeWindowChildRunning 报告窗口自己的子会话里这个 bee 的会话是否仍在运行。

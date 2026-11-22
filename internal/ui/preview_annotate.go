@@ -41,6 +41,9 @@ const (
 
 type previewAnnotationOps struct{ sync.Mutex }
 
+// previewFinalizing 记录正在执行定稿请求的预览标签，由 previewMu 保护。
+var previewFinalizing = make(map[*browserTab]bool)
+
 // previewAnnotation 描述用户在内置浏览器里圈选的一个元素。
 // rect 在脚本里是嵌套对象，落到 Go 侧拆成 X/Y/W/H 便于直接格式化。
 type previewAnnotation struct {
@@ -607,22 +610,30 @@ func (s *chatState) sendToTargetThread(threadID, text string, attachmentIDs []st
 	return nil
 }
 
+// previewFeedbackLeadID 从当前窗口会话列表里查找 bee 所属的主会话 ID；找不到时返回空串。
+func (s *chatState) previewFeedbackLeadID(beeThreadID string) string {
+	beeID := strings.TrimSpace(beeThreadID)
+	if s == nil || beeID == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, th := range s.threads {
+		parentID := strings.TrimSpace(th.ParentThreadID)
+		if th.ID == beeID && parentID != "" && parentID != beeID {
+			return parentID
+		}
+	}
+	return ""
+}
+
 // revealPreviewFeedbackBee 在预览意见或标注直发到 bee 成功后，弹出其所属主会话的浮窗并选中该 bee。
 func (s *chatState) revealPreviewFeedbackBee(ownerThreadID, targetThreadID string) {
 	beeID := strings.TrimSpace(targetThreadID)
 	if s == nil || beeID == "" || beeID == strings.TrimSpace(ownerThreadID) {
 		return
 	}
-	s.mu.Lock()
-	var leadID string
-	for _, th := range s.threads {
-		parentID := strings.TrimSpace(th.ParentThreadID)
-		if th.ID == beeID && parentID != "" && parentID != beeID {
-			leadID = parentID
-			break
-		}
-	}
-	s.mu.Unlock()
+	leadID := s.previewFeedbackLeadID(beeID)
 	if leadID == "" {
 		return
 	}
@@ -651,7 +662,7 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 
 	previewMu.Lock()
 	st := previewStateForTokenLocked(s, token)
-	if st == nil || st.annotRevision != token.annotRevision || st.annotSending || st.feedbackSending {
+	if st == nil || st.annotRevision != token.annotRevision || st.annotSending || st.feedbackSending || previewFinalizing[st] {
 		previewMu.Unlock()
 		return
 	}
@@ -843,7 +854,7 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 
 	previewMu.Lock()
 	st := previewStateForTokenLocked(s, token)
-	if st == nil || st.feedbackSending || st.annotSending {
+	if st == nil || st.feedbackSending || st.annotSending || previewFinalizing[st] {
 		previewMu.Unlock()
 		return
 	}
@@ -897,11 +908,90 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	}()
 }
 
+// previewFeedbackBeeAwaitingFinalize 只读内存中的当前窗口编排状态，判断目标 bee 是否处于待定稿。
+func previewFeedbackBeeAwaitingFinalize(s *chatState, beeThreadID string) bool {
+	beeID := strings.TrimSpace(beeThreadID)
+	if s == nil || beeID == "" {
+		return false
+	}
+	view := swarmStateViewFor(s)
+	if view == nil {
+		return false
+	}
+	for _, h := range view.active {
+		if strings.TrimSpace(h.ThreadID) == beeID {
+			return h.AwaitingFinalize
+		}
+	}
+	return false
+}
+
+// previewFinalizeFeedback 通知后端对当前设计 bee 定稿并触发最终汇报；意见框已输入的文字保持不动。
+func previewFinalizeFeedback(s *chatState, token previewPageToken) {
+	if s == nil || s.client == nil {
+		return
+	}
+	s.mu.Lock()
+	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.feedbackSending || st.annotSending || previewFinalizing[st] {
+		previewMu.Unlock()
+		return
+	}
+	ownerThreadID := ""
+	if st.owner != nil {
+		ownerThreadID = strings.TrimSpace(st.owner.threadID)
+	}
+	if ownerThreadID == "" {
+		ownerThreadID = strings.TrimSpace(selectedID)
+	}
+	beeID := previewFeedbackThreadIDLocked(st, ownerThreadID)
+	previewMu.Unlock()
+	if beeID == "" {
+		return
+	}
+	leadID := s.previewFeedbackLeadID(beeID)
+	if leadID == "" {
+		return
+	}
+
+	previewMu.Lock()
+	st = previewStateForTokenLocked(s, token)
+	if st == nil || st.feedbackSending || st.annotSending || previewFinalizing[st] {
+		previewMu.Unlock()
+		return
+	}
+	previewFinalizing[st] = true
+	previewMu.Unlock()
+	s.invalidate()
+
+	go func() {
+		err := s.client.FinalizeDesignBee(context.Background(), leadID, beeID)
+		previewMu.Lock()
+		delete(previewFinalizing, st)
+		previewMu.Unlock()
+		if err != nil {
+			s.setToast(err.Error())
+		} else {
+			s.revealPreviewFeedbackBee(ownerThreadID, beeID)
+		}
+		s.invalidate()
+	}()
+}
+
 // renderPreviewFeedbackBar 在本地预览标签底部渲染单行意见输入栏与发送按钮。
 func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot) {
+	previewMu.Lock()
+	finalizing := previewFinalizing[snap.token.state]
+	previewMu.Unlock()
 	sending := snap.feedbackSending || snap.annotSending
+	busy := sending || finalizing
 	draft := snap.feedbackText
 	hasContent := strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
+	awaitingFinalize := previewFeedbackBeeAwaitingFinalize(s, snap.feedbackThreadID)
 	submit := func() {
 		previewSubmitFeedback(s, snap.token)
 	}
@@ -931,8 +1021,22 @@ func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot)
 				previewMu.Unlock()
 				hasContent = strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
 			}
-			if in.Submitted() && !sending && hasContent {
+			if in.Submitted() && !busy && hasContent {
 				submit()
+			}
+			if awaitingFinalize {
+				Button(c, ButtonOpts{
+					Key:      "preview-feedback-finalize",
+					Text:     "定稿",
+					Label:    "定稿",
+					Size:     ControlXS,
+					Variant:  ButtonSecondary,
+					Disabled: busy,
+					Loading:  finalizing,
+					OnClick: func() {
+						previewFinalizeFeedback(s, snap.token)
+					},
+				})
 			}
 			Button(c, ButtonOpts{
 				Key:      "preview-feedback-send",
@@ -940,7 +1044,7 @@ func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot)
 				Label:    "发送",
 				Size:     ControlXS,
 				Variant:  ButtonPrimary,
-				Disabled: sending || !hasContent,
+				Disabled: busy || !hasContent,
 				Loading:  sending,
 				OnClick:  submit,
 			})

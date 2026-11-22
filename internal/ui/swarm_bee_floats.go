@@ -1303,6 +1303,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 							row.Background(ThemeHover(c))
 						}
 						row.Children(func() {
+							beeStatus := MapSwarmBeeStatus(bee)
 							selectBtn := ui.ButtonBase(c.Key("swarm-menu-select-"+bee.ThreadID)).
 								Grow(1).
 								MinWidth(0).
@@ -1310,7 +1311,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 								Justify(ui.Start).
 								Radius(RadiusXS).
 								Padding(Space1, Space2).
-								Label("查看 " + bee.Name + "，状态：" + swarmStatusLabel(bee.Status)).
+								Label("查看 " + bee.Name + "，状态：" + swarmStatusLabel(beeStatus)).
 								Role(ui.RoleButton)
 							focusRing(c, selectBtn)
 							if selectBtn.Clicked() {
@@ -1331,14 +1332,14 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 											if bee.Tier != "" {
 												renderSwarmTierChip(c, "menu-tier-"+bee.ThreadID, swarmTierName(s, bee.Tier), bee.Tier, bee.ReadOnly)
 											}
-											statusColor := swarmStatusColor(c, bee.Status)
+											statusColor := swarmStatusColor(c, beeStatus)
 											ui.Row(c.Key("swarm-menu-status-"+bee.ThreadID)).
 												Shrink(0).
 												Padding(Space0, Space1).
 												Radius(RadiusXS).
 												Background(statusColor.Alpha(0.12)).
 												Children(func() {
-													ui.Text(c, swarmStatusLabel(bee.Status)).
+													ui.Text(c, swarmStatusLabel(beeStatus)).
 														FontSize(uiFont(TypeMicro)).
 														FontWeight(500).
 														TextColor(statusColor).

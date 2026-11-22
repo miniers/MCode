@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1450,5 +1451,141 @@ func TestPreviewFeedbackRevealsBeeFloat(t *testing.T) {
 			t.Fatalf("SendWithAttachments 调用次数 = %d, want 1", sent)
 		}
 		assertRevealed(t)
+	})
+}
+
+func TestPreviewFinalizeButton(t *testing.T) {
+	const leadID = "t1"
+	const beeID = "bee-1"
+
+	setup := func(t *testing.T, awaitingFinalize bool, status string) (*chatState, *inspectorContextClient, *browserTab) {
+		t.Helper()
+		setAppReduceMotion(t, true)
+		s, client := inspectorContextSetup(t)
+		s.mu.Lock()
+		s.threads = append(s.threads, Thread{ID: beeID, ProjectID: "p1", ParentThreadID: leadID})
+		s.mu.Unlock()
+
+		st := SwarmState{
+			LeadThreadID: leadID,
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{{
+				ThreadID:         beeID,
+				Name:             "DesignBee",
+				Status:           status,
+				AwaitingFinalize: awaitingFinalize,
+			}},
+		}
+		client.SetSwarmState(leadID, st)
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.loadedFor = leadID
+		hp.setStateLocked(st)
+		swarmPanelMu.Unlock()
+
+		tab := getPreviewState(s)
+		t.Cleanup(func() {
+			previewMu.Lock()
+			delete(previewFinalizing, tab)
+			previewMu.Unlock()
+			swarmPanelMu.Lock()
+			delete(swarmPanelStates, s)
+			swarmPanelMu.Unlock()
+			swarmFloatMu.Lock()
+			delete(swarmFloatPanelDismissed, leadID)
+			delete(swarmFloatDismissedBees, leadID)
+			delete(swarmSelectedBeeID, leadID)
+			delete(swarmBeeAutoHideHandled, leadID)
+			delete(swarmPulseTime, leadID+"|"+beeID)
+			swarmFloatMu.Unlock()
+		})
+
+		swarmFloatMu.Lock()
+		swarmFloatPanelDismissed[leadID] = true
+		swarmFloatDismissedBees[leadID] = map[string]bool{beeID: true}
+		delete(swarmSelectedBeeID, leadID)
+		swarmFloatMu.Unlock()
+
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = true
+		tab.previewThreadID = beeID
+		tab.feedbackText = "保留这段意见"
+		previewMu.Unlock()
+		return s, client, tab
+	}
+
+	t.Run("awaiting_finalize_shows_button_and_calls_api", func(t *testing.T) {
+		s, client, tab := setup(t, true, "completed")
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		finalizeBtn, ok := tester.AccessByRole(ui.RoleButton, "定稿")
+		if !ok || finalizeBtn.Disabled {
+			t.Fatalf("待定稿 bee 应显示可用「定稿」按钮: ok=%v disabled=%v", ok, finalizeBtn.Disabled)
+		}
+		sendBtn, ok := tester.AccessByRole(ui.RoleButton, "发送")
+		if !ok {
+			t.Fatal("未找到「发送」按钮")
+		}
+		if finalizeBtn.Bounds.X >= sendBtn.Bounds.X {
+			t.Fatalf("「定稿」应在「发送」左侧: finalize=%+v send=%+v", finalizeBtn.Bounds, sendBtn.Bounds)
+		}
+
+		tester.ClickAt(finalizeBtn.Bounds.X+finalizeBtn.Bounds.W/2, finalizeBtn.Bounds.Y+finalizeBtn.Bounds.H/2)
+
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			count := len(client.FinalizedBees)
+			client.mu.Unlock()
+			previewMu.Lock()
+			inFlight := previewFinalizing[tab]
+			previewMu.Unlock()
+			if count >= 1 && !inFlight {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+
+		client.mu.Lock()
+		finalized := append([]string(nil), client.FinalizedBees...)
+		client.mu.Unlock()
+		if len(finalized) != 1 || finalized[0] != beeID {
+			t.Fatalf("FinalizedBees = %v, want [%q]", finalized, beeID)
+		}
+		swarmSt, err := client.Swarm(context.Background(), leadID)
+		if err != nil || len(swarmSt.Bees) != 1 || swarmSt.Bees[0].AwaitingFinalize || swarmSt.Bees[0].Status != "running" {
+			t.Fatalf("定稿未命中对应 lead=%q bee=%q: st=%+v err=%v", leadID, beeID, swarmSt, err)
+		}
+
+		previewMu.Lock()
+		remText := tab.feedbackText
+		previewMu.Unlock()
+		if remText != "保留这段意见" {
+			t.Fatalf("定稿不应清空意见输入框, got=%q", remText)
+		}
+
+		swarmFloatMu.Lock()
+		panelDismissed := swarmFloatPanelDismissed[leadID]
+		beeDismissed := swarmFloatDismissedBees[leadID][beeID]
+		selected := swarmSelectedBeeID[leadID]
+		swarmFloatMu.Unlock()
+		if panelDismissed || beeDismissed || selected != beeID {
+			t.Fatalf("定稿后未弹出并选中 bee 浮窗: panelDismissed=%v beeDismissed=%v selected=%q", panelDismissed, beeDismissed, selected)
+		}
+	})
+
+	t.Run("running_bee_hides_finalize_button", func(t *testing.T) {
+		s, _, _ := setup(t, false, "running")
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if _, ok := tester.AccessByRole(ui.RoleButton, "定稿"); ok {
+			t.Fatal("非待定稿 bee 不应显示「定稿」按钮")
+		}
 	})
 }

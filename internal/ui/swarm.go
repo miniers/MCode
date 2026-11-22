@@ -1569,8 +1569,9 @@ func renderSwarmMergeReview(c *ui.Context, s *chatState, st SwarmState) {
 										TextColor(ThemeSecondaryText(c)).
 										Shrink(0)
 								default:
-									_, statusColor := swarmStatusTone(c, beeSnapshot.Status)
-									ui.Text(c, swarmStatusLabel(beeSnapshot.Status)).
+									beeStatus := MapSwarmBeeStatus(beeSnapshot)
+									_, statusColor := swarmStatusTone(c, beeStatus)
+									ui.Text(c, swarmStatusLabel(beeStatus)).
 										FontSize(uiFont(TypeFootnote)).
 										TextColor(statusColor).
 										Shrink(0)
@@ -2262,8 +2263,9 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 							}
 
 							// status label in status color
-							_, statusColor := swarmStatusTone(c, h.Status)
-							ui.Text(c, swarmStatusLabel(h.Status)).
+							beeStatus := MapSwarmBeeStatus(h)
+							_, statusColor := swarmStatusTone(c, beeStatus)
+							ui.Text(c, swarmStatusLabel(beeStatus)).
 								FontSize(uiFont(TypeFootnote)).
 								FontWeight(500).
 								TextColor(statusColor)

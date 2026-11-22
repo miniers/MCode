@@ -6,17 +6,18 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Swarm 子代理状态收敛为固定的 5 态：空闲、运行中、待审查、已完成、失败。
+// Swarm 子代理状态收敛为固定的 6 态：空闲、运行中、待审查、待定稿、已完成、失败。
 // 后端与旧文案的其余取值在归一化时映射进来，界面上不再出现其它状态。
 const (
-	swarmStatusIdle          = "idle"
-	swarmStatusRunning       = "running"
-	swarmStatusWaitingReview = "waiting_review"
-	swarmStatusCompleted     = "completed"
-	swarmStatusErrored       = "errored"
+	swarmStatusIdle             = "idle"
+	swarmStatusRunning          = "running"
+	swarmStatusWaitingReview    = "waiting_review"
+	swarmStatusAwaitingFinalize = "awaiting_finalize"
+	swarmStatusCompleted        = "completed"
+	swarmStatusErrored          = "errored"
 )
 
-// normalizeSwarmStatus 把后端状态或旧文案收敛到 5 态，无法识别的取值归一到 idle。
+// normalizeSwarmStatus 把后端状态或旧文案收敛到 6 态，无法识别的取值归一到 idle。
 // stopped 表示用户主动停止，既不算完成也不算失败，同样归入 idle。
 func normalizeSwarmStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
@@ -24,6 +25,8 @@ func normalizeSwarmStatus(status string) string {
 		return swarmStatusRunning
 	case swarmStatusWaitingReview, "needs_human":
 		return swarmStatusWaitingReview
+	case swarmStatusAwaitingFinalize:
+		return swarmStatusAwaitingFinalize
 	case swarmStatusCompleted, "complete", "succeeded", "success", "done":
 		return swarmStatusCompleted
 	case swarmStatusErrored, "failed", "error":
@@ -33,11 +36,14 @@ func normalizeSwarmStatus(status string) string {
 	}
 }
 
-// MapSwarmBeeStatus 在 MapBeeStatus 的基础上补充合并审查信息：
-// 等待用户审查合并的子代理归一到 waiting_review，其余仍按后端状态映射。
+// MapSwarmBeeStatus 在 MapBeeStatus 的基础上补充合并审查与待定稿信息：
+// 等待用户审查合并的子代理归一到 waiting_review，待定稿的归一到 awaiting_finalize，其余仍按后端状态映射。
 func MapSwarmBeeStatus(b SwarmBee) string {
 	if b.PendingMerge || strings.EqualFold(strings.TrimSpace(b.ReviewState), "needs_human") {
 		return swarmStatusWaitingReview
+	}
+	if b.AwaitingFinalize {
+		return swarmStatusAwaitingFinalize
 	}
 	return MapBeeStatus(b.Status, false)
 }
@@ -49,6 +55,8 @@ func swarmStatusLabel(status string) string {
 		return "运行中"
 	case swarmStatusWaitingReview:
 		return "待审查"
+	case swarmStatusAwaitingFinalize:
+		return "待定稿"
 	case swarmStatusCompleted:
 		return "已完成"
 	case swarmStatusErrored:
@@ -64,7 +72,7 @@ func swarmStatusTone(c *ui.Context, status string) (Status, ui.Color) {
 	switch normalizeSwarmStatus(status) {
 	case swarmStatusRunning:
 		return StatusRunning, semanticStatusColor(c, semanticAccent)
-	case swarmStatusWaitingReview:
+	case swarmStatusWaitingReview, swarmStatusAwaitingFinalize:
 		return StatusAttention, semanticStatusColor(c, semanticWarning)
 	case swarmStatusCompleted:
 		return StatusIdle, semanticStatusColor(c, semanticSuccess)

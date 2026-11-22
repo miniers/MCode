@@ -376,7 +376,7 @@ func swarmCapsuleName(h SwarmBee) string {
 
 // swarmCapsuleTitle 返回胶囊的主文案，如「Aspen 已完成」；名字缺失时用「子线程」。
 func swarmCapsuleTitle(h SwarmBee) string {
-	return swarmCapsuleName(h) + " " + swarmStatusLabel(h.Status)
+	return swarmCapsuleName(h) + " " + swarmStatusLabel(MapSwarmBeeStatus(h))
 }
 
 // swarmCapsuleElapsed 返回胶囊上的耗时文案：终态子线程取开始到结束，
@@ -555,11 +555,12 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 	if h.Tier != "" {
 		tierName = swarmTierName(s, h.Tier)
 	}
+	beeStatus := MapSwarmBeeStatus(h)
 	open, wasDismissed := renderSwarmCapsuleButton(c, key, swarmCapsuleView{
-		Label:        "子线程 " + swarmCapsuleName(h) + " " + swarmStatusLabel(h.Status),
+		Label:        "子线程 " + swarmCapsuleName(h) + " " + swarmStatusLabel(beeStatus),
 		Name:         swarmCapsuleName(h),
 		Text:         swarmCapsuleTitle(h),
-		StatusColor:  swarmStatusColor(c, h.Status),
+		StatusColor:  swarmStatusColor(c, beeStatus),
 		Tint:         swarmCapsuleTint(c, swarmReportStatusText(h.Status)),
 		TierName:     tierName,
 		TierColor:    swarmTierColor(c, h.Tier),
@@ -656,13 +657,14 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 								renderSwarmTierChip(c, "swarm-capsule-pop-tier-"+key, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
 							}
 						})
-					meta := swarmStatusLabel(h.Status)
+					beeStatus := MapSwarmBeeStatus(h)
+					meta := swarmStatusLabel(beeStatus)
 					if elapsed := swarmCapsuleElapsed(h); elapsed != "" {
 						meta += " · " + elapsed
 					}
 					ui.Text(c, meta).
 						FontSize(scaledFont(TypeCaption)).
-						TextColor(swarmStatusColor(c, h.Status)).
+						TextColor(swarmStatusColor(c, beeStatus)).
 						SingleLine()
 				})
 		})
