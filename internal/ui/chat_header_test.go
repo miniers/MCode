@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"mcode/internal/config"
+	"mcode/internal/git"
 	"mcode/internal/testenv"
 )
 
@@ -1829,5 +1830,235 @@ func TestUIReview2NoRedundantHeadersOrWorktreeSuffix(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("feat/ai-wt") })
 	if tt.HasText("AI Worktree") {
 		t.Fatalf("分支胶囊不应包含「AI Worktree」后缀，texts: %q", tt.Texts())
+	}
+}
+
+type headerPRFakeClient struct {
+	*FakeClient
+	prMu      sync.Mutex
+	pr        *git.PRSummary
+	prErr     error
+	prs       []git.PRSummary
+	detail    git.PRDetail
+	prForHook func(ctx context.Context, threadID string) (*git.PRSummary, error)
+}
+
+func (f *headerPRFakeClient) GitPRForBranch(ctx context.Context, threadID string) (*git.PRSummary, error) {
+	if f.prForHook != nil {
+		return f.prForHook(ctx, threadID)
+	}
+	f.prMu.Lock()
+	defer f.prMu.Unlock()
+	return f.pr, f.prErr
+}
+
+func (f *headerPRFakeClient) GitPRList(ctx context.Context, threadID string, limit int) ([]git.PRSummary, error) {
+	f.prMu.Lock()
+	defer f.prMu.Unlock()
+	return append([]git.PRSummary(nil), f.prs...), nil
+}
+
+func (f *headerPRFakeClient) GitPRDetail(ctx context.Context, threadID string, number int) (git.PRDetail, error) {
+	f.prMu.Lock()
+	defer f.prMu.Unlock()
+	return f.detail, nil
+}
+
+func newHeaderPRTestEnv(t *testing.T, branch, remoteURL string, pr *git.PRSummary, prErr error, hook func(context.Context, string) (*git.PRSummary, error)) (*headerPRFakeClient, *chatState, *ui.Tester) {
+	t.Helper()
+	testenv.TempHome(t)
+	stubTerminals(t)
+
+	base := newGitFakeClient()
+	base.gitState.Branch = branch
+	base.gitState.RemoteURL = remoteURL
+	base.gitState.Branches = []string{branch, "main"}
+	base.gitState.Worktrees = []GitWorktree{{Path: "/repo", Branch: branch, Current: true}}
+
+	fake := &headerPRFakeClient{
+		FakeClient: base,
+		pr:         pr,
+		prErr:      prErr,
+		prForHook:  hook,
+	}
+	if pr != nil {
+		fake.prs = []git.PRSummary{*pr}
+		fake.detail = git.PRDetail{PRSummary: *pr}
+	}
+
+	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeTerminals(s)
+		s.close()
+	})
+	setChatSettings(s, NewSettingsState(settingsTestDir(t), nil, s))
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{
+		ID:          "t1",
+		ProjectID:   "p1",
+		Title:       "头部 PR 验证会话",
+		RuntimeMode: "auto",
+	}}
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderChatHeader(c, s, "t1", ThreadUsage{}, 0)
+	}, 1000, 320)
+	return fake, s, tt
+}
+
+func TestChatHeaderPRChipOpenAndClick(t *testing.T) {
+	pr := &git.PRSummary{
+		Number:      128,
+		Title:       "头部 PR 标签",
+		State:       "open",
+		ChecksState: "success",
+		URL:         "https://github.com/org/repo/pull/128",
+	}
+	_, s, tt := newHeaderPRTestEnv(t, "feature/pr-chip", "https://github.com/org/repo", pr, nil, nil)
+
+	waitFor(t, tt, func() bool { return tt.HasText("#128") })
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("PR chip 动画结束后不应再请求下一帧")
+	}
+
+	if err := tt.Click("PR #128"); err != nil {
+		t.Fatalf("点击 PR chip 失败: %v", err)
+	}
+	st := getGitPRDialogState(s)
+	st.mu.Lock()
+	open, selected := st.open, st.selected
+	st.mu.Unlock()
+	if !open || selected != 128 {
+		t.Fatalf("点击 open PR chip 后弹窗状态 = (open=%v, selected=%d)，期望 (true, 128)", open, selected)
+	}
+}
+
+func TestChatHeaderPRChipNoPRCreateButton(t *testing.T) {
+	_, _, tt := newHeaderPRTestEnv(t, "feature/new-work", "https://github.com/org/repo", nil, nil, nil)
+
+	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("「创建 PR」按钮动画结束后不应再请求下一帧")
+	}
+}
+
+func TestChatHeaderPRChipHiddenOnMainNoRemoteAndError(t *testing.T) {
+	t.Run("main_branch", func(t *testing.T) {
+		_, s, tt := newHeaderPRTestEnv(t, "main", "https://github.com/org/repo", nil, nil, nil)
+		waitFor(t, tt, func() bool {
+			_, loaded := s.headerGitPR("t1")
+			return tt.HasText("main") && loaded
+		})
+		tt.Advance(time.Second)
+		tt.Frame()
+		if tt.HasText("创建 PR") {
+			t.Fatalf("main 分支不应显示「创建 PR」，texts=%q", tt.Texts())
+		}
+		if _, ok := tt.Find("PR #0"); ok {
+			t.Fatalf("main 分支不应显示 PR chip")
+		}
+		if tt.FramePending() {
+			t.Fatalf("main 分支静止后不应有待处理帧")
+		}
+	})
+
+	t.Run("no_remote", func(t *testing.T) {
+		_, s, tt := newHeaderPRTestEnv(t, "feature/no-remote", "", nil, nil, nil)
+		waitFor(t, tt, func() bool { return tt.HasText("feature/no-remote") })
+		tt.Advance(time.Second)
+		tt.Frame()
+		if tt.HasText("创建 PR") {
+			t.Fatalf("无 remote 时不应显示「创建 PR」，texts=%q", tt.Texts())
+		}
+		if _, loaded := s.headerGitPR("t1"); loaded {
+			t.Fatalf("无 remote 时不应缓存 PR 结果")
+		}
+		if tt.FramePending() {
+			t.Fatalf("无 remote 静止后不应有待处理帧")
+		}
+	})
+
+	t.Run("pr_error", func(t *testing.T) {
+		done := make(chan struct{})
+		var once sync.Once
+		_, s, tt := newHeaderPRTestEnv(t, "feature/err", "https://github.com/org/repo", nil, nil, func(context.Context, string) (*git.PRSummary, error) {
+			once.Do(func() { close(done) })
+			return nil, errors.New("gh 未安装")
+		})
+
+		waitFor(t, tt, func() bool { return tt.HasText("feature/err") })
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("GitPRForBranch 未被调用")
+		}
+		tt.Advance(time.Second)
+		tt.Frame()
+		if tt.HasText("创建 PR") {
+			t.Fatalf("GitPRForBranch 报错时不应显示「创建 PR」")
+		}
+		s.mu.Lock()
+		toast := s.toastMessage
+		s.mu.Unlock()
+		if toast != "" {
+			t.Fatalf("GitPRForBranch 报错不应弹 toast，got %q", toast)
+		}
+		if tt.FramePending() {
+			t.Fatalf("报错后静止时不应有待处理帧")
+		}
+	})
+}
+
+func TestChatHeaderPRChipStaleBranchDiscarded(t *testing.T) {
+	oldStarted := make(chan struct{})
+	releaseOld := make(chan struct{})
+	oldDone := make(chan struct{})
+	var callNum atomic.Int32
+	fake, s, tt := newHeaderPRTestEnv(t, "feature/old", "https://github.com/org/repo", nil, nil, func(context.Context, string) (*git.PRSummary, error) {
+		if callNum.Add(1) == 1 {
+			close(oldStarted)
+			<-releaseOld
+			defer close(oldDone)
+			return &git.PRSummary{Number: 101, Title: "旧分支 PR", State: "open"}, nil
+		}
+		return &git.PRSummary{Number: 202, Title: "新分支 PR", State: "open"}, nil
+	})
+
+	select {
+	case <-oldStarted:
+	case <-time.After(time.Second):
+		t.Fatal("首次 GitPRForBranch 未触发")
+	}
+
+	fake.mu.Lock()
+	fake.gitState.Branch = "feature/new"
+	fake.mu.Unlock()
+	s.loadGitState("t1")
+
+	waitFor(t, tt, func() bool { return tt.HasText("feature/new") && tt.HasText("#202") })
+
+	close(releaseOld)
+	select {
+	case <-oldDone:
+	case <-time.After(time.Second):
+		t.Fatal("旧分支请求未返回")
+	}
+
+	tt.Advance(time.Second)
+	tt.Frame()
+	if tt.HasText("#101") {
+		t.Fatalf("分支变化后过期 PR 结果 #101 应被丢弃，texts=%q", tt.Texts())
+	}
+	if !tt.HasText("#202") {
+		t.Fatalf("新分支 PR #202 应保留显示，texts=%q", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatalf("动画结束后不应再请求下一帧")
 	}
 }

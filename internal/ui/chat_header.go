@@ -14,7 +14,12 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/git"
 )
+
+type gitPRBranchClient interface {
+	GitPRForBranch(context.Context, string) (*git.PRSummary, error)
+}
 
 var (
 	chatHeaderMu     sync.Mutex
@@ -40,6 +45,7 @@ type chatHeaderState struct {
 	gitGeneration uint64
 	git           map[string]GitState
 	gitSeq        map[string]uint64
+	pr            map[string]*git.PRSummary
 
 	titleMenuOpen  bool
 	branchMenuOpen bool
@@ -89,6 +95,7 @@ func getChatHeaderState(s *chatState) *chatHeaderState {
 		st = &chatHeaderState{
 			git:              make(map[string]GitState),
 			gitSeq:           make(map[string]uint64),
+			pr:               make(map[string]*git.PRSummary),
 			scripts:          make(map[string][]Script),
 			scriptsSeq:       make(map[string]uint64),
 			scriptsFailures:  make(map[string]int),
@@ -371,7 +378,7 @@ func (s *chatState) setThreadTitle(id, title string) {
 
 // loadGitState 在后台拉取会话的 Git 状态并按 threadID 缓存；出错时移除缓存，不渲染胶囊。
 func (s *chatState) loadGitState(threadID string) {
-	if threadID == "" {
+	if s == nil || s.client == nil || threadID == "" {
 		return
 	}
 	hs := getChatHeaderState(s)
@@ -389,8 +396,42 @@ func (s *chatState) loadGitState(threadID string) {
 		}
 		if err != nil {
 			delete(hs.git, threadID)
+			delete(hs.pr, threadID)
+			chatHeaderMu.Unlock()
+			s.invalidate()
+			return
+		}
+		prev, hadPrev := hs.git[threadID]
+		branch := strings.TrimSpace(st.Branch)
+		remote := strings.TrimSpace(st.RemoteURL)
+		hs.git[threadID] = st
+		if !hadPrev || strings.TrimSpace(prev.Branch) != branch || st.Detached || branch == "" || remote == "" {
+			delete(hs.pr, threadID)
+		}
+		prClient, hasPRClient := s.client.(gitPRBranchClient)
+		if !hasPRClient {
+			delete(hs.pr, threadID)
+		}
+		chatHeaderMu.Unlock()
+		s.invalidate()
+
+		if !hasPRClient || st.Detached || branch == "" || remote == "" {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		pr, prErr := prClient.GitPRForBranch(ctx, threadID)
+		chatHeaderMu.Lock()
+		cur, ok := hs.git[threadID]
+		if hs.gitSeq[threadID] != seq || !ok || cur.Detached || strings.TrimSpace(cur.Branch) != branch || strings.TrimSpace(cur.RemoteURL) == "" {
+			chatHeaderMu.Unlock()
+			return
+		}
+		if prErr != nil {
+			delete(hs.pr, threadID)
 		} else {
-			hs.git[threadID] = st
+			hs.pr[threadID] = pr
 		}
 		chatHeaderMu.Unlock()
 		s.invalidate()
@@ -591,6 +632,7 @@ func renderChatHeaderGit(c *ui.Context, s *chatState, threadID string) {
 		return
 	}
 	renderGitBranchCapsule(c, s, hs, threadID, st)
+	renderGitPRHeaderChip(c, s, hs, threadID, st)
 }
 
 // headerGitState 返回指定会话缓存的 Git 状态；尚未加载时返回零值。
@@ -599,6 +641,15 @@ func (s *chatState) headerGitState(threadID string) GitState {
 	chatHeaderMu.Lock()
 	defer chatHeaderMu.Unlock()
 	return hs.git[threadID]
+}
+
+// headerGitPR 返回指定会话缓存的当前分支 PR；loaded 为 false 表示尚未加载或加载出错。
+func (s *chatState) headerGitPR(threadID string) (*git.PRSummary, bool) {
+	hs := getChatHeaderState(s)
+	chatHeaderMu.Lock()
+	defer chatHeaderMu.Unlock()
+	pr, ok := hs.pr[threadID]
+	return pr, ok
 }
 
 // headerProjectDir 返回指定会话的项目工作目录：优先用 Git 状态里的 WorkDir（Git 会话切换
@@ -941,6 +992,107 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 							})
 					})
 			}))
+	})
+}
+
+// renderGitPRHeaderChip 在分支胶囊右侧渲染当前分支的 PR 状态标签或「创建 PR」按钮。
+func renderGitPRHeaderChip(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState) {
+	if s == nil || s.client == nil || threadID == "" {
+		return
+	}
+	if _, ok := s.client.(gitPRBranchClient); !ok {
+		return
+	}
+	branch := strings.TrimSpace(st.Branch)
+	if st.Detached || branch == "" || strings.TrimSpace(st.RemoteURL) == "" {
+		return
+	}
+	pr, loaded := s.headerGitPR(threadID)
+	if !loaded {
+		return
+	}
+	if pr == nil {
+		// shortcut: GitState 没有默认分支字段，按常见名判断；有该字段后改用它
+		if branch == "main" || branch == "master" {
+			return
+		}
+		Button(c, ButtonOpts{
+			Key:     "chat-header-pr-create-btn",
+			Text:    "创建 PR",
+			Icon:    IconGitPullRequestCreate(),
+			Variant: ButtonGhost,
+			Size:    ControlSM,
+			OnClick: func() {
+				openGitPRCreateDialog(s, threadID)
+			},
+		})
+		return
+	}
+
+	numText := fmt.Sprintf("#%d", pr.Number)
+	chip := ui.ButtonBase(c.Key("chat-header-pr-chip")).
+		Label("PR "+numText).
+		Height(ControlSM).
+		Padding(0, Space3).
+		Radius(RadiusPill).
+		Gap(Space2).
+		AlignItems(ui.Center).
+		Border(Hairline, ThemeBorder(c)).
+		Background(ThemeOverlay(c, OverlaySubtle)).
+		Transition(motionFeedback(c)).
+		OnClick(func() {
+			hs.titleMenuOpen = false
+			hs.branchMenuOpen = false
+			hs.commitMenuOpen = false
+			if strings.EqualFold(strings.TrimSpace(pr.State), "open") {
+				s.openGitPRDialog()
+				s.selectGitPR(pr.Number)
+				return
+			}
+			if u := strings.TrimSpace(pr.URL); u != "" {
+				c.OpenURL(u)
+			}
+		})
+	if title := strings.TrimSpace(pr.Title); title != "" {
+		chip.Tooltip(title)
+	}
+	scale := motionPressScale(c, chip, "button-press-scale", chip.Pressed())
+	chip.Scale(scale, scale)
+	if chip.Hovered() {
+		chip.Background(ThemeHover(c))
+	}
+	focusRing(c, chip)
+
+	state := strings.ToLower(strings.TrimSpace(pr.State))
+	dotColor := ThemeSecondaryText(c)
+	switch {
+	case state == "merged":
+		dotColor = ThemePlan(c)
+	case pr.IsDraft || state == "closed" || state == "locked":
+		dotColor = ThemeSecondaryText(c)
+	case state == "open" || state == "opened":
+		dotColor = ThemeSuccess(c)
+	}
+
+	chip.Children(func() {
+		ui.Box(c.Key("chat-header-pr-dot")).
+			Size(Space2, Space2).
+			Radius(RadiusPill).
+			Background(dotColor).
+			Shrink(0)
+		ui.Text(c, numText).
+			FontSize(uiFont(TypeFootnote)).
+			FontWeight(500).
+			TextColor(ThemePrimaryText(c)).
+			SingleLine()
+		switch strings.ToLower(strings.TrimSpace(pr.ChecksState)) {
+		case "success":
+			ui.Icon(c, IconCircleCheck()).Size(IconSM, IconSM).TextColor(ThemeSuccess(c))
+		case "failure":
+			ui.Icon(c, IconCircleX()).Size(IconSM, IconSM).TextColor(ThemeDanger(c))
+		case "pending":
+			ui.Icon(c, IconClock()).Size(IconSM, IconSM).TextColor(ThemeWarning(c))
+		}
 	})
 }
 
@@ -1811,6 +1963,7 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 								renderHeaderPermissionCapsule(c, s, selectedID)
 								if gitOK {
 									renderGitBranchCapsule(c, s, gitHS, selectedID, gitST)
+									renderGitPRHeaderChip(c, s, gitHS, selectedID, gitST)
 								}
 							})
 							renderChatHeaderAuxGroup(c, s)

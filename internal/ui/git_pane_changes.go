@@ -395,6 +395,7 @@ func renderGitCommitComposer(c *ui.Context, s *chatState, threadID string, ps *g
 					err := s.client.GitPush(ctx, threadID)
 					if err == nil {
 						s.setToast("已推送")
+						s.loadGitState(threadID)
 					}
 					return err
 				}

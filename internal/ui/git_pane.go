@@ -530,6 +530,9 @@ func (ps *gitPaneState) run(action string) {
 			}
 		case "push":
 			err = ps.owner.client.GitPush(ctx, ps.threadID)
+			if err == nil {
+				ps.owner.loadGitState(ps.threadID)
+			}
 			toast = "已推送"
 			if state.Branch != "" {
 				toast += "到 " + state.Branch
