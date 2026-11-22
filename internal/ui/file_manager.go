@@ -550,39 +550,28 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			})
 		}
 
-		// 「更多操作」按钮：悬停时出现，菜单打开期间继续渲染。菜单在按下时打开并拿走
-		// 这次抬起，选中项只交给下一帧仍在构建的这个按钮；指针移进菜单后行失去悬停，
-		// 按钮被卸掉则选择无处交付。行不能设为可聚焦，否则会抢走文件树的键盘焦点。
-		if rowHovered || s.fileMenuRowKey == props.key {
-			more := ui.ButtonBase(c.Key(props.key+"-more")).
-				Label("更多操作").
-				Tooltip("更多操作").
-				Radius(RadiusXS).
-				Padding(Hairline, Space1).
-				Cursor(ui.CursorPointer)
-			moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
-			more.Scale(moreScale, moreScale)
-			if more.Hovered() {
-				more.Background(ThemeSelected(c))
-			}
-			if more.Pressed() {
-				morePressed = true
-			}
-			more.Menu(func(m *ui.Menu) {
-				s.mu.Lock()
-				if s.fileMenuRowKey != props.key {
-					s.fileMenuRowKey = props.key
-					c.Invalidate()
-				}
-				s.mu.Unlock()
-				fileManagerEntryMenu(c, s, props.threadID, props.entry)(m)
-			})
-			more.Children(func() {
-				ui.Icon(c, IconMoreHorizontal()).
-					Size(IconSM, IconSM).
-					TextColor(ThemeSecondaryText(c))
-			})
+		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，所以常驻构建并用 Hidden 隐藏。
+		more := ui.ButtonBase(c.Key(props.key+"-more")).
+			Label("更多操作").
+			Tooltip("更多操作").
+			Hidden(!rowHovered).
+			Radius(RadiusXS).
+			Padding(Hairline, Space1).
+			Cursor(ui.CursorPointer)
+		moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
+		more.Scale(moreScale, moreScale)
+		if more.Hovered() {
+			more.Background(ThemeSelected(c))
 		}
+		if more.Pressed() {
+			morePressed = true
+		}
+		more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
+		more.Children(func() {
+			ui.Icon(c, IconMoreHorizontal()).
+				Size(IconSM, IconSM).
+				TextColor(ThemeSecondaryText(c))
+		})
 
 		if !props.protected && !mentionClicked && !morePressed && props.onOpen != nil {
 			// 双击固定预览，单击只开临时 tab；双击先于 Clicked 拦下。

@@ -636,11 +636,6 @@ type chatState struct {
 	// pendingActions 是菜单派发的待执行动作队列，由根视图下一帧出队执行（受 s.mu 保护）。
 	pendingActions []pendingMenuAction
 
-	// fileMenuRowKey 是文件行「更多操作」菜单打开期间钉住按钮的行 key（受 s.mu 保护）。
-	// 菜单选中项只交给下一帧仍在构建的那个按钮，而按钮平时只在行悬停时渲染；指针移进
-	// 菜单后行失去悬停，不钉住则按钮被卸掉，选择无处交付。
-	fileMenuRowKey string
-
 	// attentionInbox 是侧栏「待处理」收件箱的数量、列表与订阅状态，懒创建（受 s.mu 保护）。
 	attentionInbox *attentionInboxState
 }

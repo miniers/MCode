@@ -55,17 +55,6 @@ func rowPinned(state *chatState, id string) bool {
 	return false
 }
 
-// TestRowMenuButtonTakesFocus 点击「更多操作」后焦点必须落到该按钮上：
-// 会话行若用 KeepFocus 拦截，焦点留在原处，指针移进菜单时按钮随悬停消失，
-// 菜单选中项无处交付。
-func TestRowMenuButtonTakesFocus(t *testing.T) {
-	_, tt := rowMenuRoot(t)
-	openRowMenu(t, tt, "会话一")
-	if !tt.Focused("更多操作") {
-		t.Fatal("点击更多操作后焦点没有落到按钮上")
-	}
-}
-
 // TestRowMenuChoiceAfterPointerLeaves 指针移到菜单上（行失去悬停）再选菜单项，
 // 选择必须作用到打开菜单时的那条会话。
 func TestRowMenuChoiceAfterPointerLeaves(t *testing.T) {
@@ -140,9 +129,8 @@ func TestRowMenuDeleteClosesPinning(t *testing.T) {
 	}
 }
 
-// TestRowMenuButtonKeepsNoFocus 「...」打开菜单后，焦点必须在该按钮上。
-// 会话行带 KeepFocus，点击行内按钮时焦点留在原处；指针移进菜单后行失去悬停，
-// 按钮随行卸载，选中项没有按钮可交付。
+// TestRowMenuButtonKeepsNoFocus 会话行带 KeepFocus，点开「更多操作」菜单后，
+// 焦点留在原处，不落到「更多操作」按钮上。
 func TestRowMenuButtonKeepsNoFocus(t *testing.T) {
 	_, tt := rowMenuRoot(t)
 	openRowMenu(t, tt, "会话一")
@@ -152,7 +140,74 @@ func TestRowMenuButtonKeepsNoFocus(t *testing.T) {
 			buttonFocused = true
 		}
 	}
-	if !buttonFocused {
-		t.Fatal("更多操作按钮打开菜单后没有焦点")
+	if buttonFocused {
+		t.Fatal("点击更多操作后焦点不应落到按钮上")
+	}
+}
+
+// TestRowMenuRowClickKeepsComposerFocus 输入框聚焦时点击另一条有消息的会话行，
+// 焦点不得从输入框移到会话行上。
+func TestRowMenuRowClickKeepsComposerFocus(t *testing.T) {
+	fake := NewFakeClient()
+	now := time.Now()
+	fake.threads["p1"] = []Thread{
+		{ID: "t1", ProjectID: "p1", Title: "会话一", UpdatedAt: now},
+		{ID: "t2", ProjectID: "p1", Title: "会话二", UpdatedAt: now.Add(-time.Minute)},
+	}
+	fake.messages["t1"] = []Message{
+		{ID: "m1", Role: "user", Kind: "text", Text: "第一条", IsFinal: true, TurnIndex: 1},
+	}
+	fake.messages["t2"] = []Message{
+		{ID: "m2", Role: "user", Kind: "text", Text: "第二条", IsFinal: true, TurnIndex: 1},
+	}
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool {
+		if !tt.HasText("会话一") {
+			return false
+		}
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.composerFocused
+	})
+
+	row2, ok := tt.Find("打开会话 会话二")
+	if !ok {
+		t.Fatal("找不到会话二")
+	}
+	tt.ClickAt(row2.X+row2.W/2, row2.Y+row2.H/2)
+	tt.Frame()
+	waitFor(t, tt, func() bool {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.selectedThreadID == "t2"
+	})
+
+	if tt.Focused("打开会话 会话二") {
+		t.Fatal("点击会话行后焦点不应落到会话行上")
+	}
+	state.mu.Lock()
+	composerFocused := state.composerFocused
+	state.mu.Unlock()
+	if !composerFocused {
+		t.Fatal("点击有消息的会话行后聊天输入框应保持焦点")
+	}
+}
+
+// TestRowMenuActionsHideAfterRowClick 点击会话行并把指针移出该行后，
+// 行尾「更多操作」按钮必须隐藏。
+func TestRowMenuActionsHideAfterRowClick(t *testing.T) {
+	_, tt := rowMenuRoot(t)
+	row, ok := tt.Find("打开会话 会话一")
+	if !ok {
+		t.Fatal("找不到会话一")
+	}
+	tt.ClickAt(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
+	tt.Move(row.X+row.W+200, row.Y+row.H+200)
+	tt.Frame()
+	if _, ok := tt.Find("更多操作"); ok {
+		t.Fatal("点击会话行并移出指针后更多操作按钮仍可见")
 	}
 }

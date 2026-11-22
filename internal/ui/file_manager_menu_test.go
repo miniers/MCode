@@ -31,14 +31,17 @@ func TestFileManagerEntryMenuCopyRelativePath(t *testing.T) {
 	if err := tt.RightClick("a.txt"); err != nil {
 		t.Fatalf("right click file row failed: %v", err)
 	}
-	wantItems := []string{
-		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
-		revealInFileManagerLabel(), "在外部编辑器打开", "用默认应用打开",
-	}
+	wantItems := []string{"打开", "在右侧分栏打开"}
 	if runtime.GOOS == "darwin" {
 		wantItems = append(wantItems, "快速查看")
 	}
-	wantItems = append(wantItems, "-", "重命名…", "复制一份", "从 Git 中忽略", trashActionLabel()+"…")
+	wantItems = append(wantItems,
+		"-", "在外部编辑器打开", "用默认应用打开", revealInFileManagerLabel(),
+		"-", "引用到输入框", "复制路径", "复制相对路径",
+		"-", "文件历史", "逐行追溯", "从 Git 中忽略",
+		"-", "重命名…", "复制一份",
+		"-", trashActionLabel()+"…",
+	)
 	want := fmt.Sprint(wantItems)
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("文件菜单应等于 %s，得到 %s", want, got)
@@ -265,7 +268,9 @@ func TestFileManagerProtectedEntryHidesWriteItems(t *testing.T) {
 		t.Fatalf("right click protected row failed: %v", err)
 	}
 	want := fmt.Sprint([]string{
-		"打开", "在右侧分栏打开", "文件历史", "逐行追溯", "引用到输入框", "复制路径", "复制相对路径",
+		"打开", "在右侧分栏打开",
+		"-", "引用到输入框", "复制路径", "复制相对路径",
+		"-", "文件历史", "逐行追溯",
 	})
 	if got := fmt.Sprint(tt.Menu()); got != want {
 		t.Fatalf("受保护条目的菜单应等于 %s，得到 %s", want, got)
@@ -414,8 +419,8 @@ func TestFileManagerEntryMenuIgnoreInGit(t *testing.T) {
 	tt.CloseMenu()
 }
 
-// 行尾「更多操作」打开的菜单在指针离开行后仍然生效：菜单按钮只在行悬停时渲染，
-// 而选中项只交给下一帧仍在构建的那个按钮。
+// 行尾「更多操作」打开的菜单在指针离开行后仍然生效：按钮常驻构建并用 Hidden 控制显隐，
+// 菜单选中项可以正常交给下一帧仍在构建的这个按钮。
 func TestFileManagerMoreMenuChoiceAfterPointerLeaves(t *testing.T) {
 	_, _, tt := openFileManagerForTest(t)
 	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
@@ -442,10 +447,124 @@ func TestFileManagerMoreMenuChoiceAfterPointerLeaves(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return tt.Clipboard() == "a.txt" })
 
-	// 选择完成后钉子解除：指针不在任何文件行上时不再显示按钮。
+	// 指针移出所有文件行后按钮自动隐藏。
 	tt.Move(5, 5)
 	tt.Frame()
 	if _, ok := tt.Find("更多操作"); ok {
 		t.Fatal("菜单关闭后仍显示更多操作按钮")
+	}
+}
+
+// 打开「更多操作」菜单后不选任何项直接关闭，指针移出行后按钮应自动隐藏。
+func TestFileManagerMoreMenuCancelHidesButton(t *testing.T) {
+	_, _, tt := openFileManagerForTest(t)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	row, ok := tt.Find("a.txt")
+	if !ok {
+		t.Fatal("找不到文件行 a.txt")
+	}
+	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
+	btn, ok := tt.Find("更多操作")
+	if !ok {
+		t.Fatal("悬停文件行后没有更多操作按钮")
+	}
+	tt.ClickAt(btn.X+btn.W/2, btn.Y+btn.H/2)
+	tt.Frame()
+	if tt.Menu() == nil {
+		t.Fatal("更多操作菜单没有打开")
+	}
+
+	tt.CloseMenu()
+	if tt.Menu() != nil {
+		t.Fatal("关闭菜单后菜单仍未关闭")
+	}
+	tt.Move(5, 5)
+	tt.Frame()
+	if _, ok := tt.Find("更多操作"); ok {
+		t.Fatal("取消菜单且指针移出行后仍可命中更多操作按钮")
+	}
+}
+
+// 本地 Git 仓库中文件、目录、不可编辑条目三类行的菜单分组顺序与分隔线均正确，无多余分隔线。
+func TestFileManagerEntryMenuGroups(t *testing.T) {
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write a.txt failed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir sub failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "secret.env"), []byte("SECRET=1"), 0o644); err != nil {
+		t.Fatalf("write secret.env failed: %v", err)
+	}
+
+	fake, _, tt := openFileManagerForTest(t)
+	fake.SetThreadWorkDir(workDir)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") && tt.HasText("sub") && tt.HasText("secret.env") })
+
+	fileOpen := []string{"打开", "在右侧分栏打开"}
+	if runtime.GOOS == "darwin" {
+		fileOpen = append(fileOpen, "快速查看")
+	}
+
+	fileWant := append([]string{}, fileOpen...)
+	fileWant = append(fileWant,
+		"-", "在外部编辑器打开", "用默认应用打开", revealInFileManagerLabel(),
+		"-", "引用到输入框", "复制路径", "复制相对路径",
+		"-", "文件历史", "逐行追溯", "从 Git 中忽略",
+		"-", "重命名…", "复制一份",
+		"-", trashActionLabel()+"…",
+	)
+
+	dirWant := []string{
+		"打开",
+		"-", revealInFileManagerLabel(),
+		"-", "引用到输入框", "复制路径", "复制相对路径",
+		"-", "从 Git 中忽略",
+		"-", "在此新建文件…", "在此新建文件夹…", "重命名…",
+		"-", trashActionLabel() + "…",
+	}
+
+	protectedWant := append([]string{}, fileOpen...)
+	protectedWant = append(protectedWant,
+		"-", "在外部编辑器打开", "用默认应用打开", revealInFileManagerLabel(),
+		"-", "引用到输入框", "复制路径", "复制相对路径",
+		"-", "文件历史", "逐行追溯",
+	)
+
+	cases := []struct {
+		name  string
+		label string
+		want  []string
+	}{
+		{name: "file", label: "a.txt", want: fileWant},
+		{name: "dir", label: "sub", want: dirWant},
+		{name: "protected", label: "secret.env", want: protectedWant},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tt.RightClick(tc.label); err != nil {
+				t.Fatalf("right click %s failed: %v", tc.label, err)
+			}
+			got := tt.Menu()
+			tt.CloseMenu()
+			if len(got) == 0 {
+				t.Fatalf("%s 菜单为空", tc.name)
+			}
+			if got[0] == "-" || got[len(got)-1] == "-" {
+				t.Fatalf("%s 菜单不应以分隔线开头或结尾: %v", tc.name, got)
+			}
+			for i := 1; i < len(got); i++ {
+				if got[i] == "-" && got[i-1] == "-" {
+					t.Fatalf("%s 菜单出现连续分隔线: %v", tc.name, got)
+				}
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("%s 菜单 = %v，期望 %v", tc.name, got, tc.want)
+			}
+		})
 	}
 }
