@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
-	"strings"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -658,7 +658,7 @@ func TestHeaderOpenInSkipsAppStatWhileClosed(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, s)
 	st.cfg.Workbench.OpenInApps = []config.OpenInAppConfig{{Name: "Cursor", AppPath: "/Applications/Cursor.app", Enabled: true}}
 	setChatSettings(s, st)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
 	origStat := openInStatFn
@@ -693,7 +693,7 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, s)
 	st.cfg.Workbench.OpenInApps = []config.OpenInAppConfig{{Name: "Cursor", AppPath: "/Applications/Cursor.app", Enabled: true}}
 	setChatSettings(s, st)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
 	origRunner := openInRunner
@@ -759,61 +759,6 @@ func TestChatHeaderOpenInMenu(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("已复制路径") })
 }
 
-// 权限圆钮：Label 为「档位 · 说明」，菜单单行只显示勾选列、档位图标与标题；
-// 选「监督」后调用设置函数并持久化，圆钮 Label 随之更新。
-func TestChatHeaderPermissionSwitch(t *testing.T) {
-	testenv.TempHome(t)
-
-	fake := NewFakeClient()
-	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	const initialLabel = "自动 · 改文件和只读命令不询问"
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find(initialLabel)
-		return ok
-	})
-
-	const summary = "改文件和只读命令不询问"
-	initialSummaryCount := strings.Count(strings.Join(tt.Texts(), "\n"), summary)
-	if err := tt.Click(initialLabel); err != nil {
-		t.Fatalf("click permission capsule failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("权限") })
-	// 单行菜单：不显示说明行
-	if strings.Count(strings.Join(tt.Texts(), "\n"), summary) > initialSummaryCount {
-		t.Fatalf("权限菜单不应显示说明行: %q", tt.Texts())
-	}
-	for _, title := range []string{"监督", "自动", "完全访问"} {
-		if !tt.HasText(title) {
-			t.Fatalf("权限菜单缺少档位 %q: %q", title, tt.Texts())
-		}
-	}
-
-	if err := tt.Click("监督"); err != nil {
-		t.Fatalf("click 监督 failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		tid, mode := lastRuntimeModeCall(fake)
-		return tid == "t1" && mode == "supervised"
-	})
-	// 持久化到本地会话列表
-	waitFor(t, tt, func() bool {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		for _, th := range s.threads {
-			if th.ID == "t1" {
-				return th.RuntimeMode == "supervised"
-			}
-		}
-		return false
-	})
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("监督 · 询问后再执行命令和改文件")
-		return ok
-	})
-}
-
 // 会话总 token 不再出现在标题栏（改为时间线底部的 session usage 行）。
 func TestChatHeaderOmitsSessionTokenTotal(t *testing.T) {
 	fake := NewFakeClient()
@@ -834,7 +779,7 @@ func TestChatHeaderScriptsMenu(t *testing.T) {
 
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("运行项目脚本")
@@ -930,7 +875,7 @@ func TestChatHeaderScriptsMenuScroll(t *testing.T) {
 	fake.SetScripts(scripts)
 
 	s, root := buildRoot(fake)
-	tt := ui.NewTesterWith(root, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	tt := ui.NewTesterWith(root, 1200, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("运行项目脚本")
@@ -982,60 +927,33 @@ func TestChatHeaderScriptsMenuScroll(t *testing.T) {
 	}
 }
 
-// 项目动作组的分隔线只在两组都非空且相邻时出现：只有 Git 一组时不画线。
-// 规则本身集中在 headerRenderDividerBetween 的渲染计数里，这里直接校验计数逻辑。
+// 右侧动作按钮不再套胶囊底板和分隔线：有项目工作目录时直接平铺显示「在其它应用中打开」与「运行项目脚本」，
+// 没有工作目录时两个按钮都隐藏。
 func TestChatHeaderActionGroupDivider(t *testing.T) {
 	testenv.TempHome(t)
 
-	// 按 headerRenderDividerBetween 的规则计算：分隔线数 = 非空分组数 - 1，且只在相邻的两个非空组之间。
-	dividerCount := func(visible []bool) (order []string, divs int) {
-		for i, v := range visible {
-			if !v {
-				continue
-			}
-			if len(order) > 0 {
-				divs++
-			}
-			order = append(order, string(rune('a'+i)))
-		}
-		return order, divs
-	}
-
-	for _, tt := range []struct {
-		name    string
-		visible []bool
-		order   []string
-		divs    int
-	}{
-		{"全部非空", []bool{true, true, true}, []string{"a", "b", "c"}, 2},
-		{"只有 Git 一组", []bool{false, false, true}, []string{"c"}, 0},
-		{"只有打开方式", []bool{true, false, false}, []string{"a"}, 0},
-		{"首组为空", []bool{false, true, true}, []string{"b", "c"}, 1},
-		{"末组为空", []bool{true, true, false}, []string{"a", "b"}, 1},
-		{"全部为空", []bool{false, false, false}, nil, 0},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			order, divs := dividerCount(tt.visible)
-			if !reflect.DeepEqual(order, tt.order) || divs != tt.divs {
-				t.Fatalf("order=%v divs=%d, want %v/%d", order, divs, tt.order, tt.divs)
-			}
-		})
-	}
-
-	// 端到端：Git 仓库一定有工作目录，打开方式与执行命令按钮都出现；
-	// 没有工作目录（ThreadWorkDir 也为空）时不显示。
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("在其它应用中打开")
 		return ok
 	})
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("运行项目脚本")
-		return ok
-	})
+	openInRect, ok := tt.Find("在其它应用中打开")
+	if !ok {
+		t.Fatal("缺少「在其它应用中打开」按钮")
+	}
+	scriptsRect, ok := tt.Find("运行项目脚本")
+	if !ok {
+		t.Fatal("缺少「运行项目脚本」按钮")
+	}
+	if openInRect.W != ControlMD || openInRect.H != ControlMD {
+		t.Fatalf("「在其它应用中打开」尺寸 = %v×%v，期望 %v×%v", openInRect.W, openInRect.H, ControlMD, ControlMD)
+	}
+	if scriptsRect.W != ControlMD || scriptsRect.H != ControlMD {
+		t.Fatalf("「运行项目脚本」尺寸 = %v×%v，期望 %v×%v", scriptsRect.W, scriptsRect.H, ControlMD, ControlMD)
+	}
 	if !s.headerScriptsButtonVisible("t1") {
 		t.Fatal("有项目工作目录时应显示执行命令按钮")
 	}
@@ -1050,7 +968,7 @@ func TestChatHeaderNonGitProjectKeepsOpenInAndScripts(t *testing.T) {
 	fake := NewFakeClient()
 	fake.SetThreadWorkDir("/path/to/test")
 	_, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("在其它应用中打开")
 		return ok
@@ -1480,13 +1398,16 @@ func TestHeaderCollapseLevelBoundary(t *testing.T) {
 	if got := headerCollapseLevel(760); got != 0 {
 		t.Errorf("760 宽度的收起级别 = %d，期望 0", got)
 	}
-	if got := headerCollapseLevel(759); got == 0 {
-		t.Error("759 宽度应收起头部控件")
+	if got := headerCollapseLevel(759); got != 1 {
+		t.Errorf("759 宽度的收起级别 = %d，期望 1", got)
+	}
+	if got := headerCollapseLevel(559); got != 2 {
+		t.Errorf("559 宽度的收起级别 = %d，期望 2", got)
 	}
 }
 
-// TestChatHeaderLeftClusterOrder 验证头部左右布局：编排、权限、分支胶囊依次排在标题左侧，
-// 右侧是两个胶囊组（动作组、辅助面板组）。
+// TestChatHeaderLeftClusterOrder 验证头部左右布局：编排与分支胶囊依次排在标题左侧，
+// 右侧顺序为外部打开、运行脚本、终端、右栏、更多，均统一为 ControlMD Ghost 按钮且无胶囊底板。
 func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	testenv.TempHome(t)
 	stubTerminals(t)
@@ -1495,7 +1416,7 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	t.Cleanup(func() { closeTerminals(s) })
 	tt := ui.NewTester(root, 1400, 700)
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find(headerPermissionCapsuleLabel)
+		_, ok := tt.Find("在其它应用中打开")
 		return ok && tt.HasText("feature/login")
 	})
 
@@ -1503,60 +1424,67 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("头部缺少编排按钮")
 	}
-	perm, ok := tt.Find(headerPermissionCapsuleLabel)
-	if !ok {
-		t.Fatal("头部缺少权限胶囊")
-	}
 	branch, ok := tt.Find("Git 分支")
 	if !ok {
 		t.Fatal("头部缺少分支胶囊")
 	}
-	// 标题拖动区按 Grow(1) 占满左侧剩余宽度，左边紧接分支胶囊。
 	title, ok := tt.Find("会话标题拖动区")
 	if !ok {
 		t.Fatal("头部缺少会话标题")
 	}
-	if !(swarm.X < perm.X && perm.X+perm.W <= branch.X && branch.X+branch.W <= title.X) {
-		t.Fatalf("编排/权限/分支应依次排在标题左侧：编排 %+v 权限 %+v 分支 %+v 标题 %+v", swarm, perm, branch, title)
+	if !(swarm.X < branch.X && branch.X+branch.W <= title.X) {
+		t.Fatalf("编排/分支应依次排在标题左侧：编排 %+v 分支 %+v 标题 %+v", swarm, branch, title)
 	}
 
-	commit, ok := tt.Find("提交与推送")
+	openIn, ok := tt.Find("在其它应用中打开")
 	if !ok {
-		t.Fatal("头部缺少动作胶囊组的提交按钮")
+		t.Fatal("右侧缺少「在其它应用中打开」按钮")
 	}
-	if title.X+title.W > commit.X {
-		t.Fatalf("动作胶囊组应排在标题之后：标题 %+v 提交 %+v", title, commit)
-	}
-	contextBtn, ok := tt.Find("终端")
+	scripts, ok := tt.Find("运行项目脚本")
 	if !ok {
-		t.Fatal("辅助面板组缺少终端按钮")
+		t.Fatal("右侧缺少「运行项目脚本」按钮")
 	}
-	if contextBtn.X <= commit.X {
-		t.Fatalf("辅助面板胶囊组应在动作胶囊组右侧：项目文档 %+v 提交 %+v", contextBtn, commit)
+	termBtn, ok := tt.Find("终端")
+	if !ok {
+		t.Fatal("右侧缺少终端按钮")
 	}
-	if contextBtn.W != headerCapsuleButtonSize || contextBtn.H != headerCapsuleButtonSize {
-		t.Fatalf("辅助面板按钮尺寸 = %v×%v，期望 %v×%v", contextBtn.W, contextBtn.H, headerCapsuleButtonSize, headerCapsuleButtonSize)
+	inspectorBtn, ok := tt.Find("右栏")
+	if !ok {
+		t.Fatal("右侧缺少右栏按钮")
+	}
+	moreBtn, ok := tt.Find("更多工具")
+	if !ok {
+		t.Fatal("右侧缺少更多按钮")
+	}
+	if !(title.X+title.W <= openIn.X && openIn.X+openIn.W <= scripts.X && scripts.X+scripts.W <= termBtn.X && termBtn.X+termBtn.W <= inspectorBtn.X && inspectorBtn.X+inspectorBtn.W <= moreBtn.X) {
+		t.Fatalf("右侧按钮顺序异常：title=%+v openIn=%+v scripts=%+v term=%+v inspector=%+v more=%+v", title, openIn, scripts, termBtn, inspectorBtn, moreBtn)
+	}
+	for name, r := range map[string]ui.Rect{
+		"外部打开": openIn,
+		"运行脚本": scripts,
+		"终端":   termBtn,
+		"右栏":   inspectorBtn,
+		"更多":   moreBtn,
+	} {
+		if r.W != ControlMD || r.H != ControlMD {
+			t.Fatalf("%s 按钮尺寸 = %v×%v，期望 %v×%v", name, r.W, r.H, ControlMD, ControlMD)
+		}
 	}
 
-	// 按钮外侧一格是胶囊内边距，再往外一格是头部底色，两者不同。
+	// 去掉胶囊底板后，按钮外侧与头部底色一致。
 	img := tt.Image()
 	pixel := func(x, y int) [3]int {
 		i := img.PixOffset(x, y)
 		return [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
 	}
-	y := int(contextBtn.Y + contextBtn.H/2)
-	inside, outside := pixel(int(contextBtn.X)-1, y), pixel(int(contextBtn.X)-3, y)
-	if colorNear(inside, outside, 2) {
-		t.Fatalf("辅助面板组没有胶囊底色：胶囊内 %v 与头部底色 %v 相同", inside, outside)
-	}
-	y = int(commit.Y + commit.H/2)
-	inside, outside = pixel(int(commit.X+commit.W)+1, y), pixel(int(commit.X+commit.W)+3, y)
-	if colorNear(inside, outside, 2) {
-		t.Fatalf("动作组没有胶囊底色：胶囊内 %v 与头部底色 %v 相同", inside, outside)
+	y := int(termBtn.Y + termBtn.H/2)
+	nearBtn, headerBg := pixel(int(termBtn.X)-1, y), pixel(int(termBtn.X)-3, y)
+	if !colorNear(nearBtn, headerBg, 2) {
+		t.Fatalf("辅助按钮外侧仍存在胶囊底色：按钮旁 %v 与头部底色 %v 不同", nearBtn, headerBg)
 	}
 }
 
-// TestChatHeaderCommitBadgeFollowsSetting 验证设置页关掉「显示改动数角标」后工具栏不再叠改动数。
+// TestChatHeaderCommitBadgeFollowsSetting 验证设置页关掉「显示改动数角标」后右栏按钮不再叠改动数。
 func TestChatHeaderCommitBadgeFollowsSetting(t *testing.T) {
 	s, ps, _ := gitPaneTestState(t)
 	on, off := true, false
@@ -1565,8 +1493,15 @@ func TestChatHeaderCommitBadgeFollowsSetting(t *testing.T) {
 	t.Cleanup(func() { setChatSettings(s, nil) })
 
 	hs := getChatHeaderState(s)
+	chatHeaderMu.Lock()
+	hs.git[ps.threadID] = GitState{Changes: 27}
+	chatHeaderMu.Unlock()
+	s.mu.Lock()
+	s.selectedThreadID = ps.threadID
+	s.mu.Unlock()
+
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderGitCommitButton(c, s, hs, ps.threadID, GitState{Changes: 27})
+		renderChatHeaderAuxGroup(c, s)
 	}, 400, 100)
 	if tt.HasText("27") {
 		t.Fatalf("关掉角标后仍渲染出改动数: %v", tt.Texts())
@@ -1579,26 +1514,33 @@ func TestChatHeaderCommitBadgeFollowsSetting(t *testing.T) {
 	}
 }
 
+// TestChatHeaderCommitOpensUncommittedReview 验证顶栏不再渲染「提交与推送」按钮，
+// 改动数角标迁移到右栏按钮，且 ⌘D 仍可打开改动面板。
 func TestChatHeaderCommitOpensUncommittedReview(t *testing.T) {
-	s, ps, _ := gitPaneTestState(t)
-	hs := getChatHeaderState(s)
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderGitCommitButton(c, s, hs, ps.threadID, GitState{Changes: 2})
-	}, 400, 100)
-	for range 2 {
-		if err := tt.Click("提交与推送"); err != nil {
-			t.Fatal(err)
-		}
-		dp := getDiffPanelState(s)
-		diffPanelMu.Lock()
-		scope := dp.scope
-		diffPanelMu.Unlock()
-		if !inspectorPaneOpen(s, sidePaneDiffID) || scope != "uncommitted" {
-			t.Fatalf("应打开改动面板的未提交范围：open=%v scope=%q", inspectorPaneOpen(s, sidePaneDiffID), scope)
-		}
+	testenv.TempHome(t)
+	stubTerminals(t)
+	fake := newGitFakeClient()
+	s, root := buildRoot(fake)
+	t.Cleanup(func() { closeTerminals(s) })
+	tt := ui.NewTester(root, 1200, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+
+	if _, ok := tt.Find("提交与推送"); ok {
+		t.Fatal("顶栏不应再显示「提交与推送」按钮")
 	}
 	if !tt.HasText("2") {
-		t.Fatal("缺少改动数角标")
+		t.Fatal("右栏按钮缺少改动数角标")
+	}
+
+	tt.Key(ui.Cmd, ui.KeyD)
+	waitFor(t, tt, func() bool { return inspectorPaneOpen(s, sidePaneDiffID) })
+	openReviewUncommitted(s, "")
+	dp := getDiffPanelState(s)
+	diffPanelMu.Lock()
+	scope := dp.scope
+	diffPanelMu.Unlock()
+	if !inspectorPaneOpen(s, sidePaneDiffID) || scope != "uncommitted" {
+		t.Fatalf("应打开改动面板的未提交范围：open=%v scope=%q", inspectorPaneOpen(s, sidePaneDiffID), scope)
 	}
 }
 
@@ -1795,7 +1737,7 @@ func TestUIReview2NoRedundantHeadersOrWorktreeSuffix(t *testing.T) {
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
 	t.Cleanup(s.close)
-	tt := ui.NewTesterWith(root, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	tt := ui.NewTesterWith(root, 1200, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
 	if err := tt.Click("在其它应用中打开"); err != nil {
@@ -1938,13 +1880,23 @@ func TestChatHeaderPRChipOpenAndClick(t *testing.T) {
 }
 
 func TestChatHeaderPRChipNoPRCreateButton(t *testing.T) {
-	_, _, tt := newHeaderPRTestEnv(t, "feature/new-work", "https://github.com/org/repo", nil, nil, nil)
+	_, s, tt := newHeaderPRTestEnv(t, "feature/new-work", "https://github.com/org/repo", nil, nil, nil)
 
+	waitFor(t, tt, func() bool {
+		_, loaded := s.headerGitPR("t1")
+		return tt.HasText("feature/new-work") && loaded
+	})
+	if tt.HasText("创建 PR") {
+		t.Fatalf("「创建 PR」不应直接出现在标题栏，texts=%q", tt.Texts())
+	}
+	if err := tt.Click("Git 分支"); err != nil {
+		t.Fatalf("打开分支菜单失败: %v", err)
+	}
 	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
 	tt.Advance(time.Second)
 	tt.Frame()
 	if tt.FramePending() {
-		t.Fatalf("「创建 PR」按钮动画结束后不应再请求下一帧")
+		t.Fatalf("分支菜单动画结束后不应再请求下一帧")
 	}
 }
 
@@ -2060,5 +2012,109 @@ func TestChatHeaderPRChipStaleBranchDiscarded(t *testing.T) {
 	}
 	if tt.FramePending() {
 		t.Fatalf("动画结束后不应再请求下一帧")
+	}
+}
+
+// TestChatHeaderRedesign 覆盖标题栏重构后的核心约束：
+// 侧栏展开隐藏新建、收起显示；无独立转发/权限/提交按钮；
+// 标题右键菜单含「转发到新会话」并可触发转发；分支菜单含「创建 PR」；
+// 右栏按钮带改动数角标；窄屏仅一个「…」按钮且弹层平铺不嵌套。
+func TestChatHeaderRedesign(t *testing.T) {
+	fake, s, _ := newHeaderPRTestEnv(t, "feature/redesign", "https://github.com/org/repo", nil, nil, nil)
+	fake.FakeClient.mu.Lock()
+	fake.FakeClient.gitState.Changes = 5
+	fake.FakeClient.mu.Unlock()
+	s.loadGitState("t1")
+	s.mu.Lock()
+	s.messages = []Message{{ID: "m1", Role: "user", Text: "hello"}}
+	s.sidebarCollapsed = false
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderChatHeader(c, s, "t1", ThreadUsage{}, 0)
+	}, 1200, 320)
+	waitFor(t, tt, func() bool {
+		_, loaded := s.headerGitPR("t1")
+		return tt.HasText("feature/redesign") && tt.HasText("5") && loaded
+	})
+
+	newLabel := "新建会话 " + shortcutDisplay("⌘N")
+	if _, ok := tt.Find(newLabel); ok {
+		t.Fatal("侧栏展开时不应显示新建会话按钮")
+	}
+	s.toggleSidebar()
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find(newLabel)
+		return ok
+	})
+
+	if _, ok := tt.Find("转发到新会话 " + shortcutKeysDisplay("forward-thread", "⇧⌘D")); ok {
+		t.Fatal("标题栏不应显示独立转发按钮")
+	}
+	if _, ok := tt.Find("自动 · 改文件和只读命令不询问"); ok {
+		t.Fatal("标题栏不应显示权限按钮")
+	}
+	if _, ok := tt.Find("提交与推送"); ok {
+		t.Fatal("标题栏不应显示提交与推送按钮")
+	}
+	if tt.HasText("创建 PR") {
+		t.Fatal("标题栏不应直接显示创建 PR 按钮")
+	}
+
+	// 右栏按钮右上角带改动数角标。
+	inspectorRect, ok := tt.Find("右栏")
+	if !ok {
+		t.Fatal("缺少右栏按钮")
+	}
+	badgeRect, ok := tt.Find("5")
+	if !ok {
+		t.Fatalf("右栏按钮缺少改动数角标, texts=%q", tt.Texts())
+	}
+	if badgeRect.X < inspectorRect.X || badgeRect.X > inspectorRect.X+inspectorRect.W+8 {
+		t.Fatalf("改动数角标未定位在右栏按钮右上角: badge=%+v inspector=%+v", badgeRect, inspectorRect)
+	}
+
+	// 标题右键菜单含「转发到新会话」并触发转发。
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatalf("右键标题失败: %v", err)
+	}
+	if !slices.Contains(tt.Menu(), "转发到新会话") {
+		t.Fatalf("标题右键菜单缺少「转发到新会话」: %v", tt.Menu())
+	}
+	if err := tt.ChooseMenuItem("转发到新会话"); err != nil {
+		t.Fatalf("选择「转发到新会话」失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return forwardCallsContain(fake.FakeClient, "t1") })
+
+	// 分支菜单含「创建 PR」。
+	if err := tt.Click("Git 分支"); err != nil {
+		t.Fatalf("点击 Git 分支失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+
+	// 窄屏（<760）只保留单一「…」，弹层平铺无第二个「…」。
+	narrowTT := ui.NewTester(func(c *ui.Context) {
+		renderChatHeader(c, s, "t1", ThreadUsage{}, 0)
+	}, 640, 320)
+	waitFor(t, narrowTT, func() bool {
+		_, ok := narrowTT.Find("更多头部操作")
+		return ok
+	})
+	if _, ok := narrowTT.Find("更多工具"); ok {
+		t.Fatal("窄屏顶栏不应存在第二个「…」按钮")
+	}
+	if err := narrowTT.Click("更多头部操作"); err != nil {
+		t.Fatalf("打开窄屏「…」失败: %v", err)
+	}
+	waitFor(t, narrowTT, func() bool { return narrowTT.HasText("外部打开") })
+	for _, label := range []string{"外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
+		if _, ok := narrowTT.AccessByRole(ui.RoleButton, label); !ok {
+			t.Fatalf("窄屏「…」弹层缺少平铺项 %q", label)
+		}
+	}
+	if _, ok := narrowTT.Find("更多工具"); ok {
+		t.Fatal("窄屏「…」弹层内不得嵌套第二个「…」按钮")
 	}
 }

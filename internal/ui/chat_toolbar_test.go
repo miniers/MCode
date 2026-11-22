@@ -9,7 +9,7 @@ import (
 	"mcode/internal/testenv"
 )
 
-// 点击头部圆形新建会话按钮后立即创建并选中临时会话。
+// 侧栏收起时点击头部新建会话按钮后立即创建并选中临时会话；侧栏展开时该按钮隐藏。
 func TestChatToolbarNewThreadButton(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
@@ -17,7 +17,18 @@ func TestChatToolbarNewThreadButton(t *testing.T) {
 	tt := ui.NewTester(Root(fake, func(s *chatState) { state = s }), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
 
-	if err := tt.Click("新建会话 " + shortcutDisplay("⌘N")); err != nil {
+	newLabel := "新建会话 " + shortcutDisplay("⌘N")
+	if _, ok := tt.Find(newLabel); ok {
+		t.Fatal("侧栏展开时不应显示头部新建会话按钮")
+	}
+
+	state.toggleSidebar()
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find(newLabel)
+		return ok
+	})
+
+	if err := tt.Click(newLabel); err != nil {
 		t.Fatalf("click new-thread button failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -178,23 +189,28 @@ func TestChatToolbarAuxGroupButtons(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return !inspectorPaneOpen(s, sidePanePreviewID) })
 
-	// 看板：切到任务工作区视图
+	// 更多菜单不再保留「任务」入口。
+	countTasks := func() int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == "任务" {
+				n++
+			}
+		}
+		return n
+	}
+	beforeTasks := countTasks()
 	if err := tt.Click("更多工具"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(DurBase + 50*time.Millisecond)
-	if err := tt.Click("任务"); err != nil {
-		t.Fatalf("click kanban button failed: %v", err)
+	waitFor(t, tt, func() bool { return tt.HasText("项目文档") })
+	if countTasks() != beforeTasks {
+		t.Fatalf("更多菜单不应再保留任务入口, texts=%q", tt.Texts())
 	}
-	waitFor(t, tt, func() bool {
-		ws := getWorkspaceState(s)
-		workspaceMu.Lock()
-		defer workspaceMu.Unlock()
-		return ws.view == "tasks"
-	})
 }
 
-// 头部动作方法直接切换终端、项目文档、预览、改动与看板状态。
+// 头部动作方法直接切换终端、项目文档、预览与改动状态。
 func TestChatToolbarAuxActions(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
@@ -223,24 +239,14 @@ func TestChatToolbarAuxActions(t *testing.T) {
 	if !getDiffPanelState(s).IsOpen() {
 		t.Fatal("headerToggleDiff 应打开改动面板")
 	}
-
-	s.headerOpenKanban()
-	ws := getWorkspaceState(s)
-	workspaceMu.Lock()
-	view := ws.view
-	workspaceMu.Unlock()
-	if view != "tasks" {
-		t.Fatalf("headerOpenKanban 应切到看板视图，当前为 %q", view)
-	}
 }
 
-// 项目动作组在标题右侧、辅助面板组左侧：「打开方式」「执行命令」「Git 操作」同属一个胶囊组，
-// 有项目工作目录时执行命令按钮显示（无脚本时菜单给出空态与添加入口）。
+// 项目动作组在标题右侧、辅助面板组左侧：有项目工作目录时「打开方式」与「执行命令」显示，不再显示「提交与推送」。
 func TestChatToolbarActionGroupPlacement(t *testing.T) {
 	testenv.TempHome(t)
 	fake := newGitFakeClient()
 	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("在其它应用中打开")
@@ -250,9 +256,8 @@ func TestChatToolbarActionGroupPlacement(t *testing.T) {
 		_, ok := tt.Find("运行项目脚本")
 		return ok
 	})
-	// 提交（Git 操作组）与打开方式、执行命令同处标题栏动作胶囊组
-	if _, ok := tt.Find("提交与推送"); !ok {
-		t.Fatal("Git 仓库会话标题栏应显示提交按钮")
+	if _, ok := tt.Find("提交与推送"); ok {
+		t.Fatal("标题栏不再显示提交按钮")
 	}
 	if !s.headerScriptsButtonVisible("t1") {
 		t.Fatal("有项目工作目录时执行命令按钮应显示")

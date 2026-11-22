@@ -147,62 +147,66 @@ func TestPopoverAnchorToggle_ConsumesDismissedWithoutReopen(t *testing.T) {
 	}
 }
 
-func TestPopoverAnchorToggle_HeaderPermissionMenu(t *testing.T) {
+func TestPopoverAnchorToggle_HeaderMoreMenu(t *testing.T) {
 	testenv.TempHome(t)
 
 	fake := NewFakeClient()
 	s, root := buildRoot(fake)
-	tt := ui.NewTester(root, 1000, 700)
+	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("更多工具")
+		return ok
+	})
 	hs := getChatHeaderState(s)
 
 	waitClosed := func(step string) {
 		t.Helper()
 		waitFor(t, tt, func() bool {
-			if hs.permissionMenuOpen {
+			if hs.auxMenuOpen {
 				return false
 			}
-			_, ok := tt.Find("权限")
+			_, ok := tt.Find("项目文档")
 			return !ok
 		})
-		if hs.permissionMenuOpen {
-			t.Fatalf("%s: expected permissionMenuOpen=false", step)
+		if hs.auxMenuOpen {
+			t.Fatalf("%s: expected auxMenuOpen=false", step)
 		}
 	}
 
 	waitOpened := func(step string) {
 		t.Helper()
 		waitFor(t, tt, func() bool {
-			if !hs.permissionMenuOpen {
+			if !hs.auxMenuOpen {
 				return false
 			}
-			_, ok := tt.Find("权限")
+			_, ok := tt.Find("项目文档")
 			return ok
 		})
 	}
 
 	// (a) 点锚点打开 -> 再点锚点关闭 -> 再点锚点重新打开。
-	if err := tt.Click(headerPermissionCapsuleLabel); err != nil {
-		t.Fatalf("open permission menu failed: %v", err)
+	if err := tt.Click("更多工具"); err != nil {
+		t.Fatalf("open more menu failed: %v", err)
 	}
 	waitOpened("header (a) first open")
 
-	if err := tt.Click(headerPermissionCapsuleLabel); err != nil {
-		t.Fatalf("close permission menu by anchor failed: %v", err)
+	if err := tt.Click("更多工具"); err != nil {
+		t.Fatalf("close more menu by anchor failed: %v", err)
 	}
 	waitClosed("header (a) second click close")
 
-	if err := tt.Click(headerPermissionCapsuleLabel); err != nil {
-		t.Fatalf("reopen permission menu failed: %v", err)
+	if err := tt.Click("更多工具"); err != nil {
+		t.Fatalf("reopen more menu failed: %v", err)
 	}
 	waitOpened("header (a) reopen")
 
 	// (b) 点空白处关闭 -> 点锚点一次打开。
-	tt.ClickAt(950, 350)
+	tt.ClickAt(600, 350)
 	tt.Frame()
 	waitClosed("header (b) outside click close")
 
-	if err := tt.Click(headerPermissionCapsuleLabel); err != nil {
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatalf("reopen after outside click failed: %v", err)
 	}
 	waitOpened("header (b) single click reopen")
@@ -212,7 +216,7 @@ func TestPopoverAnchorToggle_HeaderPermissionMenu(t *testing.T) {
 	tt.Frame()
 	waitClosed("header (c) escape close")
 
-	if err := tt.Click(headerPermissionCapsuleLabel); err != nil {
+	if err := tt.Click("更多工具"); err != nil {
 		t.Fatalf("reopen after escape failed: %v", err)
 	}
 	waitOpened("header (c) single click reopen")

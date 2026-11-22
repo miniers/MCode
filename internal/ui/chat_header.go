@@ -27,8 +27,8 @@ var (
 )
 
 // chatHeaderState 维护会话头部的标题编辑与 Git 胶囊状态，按 chatState 附加（同 diffPanelState）。
-// editTitle、titleMenuOpen、branchMenuOpen、commitMenuOpen、permissionMenuOpen、openInMenuOpen、
-// scriptsMenuOpen 绑定在控件上，只在 UI 线程读写；
+// editTitle、titleMenuOpen、branchMenuOpen、commitMenuOpen、openInMenuOpen、
+// scriptsMenuOpen、auxMenuOpen、moreSubmenu 绑定在控件上，只在 UI 线程读写；
 // 后台 goroutine 通过 closeMenus 请求下一帧关闭弹层，其余字段受 chatHeaderMu 保护。
 // 提交、新建分支、切换分支与创建合并请求的输入表单在独立窗口里完成（见 git_form_windows_ui.go）。
 type chatHeaderState struct {
@@ -53,10 +53,10 @@ type chatHeaderState struct {
 	closeMenus     bool
 
 	// 标题栏项目动作
-	permissionMenuOpen bool
-	openInMenuOpen     bool
-	scriptsMenuOpen    bool
-	auxMenuOpen        bool
+	openInMenuOpen  bool
+	scriptsMenuOpen bool
+	auxMenuOpen     bool
+	moreSubmenu     string
 
 	// 脚本缓存（按 threadID），出错或没有脚本时没有条目
 	scripts    map[string][]Script
@@ -198,6 +198,11 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 		chatHeaderMu.Unlock()
 		s.invalidate()
 	}
+	s.mu.Lock()
+	hasMessages := len(s.messages) > 0 && s.selectedThreadID == th.ID
+	forwarding := s.forwardInflight[th.ID]
+	s.mu.Unlock()
+
 	titleArea := ui.Row(c.Key("chat-header-title-btn")).
 		Label("会话标题拖动区").
 		Grow(1).
@@ -223,6 +228,15 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 		}
 		if m.Item("重命名").Chosen() {
 			startEditing()
+		}
+		if th.ID != "" && !stewardSelected(s, th.ID) && hasMessages {
+			m.Separator()
+			if m.Item("转发到新会话").
+				Trailing(shortcutKeysDisplay("forward-thread", "⇧⌘D")).
+				Disabled(forwarding).
+				Chosen() {
+				s.forwardThread(th.ProjectID, th.ID)
+			}
 		}
 	})
 	titleArea.Children(func() {
@@ -594,9 +608,10 @@ func syncChatHeaderGit(c *ui.Context, s *chatState, threadID string) (*chatHeade
 		hs.commitErr = ""
 		hs.wtMoving = false
 		hs.wtBranch = ""
-		hs.permissionMenuOpen = false
 		hs.openInMenuOpen = false
 		hs.scriptsMenuOpen = false
+		hs.auxMenuOpen = false
+		hs.moreSubmenu = ""
 		hs.pushConfirm = false
 	}
 	if hs.closeMenus {
@@ -604,9 +619,10 @@ func syncChatHeaderGit(c *ui.Context, s *chatState, threadID string) (*chatHeade
 		hs.titleMenuOpen = false
 		hs.branchMenuOpen = false
 		hs.commitMenuOpen = false
-		hs.permissionMenuOpen = false
 		hs.openInMenuOpen = false
 		hs.scriptsMenuOpen = false
+		hs.auxMenuOpen = false
+		hs.moreSubmenu = ""
 		hs.wtMoving = false
 		hs.wtBranch = ""
 		hs.pushConfirm = false
@@ -677,32 +693,24 @@ func (s *chatState) headerScriptsButtonVisible(threadID string) bool {
 	return threadID != "" && s.headerProjectDir(threadID) != ""
 }
 
-// renderChatHeaderActionGroup 渲染标题栏右侧的动作胶囊组，分为「打开方式」「执行命令」「Git 操作」
-// 依次排列，相邻两组都非空时才在两组的交界处渲染一条分隔线。
+// renderChatHeaderActionGroup 渲染标题栏右侧的动作按钮组（「打开方式」「执行命令」）。
 func renderChatHeaderActionGroup(c *ui.Context, s *chatState, threadID string) {
-	st := s.headerGitState(threadID)
-	hasCommit := st.Branch != "" || st.Head != ""
 	hasOpenIn := s.headerProjectDir(threadID) != ""
 	hasScripts := s.headerScriptsButtonVisible(threadID)
-	if !hasCommit && !hasOpenIn && !hasScripts {
+	if !hasOpenIn && !hasScripts {
 		return
 	}
 
-	groups := []headerGroup{
-		{hasOpenIn, func() { renderHeaderOpenInButton(c, s, threadID) }},
-		{hasScripts, func() { renderHeaderScriptsMenuButton(c, s, threadID) }},
-		{hasCommit, func() { renderGitCommitButton(c, s, getChatHeaderState(s), threadID, st) }},
-	}
-
 	ui.Row(c.Key("chat-header-actions-group")).
-		Gap(Space0).
-		Padding(headerCapsulePadding).
-		Height(headerCapsuleHeight).
-		Radius(CapsuleRadius).
-		Background(ThemeOverlay(c, OverlaySubtle)).
+		Gap(Space1).
 		AlignItems(ui.Center).
 		Children(func() {
-			headerRenderDividerBetween(c, "chat-header-actions-divider", groups)
+			if hasOpenIn {
+				renderHeaderOpenInButton(c, s, threadID)
+			}
+			if hasScripts {
+				renderHeaderScriptsMenuButton(c, s, threadID)
+			}
 		})
 }
 
@@ -724,39 +732,55 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 		label = name
 	}
 
-	trigger := ui.ButtonBase(c.Key("chat-header-git-branch-btn")).Label("Git 分支").Height(ControlSM).Padding(0, Space3).Radius(RadiusSM).Gap(Space2).AlignItems(ui.Center).Border(Hairline, ThemeBorder(c)).Background(ThemeOverlay(c, OverlaySubtle)).Transition(motionFeedback(c)).OnClick(func() {
-		opened := togglePopoverOpen(&hs.branchMenuOpen)
-		hs.titleMenuOpen = false
-		hs.commitMenuOpen = false
-		chatHeaderMu.Lock()
-		hs.branchErr = ""
-		chatHeaderMu.Unlock()
-		if opened {
-			s.loadGitState(threadID)
-			openBranchPopover(s, threadID)
-		}
-	})
+	trigger := ui.ButtonBase(c.Key("chat-header-git-branch-btn")).
+		Label("Git 分支").
+		Height(ControlMD).
+		Padding(0, Space2).
+		Radius(RadiusMD).
+		Gap(Space2).
+		AlignItems(ui.Center).
+		MaxWidth(150).
+		MinWidth(0).
+		Shrink(1).
+		Transition(motionFeedback(c)).
+		OnClick(func() {
+			opened := togglePopoverOpen(&hs.branchMenuOpen)
+			hs.titleMenuOpen = false
+			hs.commitMenuOpen = false
+			chatHeaderMu.Lock()
+			hs.branchErr = ""
+			chatHeaderMu.Unlock()
+			if opened {
+				s.loadGitState(threadID)
+				openBranchPopover(s, threadID)
+			}
+		})
 	scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
 	trigger.Scale(scale, scale)
 	chatHeaderMu.Lock()
 	switching := hs.branchBusy
 	chatHeaderMu.Unlock()
-	if trigger.Hovered() {
+	fg := ThemeSecondaryText(c)
+	if hs.branchMenuOpen {
+		trigger.Background(ThemeOverlaySelected(c))
+		fg = ThemePrimaryText(c)
+	} else if trigger.Hovered() {
 		trigger.Background(ThemeHover(c))
+		fg = ThemePrimaryText(c)
 	}
 	focusRing(c, trigger)
 	trigger.Children(func() {
 		if switching {
 			LoadingIndicator(c, nil, "", IconSM)
 		} else {
-			ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
+			ui.Icon(c, IconGitBranch()).Size(IconMD, IconMD).TextColor(fg)
 		}
-		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine().Ellipsis("…").MaxWidth(160)
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(fg).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
 		if st.Ahead > 0 {
-			ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c))
+			ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c)).Shrink(0)
 		}
 		if st.Behind > 0 {
-			ui.Text(c, fmt.Sprintf("↓%d", st.Behind)).FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c))
+			ui.Text(c, fmt.Sprintf("↓%d", st.Behind)).FontSize(uiFont(TypeCaption)).TextColor(ThemeWarning(c)).Shrink(0)
 		}
 	})
 	if aiWT.Path != "" {
@@ -824,6 +848,20 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 							FillWidth().
 							Children(func() {
 								renderGitBranchPopoverContent(c, s, threadID, 360, &hs.branchMenuOpen)
+								if canShowGitPRCreate(s, threadID, st) {
+									menuRow(c, menuRowProps{
+										Key:   "chat-header-pr-create-btn",
+										Label: "创建 PR",
+										Icon:  IconGitPullRequestCreate(),
+										Title: "创建 PR",
+										OnClick: func() {
+											hs.branchMenuOpen = false
+											openGitPRCreateDialog(s, threadID)
+											s.invalidate()
+										},
+									})
+								}
+								gitMenuDivider(c)
 								// 复制当前分支名（detached 时复制短哈希），方便在终端里直接使用
 								copyBranch := st.Branch
 								if copyBranch == "" {
@@ -995,7 +1033,28 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 	})
 }
 
-// renderGitPRHeaderChip 在分支胶囊右侧渲染当前分支的 PR 状态标签或「创建 PR」按钮。
+// canShowGitPRCreate 判断当前分支菜单是否应显示「创建 PR」入口：
+// 非主分支、有 remote、已查过 PR 状态且当前分支尚无 PR。
+func canShowGitPRCreate(s *chatState, threadID string, st GitState) bool {
+	if s == nil || s.client == nil || threadID == "" {
+		return false
+	}
+	if _, ok := s.client.(gitPRBranchClient); !ok {
+		return false
+	}
+	branch := strings.TrimSpace(st.Branch)
+	if st.Detached || branch == "" || strings.TrimSpace(st.RemoteURL) == "" {
+		return false
+	}
+	pr, loaded := s.headerGitPR(threadID)
+	if !loaded || pr != nil {
+		return false
+	}
+	// shortcut: GitState 没有默认分支字段，按常见名判断；有该字段后改用它
+	return branch != "main" && branch != "master"
+}
+
+// renderGitPRHeaderChip 在分支胶囊右侧渲染当前分支的 PR 状态标签。
 func renderGitPRHeaderChip(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState) {
 	if s == nil || s.client == nil || threadID == "" {
 		return
@@ -1008,24 +1067,7 @@ func renderGitPRHeaderChip(c *ui.Context, s *chatState, hs *chatHeaderState, thr
 		return
 	}
 	pr, loaded := s.headerGitPR(threadID)
-	if !loaded {
-		return
-	}
-	if pr == nil {
-		// shortcut: GitState 没有默认分支字段，按常见名判断；有该字段后改用它
-		if branch == "main" || branch == "master" {
-			return
-		}
-		Button(c, ButtonOpts{
-			Key:     "chat-header-pr-create-btn",
-			Text:    "创建 PR",
-			Icon:    IconGitPullRequestCreate(),
-			Variant: ButtonGhost,
-			Size:    ControlSM,
-			OnClick: func() {
-				openGitPRCreateDialog(s, threadID)
-			},
-		})
+	if !loaded || pr == nil {
 		return
 	}
 
@@ -1096,8 +1138,8 @@ func renderGitPRHeaderChip(c *ui.Context, s *chatState, hs *chatHeaderState, thr
 	})
 }
 
-// renderGitCountBadge 渲染 Git 按钮右上角的改动数角标：用 Absolute 叠在按钮容器上，
-// 不占布局宽度也不撑高胶囊；强调色底、白字，超过 99 显示 99+。
+// renderGitCountBadge 渲染图标按钮右上角的数字角标：用 Absolute 叠在按钮容器上，
+// 不占布局宽度也不撑高按钮；强调色底、白字，超过 99 显示 99+。
 func renderGitCountBadge(c *ui.Context, key string, count int) {
 	text := strconv.Itoa(count)
 	if count > 99 {
@@ -1105,17 +1147,17 @@ func renderGitCountBadge(c *ui.Context, key string, count int) {
 	}
 	ui.Row(c.Key(key)).
 		Absolute().
-		Top(-4).
-		Right(-6).
+		Top(-2).
+		Right(-4).
 		Height(IconSM).
 		MinWidth(14).
 		Padding(0, Space1).
-		Radius(CapsuleRadius).
+		Radius(RadiusPill).
 		Center().
 		Background(ThemeAccent(c)).
 		Children(func() {
 			ui.Text(c, text).
-				FontSize(uiFont(TypeCaption)).
+				FontSize(uiFont(TypeMicro)).
 				FontWeight(600).
 				TextColor(ThemeOnAccent(c)).
 				SingleLine().
@@ -1145,23 +1187,6 @@ func gitChangeBadgeVisible(s *chatState) bool {
 		return true
 	}
 	return cs.cfg.SourceControl.ShowChangeBadgeEnabled()
-}
-
-// renderGitCommitButton 打开改动面板的「未提交」范围，角标保留当前改动数。
-func renderGitCommitButton(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string, st GitState) {
-	ui.Row(c.Key("chat-header-commit")).AlignItems(ui.Center).Children(func() {
-		IconButton(c.Key("chat-header-commit-btn"), IconButtonProps{
-			Icon: IconArrowUpToLine(), Label: "提交与推送", Active: inspectorPaneOpen(s, sidePaneDiffID),
-			OnClick: func() {
-				openReviewUncommitted(s, "")
-				hs.titleMenuOpen, hs.branchMenuOpen = false, false
-				s.invalidate()
-			}, Variant: ButtonGhost, Size: ControlSM,
-		})
-		if st.Changes > 0 && gitChangeBadgeVisible(s) {
-			renderGitCountBadge(c, "chat-header-commit-badge", st.Changes)
-		}
-	})
 }
 
 // renderGitPushPRConfirm 渲染「推送并建 PR/MR」的二次确认区，确认后才真正推送。
@@ -1335,40 +1360,11 @@ func isGenerateCommitMessageEnabled(s *chatState) bool {
 }
 
 // ---------------------------------------------------------------------------
-// 标题栏项目动作：权限圆钮、在其它应用中打开与脚本菜单
+// 标题栏项目动作：在其它应用中打开与脚本菜单
 // ---------------------------------------------------------------------------
 
-// headerGroup 描述标题栏胶囊组内的一个按钮分组：visible 为假的分组不渲染。
-type headerGroup struct {
-	visible bool
-	render  func()
-}
-
-// headerRenderDividerBetween 按顺序渲染分组，只在两组都非空且相邻时插入一条分隔线，
-// 不会出现在组的首尾，也不会紧挨着空组。
-func headerRenderDividerBetween(c *ui.Context, dividerKey string, groups []headerGroup) {
-	rendered := 0
-	for _, g := range groups {
-		if !g.visible {
-			continue
-		}
-		if rendered > 0 {
-			ui.Box(c.Key(dividerKey+"-"+strconv.Itoa(rendered))).
-				Width(Hairline).
-				Height(IconSM).
-				Background(ThemeHairline(c)).
-				Margin(0, 2, 0, 2)
-		}
-		g.render()
-		rendered++
-	}
-}
-
-// closeProjectActionMenus 关闭标题栏项目动作的三个弹层，keep 指定的那个保持原样（"" 表示全部关闭）。
+// closeProjectActionMenus 关闭标题栏项目动作弹层，keep 指定的那个保持原样（"" 表示全部关闭）。
 func closeProjectActionMenus(hs *chatHeaderState, keep string) {
-	if keep != "permission" {
-		hs.permissionMenuOpen = false
-	}
 	if keep != "openin" {
 		hs.openInMenuOpen = false
 	}
@@ -1473,157 +1469,6 @@ func runtimeModeSummary(mode string) string {
 // headerRuntimeModeSupported 判断 provider 是否支持该档位。
 func headerRuntimeModeSupported(provider, mode string) bool {
 	return true
-}
-
-// permissionModeIcon 返回权限档位对应的图标（与设置页、composer 保持一致）。
-func permissionModeIcon(mode string) *ui.SVG {
-	switch mode {
-	case "supervised":
-		return IconUserRoundCheck()
-	case "auto":
-		return IconSparkles()
-	case "fullAccess":
-		return IconLockOpen()
-	default:
-		return IconSquarePen()
-	}
-}
-
-// renderHeaderPermissionCapsule 渲染 32×32 权限圆钮与三档单行菜单；菜单底部是当前 provider/model 的人设分区。
-func renderHeaderPermissionCapsule(c *ui.Context, s *chatState, threadID string) {
-	mode := s.threadRuntimeMode(threadID)
-	if mode == "autoAcceptEdits" || mode == "agent" {
-		mode = "auto"
-	}
-	title := runtimeModeTitle(mode)
-	summary := runtimeModeSummary(mode)
-	provider := s.threadProvider(threadID)
-	model := s.threadModel(threadID)
-	hs := getChatHeaderState(s)
-	// 首次渲染时补拉人设：已加载、正在加载或还在退避期时由 loadHeaderPersonas 自己跳过，不会按帧重复发起。
-	s.loadHeaderPersonas(provider, model, false)
-
-	label := title
-	if summary != "" {
-		label = title + " · " + summary
-	}
-	trigger := IconButton(c.Key("chat-header-permission-btn"), IconButtonProps{
-		Icon:   permissionModeIcon(mode),
-		Label:  label,
-		Active: hs.permissionMenuOpen,
-		OnClick: func() {
-			opened := togglePopoverOpen(&hs.permissionMenuOpen)
-			closeProjectActionMenus(hs, "permission")
-			hs.titleMenuOpen = false
-			hs.branchMenuOpen = false
-			hs.commitMenuOpen = false
-			if opened {
-				// 打开菜单时强制刷新一次人设，网关上新增的人设不必等下次重启就能看到。
-				s.loadHeaderPersonas(provider, model, true)
-			}
-			s.invalidate()
-		},
-		Variant: ButtonSecondary,
-		Size:    ControlSM,
-	})
-
-	appPopover(c.Key("chat-header-permission-popover"), trigger, &hs.permissionMenuOpen, func() {
-		hs.permissionMenuOpen = false
-	}, func() {
-		personas := s.headerPersonas(provider, model)
-		current := s.threadPersona(threadID)
-		_, height := c.Size()
-		popoverCard(c, ui.Column(c.Key("chat-header-permission-menu")).
-			Padding(Space2).
-			MinWidth(210).
-			Children(func() {
-				// 人设很多时菜单会顶出窗口：与 Git 菜单一样套一层滚动区，内容不超限时不影响视觉。
-				ui.Scroll(c.Key("chat-header-permission-scroll")).
-					MaxHeight(max(100, height-120)).
-					Children(func() {
-						ui.Column(c.Key("chat-header-permission-menu-list")).
-							Gap(Space0).
-							FillWidth().
-							FocusGroup(ui.Vertical).
-							Children(func() {
-								ui.Text(c, "权限").
-									FontSize(uiFont(TypeCaption)).
-									FontWeight(600).
-									TextColor(ThemeSecondaryText(c)).
-									Padding(Space2, Space3, Space1, Space3)
-								for _, opt := range runtimeModeOptions {
-									o := opt
-									currentMode := o.mode == mode
-									supported := headerRuntimeModeSupported(provider, o.mode)
-									menuRow(c, menuRowProps{
-										Key:      "chat-header-permission-option-" + o.mode,
-										Icon:     permissionModeIcon(o.mode),
-										Title:    o.title,
-										Checked:  currentMode,
-										Disabled: !supported,
-										OnClick: func() {
-											// 先关菜单再切换档位
-											hs.permissionMenuOpen = false
-											s.invalidate()
-											s.setHeaderRuntimeMode(threadID, o.mode)
-										},
-									})
-								}
-								renderHeaderPersonaSection(c, s, hs, threadID, current, personas)
-							})
-					})
-			}),
-		)
-	})
-}
-
-// renderHeaderPersonaSection 渲染权限菜单底部的人设分区：分隔线、小标题、「无人设」与各人设项。
-// 没有任何人设时整块（含分隔线与标题）都不渲染，菜单与加人设分区之前完全一致。
-func renderHeaderPersonaSection(c *ui.Context, s *chatState, hs *chatHeaderState, threadID, current string, personas []MagpiePersona) {
-	if len(personas) == 0 {
-		return
-	}
-	gitMenuDivider(c)
-	ui.Text(c, "人设").
-		FontSize(uiFont(TypeCaption)).
-		FontWeight(600).
-		TextColor(ThemeSecondaryText(c)).
-		Padding(Space2, Space3, Space1, Space3)
-	renderHeaderPersonaOption(c, s, hs, threadID, current, personaNoneValue, "无人设", personas)
-	for _, p := range personas {
-		// 空 id 与保留字 none 不能当人设项：none 已占用「无人设」项的 key。
-		if p.ID == "" || p.ID == personaNoneValue {
-			continue
-		}
-		name := p.Name
-		if name == "" {
-			name = p.ID
-		}
-		renderHeaderPersonaOption(c, s, hs, threadID, current, p.ID, name, personas)
-	}
-}
-
-// renderHeaderPersonaOption 渲染单个人设菜单项；
-// id 传 personaNoneValue 表示「无人设」项；点击先关菜单，再按三态语义写入当前会话的人设。
-func renderHeaderPersonaOption(c *ui.Context, s *chatState, hs *chatHeaderState, threadID, current, id, label string, personas []MagpiePersona) {
-	checked := personaMenuChecked(current, id, personas)
-	menuRow(c, menuRowProps{
-		Key:     "chat-header-persona-option-" + id,
-		Title:   label,
-		Checked: checked,
-		OnClick: func() {
-			// 先关菜单再写入
-			hs.permissionMenuOpen = false
-			s.invalidate()
-			value, ok := personaMenuWriteValue(current, id)
-			if !ok {
-				return
-			}
-			s.updateComposerPrefs(threadID, func(prefs *ComposerPrefs) {
-				prefs.Persona = value
-			}, "切换人设失败")
-		},
-	})
 }
 
 // setHeaderRuntimeMode 切换指定会话的权限档位并持久化。
@@ -1874,8 +1719,6 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 	sidebarWidth := s.sidebarWidth
 	inspector := inspectorExistingSessionLocked(s, s.selectedThreadID)
 	inspectorOpen := inspector != nil && inspector.Open
-	hasMessages := len(s.messages) > 0 && s.selectedThreadID == selectedID
-	forwarding := s.forwardInflight[selectedID]
 	for _, th := range s.threads {
 		if th.ID == selectedID {
 			selectedThread = th
@@ -1889,6 +1732,7 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 		rightInset += titleBarTrailingInset(c)
 	}
 	ts := getChatToolbarState(s)
+	hs := getChatHeaderState(s)
 	header := ui.Row(c.Key("chat-header")).DragWindow().FillWidth().MinWidth(0).Height(HeaderHeight).
 		Padding(Space3, rightInset, Space3, chatHeaderLeadingInsetFrom(titleBarLeadingInset(c), sidebarSlide)).
 		BorderWidth(0, 0, 1, 0).BorderColor(ThemeBorder(c)).AlignItems(ui.Center).Gap(Space2)
@@ -1901,17 +1745,12 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 	collapsed := collapseLevel > 0
 	collapseLeft := collapseLevel >= 2
 	header.Children(func() {
-		// 左侧依次是父芯片、侧栏开关、会话列表（侧栏收起时）、新建会话、编排、权限与分支胶囊，
-		// 之后是占满剩余宽度的标题；右侧只留动作胶囊组与辅助面板胶囊组。
-		// 较窄级别下将左侧非核心胶囊（权限与分支）对称折叠进「更多头部操作」弹层顶部，为标题留出可读宽度。
-		leftGap := Space4
-		if collapseLeft {
-			leftGap = Space2
-		}
+		// 左侧依次是父芯片、侧栏开关、会话列表与新建会话（仅侧栏收起时）、编排与分支胶囊，
+		// 之后是占满剩余宽度的标题；右侧宽屏为动作与辅助图标按钮，窄屏收成单一「…」。
 		var gitHS *chatHeaderState
 		var gitST GitState
 		var gitOK bool
-		ui.Row(c.Key("chat-header-left")).Gap(leftGap).AlignItems(ui.Center).Grow(1).Shrink(1).MinWidth(0).ClipX().Children(func() {
+		ui.Row(c.Key("chat-header-left")).Gap(Space1).AlignItems(ui.Center).Grow(1).Shrink(1).MinWidth(0).ClipX().Children(func() {
 			renderChatHeaderParentChip(c, s)
 			IconButton(c, IconButtonProps{Key: "chat-header-toggle-sidebar-btn", Icon: IconPanelLeft(), Size: ControlMD, Variant: ButtonGhost,
 				Label: "显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), OnClick: func() { toggleSidebarPersisted(s) }})
@@ -1921,58 +1760,59 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 				PopoverCard(c, threadsBtn, PopoverProps{Key: "chat-header-threads-popover", Open: &ts.threadsPopoverOpen, Width: chatThreadsPopoverWidth}, func() {
 					renderChatThreadsPopover(c, s)
 				})
-			}
-			IconButton(c, IconButtonProps{Key: "chat-header-new-thread-btn", Icon: IconMessageSquarePlus(), Size: ControlMD, Variant: ButtonGhost,
-				Label: "新建会话 " + shortcutDisplay("⌘N"), OnClick: s.headerNewThread})
-			if selectedThread.ID != "" && !stewardSelected(s, selectedThread.ID) && hasMessages {
-				fwdLabel := "转发到新会话 " + shortcutKeysDisplay("forward-thread", "⇧⌘D")
-				if forwarding {
-					fwdLabel = "正在转发…"
-				}
-				IconButton(c, IconButtonProps{
-					Key:      "chat-header-forward-thread-btn",
-					Icon:     IconForward(),
-					Size:     ControlMD,
-					Variant:  ButtonGhost,
-					Label:    fwdLabel,
-					Disabled: forwarding,
-					OnClick:  func() { s.forwardThread(selectedThread.ProjectID, selectedThread.ID) },
-				})
+				IconButton(c, IconButtonProps{Key: "chat-header-new-thread-btn", Icon: IconMessageSquarePlus(), Size: ControlMD, Variant: ButtonGhost,
+					Label: "新建会话 " + shortcutDisplay("⌘N"), OnClick: s.headerNewThread})
 			}
 			renderSwarmHeaderButton(c, s)
 			if collapseLeft {
 				gitHS, gitST, gitOK = syncChatHeaderGit(c, s, selectedID)
 			} else {
-				renderHeaderPermissionCapsule(c, s, selectedID)
 				renderChatHeaderGit(c, s, selectedID)
 			}
 			renderChatHeaderTitle(c, s, selectedThread)
 		})
-		ui.Row(c.Key("chat-header-right")).Gap(Space2).AlignItems(ui.Center).Shrink(0).Children(func() {
+		ui.Row(c.Key("chat-header-right")).Gap(Space1).AlignItems(ui.Center).Shrink(0).Children(func() {
 			if stewardSelected(s, selectedID) && !stewardBoardWide(chatAreaWidth(c, s)) {
 				renderStewardBoardBadge(c, s)
 			}
-			renderChatHeaderActionGroup(c, s, selectedID)
 			if collapsed {
-				more := IconButton(c, IconButtonProps{Key: "chat-header-more-btn", Icon: IconMoreHorizontal(), Size: ControlMD, Variant: ButtonGhost,
-					Label: "更多头部操作", Active: ts.morePopoverOpen, OnClick: func() { togglePopoverOpen(&ts.morePopoverOpen) }})
-				PopoverCard(c, more, PopoverProps{Key: "chat-header-more-popover", Open: &ts.morePopoverOpen, Align: BelowEnd}, func() {
-					if collapseLeft {
-						ui.Column(c.Key("chat-header-more-content")).Gap(Space2).Children(func() {
-							ui.Row(c.Key("chat-header-more-left-group")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-								renderHeaderPermissionCapsule(c, s, selectedID)
-								if gitOK {
-									renderGitBranchCapsule(c, s, gitHS, selectedID, gitST)
-									renderGitPRHeaderChip(c, s, gitHS, selectedID, gitST)
-								}
-							})
-							renderChatHeaderAuxGroup(c, s)
-						})
-					} else {
-						renderChatHeaderAuxGroup(c, s)
+				renderScriptsSheet(c, s)
+				changes := 0
+				if selectedID != "" {
+					changes = s.headerGitState(selectedID).Changes
+				}
+				pendingProposals := memoryPendingBadgeCount(s)
+				s.refreshPendingMemoryCount(false)
+				syncMemoryMenuLabel()
+				ui.Row(c.Key("chat-header-more-wrap")).AlignItems(ui.Center).Children(func() {
+					more := IconButton(c, IconButtonProps{
+						Key:     "chat-header-more-btn",
+						Icon:    IconMoreHorizontal(),
+						Size:    ControlMD,
+						Variant: ButtonGhost,
+						Label:   "更多头部操作",
+						Tooltip: "更多",
+						Active:  ts.morePopoverOpen,
+						OnClick: func() {
+							if togglePopoverOpen(&ts.morePopoverOpen) {
+								hs.moreSubmenu = ""
+							}
+						},
+					})
+					if changes > 0 && gitChangeBadgeVisible(s) {
+						renderGitCountBadge(c, "chat-header-more-badge", changes)
 					}
+					PopoverCard(c, more, PopoverProps{
+						Key:       "chat-header-more-popover",
+						Open:      &ts.morePopoverOpen,
+						Align:     BelowEnd,
+						OnDismiss: func() { hs.moreSubmenu = "" },
+					}, func() {
+						renderChatHeaderMorePopoverContent(c, s, hs, ts, selectedID, collapseLeft, gitHS, gitST, gitOK, changes, pendingProposals)
+					})
 				})
 			} else {
+				renderChatHeaderActionGroup(c, s, selectedID)
 				renderChatHeaderAuxGroup(c, s)
 			}
 			if stewardSelected(s, selectedID) {
@@ -1980,6 +1820,154 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 				IconButton(c, IconButtonProps{Key: "chat-header-steward-settings", Icon: IconSettings(), Size: ControlMD, Variant: ButtonGhost,
 					Label: stewardName(nickname) + "设置", OnClick: func() { openSettingsWindow(s, settingsPageSteward) }})
 			}
+		})
+	})
+}
+
+// renderChatHeaderMorePopoverContent 渲染窄屏下唯一「…」按钮的扁平弹层内容，
+// 依次平铺（<560 时的 Git 分支）、外部打开、运行、终端、右栏（带改动角标）、分隔线、项目文档与记忆。
+func renderChatHeaderMorePopoverContent(
+	c *ui.Context,
+	s *chatState,
+	hs *chatHeaderState,
+	ts *chatToolbarState,
+	selectedID string,
+	collapseLeft bool,
+	gitHS *chatHeaderState,
+	gitST GitState,
+	gitOK bool,
+	changes int,
+	pendingProposals int,
+) {
+	dir := s.headerProjectDir(selectedID)
+	hasScripts := s.headerScriptsButtonVisible(selectedID)
+
+	ui.Column(c.Key("chat-header-more-content")).MinWidth(204).Gap(Space0).FocusGroup(ui.Vertical).Children(func() {
+		if hs.moreSubmenu == "openin" && dir != "" {
+			menuRow(c, menuRowProps{
+				Key:   "chat-header-more-back",
+				Icon:  IconArrowLeft(),
+				Title: "外部打开",
+				OnClick: func() {
+					hs.moreSubmenu = ""
+					s.invalidate()
+				},
+			})
+			gitMenuDivider(c)
+			renderHeaderOpenInMenuRows(c, s, dir, func() {
+				ts.morePopoverOpen = false
+				hs.moreSubmenu = ""
+			})
+			return
+		}
+		if hs.moreSubmenu == "scripts" && hasScripts {
+			menuRow(c, menuRowProps{
+				Key:   "chat-header-more-back",
+				Icon:  IconArrowLeft(),
+				Title: "运行",
+				OnClick: func() {
+					hs.moreSubmenu = ""
+					s.invalidate()
+				},
+			})
+			gitMenuDivider(c)
+			renderHeaderScriptsMenuRows(c, s, selectedID, func() {
+				ts.morePopoverOpen = false
+				hs.moreSubmenu = ""
+			})
+			return
+		}
+
+		if collapseLeft && gitOK {
+			ui.Row(c.Key("chat-header-more-left-group")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+				renderGitBranchCapsule(c, s, gitHS, selectedID, gitST)
+				renderGitPRHeaderChip(c, s, gitHS, selectedID, gitST)
+			})
+			gitMenuDivider(c)
+		}
+		if dir != "" {
+			menuRow(c, menuRowProps{
+				Key:   "chat-header-more-open-in",
+				Icon:  IconSquareArrowOutUpRight(),
+				Title: "外部打开",
+				OnClick: func() {
+					hs.moreSubmenu = "openin"
+					s.invalidate()
+				},
+			})
+		}
+		if hasScripts {
+			menuRow(c, menuRowProps{
+				Key:   "chat-header-more-scripts",
+				Icon:  IconPlay(),
+				Title: "运行",
+				OnClick: func() {
+					hs.moreSubmenu = "scripts"
+					s.invalidate()
+				},
+			})
+		}
+
+		terminalOpen := false
+		if termSt := getTerminalState(s); termSt != nil {
+			terminalMu.Lock()
+			terminalOpen = termSt.visible
+			terminalMu.Unlock()
+		}
+		inspector := inspectorSession(s)
+		inspectorOpen := inspector != nil && inspector.Open
+
+		menuRow(c, menuRowProps{
+			Key:     "chat-header-more-terminal",
+			Icon:    IconTerminal(),
+			Title:   "终端",
+			Checked: terminalOpen,
+			OnClick: func() {
+				ts.morePopoverOpen = false
+				s.headerToggleTerminal()
+			},
+		})
+		badgeDetail := ""
+		if changes > 0 && gitChangeBadgeVisible(s) {
+			if changes > 99 {
+				badgeDetail = "99+"
+			} else {
+				badgeDetail = strconv.Itoa(changes)
+			}
+		}
+		menuRow(c, menuRowProps{
+			Key:      "chat-header-more-inspector",
+			Icon:     IconPanelRight(),
+			Title:    "右栏",
+			Trailing: badgeDetail,
+			Checked:  inspectorOpen,
+			OnClick: func() {
+				ts.morePopoverOpen = false
+				toggleInspector(s)
+			},
+		})
+
+		gitMenuDivider(c)
+		menuRow(c, menuRowProps{
+			Key:   "chat-header-more-context",
+			Title: "项目文档",
+			OnClick: func() {
+				ts.morePopoverOpen = false
+				s.headerToggleContextPanel()
+			},
+		})
+		memDetail := ""
+		if pendingProposals > 0 {
+			memDetail = strconv.Itoa(pendingProposals)
+		}
+		menuRow(c, menuRowProps{
+			Key:      "chat-header-more-memory",
+			Title:    memoryEntryLabel(s.client),
+			Trailing: memDetail,
+			OnClick: func() {
+				ts.morePopoverOpen = false
+				s.headerToggleMemoryPanel()
+			},
 		})
 	})
 }
@@ -2069,14 +2057,6 @@ func (s *chatState) headerTogglePreview() {
 	togglePreview(s)
 }
 
-// headerOpenKanban 切换到看板（任务）视图。
-func (s *chatState) headerOpenKanban() {
-	if s == nil {
-		return
-	}
-	s.openTasksWindow("tasks")
-}
-
 // headerToggleDiff 切换改动面板。
 func (s *chatState) headerToggleDiff() {
 	if s == nil {
@@ -2085,13 +2065,21 @@ func (s *chatState) headerToggleDiff() {
 	s.toggleDiffPanel()
 }
 
-// renderChatHeaderAuxGroup 渲染终端、右栏和更多入口。
+// renderChatHeaderAuxGroup 渲染终端、右栏（带改动数角标）和更多入口。
 func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 	hs := getChatHeaderState(s)
 	pendingProposals := memoryPendingBadgeCount(s)
 	s.refreshPendingMemoryCount(false)
 	// 原生菜单在窗口创建前安装，那时还拿不到 client，这里补一次入口文案纠正。
 	syncMemoryMenuLabel()
+
+	s.mu.Lock()
+	selectedID := s.selectedThreadID
+	s.mu.Unlock()
+	changes := 0
+	if selectedID != "" {
+		changes = s.headerGitState(selectedID).Changes
+	}
 
 	terminalOpen := false
 	if termSt := getTerminalState(s); termSt != nil {
@@ -2103,17 +2091,46 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 	inspector := inspectorSession(s)
 	inspectorOpen := inspector != nil && inspector.Open
 
-	// 与动作胶囊组同一套容器：内边距 2、固定高度 28，相邻按钮之间插发丝分隔线。
-	groups := []headerGroup{
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-terminal-btn", Icon: IconTerminal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "终端", Tooltip: shortcutTitleWithKey("toggle-terminal", "终端"), Active: terminalOpen, OnClick: s.headerToggleTerminal})
-		}},
-		{true, func() {
-			IconButton(c, IconButtonProps{Key: "chat-header-inspector-btn", Icon: IconPanelRight(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "右栏", Tooltip: shortcutTitleWithKey("toggle-inspector", "右栏"), Active: inspectorOpen, OnClick: func() { toggleInspector(s) }})
-		}},
-		{true, func() {
-			ui.Row(c.Key("chat-header-aux-more-wrap")).Children(func() {
-				trigger := IconButton(c, IconButtonProps{Key: "chat-header-aux-more-btn", Icon: IconMoreHorizontal(), Size: headerCapsuleButtonSize, Variant: ButtonGhost, Label: "更多工具", Tooltip: "更多", Active: hs.auxMenuOpen, OnClick: func() { togglePopoverOpen(&hs.auxMenuOpen) }})
+	ui.Row(c.Key("chat-header-aux-group")).
+		Gap(Space1).
+		AlignItems(ui.Center).
+		Children(func() {
+			IconButton(c, IconButtonProps{
+				Key:     "chat-header-terminal-btn",
+				Icon:    IconTerminal(),
+				Size:    ControlMD,
+				Variant: ButtonGhost,
+				Label:   "终端",
+				Tooltip: shortcutTitleWithKey("toggle-terminal", "终端"),
+				Active:  terminalOpen,
+				OnClick: s.headerToggleTerminal,
+			})
+			ui.Row(c.Key("chat-header-inspector-wrap")).AlignItems(ui.Center).Children(func() {
+				IconButton(c, IconButtonProps{
+					Key:     "chat-header-inspector-btn",
+					Icon:    IconPanelRight(),
+					Size:    ControlMD,
+					Variant: ButtonGhost,
+					Label:   "右栏",
+					Tooltip: shortcutTitleWithKey("toggle-inspector", "右栏"),
+					Active:  inspectorOpen,
+					OnClick: func() { toggleInspector(s) },
+				})
+				if changes > 0 && gitChangeBadgeVisible(s) {
+					renderGitCountBadge(c, "chat-header-inspector-badge", changes)
+				}
+			})
+			ui.Row(c.Key("chat-header-aux-more-wrap")).AlignItems(ui.Center).Children(func() {
+				trigger := IconButton(c, IconButtonProps{
+					Key:     "chat-header-aux-more-btn",
+					Icon:    IconMoreHorizontal(),
+					Size:    ControlMD,
+					Variant: ButtonGhost,
+					Label:   "更多工具",
+					Tooltip: "更多",
+					Active:  hs.auxMenuOpen,
+					OnClick: func() { togglePopoverOpen(&hs.auxMenuOpen) },
+				})
 				if pendingProposals > 0 {
 					renderGitCountBadge(c, "chat-header-memory-badge", pendingProposals)
 				}
@@ -2133,22 +2150,9 @@ func renderChatHeaderAuxGroup(c *ui.Context, s *chatState) {
 							detail = strconv.Itoa(pendingProposals)
 						}
 						item("chat-header-memory-btn", memoryEntryLabel(s.client), detail, s.headerToggleMemoryPanel)
-						item("chat-header-kanban-btn", "任务", "", s.headerOpenKanban)
 					}))
 				})
 			})
-		}},
-	}
-
-	ui.Row(c.Key("chat-header-aux-group")).
-		Gap(Space0).
-		Padding(headerCapsulePadding).
-		Height(headerCapsuleHeight).
-		Radius(CapsuleRadius).
-		Background(ThemeOverlay(c, OverlaySubtle)).
-		AlignItems(ui.Center).
-		Children(func() {
-			headerRenderDividerBetween(c, "chat-header-aux-divider", groups)
 		})
 }
 

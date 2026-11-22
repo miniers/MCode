@@ -153,8 +153,7 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 	}, narrowW, 320)
 	waitFor(t, tt, func() bool {
 		_, hasMore := tt.Find("更多头部操作")
-		_, hasCommit := tt.Find("提交与推送")
-		return hasMore && hasCommit && tt.HasText(threadTitle)
+		return hasMore && tt.HasText(threadTitle)
 	})
 
 	titleRect, ok := tt.Find("会话标题拖动区")
@@ -171,8 +170,8 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 	if moreRect.W <= 0 || moreRect.X < -0.5 || moreRect.X+moreRect.W > narrowW+0.5 {
 		t.Fatalf("窄窗下「更多头部操作」按钮越界: %+v", moreRect)
 	}
-	if _, ok := tt.Find(headerPermissionCapsuleLabel); ok {
-		t.Fatal("窄窗折叠级别下权限胶囊不应直接留在顶栏")
+	if _, ok := tt.Find("更多工具"); ok {
+		t.Fatal("窄窗下不应同时存在第二个「…」按钮")
 	}
 	if _, ok := tt.Find("Git 分支"); ok {
 		t.Fatal("窄窗折叠级别下分支胶囊不应直接留在顶栏")
@@ -182,13 +181,16 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 		t.Fatalf("打开「更多头部操作」失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find(headerPermissionCapsuleLabel)
+		_, ok := tt.Find("Git 分支")
 		return ok
 	})
-	for _, label := range []string{headerPermissionCapsuleLabel, "Git 分支", "终端", "右栏", "更多工具"} {
+	for _, label := range []string{"Git 分支", "外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
 		if _, ok := tt.AccessByRole(ui.RoleButton, label); !ok {
 			t.Fatalf("打开「更多头部操作」后缺少折叠项 %q", label)
 		}
+	}
+	if _, ok := tt.Find("更多工具"); ok {
+		t.Fatal("窄窗弹层内不得嵌套第二个「…」按钮")
 	}
 }
 

@@ -27,7 +27,7 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 			t.Cleanup(func() { closeTerminals(s) })
 			tt := ui.NewTester(root, tc.width, 700)
 			waitFor(t, tt, func() bool {
-				_, ok := tt.Find(headerPermissionCapsuleLabel)
+				_, ok := tt.Find("显示/隐藏侧边栏 " + shortcutDisplay("⌘B"))
 				return ok
 			})
 			labels := []string{"终端", "右栏", "更多工具"}
@@ -48,8 +48,8 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 			if _, ok := tt.Find("更多头部操作"); ok != tc.collapsed {
 				t.Fatalf("更多按钮可见状态 = %v，收起 = %v", ok, tc.collapsed)
 			}
-			if _, ok := tt.Find("新建会话 " + shortcutDisplay("⌘N")); !ok {
-				t.Fatal("新建会话按钮不可见")
+			if _, ok := tt.Find("新建会话 " + shortcutDisplay("⌘N")); ok {
+				t.Fatal("侧栏展开时不应显示新建会话按钮")
 			}
 			if tc.collapsed {
 				tt.Key(ui.Cmd, ui.KeyJ)
@@ -174,7 +174,7 @@ func TestChatHeaderIconButtonsHaveNoFill(t *testing.T) {
 	t.Cleanup(func() { closeTerminals(s) })
 	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find(headerPermissionCapsuleLabel)
+		_, ok := tt.Find("右栏")
 		return ok
 	})
 	img := tt.Image()
@@ -182,7 +182,7 @@ func TestChatHeaderIconButtonsHaveNoFill(t *testing.T) {
 		i := img.PixOffset(x, y)
 		return [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
 	}
-	for _, label := range []string{"显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), "新建会话 " + shortcutDisplay("⌘N"), "终端", "右栏", "更多工具"} {
+	for _, label := range []string{"显示/隐藏侧边栏 " + shortcutDisplay("⌘B"), "终端", "右栏", "更多工具"} {
 		r, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("按钮 %q 不可见", label)

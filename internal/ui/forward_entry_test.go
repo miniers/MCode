@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,8 +9,9 @@ import (
 	"mcode/internal/testenv"
 )
 
-// TestChatHeaderForwardButtonVisibilityAndAction 验证顶部栏「转发到新会话」一键按钮：
-// 空会话和总管会话不显示；有消息的普通会话显示在新建会话旁，点击触发转发；转发中禁用防连点。
+// TestChatHeaderForwardButtonVisibilityAndAction 验证「转发到新会话」已从顶栏独立按钮迁入标题右键菜单：
+// 顶栏不再显示独立转发按钮；空会话和总管会话的标题右键菜单不含该项；有消息的普通会话显示该项，
+// 转发进行中禁用，空闲点击触发转发。
 func TestChatHeaderForwardButtonVisibilityAndAction(t *testing.T) {
 	testenv.TempHome(t)
 
@@ -26,10 +28,17 @@ func TestChatHeaderForwardButtonVisibilityAndAction(t *testing.T) {
 
 	fwdLabel := "转发到新会话 " + shortcutKeysDisplay("forward-thread", "⇧⌘D")
 	if _, ok := tt.Find(fwdLabel); ok {
-		t.Fatalf("空会话不应显示顶部栏转发按钮")
+		t.Fatalf("顶栏不应再显示独立转发按钮")
 	}
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatalf("右键标题失败: %v", err)
+	}
+	if slices.Contains(tt.Menu(), "转发到新会话") {
+		t.Fatalf("空会话标题右键菜单不应包含「转发到新会话」: %v", tt.Menu())
+	}
+	tt.Key(0, ui.KeyEscape)
 
-	// 加入消息后显示，且转发进行中时按钮切换为「正在转发…」并禁用。
+	// 加入消息后显示；转发进行中时该菜单项禁用，选择不会触发转发。
 	s.mu.Lock()
 	s.messages = []Message{{ID: "m1", Role: "user", Text: "hello"}}
 	if s.forwardInflight == nil {
@@ -39,31 +48,38 @@ func TestChatHeaderForwardButtonVisibilityAndAction(t *testing.T) {
 	s.mu.Unlock()
 	tt.Frame()
 
-	info, ok := tt.AccessByRole(ui.RoleButton, "正在转发…")
-	if !ok {
-		t.Fatalf("转发进行中顶部栏按钮应切换为「正在转发…」")
+	if _, ok := tt.Find(fwdLabel); ok {
+		t.Fatalf("有消息时顶栏也不应显示独立转发按钮")
 	}
-	if !info.Disabled {
-		t.Fatalf("转发进行中顶部栏按钮应处于禁用态")
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatalf("右键标题失败: %v", err)
+	}
+	if !slices.Contains(tt.Menu(), "转发到新会话") {
+		t.Fatalf("有消息的会话标题右键菜单应包含「转发到新会话」: %v", tt.Menu())
+	}
+	_ = tt.ChooseMenuItem("转发到新会话")
+	tt.Frame()
+	if forwardCallsContain(fake, "t1") {
+		t.Fatalf("转发进行中菜单项应禁用，不应触发转发")
 	}
 
-	// 空闲态显示正常文案，点击触发 ForwardThread。
+	// 空闲态选择「转发到新会话」触发 ForwardThread。
 	s.mu.Lock()
 	s.forwardInflight["t1"] = false
 	s.mu.Unlock()
 	tt.Frame()
 
-	if _, ok := tt.Find(fwdLabel); !ok {
-		t.Fatalf("有消息的会话应显示顶部栏转发按钮 %q", fwdLabel)
+	if err := tt.RightClick("会话标题拖动区"); err != nil {
+		t.Fatalf("右键标题失败: %v", err)
 	}
-	if err := tt.Click(fwdLabel); err != nil {
-		t.Fatalf("点击顶部栏转发按钮失败: %v", err)
+	if err := tt.ChooseMenuItem("转发到新会话"); err != nil {
+		t.Fatalf("选择标题右键菜单「转发到新会话」失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		return forwardCallsContain(fake, "t1")
 	})
 
-	// 总管会话即使有消息也不显示顶部栏转发按钮。
+	// 总管会话即使有消息，标题右键菜单也不显示「转发到新会话」。
 	stewardClient := &stewardFakeClient{FakeClient: NewFakeClient(), threadID: "steward-1"}
 	sSteward := newChatState(stewardClient)
 	sSteward.mu.Lock()
@@ -75,8 +91,11 @@ func TestChatHeaderForwardButtonVisibilityAndAction(t *testing.T) {
 	ttSteward := ui.NewTester(func(c *ui.Context) {
 		renderChatHeader(c, sSteward, "steward-1", ThreadUsage{}, 0)
 	}, 1000, 120)
-	if _, ok := ttSteward.Find(fwdLabel); ok {
-		t.Fatalf("总管会话不应显示顶部栏转发按钮")
+	if err := ttSteward.RightClick("会话标题拖动区"); err != nil {
+		t.Fatalf("右键总管标题失败: %v", err)
+	}
+	if slices.Contains(ttSteward.Menu(), "转发到新会话") {
+		t.Fatalf("总管会话标题右键菜单不应显示「转发到新会话」: %v", ttSteward.Menu())
 	}
 }
 

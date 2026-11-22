@@ -41,8 +41,8 @@ func TestInspectorMoreMenuPreservesMemoryBadge(t *testing.T) {
 	if _, ok := tt.Find(memoryEntryLabel(s.client)); !ok {
 		t.Fatal("更多菜单缺少记忆入口")
 	}
-	if _, ok := tt.Find("任务"); !ok {
-		t.Fatal("更多菜单缺少任务入口")
+	if _, ok := tt.Find("任务"); ok {
+		t.Fatal("更多菜单不应再有任务入口")
 	}
 	if !tt.HasText("17") {
 		t.Fatal("更多菜单缺少待审数量")
