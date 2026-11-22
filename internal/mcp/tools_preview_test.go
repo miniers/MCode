@@ -126,7 +126,7 @@ func TestPreviewOpenRejectsInvalidTargets(t *testing.T) {
 		{name: "non-html extension", threadID: "thread-1", workDir: projDir, target: "main.go"},
 		{name: "missing file", threadID: "thread-1", workDir: projDir, target: "missing.html"},
 		{name: "directory instead of file", threadID: "thread-1", workDir: projDir, target: "dir.html"},
-		{name: "empty workdir for file", threadID: "thread-1", workDir: "", target: "main.go"},
+		{name: "empty workdir non-html file", threadID: "thread-1", workDir: "", target: "main.go"},
 		{name: "external https url", threadID: "thread-1", workDir: projDir, target: "https://example.com"},
 		{name: "spoofed localhost suffix", threadID: "thread-1", workDir: projDir, target: "http://localhost.evil.com/"},
 		{name: "missing thread scope", threadID: "", workDir: projDir, target: "http://localhost:5173/"},
@@ -207,5 +207,36 @@ func TestPreviewOpenListedInOrdinaryThread(t *testing.T) {
 	names := threadToolNames(t, srv, "thread-ordinary")
 	if !names[previewOpenToolName] {
 		t.Fatalf("普通会话 tools/list 应包含 %s, 实际为 %v", previewOpenToolName, names)
+	}
+}
+
+func TestPreviewOpenWithoutWorkDir(t *testing.T) {
+	t.Parallel()
+	var gotThread, gotTarget string
+	calls := 0
+	srv, st, _ := setupTestMCPWithOptions(t, func(o *Options) {
+		o.OpenPreview = func(threadID, target string) error {
+			calls++
+			gotThread = threadID
+			gotTarget = target
+			return nil
+		}
+	})
+	registerThread(t, st, "thread-1", "proj-test-1")
+
+	text, isError := callPreviewOpen(t, srv, "thread-1", "", map[string]any{"target": "docs/a.html"})
+	if isError || text != "已在右侧预览打开" {
+		t.Fatalf("无 WorkDir 打开 HTML 失败: isError=%v text=%q", isError, text)
+	}
+	if calls != 1 || gotThread != "thread-1" || gotTarget != "docs/a.html" {
+		t.Fatalf("回调参数异常: calls=%d thread=%q target=%q", calls, gotThread, gotTarget)
+	}
+
+	text, isError = callPreviewOpen(t, srv, "thread-1", "", map[string]any{"target": "a.go"})
+	if !isError {
+		t.Fatalf("无 WorkDir 打开非 HTML 文件应报错, 实际成功: %q", text)
+	}
+	if calls != 1 {
+		t.Fatalf("非 HTML 文件不应触发回调, calls=%d", calls)
 	}
 }

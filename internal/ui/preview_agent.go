@@ -2,6 +2,8 @@ package mcodeui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -22,6 +24,13 @@ func OpenPreviewForThread(threadID, target string) error {
 	if s == nil {
 		return errors.New("桌面窗口未打开")
 	}
+	if !isPreviewHTTPURL(target) {
+		var err error
+		target, err = resolveAgentPreviewTarget(turnFilesWorkDir(s, threadID), target)
+		if err != nil {
+			return err
+		}
+	}
 	ok, isCurrent := setPendingPreview(s, threadID, target)
 	if !ok {
 		return errors.New("桌面窗口未打开")
@@ -32,6 +41,29 @@ func OpenPreviewForThread(threadID, target string) error {
 		})
 	}
 	return nil
+}
+
+func resolveAgentPreviewTarget(workDir, target string) (string, error) {
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return "", errors.New("会话没有工作目录")
+	}
+	path := filepath.FromSlash(strings.TrimSpace(target))
+	if path == "" {
+		return "", errors.New("只能预览工作区内的 HTML 文件")
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workDir, path)
+	}
+	rel, ok := chatLinkHTMLPreviewPath(path, workDir, 0)
+	if !ok {
+		return "", errors.New("只能预览工作区内的 HTML 文件")
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", errors.New("文件不存在")
+	}
+	return rel, nil
 }
 
 func (s *chatState) isClosed() bool {

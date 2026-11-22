@@ -57,8 +57,9 @@ func handlePreviewOpen(tc ToolContext, args map[string]any) ToolResult {
 }
 
 // resolvePreviewTarget 校验预览目标：http(s) URL 仅放行本机回环地址，
-// 其余视为工作区内 HTML 文件路径并返回相对工作区的 slash 路径。
+// 其余视为工作区内 HTML 文件路径；workDir 非空时返回相对工作区的 slash 路径，为空时交由桌面端校验。
 func resolvePreviewTarget(workDir, target string) (string, *ToolResult) {
+	target = strings.TrimSpace(target)
 	lower := strings.ToLower(target)
 	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		u, err := url.Parse(target)
@@ -77,8 +78,14 @@ func resolvePreviewTarget(workDir, target string) (string, *ToolResult) {
 
 	workDir = strings.TrimSpace(workDir)
 	if workDir == "" {
-		res := toolError(CodeInvalidArguments, "缺少工作区路径，无法打开本地文件", false)
-		return "", &res
+		// 线程端点不带工作目录头，由桌面端按会话工作目录校验。
+		switch strings.ToLower(filepath.Ext(target)) {
+		case ".html", ".htm", ".xhtml":
+			return target, nil
+		default:
+			res := toolError(CodeInvalidArguments, "仅支持预览 .html、.htm 或 .xhtml 文件", false)
+			return "", &res
+		}
 	}
 	base := filepath.Clean(workDir)
 	var full string

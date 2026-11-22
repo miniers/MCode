@@ -1,6 +1,8 @@
 package mcodeui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,7 +32,16 @@ func TestPreviewOpenRequiresWindow(t *testing.T) {
 }
 
 func TestPreviewOpenPendingWhenNotCurrentThread(t *testing.T) {
-	s := &chatState{selectedThreadID: "t1"}
+	workDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workDir, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "docs", "design.html"), []byte("<h1>hi</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := NewFakeClient()
+	client.SetThreadWorkDir(workDir)
+	s := &chatState{client: client, selectedThreadID: "t1"}
 	defer inspectorDisposeAllSessions(s)
 	registerTestChatWindow(t, s)
 
@@ -55,7 +66,13 @@ func TestPreviewOpenPendingWhenNotCurrentThread(t *testing.T) {
 }
 
 func TestPreviewOpenOverwritePending(t *testing.T) {
-	s := &chatState{selectedThreadID: "t1"}
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "first.html"), []byte("<h1>1</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := NewFakeClient()
+	client.SetThreadWorkDir(workDir)
+	s := &chatState{client: client, selectedThreadID: "t1"}
 	defer inspectorDisposeAllSessions(s)
 	registerTestChatWindow(t, s)
 
@@ -181,5 +198,36 @@ func TestPreviewOpenPrefersViewingWindow(t *testing.T) {
 	}
 	if st2 != nil && st2.pendingPreview != "" {
 		t.Fatalf("不应写入其他窗口, st2=%+v", st2)
+	}
+}
+
+func TestPreviewOpenResolveAgentTarget(t *testing.T) {
+	workDir := t.TempDir()
+	absHTML := filepath.Join(workDir, "docs", "a.html")
+	if err := os.MkdirAll(filepath.Dir(absHTML), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absHTML, []byte("<h1>a</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rel, err := resolveAgentPreviewTarget(workDir, "docs/a.html")
+	if err != nil || rel != "docs/a.html" {
+		t.Fatalf("相对路径解析失败: rel=%q err=%v", rel, err)
+	}
+
+	rel, err = resolveAgentPreviewTarget(workDir, absHTML)
+	if err != nil || rel != "docs/a.html" {
+		t.Fatalf("绝对路径解析失败: rel=%q err=%v", rel, err)
+	}
+
+	if _, err := resolveAgentPreviewTarget(workDir, "../x.html"); err == nil {
+		t.Fatal("工作区外路径应返回错误")
+	}
+	if _, err := resolveAgentPreviewTarget(workDir, "docs/missing.html"); err == nil {
+		t.Fatal("不存在的 HTML 文件应返回错误")
+	}
+	if _, err := resolveAgentPreviewTarget("", "docs/a.html"); err == nil {
+		t.Fatal("空 workDir 应返回错误")
 	}
 }
