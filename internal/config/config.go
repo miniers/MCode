@@ -16,7 +16,7 @@ import (
 )
 
 // Version 是当前支持的 config.json 结构版本。
-const Version = 13
+const Version = 14
 
 // 模型角色常量，分别对应设置 -> 模型的 规划角色 (Lead Agent)、编码角色 (Coder)、快搜角色 (Research)、视觉角色 (Vision)。
 // 模型角色概念已弃用，运行时不再读取，仅为兼容旧配置文件保留。
@@ -334,14 +334,16 @@ type SwarmTierOverride struct {
 }
 
 const (
-	readTierDescription   = "回答任务列出的问题，查符号、调用链与变更历史，可跑有范围测试复现并给根因证据"
-	choreTierDescription  = "改法已写明、无需判断的修改，如重放补丁、改名、格式化、按给定内容改文档或补测试"
-	editTierDescription   = "按给定步骤改代码，步骤内的实现细节自行判断，并补充覆盖该行为的测试"
-	deepTierDescription   = "步骤已定但落地需细致推理，如并发与锁、生命周期与状态机、跨包重构"
-	readTierSystemPrompt  = "逐条回答任务说明中的问题，不改文件、不给改法，任务没问到的不展开。可用读文件、搜索工具、只读命令和有范围的 go build、go test、go vet 来复现、二分或测量；其他命令（如 sqlite3、awk、带重定向的命令）会被拒绝，读 mcode 会话用 session_get 工具。命令被拒或失败时改用读文件或搜索工具继续，不要停下。汇报根因时附上代码位置、复现命令与输出。"
-	choreTierSystemPrompt = "严格按任务说明逐字执行，不自行扩展。遇到需要自行判断的地方，或测试与代码不一致、不确定该改哪一边时，停下并在汇报里说明，不要自己做决定；不要为了让测试通过去修改断言。"
-	editTierSystemPrompt  = "按任务说明中的步骤改代码，步骤内的实现细节（如命名、错误处理、行号偏移后按语义定位）自行判断，并补充覆盖该行为的测试。若发现步骤本身有误，或需要改动步骤之外的内容，在汇报里说明，不扩大修改范围。"
-	deepTierSystemPrompt  = "按任务说明中的步骤改代码。涉及并发、生命周期、状态流转或跨包改动时，先理清相关调用方与不变量再动手，并补充覆盖边界条件与竞态场景的测试。若发现步骤本身有误，或需要改动步骤之外的内容，在汇报里说明，不扩大修改范围。"
+	readTierDescription    = "回答任务列出的问题，查符号、调用链与变更历史，可跑有范围测试复现并给根因证据"
+	choreTierDescription   = "改法已写明、无需判断的修改，如重放补丁、改名、格式化、按给定内容改文档或补测试"
+	editTierDescription    = "按给定步骤改代码，步骤内的实现细节自行判断，并补充覆盖该行为的测试"
+	deepTierDescription    = "步骤已定但落地需细致推理，如并发与锁、生命周期与状态机、跨包重构"
+	designTierDescription  = "UI 方案与可交互 HTML 设计稿：出稿前向用户提问确认细节，用户在预览里标注改稿，不改业务代码"
+	readTierSystemPrompt   = "逐条回答任务说明中的问题，不改文件、不给改法，任务没问到的不展开。可用读文件、搜索工具、只读命令和有范围的 go build、go test、go vet 来复现、二分或测量；其他命令（如 sqlite3、awk、带重定向的命令）会被拒绝，读 mcode 会话用 session_get 工具。命令被拒或失败时改用读文件或搜索工具继续，不要停下。汇报根因时附上代码位置、复现命令与输出。"
+	choreTierSystemPrompt  = "严格按任务说明逐字执行，不自行扩展。遇到需要自行判断的地方，或测试与代码不一致、不确定该改哪一边时，停下并在汇报里说明，不要自己做决定；不要为了让测试通过去修改断言。"
+	editTierSystemPrompt   = "按任务说明中的步骤改代码，步骤内的实现细节（如命名、错误处理、行号偏移后按语义定位）自行判断，并补充覆盖该行为的测试。若发现步骤本身有误，或需要改动步骤之外的内容，在汇报里说明，不扩大修改范围。"
+	deepTierSystemPrompt   = "按任务说明中的步骤改代码。涉及并发、生命周期、状态流转或跨包改动时，先理清相关调用方与不变量再动手，并补充覆盖边界条件与竞态场景的测试。若发现步骤本身有误，或需要改动步骤之外的内容，在汇报里说明，不扩大修改范围。"
+	designTierSystemPrompt = "你负责 UI 设计稿，按 design-mockup 技能做。先读项目的设计 token 和相关界面代码。出稿前把需要用户拍板的细节用提问工具给 2 到 4 个选项让用户选，推荐项放第一个；用户没有思路时先给几个设计方向让用户挑。设计稿写成可交互的 HTML，放在 .mcode/design/<主题>.html，只用项目真实的 token，不画 ASCII 线稿，不引用外链和远程字体。写完调用 preview_open 打开。用户在预览里标注或写意见后会发消息给你：有拿不准的先问清楚再改，改完再次调用 preview_open 刷新。只写 .mcode/design/ 下的文件，不改业务代码、配置和测试，不执行 git 命令。汇报时给出设计稿路径，以及需要主代理落地时注意的取舍。"
 )
 
 // 以后修改默认文案时，把旧值追加到对应的表；提示词历史表不收录空串。
@@ -395,9 +397,9 @@ func defaultDeepWritePaths() []string {
 	return []string{"docs/superpowers/plans/**/*.md"}
 }
 
-// DefaultSwarmTiers 返回内置的四组子代理档位：只读、杂活、执行、攻坚。
+// DefaultSwarmTiers 返回内置的五组子代理档位：只读、杂活、执行、攻坚、设计。
 // 所有档位的 Provider 与 Model 均为空，默认跟随会话生效的子代理模型；
-// Effort 为各档默认推理强度，攻坚档用 high，其余用 medium，设了子代理默认强度时让位。
+// Effort 为各档默认推理强度，攻坚与设计档用 high，其余用 medium，设了子代理默认强度时让位。
 func DefaultSwarmTiers() []SwarmTier {
 	return []SwarmTier{
 		{
@@ -428,6 +430,15 @@ func DefaultSwarmTiers() []SwarmTier {
 			Description:  deepTierDescription,
 			SystemPrompt: deepTierSystemPrompt,
 			Effort:       "high",
+		},
+		{
+			ID:              "design",
+			Name:            "设计",
+			Description:     designTierDescription,
+			SystemPrompt:    designTierSystemPrompt,
+			Effort:          "high",
+			SharedWorkspace: true,
+			Interactive:     true,
 		},
 	}
 }

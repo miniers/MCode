@@ -13,7 +13,7 @@ import (
 type MigrationFunc func(raw map[string]any) (map[string]any, error)
 
 // migrations 是有序迁移链。每一步将版本 v 升级至 v+1。
-// 当前 Version 为 13。
+// 当前 Version 为 14。
 var migrations = []MigrationFunc{
 	migrateV1ToV2,
 	migrateV2ToV3,
@@ -27,6 +27,48 @@ var migrations = []MigrationFunc{
 	migrateV10ToV11,
 	migrateV11ToV12,
 	migrateV12ToV13,
+	migrateV13ToV14,
+}
+
+func designTierRawV13ToV14() (map[string]any, error) {
+	for _, tier := range DefaultSwarmTiers() {
+		if tier.ID != "design" {
+			continue
+		}
+		data, err := json.Marshal(tier)
+		if err != nil {
+			return nil, fmt.Errorf("marshal default design tier: %w", err)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, fmt.Errorf("unmarshal default design tier: %w", err)
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("missing design tier in DefaultSwarmTiers")
+}
+
+// migrateV13ToV14 为已有非空档位列表的旧配置一次性补上设计（design）档位。
+func migrateV13ToV14(raw map[string]any) (map[string]any, error) {
+	orchestration, ok := raw["orchestration"].(map[string]any)
+	if !ok {
+		return raw, nil
+	}
+	tiers, ok := orchestration["tiers"].([]any)
+	if !ok || len(tiers) == 0 {
+		return raw, nil
+	}
+	for _, item := range tiers {
+		if tierIDOf(item) == "design" {
+			return raw, nil
+		}
+	}
+	designTier, err := designTierRawV13ToV14()
+	if err != nil {
+		return nil, err
+	}
+	orchestration["tiers"] = append(tiers, designTier)
+	return raw, nil
 }
 
 // migrateV12ToV13 一次性打开旧版本写入文件的默认 false 开关。

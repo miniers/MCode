@@ -33,7 +33,7 @@ func TestNormalizeTiersNilFillsDefaults(t *testing.T) {
 	}
 }
 
-// 1b. DefaultSwarmTiers 返回只读、杂活、执行、攻坚四档，并带各自的默认推理强度。
+// 1b. DefaultSwarmTiers 返回只读、杂活、执行、攻坚、设计五档，并带各自的默认推理强度。
 func TestDefaultSwarmTiersOrderAndEffort(t *testing.T) {
 	want := []struct {
 		id     string
@@ -43,6 +43,7 @@ func TestDefaultSwarmTiersOrderAndEffort(t *testing.T) {
 		{"chore", "medium"},
 		{DefaultSwarmTierID, "medium"},
 		{"deep", "high"},
+		{"design", "high"},
 	}
 
 	got := DefaultSwarmTiers()
@@ -65,6 +66,41 @@ func TestDefaultSwarmTiersOrderAndEffort(t *testing.T) {
 	}
 	if DefaultSwarmTiers()[1].Name != "杂活" {
 		t.Errorf("chore 档名称应为杂活，得到 %q", DefaultSwarmTiers()[1].Name)
+	}
+}
+
+func TestDesignTierDefault(t *testing.T) {
+	var found *SwarmTier
+	for _, tier := range DefaultSwarmTiers() {
+		if tier.ID == "design" {
+			copyTier := tier
+			found = &copyTier
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("DefaultSwarmTiers 应包含 design 档位")
+	}
+	if found.Name != "设计" {
+		t.Errorf("design 档名称应为 设计，得到 %q", found.Name)
+	}
+	if found.Description != designTierDescription {
+		t.Errorf("design 档说明不符：got=%q want=%q", found.Description, designTierDescription)
+	}
+	if found.SystemPrompt != designTierSystemPrompt {
+		t.Errorf("design 档系统提示词不符：got=%q want=%q", found.SystemPrompt, designTierSystemPrompt)
+	}
+	if found.Effort != "high" {
+		t.Errorf("design 档默认推理强度应为 high，得到 %q", found.Effort)
+	}
+	if !found.SharedWorkspace {
+		t.Error("design 档 SharedWorkspace 应为 true")
+	}
+	if !found.Interactive {
+		t.Error("design 档 Interactive 应为 true")
+	}
+	if found.ReadOnly {
+		t.Error("design 档 ReadOnly 应为 false")
 	}
 }
 
@@ -484,21 +520,23 @@ func TestMigrateV5ToV6DeepWritePaths(t *testing.T) {
 
 func TestUpgradeBuiltinTierTexts(t *testing.T) {
 	defaults := DefaultSwarmTiers()
-	oldDescriptions := []string{
-		"只读调研：检索、阅读、总结代码与文档，不修改任何文件",
-		"机械活：补丁重放或重做已有补丁、改名、格式化、修测试或补测试、文档与文案修改；brief 已给出文件与改法",
-		"执行步骤已写清楚的明确修改，单文件或少量文件",
-		"只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。",
+	oldDescriptions := map[string]string{
+		"read":  "只读调研：检索、阅读、总结代码与文档，不修改任何文件",
+		"chore": "机械活：补丁重放或重做已有补丁、改名、格式化、修测试或补测试、文档与文案修改；brief 已给出文件与改法",
+		"edit":  "执行步骤已写清楚的明确修改，单文件或少量文件",
+		"deep":  "只做定位、方案设计与关键决策：brief 只给现象、目标或边界而没给改法时，先复现、二分、实测或设计接口，产出带 path:line 的分步方案；复杂时把方案写成 md 文档；不改代码。",
 	}
 	tiers := make([]SwarmTier, len(defaults))
 	copy(tiers, defaults)
 	for i := range tiers {
-		tiers[i].Description = "  " + oldDescriptions[i] + "  "
+		if old, ok := oldDescriptions[tiers[i].ID]; ok {
+			tiers[i].Description = "  " + old + "  "
+		}
 		tiers[i].SystemPrompt = ""
 	}
 	tiers = append(tiers,
 		SwarmTier{ID: "edit", Description: "自定义说明", SystemPrompt: "自定义提示词"},
-		SwarmTier{ID: "custom", Description: oldDescriptions[0]},
+		SwarmTier{ID: "custom", Description: oldDescriptions["read"]},
 	)
 	original := append([]SwarmTier(nil), tiers...)
 	got := UpgradeBuiltinTierTexts(tiers)
@@ -638,13 +676,21 @@ func TestUpgradeAllBuiltinTierTextsFromBriefEra(t *testing.T) {
 		},
 	}
 
+	byID := make(map[string]SwarmTier, len(defaults))
+	for _, def := range defaults {
+		byID[def.ID] = def
+	}
 	got := UpgradeBuiltinTierTexts(prev)
-	for i, def := range defaults {
-		if got[i].Description != def.Description {
-			t.Errorf("档位 %s 旧用途说明未升级：got=%q want=%q", def.ID, got[i].Description, def.Description)
+	for _, item := range got {
+		def, ok := byID[item.ID]
+		if !ok {
+			t.Fatalf("未知档位 %s", item.ID)
 		}
-		if got[i].SystemPrompt != def.SystemPrompt {
-			t.Errorf("档位 %s 旧档位要求未升级：got=%q want=%q", def.ID, got[i].SystemPrompt, def.SystemPrompt)
+		if item.Description != def.Description {
+			t.Errorf("档位 %s 旧用途说明未升级：got=%q want=%q", item.ID, item.Description, def.Description)
+		}
+		if item.SystemPrompt != def.SystemPrompt {
+			t.Errorf("档位 %s 旧档位要求未升级：got=%q want=%q", item.ID, item.SystemPrompt, def.SystemPrompt)
 		}
 	}
 }

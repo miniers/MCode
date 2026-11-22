@@ -1090,8 +1090,8 @@ func TestLoadMigratesV4ToV5WithChoreTier(t *testing.T) {
 		t.Fatalf("expected version %d after migration, got %d", Version, loaded.Version)
 	}
 
-	wantIDs := []string{"read", "chore", "edit", "deep"}
-	wantEfforts := []string{"medium", "medium", "medium", "high"}
+	wantIDs := []string{"read", "chore", "edit", "deep", "design"}
+	wantEfforts := []string{"medium", "medium", "medium", "high", "high"}
 	if len(loaded.Orchestration.Tiers) != len(wantIDs) {
 		t.Fatalf("迁移后应有 %d 个档位，实际 %d: %+v", len(wantIDs), len(loaded.Orchestration.Tiers), loaded.Orchestration.Tiers)
 	}

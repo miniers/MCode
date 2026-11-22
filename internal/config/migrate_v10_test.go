@@ -73,8 +73,8 @@ func TestLoadMigratesV9TierTexts(t *testing.T) {
 		t.Fatalf("版本 = %d，期望 %d", cfg.Version, Version)
 	}
 	tiers := cfg.Orchestration.Tiers
-	if len(tiers) != 3 {
-		t.Fatalf("档位数量 = %d，期望 3", len(tiers))
+	if len(tiers) != 4 {
+		t.Fatalf("档位数量 = %d，期望 4", len(tiers))
 	}
 	if tiers[0].Description != readTierDescription || tiers[0].SystemPrompt != readTierSystemPrompt {
 		t.Errorf("read 档未升级：%+v", tiers[0])
@@ -84,6 +84,9 @@ func TestLoadMigratesV9TierTexts(t *testing.T) {
 	}
 	if tiers[2].Description != deepTierDescription || tiers[2].SystemPrompt != deepTierSystemPrompt {
 		t.Errorf("deep 档未升级：%+v", tiers[2])
+	}
+	if tiers[3].ID != "design" {
+		t.Errorf("末尾应补上 design 档：%+v", tiers[3])
 	}
 }
 
@@ -101,6 +104,9 @@ func TestLoadV10KeepsClearedTierPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tier := range cfg.Orchestration.Tiers {
+		if tier.ID == "design" {
+			continue
+		}
 		if tier.SystemPrompt != "" {
 			t.Errorf("%s 档的空提示词被回填：%q", tier.ID, tier.SystemPrompt)
 		}
@@ -113,6 +119,9 @@ func TestLoadV10KeepsClearedTierPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tier := range loaded.Orchestration.Tiers {
+		if tier.ID == "design" {
+			continue
+		}
 		if tier.SystemPrompt != "" {
 			t.Errorf("%s 档的空提示词保存后被回填：%q", tier.ID, tier.SystemPrompt)
 		}

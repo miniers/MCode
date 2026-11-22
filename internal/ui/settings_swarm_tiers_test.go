@@ -89,18 +89,19 @@ func TestSwarmTiers_AddTierPersists(t *testing.T) {
 		t.Fatalf("saveTier failed: %s", errStr)
 	}
 
-	if len(st.cfg.Orchestration.Tiers) != 5 {
-		t.Fatalf("expected 5 tiers in state, got %d", len(st.cfg.Orchestration.Tiers))
+	wantCount := len(config.DefaultSwarmTiers()) + 1
+	if len(st.cfg.Orchestration.Tiers) != wantCount {
+		t.Fatalf("expected %d tiers in state, got %d", wantCount, len(st.cfg.Orchestration.Tiers))
 	}
 
 	loaded, err := config.Load(dataDir)
 	if err != nil {
 		t.Fatalf("config.Load failed: %v", err)
 	}
-	if len(loaded.Orchestration.Tiers) != 5 {
-		t.Fatalf("expected 5 tiers persisted to disk, got %d", len(loaded.Orchestration.Tiers))
+	if len(loaded.Orchestration.Tiers) != wantCount {
+		t.Fatalf("expected %d tiers persisted to disk, got %d", wantCount, len(loaded.Orchestration.Tiers))
 	}
-	last := loaded.Orchestration.Tiers[4]
+	last := loaded.Orchestration.Tiers[wantCount-1]
 	if last.ID != "review" || last.Name != "审查" || !last.ReadOnly {
 		t.Fatalf("persisted tier mismatch: %+v", last)
 	}
@@ -448,7 +449,7 @@ func TestSaveTier_PersistsWritePaths(t *testing.T) {
 }
 
 func TestDefaultSwarmTier(t *testing.T) {
-	for _, id := range []string{"read", "chore", "edit", "deep"} {
+	for _, id := range []string{"read", "chore", "edit", "deep", "design"} {
 		tier, ok := defaultSwarmTier(id)
 		if !ok || tier.ID != id {
 			t.Fatalf("未找到默认档位 %q：%+v", id, tier)
