@@ -1829,7 +1829,8 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		Radius(RowCornerRadius).
 		Label(rowLabel).
 		Role(ui.RoleListItem).
-		Focusable()
+		Focusable().
+		KeepFocus()
 
 	if !o.dormant && !thVal.Dormant {
 		sidebarMu.Lock()
@@ -1850,8 +1851,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 	}
 	// 悬停一段时间后在行尾浮出只读信息卡（标题、项目、分支、状态等）。
 	renderSidebarHoverCard(c, s, row, rowHovered, o, thVal)
-	// 省略号菜单打开时会拿到焦点，而 mygo 只有在下一帧仍构建菜单按钮时才会报告选中项；
-	// 因此指针离开后只要焦点还在行内，仍需保留右侧操作按钮。
+	// 指针悬停或键盘焦点落入行内时显示右侧操作按钮。
 	showRowActions := rowHovered || row.FocusWithin()
 
 	if isSelected {
@@ -1984,11 +1984,10 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 				renderSidebarStatusSlot(c, s, thVal, secondaryText, o.needsYou)
 			})
 		})
-		if showRowActions {
-			ui.Row(c.Key("th-actions-" + thVal.ID)).Absolute().Right(o.padX).Top(0).Bottom(0).AlignItems(ui.Center).Children(func() {
-				renderThreadRowHoverActions(c, s, o, thVal)
-			})
-		}
+		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，因此常驻构建并用 Hidden 隐藏。
+		ui.Row(c.Key("th-actions-" + thVal.ID)).Absolute().Right(o.padX).Top(0).Bottom(0).AlignItems(ui.Center).Hidden(!showRowActions).Children(func() {
+			renderThreadRowHoverActions(c, s, o, thVal)
+		})
 	})
 
 	// 步骤 3: 渲染完父会话行之后调用 bee 子行（含全部空闲被自动隐藏时的展开触发行）
