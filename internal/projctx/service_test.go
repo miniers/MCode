@@ -398,3 +398,26 @@ func TestService_WorktreeResolvesToMainCheckoutAndExcludesContext(t *testing.T) 
 		t.Errorf("exclude 文件内容 %q 未包含 /.mcode/context/", string(excludeData))
 	}
 }
+
+func TestDesignDirGitExclude(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatalf("创建 .git 目录失败: %v", err)
+	}
+	s, err := New(dir)
+	if err != nil {
+		t.Fatalf("New failed: %v", err)
+	}
+	if err := s.Ensure(); err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+
+	excludeFile := filepath.Join(s.root, ".git", "info", "exclude")
+	excludeData, err := os.ReadFile(excludeFile)
+	if err != nil {
+		t.Fatalf("读取 exclude 文件失败: %v", err)
+	}
+	if !strings.Contains(string(excludeData), "/.mcode/design/") {
+		t.Errorf("exclude 文件内容 %q 未包含 /.mcode/design/", string(excludeData))
+	}
+}

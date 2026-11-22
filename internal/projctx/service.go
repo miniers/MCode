@@ -213,6 +213,7 @@ func (s *Service) Ensure() error {
 		return fmt.Errorf("projctx: ensure inbox: %w", err)
 	}
 	git.EnsureGitExclude(s.root, "/.mcode/context/")
+	git.EnsureGitExclude(s.root, "/.mcode/design/")
 	return nil
 }
 
