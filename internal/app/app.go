@@ -886,6 +886,7 @@ func Open(opts Options) (*App, error) {
 			}
 			return out
 		},
+		OpenPreview: mcodeui.OpenPreviewForThread,
 	}
 	// 记忆工具只读项目空间与全局空间；用户明确要求记住时 memory_propose 经 MemoryCommit 直接写入。
 	if localDocs != nil {

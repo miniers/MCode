@@ -35,6 +35,7 @@ type inspectorSessionState struct {
 	follow         *inspectorFollowState
 	workspace      string
 	workspaceKnown bool
+	pendingPreview string
 }
 
 func inspectorSession(s *chatState) *inspectorSessionState {
@@ -306,8 +307,9 @@ func hideBrowserTab(s *chatState, st *browserTab) {
 
 func inspectorSwitchThread(s *chatState, oldID string) {
 	s.mu.Lock()
+	newID := s.selectedThreadID
 	old := inspectorExistingSessionLocked(s, oldID)
-	current := inspectorExistingSessionLocked(s, s.selectedThreadID)
+	current := inspectorExistingSessionLocked(s, newID)
 	if old != nil {
 		old.generation++
 		inspectorFollowStopLocked(old)
@@ -344,6 +346,13 @@ func inspectorSwitchThread(s *chatState, oldID string) {
 		browserEnforceSessionLimit(s)
 	}
 	inspectorValidateWorkspace(s)
+	if newID != "" {
+		if s.window != nil {
+			mygo.RunOnMain(func() { consumePendingPreview(s, newID) })
+		} else {
+			consumePendingPreview(s, newID)
+		}
+	}
 }
 
 // 同一个会话换 root/main 后作废缓存；AI worktree 变化由改动面板自行处理。

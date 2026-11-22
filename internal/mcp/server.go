@@ -67,6 +67,8 @@ type Options struct {
 	MemoryCommit func(ctx context.Context, proposalID string) (store.MemoryProposal, string, error)
 	// SwarmBees 返回该主会话的 bee 快照，供 swarm_report_get 的列表模式使用；nil 时列表模式不可用。
 	SwarmBees func(leadThreadID string) []SwarmBeeSummary
+	// OpenPreview 在桌面端右侧浏览器打开工作区内 HTML 文件或本机开发服务地址；nil 时表示桌面预览不可用。
+	OpenPreview func(threadID, target string) error
 }
 
 // Server 实现内置 MCP Streamable HTTP 服务器。
