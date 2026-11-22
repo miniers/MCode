@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // SkillScope 表示技能的来源层级。
@@ -50,6 +51,29 @@ var globalSkillRoots = []string{
 	filepath.Join(".agents", "skills"),
 	filepath.Join(".gemini", "antigravity", "skills"),
 	filepath.Join(".gemini", "config", "skills"),
+}
+
+var (
+	builtinSkillsDirMu sync.RWMutex
+	builtinSkillsDir   string
+)
+
+// SetBuiltinSkillsDir 设置内置技能根目录（传空串可清空），并发安全。
+func SetBuiltinSkillsDir(dir string) {
+	trimmed := strings.TrimSpace(dir)
+	if trimmed != "" {
+		trimmed = filepath.Clean(trimmed)
+	}
+	builtinSkillsDirMu.Lock()
+	builtinSkillsDir = trimmed
+	builtinSkillsDirMu.Unlock()
+}
+
+func getBuiltinSkillsDir() string {
+	builtinSkillsDirMu.RLock()
+	dir := builtinSkillsDir
+	builtinSkillsDirMu.RUnlock()
+	return dir
 }
 
 // BuildSkillsGuidance 扫描全局与项目级技能目录下的 SKILL.md，拼装为
@@ -257,6 +281,13 @@ func SkillReadDirs(projectPath, home string) []string {
 			dirs = append(dirs, dir)
 		}
 	}
+	if builtinDir := getBuiltinSkillsDir(); builtinDir != "" {
+		if path, err := filepath.Abs(builtinDir); err == nil {
+			add(path)
+		} else {
+			add(builtinDir)
+		}
+	}
 	if strings.TrimSpace(home) != "" {
 		for _, root := range globalSkillRoots {
 			if path, err := filepath.Abs(filepath.Join(home, root)); err == nil {
@@ -276,8 +307,11 @@ func SkillReadDirs(projectPath, home string) []string {
 // DiscoverSkills 返回全局与项目级技能清单：项目级优先、同名覆盖全局，各自按名称升序。
 func DiscoverSkills(projectPath, home string) []SkillInfo {
 	var global []SkillInfo
+	if builtinDir := getBuiltinSkillsDir(); builtinDir != "" {
+		global = append(global, scanSkillDir(builtinDir, SkillScopeGlobal)...)
+	}
 	if strings.TrimSpace(home) != "" {
-		global = scanSkillRoots(home, globalSkillRoots, SkillScopeGlobal)
+		global = append(global, scanSkillRoots(home, globalSkillRoots, SkillScopeGlobal)...)
 	}
 	var project []SkillInfo
 	if strings.TrimSpace(projectPath) != "" {

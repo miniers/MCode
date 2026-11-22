@@ -19,6 +19,7 @@ import (
 
 	"mcode/internal/agentconf"
 	"mcode/internal/app"
+	"mcode/internal/builtinskills"
 	"mcode/internal/config"
 	"mcode/internal/datadir"
 	"mcode/internal/git"
@@ -375,6 +376,9 @@ func main() {
 		})
 		if openErr == nil {
 			startuptrace.Mark("app.Open done")
+			if err := builtinskills.Install(*dataFlag); err != nil {
+				log.Printf("warning: install builtin skills: %v", err)
+			}
 		}
 		res = openResult{opened: opened, err: openErr}
 	}()

@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"mcode/internal/builtinskills"
 	"mcode/internal/config"
 	"mcode/internal/datadir"
 	"mcode/internal/git"
@@ -238,6 +239,9 @@ func main() {
 
 	if err := os.MkdirAll(*dataFlag, 0o700); err != nil {
 		log.Fatalf("failed to create data directory: %v", err)
+	}
+	if err := builtinskills.Install(*dataFlag); err != nil {
+		log.Printf("warning: install builtin skills: %v", err)
 	}
 
 	hub := remote.NewStreamHub(remote.StreamHubOptions{})

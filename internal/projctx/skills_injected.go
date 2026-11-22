@@ -25,6 +25,11 @@ func IsSkillInjectedPath(projectPath, home, skillPath string) bool {
 	}
 	path = filepath.Clean(path)
 
+	if builtinDir := getBuiltinSkillsDir(); builtinDir != "" {
+		if skillPathUnderDir(path, builtinDir) {
+			return true
+		}
+	}
 	if base := strings.TrimSpace(projectPath); base != "" {
 		if skillPathUnder(path, filepath.Clean(base), projectSkillRoots) {
 			return true
@@ -32,6 +37,19 @@ func IsSkillInjectedPath(projectPath, home, skillPath string) bool {
 	}
 	if base := strings.TrimSpace(home); base != "" {
 		if skillPathUnder(path, filepath.Clean(base), globalSkillRoots) {
+			return true
+		}
+	}
+	return false
+}
+
+func skillPathUnderDir(path, dir string) bool {
+	dir = filepath.Clean(dir)
+	if path == dir || strings.HasPrefix(path, dir+string(filepath.Separator)) {
+		return true
+	}
+	if absDir, err := filepath.Abs(dir); err == nil && absDir != dir {
+		if path == absDir || strings.HasPrefix(path, absDir+string(filepath.Separator)) {
 			return true
 		}
 	}

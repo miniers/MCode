@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"mcode/internal/builtinskills"
 	"mcode/internal/fsutil"
 )
 
@@ -174,6 +175,12 @@ func DeleteSkill(opts Options, skill Skill) error {
 	dir, err := filepath.Abs(filepath.Dir(skill.Path))
 	if err != nil {
 		return err
+	}
+	if dataDir := resolveDataDir(opts); dataDir != "" {
+		builtinRoot := filepath.Clean(builtinskills.Dir(dataDir))
+		if dir == builtinRoot || strings.HasPrefix(dir, builtinRoot+string(filepath.Separator)) {
+			return errors.New("内置技能不能删除，可停用")
+		}
 	}
 	roots := globalSkillSources(home)
 	if projectDir != "" {

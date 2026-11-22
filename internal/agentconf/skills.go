@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"mcode/internal/builtinskills"
 )
 
 type skillSource struct {
@@ -440,6 +442,14 @@ func ScanSkills(opts Options) ([]Skill, error) {
 
 	if attemptedCount > 0 && len(readErrors) == attemptedCount {
 		return nil, errors.Join(readErrors...)
+	}
+
+	if strings.TrimSpace(opts.DataDir) != "" {
+		if builtinDir := builtinskills.Dir(opts.DataDir); builtinDir != "" {
+			if scanned, err := scanSkillRoot(skillSource{agent: "mcode", scope: "global", path: builtinDir}, disabled, skills, seen); err == nil {
+				skills = scanned
+			}
+		}
 	}
 
 	sortSkills(skills)
