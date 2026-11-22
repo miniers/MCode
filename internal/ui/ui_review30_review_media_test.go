@@ -250,7 +250,7 @@ func TestUIReview30ReviewPRActionsWrapInNarrowPanel(t *testing.T) {
 	key := reviewKey(s, "t1", list, "a.go")
 	addReviewTestComment(t, dp, key, *full.File, editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1}, "PR 行内评论")
 	diffPanelMu.Lock()
-	dp.prAIErr = "AI 错误"
+	dp.prAIErr = "AI 审查服务暂时不可用"
 	dp.prAIErrNumber = 7
 	dp.prReviewErr = "提交失败"
 	dp.prReviewNumber = 7
@@ -266,7 +266,7 @@ func TestUIReview30ReviewPRActionsWrapInNarrowPanel(t *testing.T) {
 		t.Helper()
 		panelBounds := ui.Rect{X: 0, Y: 0, W: width, H: panelH}
 		var minBtnY, maxBtnY, maxAllY float32
-		for i, label := range []string{"导入 AI 审查", "评论", "批准", "要求修改"} {
+		for i, label := range []string{"评论", "批准", "要求修改", "重试"} {
 			info, ok := tt.Access(label)
 			if !ok {
 				t.Fatalf("未找到 PR 动作按钮 %q", label)
@@ -282,7 +282,7 @@ func TestUIReview30ReviewPRActionsWrapInNarrowPanel(t *testing.T) {
 				maxAllY = info.Bounds.Y
 			}
 		}
-		for _, errText := range []string{"AI 错误", "提交失败"} {
+		for _, errText := range []string{"AI 审查服务暂时不可用", "提交失败"} {
 			r, ok := tt.Find(errText)
 			if !ok {
 				t.Fatalf("未找到 PR 错误文本 %q", errText)

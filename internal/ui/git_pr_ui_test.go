@@ -698,18 +698,18 @@ func TestGitPRAIReviewThread(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	// 审查会话建好后改动面板应直接停在 PR 视图，顶部就是「导入 AI 审查」。
+	// 审查会话建好后改动面板应直接停在 PR 视图并标记为自动导入 AI 审查。
 	dp := getDiffPanelState(s)
 	deadline = time.Now().Add(3 * time.Second)
 	for {
 		diffPanelMu.Lock()
-		scope, number := dp.scope, dp.prNumber
+		scope, number, auto := dp.scope, dp.prNumber, dp.prAIAuto
 		diffPanelMu.Unlock()
-		if scope == "pr" && number == 42 {
+		if scope == "pr" && number == 42 && auto {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("改动面板 = scope %q PR #%d，期望 PR #42", scope, number)
+			t.Fatalf("改动面板 = scope %q PR #%d prAIAuto=%v，期望 PR #42 且 prAIAuto=true", scope, number, auto)
 		}
 		time.Sleep(time.Millisecond)
 	}

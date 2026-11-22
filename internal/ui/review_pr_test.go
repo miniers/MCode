@@ -381,8 +381,8 @@ func TestReviewPRAIAddsDrafts(t *testing.T) {
 	s, f, dp := reviewPRSetup(t)
 	tt := ui.NewTester(func(c *ui.Context) { renderReviewPRAction(c, s, dp, "t1") }, 800, 100)
 	tt.Frame()
-	if !tt.HasText("导入 AI 审查") {
-		t.Fatal("没有草稿时缺少导入 AI 审查按钮")
+	if tt.HasText("导入 AI 审查") {
+		t.Fatal("不应再显示导入 AI 审查按钮")
 	}
 	if tt.HasText("批准") || tt.HasText("要求修改") {
 		t.Fatal("没有草稿时显示了提交审阅按钮")
@@ -560,4 +560,122 @@ func TestReviewPRAIUnlocatableSetsError(t *testing.T) {
 	if errText != "AI 审查意见无法定位到 diff" || errNumber != 7 {
 		t.Fatalf("错误 = %q/%d", errText, errNumber)
 	}
+}
+
+func TestReviewPRAIAutoImport(t *testing.T) {
+	t.Run("triggers on idle and deduplicates", func(t *testing.T) {
+		s, f, dp := reviewPRSetup(t)
+		var calls atomic.Int32
+		f.ai = func(context.Context, string, int) ([]git.PRReviewComment, error) {
+			calls.Add(1)
+			return []git.PRReviewComment{{Path: "a.go", Line: 2, Side: "RIGHT", Body: "改用常量"}}, nil
+		}
+		diffPanelMu.Lock()
+		dp.prAIAuto = true
+		diffPanelMu.Unlock()
+
+		// 切到别的会话也能触发，且仍在运行或 SwarmBusy 时不触发。
+		s.mu.Lock()
+		s.selectedThreadID = "other"
+		s.threads[0].IsRunning = true
+		s.mu.Unlock()
+
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: true, SwarmBusy: false})
+		if calls.Load() != 0 {
+			t.Fatalf("仍在运行时触发了 AI 审查: %d", calls.Load())
+		}
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: false, SwarmBusy: true})
+		if calls.Load() != 0 {
+			t.Fatalf("SwarmBusy 时触发了 AI 审查: %d", calls.Load())
+		}
+
+		// 子线程也空闲，真正回合结束：恰好调用一次，评论进入 dp.comments。
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: false, SwarmBusy: false, LastStatus: "completed"})
+		waitReviewComments(t, func() bool {
+			diffPanelMu.Lock()
+			defer diffPanelMu.Unlock()
+			return calls.Load() == 1 && dp.prAIBusy == 0 && len(dp.comments) == 1
+		})
+		if calls.Load() != 1 {
+			t.Fatalf("期望调用 1 次，实际 %d 次", calls.Load())
+		}
+
+		// 第二轮结束返回同样意见：不再产生重复评论。
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: true})
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: false, SwarmBusy: false, LastStatus: "completed"})
+		waitReviewComments(t, func() bool {
+			diffPanelMu.Lock()
+			defer diffPanelMu.Unlock()
+			return calls.Load() == 2 && dp.prAIBusy == 0
+		})
+		diffPanelMu.Lock()
+		count := len(dp.comments)
+		diffPanelMu.Unlock()
+		if count != 1 {
+			t.Fatalf("连续两轮结束返回相同意见产生了 %d 条评论", count)
+		}
+	})
+
+	t.Run("skips non-auto and missing inspector session", func(t *testing.T) {
+		s, f, _ := reviewPRSetup(t)
+		var calls atomic.Int32
+		f.ai = func(context.Context, string, int) ([]git.PRReviewComment, error) {
+			calls.Add(1)
+			return nil, nil
+		}
+		s.mu.Lock()
+		s.threads = append(s.threads, Thread{ID: "t-no-inspector", ProjectID: "p1", IsRunning: true})
+		s.threads[0].IsRunning = true
+		s.mu.Unlock()
+
+		// dp.prAIAuto 为 false 时不触发。
+		s.applyThreadSummary(Thread{ID: "t1", IsRunning: false, SwarmBusy: false, LastStatus: "completed"})
+		// 没有 inspectorSessionState 时不触发也不新建。
+		s.applyThreadSummary(Thread{ID: "t-no-inspector", IsRunning: false, SwarmBusy: false, LastStatus: "completed"})
+		time.Sleep(20 * time.Millisecond)
+
+		if calls.Load() != 0 {
+			t.Fatalf("未标记 prAIAuto 或无状态会话不应调用 AI 审查: %d", calls.Load())
+		}
+		s.mu.Lock()
+		_, created := s.inspector.Sessions["t-no-inspector"]
+		s.mu.Unlock()
+		if created {
+			t.Fatal("applyThreadSummary 不应新建 inspectorSessionState")
+		}
+	})
+
+	t.Run("renders loading and error retry", func(t *testing.T) {
+		s, f, dp := reviewPRSetup(t)
+		var calls atomic.Int32
+		f.ai = func(context.Context, string, int) ([]git.PRReviewComment, error) {
+			calls.Add(1)
+			return []git.PRReviewComment{{Path: "a.go", Line: 2, Side: "RIGHT", Body: "重试意见"}}, nil
+		}
+		diffPanelMu.Lock()
+		dp.prAIBusy = 7
+		diffPanelMu.Unlock()
+
+		tt := ui.NewTesterWith(func(c *ui.Context) { renderReviewPRAction(c, s, dp, "t1") }, 600, 120, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tt.Frame()
+		if !tt.HasText("AI 审查中") {
+			t.Fatal("加载中未显示「AI 审查中」")
+		}
+
+		diffPanelMu.Lock()
+		dp.prAIBusy = 0
+		dp.prAIErr = "自动导入失败"
+		dp.prAIErrNumber = 7
+		diffPanelMu.Unlock()
+		tt.Frame()
+		if !tt.HasText("自动导入失败") || !tt.HasText("重试") {
+			t.Fatal("错误态未显示错误文字或重试按钮")
+		}
+		clickText(t, tt, "重试")
+		waitReviewComments(t, func() bool {
+			diffPanelMu.Lock()
+			defer diffPanelMu.Unlock()
+			return calls.Load() == 1 && dp.prAIBusy == 0 && len(dp.comments) == 1
+		})
+	})
 }

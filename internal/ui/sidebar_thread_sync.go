@@ -168,11 +168,25 @@ func (s *chatState) applyThreadSummary(update Thread) {
 	case wasRunning && !update.SwarmBusy && s.selectedThreadID != update.ID:
 		changed = s.markTurnFinishedLocked(update.ID, update.LastStatus) || changed
 	}
+	var autoReviewDP *diffPanelState
+	if !s.closed && wasRunning && !update.IsRunning && !update.SwarmBusy {
+		if slot := s.inspector.Sessions[update.ID]; slot != nil {
+			autoReviewDP = slot.Review
+		}
+	}
 	// 会话运行态/待处理请求变了，待处理请求集合（见 pendingRequestThreadIDs）需要重算。
 	s.bumpThreadsRuntimeLocked()
 	// 列表过期（新会话/标题变化）时重拉列表，重拉本身会 invalidate。
 	staleProjectID, reloadProjects := s.threadListStaleLocked(update)
 	s.mu.Unlock()
+	if autoReviewDP != nil {
+		diffPanelMu.Lock()
+		shouldAutoImport := autoReviewDP.prAIAuto && autoReviewDP.scope == "pr" && autoReviewDP.prNumber > 0
+		diffPanelMu.Unlock()
+		if shouldAutoImport {
+			startReviewPRAI(s, autoReviewDP, update.ID)
+		}
+	}
 	if reloadProjects {
 		s.loadProjects()
 	}

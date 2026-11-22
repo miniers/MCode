@@ -450,9 +450,14 @@ func (s *chatState) runGitPRCheckoutThread(kind string) {
 		if !s.finishGitPRThreadAction(st, seq, number, newID, err) {
 			return
 		}
-		// AI 审查会话建好后直接停在该 PR 的改动视图，用户不必再打开 PR 弹窗找「导入 AI 审查」。
+		// AI 审查会话建好后直接停在该 PR 的改动视图，回合结束时自动导入审查意见。
 		if kind == "ai-review" && s.gitPRThreadID() == newID {
 			openReviewPR(s, number)
+			if dp := getDiffPanelState(s); dp != nil {
+				diffPanelMu.Lock()
+				dp.prAIAuto = true
+				diffPanelMu.Unlock()
+			}
 		}
 	}()
 }

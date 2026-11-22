@@ -99,6 +99,8 @@ type diffPanelState struct {
 	// prAIErr 与 prAIErrNumber 是最近一次 AI 审查的错误及所属 PR。
 	prAIErr       string
 	prAIErrNumber int
+	// prAIAuto 表示本会话是该 PR 的 AI 审查会话，回合结束时自动导入。
+	prAIAuto bool
 
 	// cardOpen 记录用户显式开合过的改动卡片，键为文件路径；未记录的默认折叠。
 	cardOpen map[string]bool

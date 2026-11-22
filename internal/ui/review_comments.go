@@ -40,6 +40,7 @@ type reviewCommentDraftKey struct {
 }
 
 type reviewCommentDraft struct {
+	editID         int
 	key            reviewDiffKey
 	lines          editor.DiffLineRange
 	original, body string
@@ -47,7 +48,7 @@ type reviewCommentDraft struct {
 }
 
 func saveReviewCommentDraft(dp *diffPanelState, draft *reviewCommentDraft) {
-	if dp == nil || draft == nil {
+	if dp == nil || draft == nil || draft.editID > 0 {
 		return
 	}
 	draftKey := reviewCommentDraftKey{key: draft.key, lines: draft.lines}
@@ -88,13 +89,26 @@ func reviewCommentMatches(comment reviewComment, content ReviewFileContent) bool
 }
 
 func addReviewComment(dp *diffPanelState, draft reviewCommentDraft) bool {
-	if strings.TrimSpace(draft.body) == "" {
+	body := strings.TrimSpace(draft.body)
+	if dp == nil || body == "" {
 		return false
 	}
 	diffPanelMu.Lock()
 	defer diffPanelMu.Unlock()
+	if draft.editID > 0 {
+		for _, current := range dp.comments {
+			if current.id == uint64(draft.editID) {
+				current.body = body
+				if dp.commentDraft != nil && dp.commentDraft.editID == draft.editID {
+					dp.commentDraft.editID = 0
+				}
+				return true
+			}
+		}
+		return false
+	}
 	dp.commentSerial++
-	dp.comments = append(dp.comments, &reviewComment{id: dp.commentSerial, key: draft.key, lines: draft.lines, original: draft.original, body: strings.TrimSpace(draft.body)})
+	dp.comments = append(dp.comments, &reviewComment{id: dp.commentSerial, key: draft.key, lines: draft.lines, original: draft.original, body: body})
 	return true
 }
 
@@ -135,7 +149,7 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 	}
 	diffPanelMu.Unlock()
 	draft := dp.commentDraft
-	if draft != nil && draft.open && draft.key == key {
+	if draft != nil && draft.open && reviewSameFile(draft.key, key) {
 		d.Annotations = append(d.Annotations, editor.DiffAnnotation{Side: draft.lines.Side, Line: draft.lines.End, Height: Space1, Key: "comment-draft"})
 	}
 	d.RenderAnnotation = func(c *ui.Context, annotation editor.DiffAnnotation) {
@@ -144,14 +158,28 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 			appPopover(c, anchor, &draft.open, func() {
 				draft.open = false
 				saveReviewCommentDraft(dp, draft)
+				if draft.editID > 0 {
+					draft.editID = 0
+					if dp.commentDraft == draft {
+						dp.commentDraft = nil
+					}
+				}
 			}, func() {
 				popoverCard(c, ui.Column(c.Key("review-comment-card"))).Width(reviewCommentPopoverWidth).Padding(Space3).Gap(Space2).Children(func() {
 					ui.TextArea(c.Key("review-comment-input"), &draft.body).Label("评论").FillWidth().Height(reviewCommentBodyHeight)
-					button := ui.ButtonBase(c.Key("review-comment-add")).Label("添加").Disabled(strings.TrimSpace(draft.body) == "").Padding(Space2)
+					isEdit := draft.editID > 0
+					actionLabel := "添加"
+					if isEdit {
+						actionLabel = "保存"
+					}
+					button := ui.ButtonBase(c.Key("review-comment-add")).Label(actionLabel).Disabled(strings.TrimSpace(draft.body) == "").Padding(Space2)
 					buttonScale := motionPressScale(c, button, "button-press-scale", strings.TrimSpace(draft.body) != "" && button.Pressed())
 					button.Scale(buttonScale, buttonScale)
 					if button.Clicked() && addReviewComment(dp, *draft) {
-						delete(dp.commentDrafts, reviewCommentDraftKey{key: draft.key, lines: draft.lines})
+						if !isEdit {
+							delete(dp.commentDrafts, reviewCommentDraftKey{key: draft.key, lines: draft.lines})
+						}
+						draft.editID = 0
 						draft.body = ""
 						draft.open = false
 						if dp.commentDraft == draft {
@@ -159,7 +187,7 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 						}
 						s.invalidate()
 					}
-					button.Children(func() { ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)) })
+					button.Children(func() { ui.Text(c, actionLabel).FontSize(uiFont(TypeFootnote)) })
 				})
 			})
 			return
@@ -259,6 +287,23 @@ func renderReviewComment(c *ui.Context, s *chatState, dp *diffPanelState, commen
 					},
 				})
 			} else {
+				editButton := ui.ButtonBase(c.Key("edit")).Label("编辑").Padding(Space1)
+				editScale := motionPressScale(c, editButton, "button-press-scale", editButton.Pressed())
+				editButton.Scale(editScale, editScale)
+				if editButton.Clicked() {
+					saveReviewCommentDraft(dp, dp.commentDraft)
+					dp.commentDraft = &reviewCommentDraft{
+						editID:   int(comment.id),
+						key:      comment.key,
+						lines:    comment.lines,
+						original: comment.original,
+						body:     comment.body,
+						open:     true,
+					}
+					s.invalidate()
+				}
+				editButton.Children(func() { ui.Icon(c, IconPencilLine()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
+
 				button := ui.ButtonBase(c.Key("delete")).Label("删除评论").Padding(Space1)
 				buttonScale := motionPressScale(c, button, "button-press-scale", button.Pressed())
 				button.Scale(buttonScale, buttonScale)
@@ -689,15 +734,16 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	}
 	aiBusy, aiErr, aiErrNumber, number := dp.prAIBusy, dp.prAIErr, dp.prAIErrNumber, dp.prNumber
 	diffPanelMu.Unlock()
-	if count == 0 && !ai {
-		return
-	}
 	if aiErrNumber != number {
 		aiErr = ""
 	}
+	showLoading := ai && number > 0 && aiBusy == number
+	if count == 0 && !showLoading && aiErr == "" && errText == "" {
+		return
+	}
 	ui.Row(c.Key("review-pr-actions")).FillWidth().Wrap().Gap(Space2).AlignItems(ui.Center).Children(func() {
-		if ai {
-			Button(c, ButtonOpts{Key: "review-pr-ai", Text: "导入 AI 审查", Variant: ButtonSecondary, Size: ControlSM, Loading: aiBusy == number, Disabled: aiBusy != 0, OnClick: func() { startReviewPRAI(s, dp, tid) }})
+		if showLoading {
+			LoadingIndicator(c, "review-pr-ai-loading", "AI 审查中", IconSM)
 		}
 		if count > 0 {
 			for _, action := range []struct{ event, title string }{{"comment", "评论"}, {"approve", "批准"}, {"request-changes", "要求修改"}} {
@@ -710,6 +756,9 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 		}
 		if aiErr != "" {
 			ui.Text(c, aiErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
+			if ai {
+				Button(c, ButtonOpts{Key: "review-pr-ai-retry", Text: "重试", Variant: ButtonGhost, Size: ControlSM, Disabled: aiBusy != 0, OnClick: func() { startReviewPRAI(s, dp, tid) }})
+			}
 		}
 		if errText != "" {
 			ui.Text(c, errText).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))

@@ -484,3 +484,126 @@ func TestReviewReadButtonSettles(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewCommentEditKeepsIDAndRejectsEmpty(t *testing.T) {
+	_, _, dp, key, content := reviewCommentsSetup(t)
+	lines1 := editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1}
+	lines2 := editor.DiffLineRange{Side: editor.DiffOld, Start: 1, End: 1}
+	addReviewTestComment(t, dp, key, content, lines1, "第一条评论")
+	addReviewTestComment(t, dp, key, content, lines2, "第二条评论")
+
+	diffPanelMu.Lock()
+	orig := *dp.comments[0]
+	diffPanelMu.Unlock()
+
+	saveReviewCommentDraft(dp, &reviewCommentDraft{key: key, lines: lines1, original: orig.original, body: "未添加的新草稿"})
+
+	dp.commentDraft = &reviewCommentDraft{
+		editID:   int(orig.id),
+		key:      orig.key,
+		lines:    orig.lines,
+		original: orig.original,
+		body:     "  \n\t ",
+		open:     true,
+	}
+	if addReviewComment(dp, *dp.commentDraft) {
+		t.Fatal("空白编辑正文不应保存")
+	}
+
+	dp.commentDraft.body = "编辑一半取消"
+	saveReviewCommentDraft(dp, dp.commentDraft)
+	if got := dp.commentDrafts[reviewCommentDraftKey{key: key, lines: lines1}]; got != "未添加的新草稿" {
+		t.Fatalf("编辑态草稿污染了新评论草稿: %q", got)
+	}
+
+	dp.commentDraft.body = "  已修改正文  "
+	if !addReviewComment(dp, *dp.commentDraft) {
+		t.Fatal("编辑保存失败")
+	}
+	if dp.commentDraft.editID != 0 {
+		t.Fatalf("保存后 editID 未清空: %d", dp.commentDraft.editID)
+	}
+
+	diffPanelMu.Lock()
+	defer diffPanelMu.Unlock()
+	if len(dp.comments) != 2 {
+		t.Fatalf("编辑后评论数量变化: %d", len(dp.comments))
+	}
+	got := dp.comments[0]
+	if got.id != orig.id || got.key != orig.key || got.lines != orig.lines || got.original != orig.original || got.body != "已修改正文" {
+		t.Fatalf("编辑后评论状态错误: %+v (原=%+v)", *got, orig)
+	}
+	if dp.comments[1].body != "第二条评论" {
+		t.Fatalf("无关评论被修改: %q", dp.comments[1].body)
+	}
+}
+
+func TestReviewCommentEditPopover(t *testing.T) {
+	fake := NewFakeClient()
+	list, full := reviewFixture()
+	fake.SetReviewSnapshot("t1", "turn", "", "", list)
+	fake.SetReviewSnapshot("t1", "turn", "turn-1", "a.go", full)
+	s, tt, dp := newReviewTester(t, fake)
+
+	clickText(t, tt, "a.go")
+	waitFor(t, tt, func() bool { return len(dp.views) == 1 })
+	tt.Advance(DurSheet + 50*time.Millisecond)
+
+	key := reviewKey(s, "t1", list, "a.go")
+	addReviewTestComment(t, dp, key, *full.File, editor.DiffLineRange{Side: editor.DiffOld, Start: 1, End: 1}, "原始评论正文")
+	diffPanelMu.Lock()
+	origID := dp.comments[0].id
+	diffPanelMu.Unlock()
+	tt.Frame()
+	if !tt.HasText("原始评论正文") {
+		t.Fatal("未显示原评论")
+	}
+
+	// 确认删除态不显示「编辑」按钮。
+	clickText(t, tt, "删除评论")
+	if _, ok := tt.Access("编辑"); ok {
+		t.Fatal("确认删除状态不应显示编辑按钮")
+	}
+	clickText(t, tt, "取消删除")
+	if _, ok := tt.Access("编辑"); !ok {
+		t.Fatal("取消删除后应恢复编辑按钮")
+	}
+
+	// 点击「编辑」应打开浮层并预填原文；点外部取消则原评论不变。
+	clickText(t, tt, "编辑")
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if dp.commentDraft == nil || !dp.commentDraft.open || dp.commentDraft.editID != int(origID) || dp.commentDraft.body != "原始评论正文" {
+		t.Fatalf("点击编辑后草稿预填错误: %+v", dp.commentDraft)
+	}
+	tt.ClickAt(1, 1)
+	tt.Frame()
+	tt.Advance(DurBase + 50*time.Millisecond)
+	diffPanelMu.Lock()
+	bodyAfterCancel := dp.comments[0].body
+	diffPanelMu.Unlock()
+	if bodyAfterCancel != "原始评论正文" {
+		t.Fatalf("取消编辑后原评论变化: %q", bodyAfterCancel)
+	}
+
+	// 再次点击「编辑」，修改正文并点击「保存」。
+	clickText(t, tt, "编辑")
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if err := tt.Click("评论"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("·已改")
+	tt.Frame()
+	clickText(t, tt, "保存")
+	tt.Advance(DurBase + 50*time.Millisecond)
+
+	diffPanelMu.Lock()
+	count := len(dp.comments)
+	got := *dp.comments[0]
+	diffPanelMu.Unlock()
+	if count != 1 || got.id != origID || !strings.Contains(got.body, "原始评论正文") || !strings.Contains(got.body, "·已改") {
+		t.Fatalf("保存编辑后评论异常: count=%d comment=%+v", count, got)
+	}
+	if dp.commentDraft != nil {
+		t.Fatalf("保存编辑后草稿未清空: %+v", dp.commentDraft)
+	}
+}
