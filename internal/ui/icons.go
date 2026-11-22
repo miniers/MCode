@@ -670,6 +670,7 @@ var (
 )
 
 // 追加各图标快捷导出函数
+func IconShield() *ui.SVG            { return iconShield }
 func IconLock() *ui.SVG              { return iconLock }
 func IconLockOpen() *ui.SVG          { return iconLockOpen }
 func IconSparkles() *ui.SVG          { return iconSparkles }

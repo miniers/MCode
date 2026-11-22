@@ -57,6 +57,7 @@ type ModelPickerState struct {
 	Tab         string          // Swarm 模式当前分段："lead"（默认）或 "bees"
 	ListOpen    map[string]bool // 二级模型列表页展开状态，key 为 ScopeKey+"/"+side
 	MaxBeesOpen bool            // 并发 Bee 上限下拉菜单展开状态
+	PersonaOpen bool            // 人设子菜单展开状态
 	TierEditing string          // 正在为其选择模型的档位 ID，空表示未编辑档位
 	tiersOpen   bool            // 列表页档位区是否展开；默认折叠
 	openCard    string          // 列表页当前展开的卡片；"" 表示全部收起；未设置时按默认
@@ -83,6 +84,7 @@ func (st *ModelPickerState) Reset() {
 	st.Tab = ""
 	st.ListOpen = nil
 	st.MaxBeesOpen = false
+	st.PersonaOpen = false
 	st.TierEditing = ""
 	st.tiersOpen = false
 	st.openCard = ""
@@ -146,6 +148,10 @@ type ModelPickerProps struct {
 	OnRefreshCatalog func()
 	// OnOpenList 用户进入模型列表页时调用，用于按需加载限额等数据。
 	OnOpenList        func()
+	OnOpen            func() // 打开模型浮层时调用（可选）
+	Personas          []MagpiePersona
+	Persona           string
+	OnPersona         func(id string)
 	CatalogRefreshing bool
 	Invalidate        func()
 }
@@ -951,6 +957,7 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 	} else {
 		clearModelCapsuleSnapshot(p.ScopeKey)
 		if state != nil {
+			state.PersonaOpen = false
 			state.TierEditing = ""
 			state.Tab = ""
 			state.setListOpen(p.ScopeKey, ModelPickerSideLead, false)
@@ -1002,12 +1009,17 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 					// 打开那一刻快照胶囊文案（展开宽度锁定），子代理短名同开同关。
 					setModelCapsuleSnapshot(p.ScopeKey, p.CapsuleLabel)
 					setModelCapsuleSnapshot(p.ScopeKey+modelCapsuleBeeSnapshotSuffix, beeLabel)
+					state.PersonaOpen = false
 					state.setListOpen(p.ScopeKey, ModelPickerSideLead, false)
 					state.setListOpen(p.ScopeKey, ModelPickerSideBees, false)
 					state.TierEditing = ""
 					state.Tab = ""
+					if p.OnOpen != nil {
+						p.OnOpen()
+					}
 				} else {
 					clearModelCapsuleSnapshot(p.ScopeKey)
+					state.PersonaOpen = false
 					state.TierEditing = ""
 					state.Tab = ""
 					state.setListOpen(p.ScopeKey, ModelPickerSideLead, false)
@@ -1487,6 +1499,11 @@ func renderModelPickerCard(c *ui.Context, p ModelPickerProps, state *ModelPicker
 			modelPickerInvalidate(p)
 		},
 		OnOpenModelList: onOpenModelList,
+		Personas:        p.Personas,
+		Persona:         p.Persona,
+		OnPersona:       p.OnPersona,
+		PersonaOpen:     &state.PersonaOpen,
+		Invalidate:      p.Invalidate,
 	}
 
 	// 只在能带团队的选择器里给卡片顶栏放编排开关，并同步异步开启的拉回窗口。

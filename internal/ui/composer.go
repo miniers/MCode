@@ -31,6 +31,7 @@ type composerViewState struct {
 	backgroundTaskScrolledLog string               // 上次滚动到底部时的日志。
 	downloadsOpen             bool
 	usageOpen                 bool
+	permissionMenuOpen        bool                          // 构建/计划 + 权限组合按钮的权限菜单是否打开
 	quotaOpen                 bool                          // 额度弹层是否打开
 	quotaPopoverKey           string                        // 额度弹层当前锚定的组 key（关闭时清空）
 	history                   composerHistoryState          // 方向键历史导航状态
@@ -698,6 +699,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 		s.composerView.history.reset()
 		// 待办弹层属于上一个会话，切换时收起。
 		s.composerView.planPillOpen = false
+		s.composerView.permissionMenuOpen = false
 		// MCP 二级页属于上一个会话的服务列表，切换时回到附件浮层一级页。
 		s.composerView.mcpMenuOpen = false
 		s.composerView.mcpPendingDisabled = nil
@@ -1213,7 +1215,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 						if stewardID := s.stewardThreadID(); stewardID != "" && ((currentThread != nil && currentThread.ID == stewardID) || (currentThread == nil && selectedID == stewardID)) {
 							renderStewardComposerModel(c, s)
 						} else if currentThread != nil {
-							renderInteractionModeToggle(c, s, interactionMode, prefsSaving || sending, buttonRadius)
+							renderModePermissionCombo(c, s, currentThread.ID, interactionMode, prefsSaving || sending)
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)
 						}
@@ -1510,37 +1512,154 @@ func interactionModeIcon(mode string) *ui.SVG {
 	return IconHammer()
 }
 
-// renderInteractionModeToggle 渲染构建/计划模式切换按钮。
-func renderInteractionModeToggle(c *ui.Context, s *chatState, mode string, disabled bool, buttonRadius float32) {
-	title := "构建"
-	if mode == "plan" {
-		title = "计划"
+func composerPermissionIcon(mode string) *ui.SVG {
+	switch mode {
+	case "supervised":
+		return IconShield()
+	case "auto", "", "autoAcceptEdits", "agent":
+		return IconSparkles()
+	case "fullAccess":
+		return IconLockOpen()
+	default:
+		return IconSquarePen()
 	}
-	btn := ui.ButtonBase(c.Key("composer-interaction-toggle")).
-		Label(title).
-		Disabled(disabled).
-		Tooltip(title+" · "+shortcutDisplay("⇧⌘M")).
-		Size(composerActionBtnSize, composerActionBtnSize).
-		Radius(buttonRadius).
-		OnClick(func() {
-			s.toggleInteractionMode()
+}
+
+// renderModePermissionCombo 渲染输入框底栏的「构建/计划 + 权限」组合按钮与权限弹出菜单。
+func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactionMode string, disabled bool) {
+	modeTitle := "构建"
+	if interactionMode == "plan" {
+		modeTitle = "计划"
+	}
+	permMode := s.threadRuntimeMode(threadID)
+	if permMode == "autoAcceptEdits" || permMode == "agent" {
+		permMode = "auto"
+	}
+	permTitle := runtimeModeTitle(permMode)
+	permTooltip := "权限：" + permTitle
+
+	segHeight := ControlMD - 2*Hairline
+	var permBtn ui.Element
+
+	ui.Row(c.Key("composer-mode-perm-combo")).
+		Height(ControlMD).
+		Radius(RadiusXL).
+		Background(ThemeOverlayHover(c)).
+		Border(Hairline, ThemeBorder(c)).
+		AlignItems(ui.Center).
+		Clip().
+		Children(func() {
+			modeBtn := ui.ButtonBase(c.Key("composer-interaction-toggle")).
+				Label(modeTitle).
+				Disabled(disabled).
+				Tooltip(modeTitle+" · "+shortcutDisplay("⇧⌘M")).
+				Height(segHeight).
+				Padding(0, Space2).
+				Center().
+				Transition(motionFeedback(c)).
+				OnClick(func() {
+					s.toggleInteractionMode()
+				})
+			modeColor := ThemeSecondaryText(c)
+			modeHovered := modeBtn.Hovered() && !disabled
+			if interactionMode == "plan" {
+				modeBtn.Background(ThemePlan(c).Alpha(0.18))
+				if modeHovered {
+					modeBtn.Background(ThemePlan(c).Alpha(0.26))
+				}
+				modeColor = ThemePlan(c)
+			} else if modeHovered {
+				modeBtn.Background(ThemeHover(c))
+				modeColor = ThemePrimaryText(c)
+			} else {
+				modeBtn.Background(ui.Transparent)
+			}
+			modeScale := motionPressScale(c, modeBtn, "button-press-scale", !disabled && modeBtn.Pressed())
+			modeBtn.Scale(modeScale, modeScale)
+			modeBtn.Children(func() {
+				ui.Icon(c, interactionModeIcon(interactionMode)).Size(IconSM, IconSM).TextColor(modeColor)
+			})
+
+			ui.Box(c.Key("composer-mode-perm-divider")).
+				Width(Hairline).
+				Height(IconSM).
+				Background(ThemeHairline(c)).
+				Shrink(0)
+
+			permBtn = ui.ButtonBase(c.Key("composer-permission-btn")).
+				Label(permTooltip).
+				Tooltip(permTooltip).
+				Disabled(disabled).
+				Height(segHeight).
+				Padding(0, Space2).
+				Center().
+				Transition(motionFeedback(c)).
+				OnClick(func() {
+					togglePopoverOpen(&s.composerView.permissionMenuOpen)
+					s.invalidate()
+				})
+			permHovered := permBtn.Hovered() && !disabled
+			var permColor, permBg ui.Color
+			switch permMode {
+			case "supervised":
+				permColor = ThemeAccent(c)
+				permBg = ThemeAccentSubtle(c)
+				if permHovered || s.composerView.permissionMenuOpen {
+					permBg = ThemeAccent(c).Alpha(0.20)
+				}
+			case "fullAccess":
+				permColor = ThemeWarning(c)
+				permBg = ThemeWarning(c).Alpha(0.14)
+				if permHovered || s.composerView.permissionMenuOpen {
+					permBg = ThemeWarning(c).Alpha(0.22)
+				}
+			default:
+				permColor = ThemeSecondaryText(c)
+				permBg = ui.Transparent
+				if permHovered || s.composerView.permissionMenuOpen {
+					permColor = ThemePrimaryText(c)
+					permBg = ThemeHover(c)
+				}
+			}
+			permBtn.Background(permBg)
+			permScale := motionPressScale(c, permBtn, "button-press-scale", !disabled && permBtn.Pressed())
+			permBtn.Scale(permScale, permScale)
+			permBtn.Children(func() {
+				ui.Row(c.Key("composer-permission-content")).
+					AlignItems(ui.Center).
+					Gap(3).
+					Children(func() {
+						ui.Icon(c, composerPermissionIcon(permMode)).Size(IconSM, IconSM).TextColor(permColor)
+						ui.Icon(c, IconChevronDown()).Size(10, 10).TextColor(permColor)
+					})
+			})
 		})
-	textColor := ThemePrimaryText(c)
-	// 切换胶囊；悬停或展开时提亮。构建模式为透明胶囊，计划模式保留紫色底并再叠加一层提亮。
-	hovered := btn.Hovered() && !disabled
-	if mode == "plan" {
-		btn.Background(ThemePlan(c).Alpha(0.18))
-		if hovered {
-			btn.Background(ThemePlan(c).Alpha(0.26))
-		}
-		textColor = ThemePlan(c)
-	} else {
-		composerHoverBg(c, btn, hovered)
-	}
-	scale := motionPressScale(c, btn, "button-press-scale", !disabled && btn.Pressed())
-	btn.Scale(scale, scale)
-	btn.Children(func() {
-		ui.Icon(c, interactionModeIcon(mode)).Size(composerControlIconSize, composerControlIconSize).TextColor(textColor)
+
+	appPopover(c.Key("composer-permission-popover"), permBtn, &s.composerView.permissionMenuOpen, func() {
+		s.composerView.permissionMenuOpen = false
+	}, func() {
+		popoverCard(c, ui.Column(c.Key("composer-permission-menu")).
+			Padding(Space1).
+			MinWidth(168).
+			Gap(Space0).
+			FocusGroup(ui.Vertical).
+			Children(func() {
+				for _, opt := range runtimeModeOptions {
+					o := opt
+					menuRow(c, menuRowProps{
+						Key:     "composer-permission-option-" + o.mode,
+						Icon:    composerPermissionIcon(o.mode),
+						Title:   o.title,
+						Checked: o.mode == permMode,
+						OnClick: func() {
+							s.composerView.permissionMenuOpen = false
+							s.invalidate()
+							s.setHeaderRuntimeMode(threadID, o.mode)
+						},
+					})
+				}
+			}),
+		)
 	})
 }
 
@@ -2027,6 +2146,30 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 		pickerMode, pickerState = ModelPickerSimple, s.embeddedPicker
 		pairs = nil
 	}
+	var personas []MagpiePersona
+	var currentPersona string
+	var onPersona func(string)
+	var onOpen func()
+	if !s.embeddedBee {
+		// 首次渲染时补拉人设：已加载、正在加载或还在退避期时由 loadHeaderPersonas 自己跳过，不会按帧重复发起。
+		s.loadHeaderPersonas(currentProvider, leadSelection.Model, false)
+		personas = s.headerPersonas(currentProvider, leadSelection.Model)
+		currentPersona = s.threadPersona(threadID)
+		onPersona = func(id string) {
+			current := s.threadPersona(threadID)
+			value, ok := personaMenuWriteValue(current, id)
+			if !ok {
+				return
+			}
+			s.updateComposerPrefs(threadID, func(p *ComposerPrefs) {
+				p.Persona = value
+			}, "切换人设失败")
+		}
+		onOpen = func() {
+			// 打开模型浮窗时强制刷新一次人设，网关上新增的人设不必等下次重启就能看到。
+			s.loadHeaderPersonas(currentProvider, leadSelection.Model, true)
+		}
+	}
 	// 模型目录为空时，选择器里提供「重新探测」按钮：重新拉取供应商目录。
 	renderModelPicker(c, modelPickerCatalogFor(s).apply(ModelPickerProps{
 		Mode:              pickerMode,
@@ -2050,6 +2193,10 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 		HideBeeName:       rowWidth > 0 && rowWidth < composerBeeNameMinWidth,
 		NoEffortSignal:    composerChinTierFor(s, rowWidth) == composerChinNarrow,
 		Tooltip:           modelTooltip,
+		Personas:          personas,
+		Persona:           currentPersona,
+		OnPersona:         onPersona,
+		OnOpen:            onOpen,
 		OnPickModel: func(side ModelPickerSide, prov ProviderInfo, m ModelInfo) {
 			if side == ModelPickerSideLead {
 				// 新模型配了默认强度就记它，否则沿用旧强度；不支持就记空强度。

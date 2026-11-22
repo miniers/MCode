@@ -67,6 +67,11 @@ type EffortSliderCardProps struct {
 	OnReset           func()
 	OnOpenModelList   func() // 为 nil 时不显示 chevron
 	OnToggleSwarm     func() // 切换 Swarm 状态；为 nil 时卡片右侧不放 Swarm 开关
+	Personas          []MagpiePersona
+	Persona           string
+	OnPersona         func(id string)
+	PersonaOpen       *bool  // 可选：由外层持有子菜单开合状态；nil 时使用控件本地状态
+	Invalidate        func() // 可选：人设子菜单开关或选中后触发宿主重绘
 }
 
 // 逆时针旋转箭头图标（Lucide rotate-ccw）。
@@ -1135,7 +1140,8 @@ func renderEffortRosterCard(c *ui.Context, p EffortSliderCardProps) {
 		Padding(Space3, Space4, Space4, Space4).
 		Gap(Space3).
 		Children(func() {
-			if p.OnToggleSwarm != nil || p.PairFav != nil || p.SupportsFast || p.OnReset != nil || p.TrailingAccessory != nil {
+			hasPersona := p.OnPersona != nil && len(p.Personas) > 0
+			if p.OnToggleSwarm != nil || p.PairFav != nil || p.SupportsFast || p.OnReset != nil || p.TrailingAccessory != nil || hasPersona {
 				renderEffortRosterToolbar(c, p)
 			}
 			renderEffortRosterSlots(c, p)
@@ -1163,6 +1169,9 @@ func renderEffortRosterToolbar(c *ui.Context, p EffortSliderCardProps) {
 				AlignItems(ui.Center).
 				Gap(Space2).
 				Children(func() {
+					if p.OnPersona != nil && len(p.Personas) > 0 {
+						renderToolbarPersonaButton(c, p)
+					}
 					if p.PairFav != nil {
 						renderToolbarPairFavButton(c, p)
 					}
@@ -1174,6 +1183,145 @@ func renderEffortRosterToolbar(c *ui.Context, p EffortSliderCardProps) {
 					}
 				})
 		})
+}
+
+func personaDisplayTitle(current string, personas []MagpiePersona) string {
+	if current == "" || current == personaNoneValue {
+		return "无人设"
+	}
+	for _, item := range personas {
+		if item.ID == current {
+			if item.Name != "" {
+				return item.Name
+			}
+			return item.ID
+		}
+	}
+	return "无人设"
+}
+
+func renderToolbarPersonaButton(c *ui.Context, p EffortSliderCardProps) {
+	personaActive := strings.TrimSpace(p.Persona) != "" && p.Persona != personaNoneValue && p.Persona != "无人设"
+	displayTitle := personaDisplayTitle(p.Persona, p.Personas)
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"persona-btn")).
+		Label("人设").
+		Value(displayTitle).
+		Tooltip(effortLockedTip(p, "人设："+displayTitle)).
+		Disabled(p.Disabled).
+		Checked(personaActive).
+		Size(effortToolbarBtnSize, effortToolbarBtnSize).
+		Radius(RadiusMD).
+		Center()
+
+	personaOpen := p.PersonaOpen
+	if personaOpen == nil {
+		personaOpen = ui.Local(btn, "persona-menu-open", func() bool { return false })
+	}
+
+	scale := motionPressScale(c, btn, "button-press-scale", !p.Disabled && btn.Pressed())
+	btn.Scale(scale, scale)
+	hovered := btn.Hovered() && !p.Disabled
+	iconColor := ColorTextSecondaryDark
+	if personaActive {
+		bg := ColorAccentDark.Alpha(0.18)
+		if hovered || *personaOpen {
+			bg = ColorAccentDark.Alpha(0.26)
+		}
+		btn.Background(bg).Border(1, ColorAccentDark.Alpha(0.36))
+		iconColor = effortAccentBright
+	} else {
+		bg := effortOnDark.Alpha(0.05)
+		if hovered || *personaOpen {
+			bg = effortOnDark.Alpha(0.10)
+		}
+		btn.Background(bg).Border(1, effortOnDark.Alpha(0.06))
+	}
+	if !p.Disabled {
+		btn.OnClick(func() {
+			togglePopoverOpen(personaOpen)
+			if p.Invalidate != nil {
+				p.Invalidate()
+			}
+		})
+	}
+	btn.Children(func() {
+		ui.Icon(c, IconUserRoundCheck()).Size(effortToolbarIconSize, effortToolbarIconSize).TextColor(iconColor)
+	})
+
+	appFlyoutPopover(c, p.KeyPrefix+"persona-popover", btn, personaOpen, func() {
+		*personaOpen = false
+	}, appFlyoutProps{Width: 156, Background: &ColorSurfacePopoverDark}, func(fc *ui.Context) {
+		c := fc
+		optionsCol := ui.Column(c.Key(p.KeyPrefix + "persona-options")).
+			Padding(Space1).
+			Gap(Space0).
+			FocusGroup(ui.Vertical)
+		if flyoutHostWindow(c.Services()) == nil {
+			optionsCol = applyElevation(c, optionsCol.Width(156).Radius(RadiusMD).Background(ColorSurfacePopoverDark).Border(1, ColorBorderDark), ElevPopover)
+		}
+		optionsCol.Children(func() {
+			renderEffortPersonaOption(c, p, personaOpen, personaNoneValue, "无人设")
+			for _, item := range p.Personas {
+				if item.ID == "" || item.ID == personaNoneValue {
+					continue
+				}
+				name := item.Name
+				if name == "" {
+					name = item.ID
+				}
+				renderEffortPersonaOption(c, p, personaOpen, item.ID, name)
+			}
+		})
+	})
+}
+
+func renderEffortPersonaOption(c *ui.Context, p EffortSliderCardProps, personaOpen *bool, id, title string) {
+	checked := personaMenuChecked(p.Persona, id, p.Personas)
+	btn := ui.ButtonBase(c.Key(p.KeyPrefix+"persona-opt-"+id)).
+		Label(title).
+		Checked(checked).
+		Height(RowHeightCompact).
+		Padding(0, Space2).
+		Radius(RadiusXS).
+		FillWidth().
+		Justify(ui.Start)
+
+	switch {
+	case btn.Hovered():
+		btn.Background(ColorHoverDark)
+	case checked:
+		btn.Background(effortOnDark.Alpha(0.05))
+	default:
+		btn.Background(ui.Transparent)
+	}
+	btn.OnClick(func() {
+		*personaOpen = false
+		if p.OnPersona != nil {
+			p.OnPersona(id)
+		}
+		if p.Invalidate != nil {
+			p.Invalidate()
+		}
+	})
+	btn.Children(func() {
+		ui.Row(c.Key(p.KeyPrefix + "persona-opt-row-" + id)).
+			AlignItems(ui.Center).
+			Gap(Space2).
+			Grow(1).
+			Children(func() {
+				ui.Text(c, title).
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ColorTextPrimaryDark).
+					Grow(1).
+					Shrink(1).
+					MinWidth(0).
+					SingleLine().
+					Ellipsis("…")
+				if checked {
+					ui.Icon(c, IconCheck()).Size(12, 12).TextColor(effortAccentBright)
+				}
+			})
+	})
 }
 
 func renderEffortSwarmCapsule(c *ui.Context, p EffortSliderCardProps) {
