@@ -3482,3 +3482,139 @@ func TestAutoDeniedFlag(t *testing.T) {
 		}
 	})
 }
+
+// TestInteractiveBeeQuestionNotAutoAnswered 验证可提问档位 bee 在自动转交关闭时，
+// 提问不被固定答复而是挂起等待用户回答；普通 bee 仍返回固定答复。
+func TestInteractiveBeeQuestionNotAutoAnswered(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := config.Update(dataDir, func(cfg *config.Config) error {
+		cfg.Orchestration.AutoForwardQuestionSeconds = 0
+		return nil
+	}); err != nil {
+		t.Fatalf("写入配置失败: %v", err)
+	}
+	hub := NewStreamHub(StreamHubOptions{Interval: 5 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	backend.SetDataDir(dataDir)
+	defer backend.Close()
+
+	const (
+		leadID            = "00000000-0000-0000-0000-000000000201"
+		interactiveBeeID  = "00000000-0000-0000-0000-000000000202"
+		unattendedBeeID   = "00000000-0000-0000-0000-000000000203"
+		wantFixedResponse = "子代理无人值守，没有人回答提问，请自行判断后继续"
+	)
+	backend.SetSwarmBeeInteractive(func(threadID string) bool {
+		return threadID == interactiveBeeID
+	})
+
+	ctx := context.Background()
+	backend.AddThread(wire.ThreadSummary{ID: interactiveBeeID, Title: "Interactive Bee", RuntimeMode: "auto"}, nil)
+	backend.SetThreadRelation(interactiveBeeID, leadID, true)
+	backend.AddThread(wire.ThreadSummary{ID: unattendedBeeID, Title: "Unattended Bee", RuntimeMode: "auto"}, nil)
+	backend.SetThreadRelation(unattendedBeeID, leadID, true)
+
+	var (
+		interactiveResp harness.ApprovalResponse
+		interactiveErr  error
+		pendingSeen     bool
+
+		unattendedResp harness.ApprovalResponse
+		unattendedErr  error
+	)
+
+	interactiveDone := make(chan struct{})
+	unattendedDone := make(chan struct{})
+	mock := &mockHarness{
+		runFunc: func(runCtx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+			ia := turn.Approver.(harness.Interactor)
+			if turn.ThreadID == interactiveBeeID {
+				defer close(interactiveDone)
+				approveCtx, cancel := context.WithTimeout(runCtx, 200*time.Millisecond)
+				defer cancel()
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					interactiveResp, interactiveErr = ia.Interact(approveCtx, harness.ApprovalRequest{
+						ToolID:   "call_interactive_question",
+						ToolName: "AskUserQuestion",
+						Kind:     harness.RequestKindQuestion,
+						Questions: []harness.Question{{
+							ID:     "q1",
+							Prompt: "主色选哪种？",
+						}},
+					})
+				}()
+				for i := 0; i < 40; i++ {
+					if res, err := backend.ListRequests(runCtx, interactiveBeeID); err == nil && len(res.Requests) > 0 {
+						pendingSeen = true
+						break
+					}
+					time.Sleep(5 * time.Millisecond)
+				}
+				<-done
+				return nil
+			}
+			defer close(unattendedDone)
+			unattendedResp, unattendedErr = ia.Interact(runCtx, harness.ApprovalRequest{
+				ToolID:   "call_unattended_question",
+				ToolName: "AskUserQuestion",
+				Kind:     harness.RequestKindQuestion,
+				Questions: []harness.Question{{
+					ID:     "q1",
+					Prompt: "用哪个方案？",
+				}},
+			})
+			return nil
+		},
+	}
+	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
+
+	conn := newMockStreamConn()
+	if _, err := backend.Subscribe(ctx, conn, interactiveBeeID); err != nil {
+		t.Fatalf("Subscribe interactive failed: %v", err)
+	}
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: interactiveBeeID,
+		Text:     "出设计稿",
+		ActionID: newUUID(),
+	}); err != nil {
+		t.Fatalf("SendMessage interactive failed: %v", err)
+	}
+	select {
+	case <-interactiveDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("interactive turn timed out")
+	}
+
+	if !pendingSeen {
+		t.Fatal("可提问 bee 在自动转交关闭时提问也应挂起为待处理请求")
+	}
+	if interactiveErr == nil {
+		t.Fatal("可提问 bee 不应立即返回固定答复")
+	}
+	if answers := interactiveResp.Answers["q1"]; len(answers) == 1 && answers[0] == wantFixedResponse {
+		t.Fatalf("可提问 bee 不应返回固定答复: %v", answers)
+	}
+
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: unattendedBeeID,
+		Text:     "执行任务",
+		ActionID: newUUID(),
+	}); err != nil {
+		t.Fatalf("SendMessage unattended failed: %v", err)
+	}
+	select {
+	case <-unattendedDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("unattended turn timed out")
+	}
+
+	if unattendedErr != nil {
+		t.Fatalf("普通 bee 提问应返回固定答复而非错误: %v", unattendedErr)
+	}
+	if answers := unattendedResp.Answers["q1"]; len(answers) != 1 || answers[0] != wantFixedResponse {
+		t.Fatalf("普通 bee 应返回固定答复 %q，实际: %v", wantFixedResponse, answers)
+	}
+}

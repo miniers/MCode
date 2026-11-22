@@ -353,7 +353,11 @@ func (c *Client) pendingBeeQuestion(ctx context.Context, beeThreadID string) *mc
 			Questions: a.Questions,
 			Forwarded: c.questionForwarded(beeThreadID, a.RequestID),
 		}
-		if delay := c.autoForwardQuestionDelay(); delay > 0 && !q.Forwarded {
+		c.kanbanMu.Lock()
+		m := c.swarm
+		c.kanbanMu.Unlock()
+		interactive := m != nil && m.BeeInteractive(beeThreadID)
+		if delay := c.autoForwardQuestionDelay(); delay > 0 && !q.Forwarded && !interactive {
 			q.AutoForwardAt = c.noteQuestionSeen(beeThreadID+"/"+a.RequestID, time.Now()).Add(delay)
 		}
 		return q
@@ -441,7 +445,7 @@ func (c *Client) autoForwardQuestionsOnce(ctx context.Context, now time.Time) {
 	for _, leadID := range m.LeadIDs() {
 		for _, h := range m.State(leadID).Bees {
 			// 不按 bee 状态过滤：待答提问只存在于仍在进行的轮次，以后端请求列表为准。
-			if h.Merged || h.MergeDiscarded {
+			if h.Merged || h.MergeDiscarded || h.Interactive {
 				continue
 			}
 			q := c.pendingBeeQuestion(ctx, h.ThreadID)

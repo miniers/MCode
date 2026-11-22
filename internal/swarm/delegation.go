@@ -997,8 +997,16 @@ func beeWorkRulesFor(cfg BeeConfig, hasAcceptance bool) string {
 		"- 只做这项任务，不扩大范围。",
 		"- 查文档、核对外部库或网页信息时，可以用 web_fetch、web_search 等联网工具或 curl（必须带 -m 超时）；只读不写，不向外部服务提交、发布或上传内容，不发送密钥或用户信息。",
 		"- 不执行 git commit、push、branch、stash、reset、checkout。",
-		"- 严禁调用提问工具（如 ask_user_question、ask_user、question 等）向用户或主代理询问确认。",
-		"- 任务说明有歧义或有多种做法时，按最直接的理解继续，并在汇报里写明你的选择。",
+	)
+	if cfg.Interactive && !cfg.ReadOnly {
+		rules = append(rules, "- 需要用户拍板的细节，用提问工具给 2 到 4 个选项让用户选，推荐项放第一个；能从任务说明或代码里确定的不问。")
+	} else {
+		rules = append(rules,
+			"- 严禁调用提问工具（如 ask_user_question、ask_user、question 等）向用户或主代理询问确认。",
+			"- 任务说明有歧义或有多种做法时，按最直接的理解继续，并在汇报里写明你的选择。",
+		)
+	}
+	rules = append(rules,
 		"- 遇到阻塞（缺文件、命令无法运行、任务说明与代码事实对不上）就停下并在汇报里说明，不要猜测或绕过。",
 	)
 	if strings.TrimSpace(cfg.SystemPrompt) != "" {

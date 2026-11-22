@@ -14,6 +14,7 @@ type Tier struct {
 	Description     string
 	ReadOnly        bool
 	SharedWorkspace bool
+	Interactive     bool
 	WritePaths      []string
 	Provider        string
 	Model           string

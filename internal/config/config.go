@@ -314,6 +314,8 @@ type SwarmTier struct {
 	ReadOnly    bool   `json:"read_only"`
 	// SharedWorkspace 为真时该档 bee 直接在主工作区运行，不建独立工作副本。
 	SharedWorkspace bool `json:"shared_workspace,omitempty"`
+	// Interactive 为真时该档 bee 可向用户提问，提问挂起等待用户回答，不自动代答也不自动转交。
+	Interactive bool `json:"interactive,omitempty"`
 	// WritePaths 非空时该档 bee 只能把匹配这些 glob 的改动合并回主工作区。
 	WritePaths   []string `json:"write_paths,omitempty"`
 	Provider     string   `json:"provider,omitempty"`

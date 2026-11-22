@@ -127,6 +127,7 @@ func swarmTierDraftIsDefault(draft config.SwarmTier, writePathsText string) bool
 	if draft.ReadOnly {
 		draft.WritePaths = nil
 		draft.SharedWorkspace = false
+		draft.Interactive = false
 	} else {
 		draft.WritePaths = parseWritePaths(writePathsText)
 	}
@@ -333,6 +334,22 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 					}, func(_ *SettingsState, on bool) {
 						uiSt.draft.SharedWorkspace = on
 					}).render(c, st, setting{ID: "swarm-tier-shared-workspace-" + popKey, Title: "共享工作区"})
+				})
+
+			ui.Row(c.Key("row-swarm-tier-interactive-" + popKey)).
+				AlignItems(ui.Center).
+				Justify(ui.SpaceBetween).
+				Children(func() {
+					ui.Text(c, "可向用户提问").
+						FontSize(uiFont(TypeFootnote)).
+						FontWeight(500).
+						TextColor(ThemePrimaryText(c)).
+						Tooltip("打开后，该档子代理可调用提问工具向用户确认细节，提问挂起等待用户回答，不自动代答也不自动转交")
+					toggleFunc(func(*SettingsState) (bool, bool) {
+						return uiSt.draft.Interactive, false
+					}, func(_ *SettingsState, on bool) {
+						uiSt.draft.Interactive = on
+					}).render(c, st, setting{ID: "swarm-tier-interactive-" + popKey, Title: "可向用户提问"})
 				})
 
 			ui.Column(c.Key("sec-tier-writepaths-" + popKey)).
@@ -558,6 +575,7 @@ func renderSwarmTierEditorForm(c *ui.Context, st *SettingsState, uiSt *swarmTier
 							if uiSt.draft.ReadOnly {
 								uiSt.draft.WritePaths = nil
 								uiSt.draft.SharedWorkspace = false
+								uiSt.draft.Interactive = false
 							} else {
 								uiSt.draft.WritePaths = parseWritePaths(uiSt.writePathsText)
 							}

@@ -97,10 +97,12 @@ type Bee struct {
 	// Effort 是 bee 的推理强度档位，Profile 是派发时命中的 Bee Profile 名字；均来自配对/Profile 解析。
 	Effort   string `json:"effort,omitempty"`
 	Profile  string `json:"profile,omitempty"`
-	Tier            string `json:"tier,omitempty"`
-	ReadOnly        bool   `json:"read_only,omitempty"`
+	Tier     string `json:"tier,omitempty"`
+	ReadOnly bool   `json:"read_only,omitempty"`
 	// SharedWorkspace 表示该 bee 直接在主工作区运行，没有独立 worktree，不走合并流程。
 	SharedWorkspace bool `json:"shared_workspace,omitempty"`
+	// Interactive 表示该 bee 可向用户提问，提问挂起等待用户回答，不自动代答也不自动转交。
+	Interactive bool `json:"interactive,omitempty"`
 	// WritePaths 是派发时档位带来的写入白名单，非空时只合并匹配这些 glob 的改动。
 	WritePaths []string `json:"write_paths,omitempty"`
 	Acceptance []string `json:"acceptance,omitempty"`
@@ -228,12 +230,13 @@ type BeeSpec struct {
 	Model     string   `json:"model,omitempty"`
 	Effort    string   `json:"effort,omitempty"`
 	// FallbackEffort 保存未指定模型的档位自带推理强度：只有默认 Effort 也不适用或为空时才兜底生效。
-	FallbackEffort string `json:"fallback_effort,omitempty"`
-	FastMode       bool   `json:"fastMode,omitempty"`
-	Profile        string `json:"profile,omitempty"`
+	FallbackEffort  string `json:"fallback_effort,omitempty"`
+	FastMode        bool   `json:"fastMode,omitempty"`
+	Profile         string `json:"profile,omitempty"`
 	Tier            string `json:"tier,omitempty"`
 	ReadOnly        bool   `json:"read_only,omitempty"`
 	SharedWorkspace bool   `json:"shared_workspace,omitempty"`
+	Interactive     bool   `json:"interactive,omitempty"`
 	// WritePaths 是档位带来的写入白名单，非空时只合并匹配这些 glob 的改动；失败重试时原样继承。
 	WritePaths []string `json:"write_paths,omitempty"`
 	Acceptance []string `json:"acceptance,omitempty"`

@@ -185,8 +185,12 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 	// 只有命令、文件改动与工具请求参与敏感判定；计划与提问由用户逐次答复，不补算。
 	// 配置读取、工作目录与路径解析都要在进入主锁前完成。
 	autoForwardQuestion := false
+	interactiveBee := false
 	if kind == harness.RequestKindQuestion && a.b.threadIsSubagent(a.threadID) {
-		autoForwardQuestion = a.b.autoForwardQuestionEnabled()
+		interactiveBee = a.b.isInteractiveSwarmBee(a.threadID)
+		if !interactiveBee {
+			autoForwardQuestion = a.b.autoForwardQuestionEnabled()
+		}
 	}
 	if req.Sensitive == "" && (sensitiveFallbackKind(kind) || (req.ReadOnly && !interactive)) {
 		req.Sensitive = gate.SensitiveFor(kind, req.ToolName, req.Input, approvalCommand(req), a.b.approvalWorkDir(a.threadID))
@@ -248,7 +252,7 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 				AutoDenied: true,
 			}, nil
 		}
-		if kind == harness.RequestKindQuestion && !autoForwardQuestion {
+		if kind == harness.RequestKindQuestion && !interactiveBee && !autoForwardQuestion {
 			// 用允许加答案代替拒绝，避免 provider 把拒绝当作本轮中断；答案为模型可读的固定说明。
 			answers := make(map[string][]string, len(req.Questions))
 			for _, q := range req.Questions {

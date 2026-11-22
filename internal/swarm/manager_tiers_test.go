@@ -799,3 +799,106 @@ func TestTierSharedWorkspace(t *testing.T) {
 		t.Fatalf("普通档位在 worktree 模式下应建独立工作副本且 SharedWorkspace=false，实际 path=%q shared=%v", editBee.WorktreePath, editBee.SharedWorkspace)
 	}
 }
+
+// TestInteractiveTierPromptAllowsQuestions 验证 Interactive 档位的 bee 提示词放开提问并包含提问规则，
+// 普通档位与只读档位仍包含严禁调用提问工具的禁令。
+func TestInteractiveTierPromptAllowsQuestions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	runner, dir := initTestRepo(t)
+	driver := newFakeDriver()
+
+	mgr := NewManager(Options{
+		Git:         runner,
+		Driver:      driver,
+		WorktreeDir: t.TempDir(),
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{
+			Enabled:       true,
+			AutoDelegate:  true,
+			WorkspaceMode: "worktree",
+			Tiers: []Tier{
+				{
+					ID:          "design",
+					Name:        "设计",
+					Interactive: true,
+				},
+				{
+					ID:          "ro-interactive",
+					Name:        "只读交互",
+					ReadOnly:    true,
+					Interactive: true,
+				},
+				{
+					ID:   "edit",
+					Name: "执行",
+				},
+			},
+		}
+	})
+
+	const askRule = "需要用户拍板的细节，用提问工具给 2 到 4 个选项让用户选，推荐项放第一个；能从任务说明或代码里确定的不问。"
+	const forbidRule = "严禁调用提问工具"
+	const directRule = "任务说明有歧义或有多种做法时，按最直接的理解继续"
+
+	designBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-tier-interactive",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "出设计稿", Prompt: "先确认风格再出稿", Tier: "design"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(design) failed: %v", err)
+	}
+	if !designBee.Interactive {
+		t.Fatalf("Interactive 档位派出的 bee 应置位 Interactive=true")
+	}
+	if !mgr.BeeInteractive(designBee.ThreadID) {
+		t.Fatalf("BeeInteractive(%s) 应返回 true", designBee.ThreadID)
+	}
+	if strings.Contains(designBee.Prompt, forbidRule) {
+		t.Fatalf("Interactive 档位提示词不应包含 %q:\n%s", forbidRule, designBee.Prompt)
+	}
+	if strings.Contains(designBee.Prompt, directRule) {
+		t.Fatalf("Interactive 档位提示词不应包含 %q:\n%s", directRule, designBee.Prompt)
+	}
+	if !strings.Contains(designBee.Prompt, askRule) {
+		t.Fatalf("Interactive 档位提示词应包含提问规则 %q:\n%s", askRule, designBee.Prompt)
+	}
+
+	roBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-ro-interactive",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "只读调研", Prompt: "检查代码", Tier: "ro-interactive"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(ro-interactive) failed: %v", err)
+	}
+	if roBee.Interactive || mgr.BeeInteractive(roBee.ThreadID) {
+		t.Fatalf("只读档位即便配置了 Interactive 也不应生效")
+	}
+	if !strings.Contains(roBee.Prompt, forbidRule) {
+		t.Fatalf("只读档位提示词仍应包含 %q:\n%s", forbidRule, roBee.Prompt)
+	}
+
+	editBee, _, err := mgr.DispatchSingleEntry(ctx, SingleEntryRequest{
+		LeadThreadID: "lead-edit-interactive",
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Entry:        Delegation{Task: "改代码", Prompt: "修改实现", Tier: "edit"},
+	})
+	if err != nil {
+		t.Fatalf("DispatchSingleEntry(edit) failed: %v", err)
+	}
+	if editBee.Interactive || mgr.BeeInteractive(editBee.ThreadID) {
+		t.Fatalf("普通档位 Interactive 应为 false")
+	}
+	if !strings.Contains(editBee.Prompt, forbidRule) || !strings.Contains(editBee.Prompt, directRule) {
+		t.Fatalf("普通档位提示词仍应包含禁令与直接继续规则:\n%s", editBee.Prompt)
+	}
+	if strings.Contains(editBee.Prompt, askRule) {
+		t.Fatalf("普通档位提示词不应包含提问规则:\n%s", editBee.Prompt)
+	}
+}

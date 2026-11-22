@@ -1261,6 +1261,23 @@ func (m *Manager) BeeOwner(threadID string) (leadThreadID string, ok bool) {
 	return "", false
 }
 
+// BeeInteractive 报告指定子会话是否属于可向用户提问档位（只读档位不生效）。
+func (m *Manager) BeeInteractive(threadID string) bool {
+	if threadID == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, lead := range m.leads {
+		for _, h := range lead.bees {
+			if h.ThreadID == threadID {
+				return h.Interactive && !h.ReadOnly
+			}
+		}
+	}
+	return false
+}
+
 // LeadThreadForWorkDir 根据 bee 的工作目录反查所属主会话。
 func (m *Manager) LeadThreadForWorkDir(workDir string) (leadThreadID string, ok bool) {
 	owner, ok := m.ownerForWorkDir(workDir)
@@ -1499,6 +1516,7 @@ func (m *Manager) startSingleBee(ctx context.Context, leadThreadID, beeProjectID
 		Tier:              spec.Tier,
 		ReadOnly:          spec.ReadOnly,
 		SharedWorkspace:   isShared,
+		Interactive:       spec.Interactive && !spec.ReadOnly,
 		WritePaths:        append([]string(nil), spec.WritePaths...),
 		Acceptance:        append([]string(nil), spec.Acceptance...),
 		RuntimeMode:       sessionReq.RuntimeMode,
@@ -1954,26 +1972,27 @@ func (m *Manager) planEntry(ctx context.Context, leadThreadID string, d Delegati
 	}
 
 	plan.spec = BeeSpec{
-		index:          &index,
-		Name:           chosenName,
-		Task:           d.Task,
-		Prompt:         prompt,
-		ProjectID:      targetProjectID,
-		WorkDir:        targetWorkDir,
-		Provider:       cfg.Provider,
-		Model:          cfg.Model,
-		Effort:         cfg.Effort,
-		FallbackEffort: cfg.FallbackEffort,
-		FastMode:       cfg.FastMode,
-		Profile:        cfg.Profile,
-		Tier:           cfg.Tier,
+		index:           &index,
+		Name:            chosenName,
+		Task:            d.Task,
+		Prompt:          prompt,
+		ProjectID:       targetProjectID,
+		WorkDir:         targetWorkDir,
+		Provider:        cfg.Provider,
+		Model:           cfg.Model,
+		Effort:          cfg.Effort,
+		FallbackEffort:  cfg.FallbackEffort,
+		FastMode:        cfg.FastMode,
+		Profile:         cfg.Profile,
+		Tier:            cfg.Tier,
 		ReadOnly:        cfg.ReadOnly,
 		SharedWorkspace: cfg.SharedWorkspace,
+		Interactive:     cfg.Interactive,
 		WritePaths:      append([]string(nil), cfg.WritePaths...),
-		Brief:          d.Prompt,
-		Files:          append([]string(nil), d.Files...),
-		Acceptance:     append([]string(nil), d.Acceptance...),
-		DirectModel:    cfg.DirectModel,
+		Brief:           d.Prompt,
+		Files:           append([]string(nil), d.Files...),
+		Acceptance:      append([]string(nil), d.Acceptance...),
+		DirectModel:     cfg.DirectModel,
 	}
 	// 返工关联：显式 reworkOf 按名字或 ThreadID 匹配被驳回的 bee；没写时按 brief 里的
 	// 补丁路径推断。找不到就留空，按普通 bee 走完整审查。
@@ -2788,26 +2807,27 @@ func (m *Manager) Tick(ctx context.Context) {
 						promptText = tgt.bee.Task
 					}
 					spec := BeeSpec{
-						index:       &tgt.bee.Index,
-						Name:        tgt.bee.Name,
-						Task:        tgt.bee.Task,
-						Prompt:      promptText,
-						ProjectID:   tgt.bee.ProjectID,
-						WorkDir:     tgt.bee.TargetWorkDir,
-						Provider:    tgt.bee.Provider,
-						Model:       tgt.bee.Model,
-						Effort:      tgt.bee.Effort,
-						FastMode:    tgt.bee.FastMode,
-						Profile:     tgt.bee.Profile,
-						Tier:        tgt.bee.Tier,
+						index:           &tgt.bee.Index,
+						Name:            tgt.bee.Name,
+						Task:            tgt.bee.Task,
+						Prompt:          promptText,
+						ProjectID:       tgt.bee.ProjectID,
+						WorkDir:         tgt.bee.TargetWorkDir,
+						Provider:        tgt.bee.Provider,
+						Model:           tgt.bee.Model,
+						Effort:          tgt.bee.Effort,
+						FastMode:        tgt.bee.FastMode,
+						Profile:         tgt.bee.Profile,
+						Tier:            tgt.bee.Tier,
 						ReadOnly:        tgt.bee.ReadOnly,
 						SharedWorkspace: tgt.bee.SharedWorkspace,
+						Interactive:     tgt.bee.Interactive,
 						WritePaths:      append([]string(nil), tgt.bee.WritePaths...),
-						Acceptance:  append([]string(nil), tgt.bee.Acceptance...),
-						RuntimeMode: tgt.bee.RuntimeMode,
-						DirectModel: tgt.bee.DirectModel,
-						Brief:       tgt.bee.Brief,
-						Files:       append([]string(nil), tgt.bee.Files...),
+						Acceptance:      append([]string(nil), tgt.bee.Acceptance...),
+						RuntimeMode:     tgt.bee.RuntimeMode,
+						DirectModel:     tgt.bee.DirectModel,
+						Brief:           tgt.bee.Brief,
+						Files:           append([]string(nil), tgt.bee.Files...),
 					}
 					// 保留半成品：先统计失败前已有的改动，再决定是复用 worktree 接着做还是删掉重来。
 					m.recordPartialWork(ctx, &tgt.bee)
@@ -4628,6 +4648,7 @@ func (m *Manager) handbackConflict(ctx context.Context, leadThreadID, targetWork
 		Tier:            h.Tier,
 		ReadOnly:        h.ReadOnly,
 		SharedWorkspace: h.SharedWorkspace,
+		Interactive:     h.Interactive,
 		WritePaths:      append([]string(nil), h.WritePaths...),
 		Acceptance:      append([]string(nil), h.Acceptance...),
 		Brief:           h.Brief,
@@ -6684,26 +6705,27 @@ func (m *Manager) respawnBeeWithHandoff(ctx context.Context, leadThreadID string
 		m.mu.Unlock()
 	}
 	spec := BeeSpec{
-		index:       &old.Index,
-		Name:        old.Name,
-		Task:        old.Task,
-		Prompt:      promptText,
-		ProjectID:   old.ProjectID,
-		WorkDir:     old.TargetWorkDir,
-		Provider:    old.Provider,
-		Model:       old.Model,
-		Effort:      old.Effort,
-		FastMode:    old.FastMode,
-		Profile:     old.Profile,
-		Tier:        old.Tier,
+		index:           &old.Index,
+		Name:            old.Name,
+		Task:            old.Task,
+		Prompt:          promptText,
+		ProjectID:       old.ProjectID,
+		WorkDir:         old.TargetWorkDir,
+		Provider:        old.Provider,
+		Model:           old.Model,
+		Effort:          old.Effort,
+		FastMode:        old.FastMode,
+		Profile:         old.Profile,
+		Tier:            old.Tier,
 		ReadOnly:        old.ReadOnly,
 		SharedWorkspace: old.SharedWorkspace,
+		Interactive:     old.Interactive,
 		WritePaths:      append([]string(nil), old.WritePaths...),
-		Acceptance:  append([]string(nil), old.Acceptance...),
-		Brief:       old.Brief,
-		Files:       append([]string(nil), old.Files...),
-		RuntimeMode: old.RuntimeMode,
-		DirectModel: old.DirectModel,
+		Acceptance:      append([]string(nil), old.Acceptance...),
+		Brief:           old.Brief,
+		Files:           append([]string(nil), old.Files...),
+		RuntimeMode:     old.RuntimeMode,
+		DirectModel:     old.DirectModel,
 	}
 	// 保留半成品：先统计中断前已有的改动，再决定是复用 worktree 接着做还是清理后重来。
 	partial := old

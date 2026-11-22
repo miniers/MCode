@@ -17,6 +17,10 @@ import (
 // newAutoForwardFixture 造一个带待答提问的子线程，并按 seconds 写入自动转交配置。
 // 循环通过 SetSwarmManager 启动后立即停止，测试里只手动驱动单次检查。
 func newAutoForwardFixture(t *testing.T, seconds int) (*Client, *remote.MemoryBackend) {
+	return newAutoForwardFixtureWithInteractive(t, seconds, false)
+}
+
+func newAutoForwardFixtureWithInteractive(t *testing.T, seconds int, interactive bool) (*Client, *remote.MemoryBackend) {
 	t.Helper()
 	testenv.TempHome(t)
 	ctx := context.Background()
@@ -42,7 +46,7 @@ func newAutoForwardFixture(t *testing.T, seconds int) (*Client, *remote.MemoryBa
 	mgr := swarm.NewManager(swarm.Options{Persister: staticLeadPersister{records: []swarm.LeadRecord{{
 		LeadThreadID: "lead",
 		Enabled:      true,
-		Bees:         []swarm.Bee{{ThreadID: "head", Name: "Ives", Status: swarm.StatusRunning}},
+		Bees:         []swarm.Bee{{ThreadID: "head", Name: "Ives", Status: swarm.StatusRunning, Interactive: interactive}},
 	}}}, PollInterval: testSwarmPollInterval})
 	if err := mgr.Restore(ctx); err != nil {
 		t.Fatalf("restore failed: %v", err)
@@ -139,5 +143,24 @@ func TestSwarmQuestionAutoForwardDisabledWhenDelayZero(t *testing.T) {
 	client.autoForwardQuestionsOnce(context.Background(), time.Now().Add(time.Hour))
 	if got := countLeadQuestionMessages(t, b, "lead"); got != 0 {
 		t.Fatalf("延迟为 0 时不应转交，实际转交了 %d 次", got)
+	}
+}
+
+func TestInteractiveBeeQuestionNotAutoForwarded(t *testing.T) {
+	client, b := newAutoForwardFixtureWithInteractive(t, 60, true)
+	ctx := context.Background()
+
+	q := client.pendingBeeQuestion(ctx, "head")
+	if q == nil {
+		t.Fatal("期望读取到待答提问")
+	}
+	if !q.AutoForwardAt.IsZero() {
+		t.Fatalf("可提问 bee 不应计算自动转交倒计时，实际 AutoForwardAt=%v", q.AutoForwardAt)
+	}
+
+	client.autoForwardQuestionsOnce(ctx, time.Now())
+	client.autoForwardQuestionsOnce(ctx, time.Now().Add(10*time.Minute))
+	if got := countLeadQuestionMessages(t, b, "lead"); got != 0 {
+		t.Fatalf("可提问 bee 超过延迟也不应自动转交，实际转交了 %d 次", got)
 	}
 }

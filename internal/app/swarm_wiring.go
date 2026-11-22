@@ -74,6 +74,7 @@ func swarmTiersFromConfig(tiers []config.SwarmTier) []swarm.Tier {
 			Description:     t.Description,
 			ReadOnly:        t.ReadOnly,
 			SharedWorkspace: t.SharedWorkspace,
+			Interactive:     t.Interactive,
 			WritePaths:      append([]string(nil), t.WritePaths...),
 			Provider:        t.Provider,
 			Model:           t.Model,
@@ -1603,6 +1604,8 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 			return bees[0].ThreadID, nil
 		},
 	)
+
+	backend.SetSwarmBeeInteractive(mgr.BeeInteractive)
 }
 
 // applyBeeAnswers 处理主线程回复里的答案块：把答案提交给子线程的提问，或跳过、交还用户回答。

@@ -72,6 +72,20 @@ func (b *MemoryBackend) hasWorkingSwarmBees(threadID string) bool {
 	return fn != nil && fn(threadID)
 }
 
+// SetSwarmBeeInteractive 设置判断子线程是否属于可向用户提问档位的钩子。
+func (b *MemoryBackend) SetSwarmBeeInteractive(fn func(threadID string) bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.swarmBeeInteractive = fn
+}
+
+func (b *MemoryBackend) isInteractiveSwarmBee(threadID string) bool {
+	b.mu.Lock()
+	fn := b.swarmBeeInteractive
+	b.mu.Unlock()
+	return fn != nil && fn(threadID)
+}
+
 // SetThreadSwarmMode 更新会话级 Swarm 工作模式并写穿到 store。仅供桌面端直接调用，不注册为 RPC。
 // 空值或未知模式归一为 inherited（跟随全局设置）。
 func (b *MemoryBackend) SetThreadSwarmMode(ctx context.Context, threadID, mode string) (wire.ThreadSummary, error) {

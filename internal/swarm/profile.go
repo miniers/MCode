@@ -75,14 +75,15 @@ type BeeConfig struct {
 	Model    string
 	Effort   string
 	// FallbackEffort 保存未指定模型的档位自带推理强度：不直接写进 Effort，交给 resolveBeeRuntime 在默认 Effort 之后兜底。
-	FallbackEffort string
-	FastMode       bool
-	SystemPrompt   string
-	Profile        string
-	PairID         string
+	FallbackEffort  string
+	FastMode        bool
+	SystemPrompt    string
+	Profile         string
+	PairID          string
 	Tier            string
 	ReadOnly        bool
 	SharedWorkspace bool
+	Interactive     bool
 	// WritePaths 非空时该 bee 只能把匹配这些 glob 的改动合并回主工作区。
 	WritePaths  []string
 	DirectModel bool
@@ -143,6 +144,7 @@ func ResolveBeeConfig(in ResolveInput) (BeeConfig, []string) {
 		}
 		cfg.ReadOnly = tier.ReadOnly
 		cfg.SharedWorkspace = tier.SharedWorkspace && !tier.ReadOnly
+		cfg.Interactive = tier.Interactive && !tier.ReadOnly
 		if !cfg.SharedWorkspace {
 			cfg.WritePaths = append([]string(nil), tier.WritePaths...)
 		}

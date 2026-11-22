@@ -316,6 +316,7 @@ type MemoryBackend struct {
 	firstTurnExtra      func(threadID string) string
 	swarmHasWorkingBees func(threadID string) bool
 	swarmSendToBee      func(ctx context.Context, threadID, text string) (string, error)
+	swarmBeeInteractive func(threadID string) bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
