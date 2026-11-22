@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import type { useRemote, RemoteThreadSubscriptionHandle, RemoteThreadSubscriptionHandlers } from '../../context/RemoteContext';
 import { mergeThreadSummary } from '../../context/remoteGuards';
-import type { RemoteThreadProjectionPayload, RemoteThreadStreamSnapshot, RemoteThreadSummary } from '../../types/contract';
+import type { RemoteForwardedContext, RemoteThreadProjectionPayload, RemoteThreadStreamSnapshot, RemoteThreadSummary } from '../../types/contract';
 import { isEndedStatus, mergeLatestHistoryPage, mergeThreadMessages } from '../ThreadTimeline';
 import type { ThreadMessage } from '../ThreadTimeline';
 import { createFrameCoalescer } from '../../utils/frameCoalescer';
@@ -19,6 +19,7 @@ export function useThreadStream() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  const [forwardedContext, setForwardedContext] = useState<RemoteForwardedContext | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -44,7 +45,8 @@ export function useThreadStream() {
   streamStateRef.current = streamState;
   return {
     messages, setMessages, nextCursor, setNextCursor, hasMore, setHasMore,
-    truncated, setTruncated, isLoading, setIsLoading, isLoadingMore, setIsLoadingMore,
+    truncated, setTruncated, forwardedContext, setForwardedContext,
+    isLoading, setIsLoading, isLoadingMore, setIsLoadingMore,
     errorMessage, setErrorMessage, historyInitialDone, setHistoryInitialDone,
     streamError, setStreamError, streamState, setStreamState, messagesRef, frameCoalescer,
     pendingHistoryScrollRef, historySyncFrameRef, lastFailedRequestRef, requestIdRef,
@@ -88,7 +90,7 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
     messages, messagesRef, frameCoalescer, pendingHistoryScrollRef, historySyncFrameRef,
     lastFailedRequestRef, requestIdRef, loadingMoreRef, streamRunIDRef,
     streamedMessageSequenceRef, removedStreamMessageIDsRef, setMessages, setNextCursor,
-    setHasMore, setTruncated, setErrorMessage, setHistoryInitialDone, setIsLoading, setIsLoadingMore
+    setHasMore, setTruncated, setForwardedContext, setErrorMessage, setHistoryInitialDone, setIsLoading, setIsLoadingMore
   } = stream;
   const loadPage = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -134,6 +136,11 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
         setNextCursor(page.nextCursor ?? null);
         setHasMore(Boolean(page.hasMore));
         setTruncated((prev) => (append ? prev || Boolean(page.truncated) : Boolean(page.truncated)));
+        if (page.forwardedContext) {
+          setForwardedContext(page.forwardedContext);
+        } else if (!append && !page.hasMore) {
+          setForwardedContext(null);
+        }
         setErrorMessage(null);
         if (!append) setHistoryInitialDone(true);
       } catch (err) {
@@ -216,6 +223,9 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
           setHasMore(Boolean(page.hasMore));
         }
         setTruncated((previous) => previous || Boolean(page.truncated) || Boolean(gap));
+        if (page.forwardedContext) {
+          setForwardedContext(page.forwardedContext);
+        }
         setHistoryInitialDone(true);
         setErrorMessage(null);
         lastFailedRequestRef.current = null;
@@ -267,6 +277,11 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
         setHasMore(Boolean(snapshot.history.hasMore));
       }
       setTruncated((previousValue) => previousValue || Boolean(snapshot.history.truncated) || Boolean(gap));
+      if (snapshot.history.forwardedContext) {
+        setForwardedContext(snapshot.history.forwardedContext);
+      } else if (!snapshot.history.hasMore && shouldUpdateCursor) {
+        setForwardedContext(null);
+      }
       setHistoryInitialDone(true);
       setIsLoading(false);
       setErrorMessage(null);

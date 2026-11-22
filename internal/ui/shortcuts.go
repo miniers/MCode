@@ -265,6 +265,14 @@ func shortcutBindingFor(id string) (ui.Modifiers, ui.Key, bool) {
 	return 0, ui.KeyUnknown, false
 }
 
+// shortcutKeysDisplay 返回指定快捷键 id 当前生效的展示文案；未找到时回退到 fallback。
+func shortcutKeysDisplay(id, fallback string) string {
+	if mods, key, ok := shortcutBindingFor(id); ok {
+		return formatShortcutKeys(mods, key)
+	}
+	return shortcutDisplay(fallback)
+}
+
 // matchShortcutIn 在给定绑定表中查找匹配项；出现重复绑定时取表中靠前的条目。
 func matchShortcutIn(bindings []shortcutBinding, mods ui.Modifiers, key ui.Key) (id string, index int, ok bool) {
 	for _, b := range bindings {

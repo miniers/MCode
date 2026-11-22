@@ -438,11 +438,23 @@ func (b *MemoryBackend) threadHistoryLocked(params wire.HistoryParams) (wire.His
 		nextCursor = &nc
 	}
 
+	var forwardedCtx *wire.ForwardedContext
+	if !hasMore && td.continuation != "" {
+		if fc, ok := parseForwardedContext(td.continuation); ok && (strings.TrimSpace(fc.Content) != "" || strings.TrimSpace(fc.SourceTitle) != "") {
+			forwardedCtx = &wire.ForwardedContext{
+				SourceTitle: fc.SourceTitle,
+				Content:     fc.Content,
+				Truncated:   fc.Truncated,
+			}
+		}
+	}
+
 	return wire.HistoryPage{
-		ThreadID:   params.ThreadID,
-		Messages:   pageMsgs,
-		NextCursor: nextCursor,
-		HasMore:    hasMore,
+		ThreadID:         params.ThreadID,
+		Messages:         pageMsgs,
+		NextCursor:       nextCursor,
+		HasMore:          hasMore,
+		ForwardedContext: forwardedCtx,
 	}, nil
 }
 

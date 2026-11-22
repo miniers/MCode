@@ -72,11 +72,12 @@ import { useThreadShareActions } from './thread/useThreadShareActions';
 import { useRemoteRevertApi } from '../context/remoteRevertApi';
 import { RevertTurnSheet } from './thread/RevertTurnSheet';
 import { EditMessageSheet } from './thread/EditMessageSheet';
+import { ForwardedContextSection } from './thread/ForwardedContextSection';
 import type { RuntimeCompactSuggestionParams } from '../types/generated';
 import { clearThreadDraft, loadThreadDraft, saveThreadDraft } from '../services/draftStorage';
 import { changedComposerOptions, rememberParamsForChange, runningThreadUpdateChanges, summaryComposerOptions } from '../utils/composerOptions';
 import type { ComposerSelectionMemoryParams } from '../utils/composerOptions';
-import { localCommandName, parseDelegation } from '../utils/slashCommands';
+import { isForwardSlashCommand, localCommandName, parseDelegation } from '../utils/slashCommands';
 import { composerHistoryEntries } from '../utils/composerHistory';
 import { findMatches } from '../utils/findHighlight';
 import type { FindMatch } from '../utils/findHighlight';
@@ -244,12 +245,14 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const stream = useThreadStream();
   const {
     messages, setMessages, nextCursor, setNextCursor, hasMore, setHasMore,
-    truncated, setTruncated, isLoading, setIsLoading, isLoadingMore, errorMessage,
+    truncated, setTruncated, forwardedContext, setForwardedContext,
+    isLoading, setIsLoading, isLoadingMore, errorMessage,
     setErrorMessage, historyInitialDone, setHistoryInitialDone, streamError,
     setStreamError, streamState, setStreamState, messagesRef, frameCoalescer,
     pendingHistoryScrollRef, lastFailedRequestRef, requestIdRef, streamStateRef,
     streamRunIDRef, streamedMessageSequenceRef, removedStreamMessageIDsRef
   } = stream;
+  const confirmForwardRef = useRef<(() => Promise<void>) | null>(null);
   const [latestSummary, setLatestSummary] = useState<RemoteThreadSummary>(thread);
   const [draft, setDraft] = useState(() => readThreadDraft(thread.id) ?? '');
   const [attachments, setAttachments] = useState<RemoteAttachmentUploadResult[]>([]);
@@ -957,6 +960,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     setNextCursor(null);
     setHasMore(false);
     setTruncated(false);
+    setForwardedContext(null);
     setErrorMessage(null);
     setIsLoading(true);
     setHistoryInitialDone(false);
@@ -1492,6 +1496,12 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     setSendError(null);
     setActionQueryError(null);
     try {
+      // 宿主声明 threads.continue 时，`/forward`（含 `/handoff`、`/fw`）直接触发转发到新会话
+      if (forwardSupported && isForwardSlashCommand(draftText)) {
+        clearDraftIfUnchanged(draftText, submittedVersion);
+        await confirmForwardRef.current?.();
+        return true;
+      }
       // 宿主声明 threads.compact 时，`/compact` 直接走压缩 RPC，不再当作普通消息发出
       // 本地命令看用户原文，不看展开后的正文（会话引用展开会拼上一段背景资料）
       if (compactSupported && localCommandName(draftText) === 'compact') {
@@ -1547,6 +1557,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     clearSubmittedDraft,
     compactSupported,
     compactThread,
+    forwardSupported,
     composerOptions,
     composerOptionsSupported,
     errorMessage,
@@ -1973,6 +1984,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     refreshThread,
     loadThreads
   });
+  confirmForwardRef.current = handleConfirmForward;
 
   // 引用到回复：按桌面 quoteIntoDraft 的格式插进草稿末尾并聚焦（timeline_menu.go:35）
   const handleQuoteMessage = useCallback((messageID: string) => {
@@ -2562,29 +2574,16 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         >
         {/* 宽屏下正文限宽并居中，与底部输入区同列；滚动条仍贴窗口最右侧 */}
         <div ref={contentRef} className="space-y-3 w-full max-w-[880px] mx-auto">
-          {/* 分叉来源：细线夹着来源会话标题，可点击跳回源会话 */}
-          {forkedFromThreadID && (
-            <div className="flex items-center gap-2 pb-1 text-mc-caption text-[var(--foreground-muted)]">
-              <span className="h-px flex-1 bg-[var(--border)]" />
-              {forkedFromTitle ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (forkedFromThreadID) replaceThreadByID(forkedFromThreadID);
-                  }}
-                  title="打开来源会话"
-                  className="max-w-[70%] shrink-0 truncate rounded-md px-1.5 py-0.5 text-[var(--primary)] transition hover:bg-[var(--user-bubble)] active:opacity-75"
-                >
-                  {isContinuation ? `继续自「${forkedFromTitle}」` : `分叉自「${forkedFromTitle}」`}
-                </button>
-              ) : (
-                <span className="shrink-0 px-1.5 py-0.5">
-                  {isContinuation ? '继续自其它会话' : '分叉自其它会话'}
-                </span>
-              )}
-              <span className="h-px flex-1 bg-[var(--border)]" />
-            </div>
-          )}
+          {/* 转发会话带入的历史上下文与来源分隔线（与桌面端一致） */}
+          <ForwardedContextSection
+            threadID={thread.id}
+            forwardedContext={forwardedContext}
+            forkedFromThreadID={forkedFromThreadID}
+            forkedFromTitle={forkedFromTitle}
+            isContinuation={isContinuation}
+            showHistory={!hasMore}
+            onOpenOrigin={(originID) => replaceThreadByID(originID)}
+          />
           {/* 历史截断提示：作为顶部弱化提示行 */}
           {truncated && (
             <div
@@ -2625,8 +2624,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             <LazyScreenFallback label="正在加载会话历史..." variant="thread" />
           )}
 
-          {/* 空会话 */}
-          {!isLoading && !errorMessage && timelineItems.length === 0 && (
+          {/* 空会话（转发会话已有带入历史上下文时不展示空态占位） */}
+          {!isLoading && !errorMessage && timelineItems.length === 0 && !(forwardedContext && forwardedContext.content.trim()) && (
             <div className="flex flex-col items-center justify-center text-center p-8 mt-6 bg-[var(--card)] rounded-3xl border border-[var(--border)] space-y-3">
               <div
                 aria-hidden="true"
@@ -2666,8 +2665,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             </button>
           )}
 
-          {/* 已到会话开头 */}
-          {!hasMore && timelineItems.length > 0 && (
+          {/* 已到会话开头（已有转发历史分隔线时不再重复显示） */}
+          {!hasMore && timelineItems.length > 0 && !(forwardedContext && forwardedContext.content.trim()) && (
             <div className="text-center text-mc-caption text-[var(--foreground-muted)] pb-1">
               已到会话开头
             </div>

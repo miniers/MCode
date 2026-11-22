@@ -802,7 +802,12 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 			s.mu.Lock()
 			total := s.threadUsage.Total
 			latestTurn, hasLatestTurn := latestTurnUsageLocked(s.threadUsage)
+			canForward := th != nil && th.ID != "" && len(s.messages) > 0 && (s.selectedThreadID == "" || s.selectedThreadID == th.ID)
+			forwarding := th != nil && s.forwardInflight[th.ID]
 			s.mu.Unlock()
+			if th != nil && stewardSelected(s, th.ID) {
+				canForward = false
+			}
 			// 本轮费用取最新一轮的 CostUSD；provider 未上报时保持 0，面板不显示费用行。
 			costUSD := 0.0
 			if hasLatestTurn {
@@ -880,6 +885,55 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 					if costLine := formatTurnCostUSD(costUSD); costLine != "" {
 						ui.Text(c, costLine).
 							FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+					}
+					if canForward {
+						ui.Row(c.Key("composer-usage-forward-divider")).
+							FillWidth().
+							Height(Hairline).
+							Background(ThemeDivider(c))
+
+						btnLabel := "转发到新会话"
+						if forwarding {
+							btnLabel = "正在转发…"
+						}
+						fwdBtn := ui.ButtonBase(c.Key("composer-usage-forward-btn")).
+							Label(btnLabel).
+							Disabled(forwarding).
+							FillWidth().
+							Height(ControlMD).
+							Padding(0, Space2).
+							Radius(RadiusSM).
+							Cursor(ui.CursorPointer).
+							OnClick(func() {
+								s.composerView.usageOpen = false
+								s.forwardThread(th.ProjectID, th.ID)
+							})
+						if !forwarding && fwdBtn.Hovered() {
+							fwdBtn.Background(ThemeHover(c))
+						}
+						if forwarding {
+							fwdBtn.Opacity(0.55)
+						}
+						scale := motionPressScale(c, fwdBtn, "button-press-scale", !forwarding && fwdBtn.Pressed())
+						fwdBtn.Scale(scale, scale)
+						fwdBtn.Children(func() {
+							ui.Row(c.Key("composer-usage-forward-row")).
+								FillWidth().
+								AlignItems(ui.Center).
+								Gap(Space2).
+								Children(func() {
+									ui.Icon(c, IconForward()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+									ui.Text(c, btnLabel).
+										FontSize(uiFont(TypeBody)).
+										TextColor(ThemePrimaryText(c)).
+										SingleLine()
+									ui.Spacer(c)
+									ui.Text(c, shortcutKeysDisplay("forward-thread", "⇧⌘D")).
+										FontSize(uiFont(TypeFootnote)).
+										TextColor(ThemeSecondaryText(c)).
+										SingleLine()
+								})
+						})
 					}
 				})
 

@@ -456,13 +456,21 @@ type ThreadMessage struct {
 	Media   []MediaRef `json:"media,omitempty"`
 }
 
+// ForwardedContext 对应转发会话带入的历史上下文（见 RemoteForwardedContext）。
+type ForwardedContext struct {
+	SourceTitle string `json:"sourceTitle"`
+	Content     string `json:"content"`
+	Truncated   bool   `json:"truncated"`
+}
+
 // HistoryPage 对应 threads.history 成功结果
 type HistoryPage struct {
-	ThreadID   string          `json:"threadID"`
-	Messages   []ThreadMessage `json:"messages"`
-	NextCursor *string         `json:"nextCursor"`
-	HasMore    bool            `json:"hasMore"`
-	Truncated  bool            `json:"truncated"`
+	ThreadID         string            `json:"threadID"`
+	Messages         []ThreadMessage   `json:"messages"`
+	NextCursor       *string           `json:"nextCursor"`
+	HasMore          bool              `json:"hasMore"`
+	Truncated        bool              `json:"truncated"`
+	ForwardedContext *ForwardedContext `json:"forwardedContext,omitempty"`
 }
 
 type ThreadsToolOutputParams struct {

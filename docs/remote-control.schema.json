@@ -3226,6 +3226,26 @@
       ],
       "additionalProperties": false
     },
+    "RemoteForwardedContext": {
+      "type": "object",
+      "properties": {
+        "sourceTitle": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sourceTitle",
+        "content",
+        "truncated"
+      ],
+      "additionalProperties": false
+    },
     "RemoteThreadHistoryPage": {
       "type": "object",
       "properties": {
@@ -3249,6 +3269,9 @@
         },
         "truncated": {
           "type": "boolean"
+        },
+        "forwardedContext": {
+          "$ref": "#/$defs/RemoteForwardedContext"
         }
       },
       "required": [

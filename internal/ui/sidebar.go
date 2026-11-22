@@ -2547,6 +2547,7 @@ func (s *chatState) forwardThread(projectID, threadID string) {
 	}
 	s.forwardInflight[threadID] = true
 	s.mu.Unlock()
+	s.invalidate()
 	go func() {
 		s.setToast("正在转发…")
 		// defer 在 goroutine 退出时执行，与下面的持锁段、selectThread 天然错开，不会重入。
@@ -2554,6 +2555,7 @@ func (s *chatState) forwardThread(projectID, threadID string) {
 			s.mu.Lock()
 			delete(s.forwardInflight, threadID)
 			s.mu.Unlock()
+			s.invalidate()
 		}()
 		ctx := context.Background()
 		newThreadID, err := s.client.ForwardThread(ctx, threadID)
@@ -2585,11 +2587,27 @@ func (s *chatState) forwardThread(projectID, threadID string) {
 	}()
 }
 
-// forwardSelectedThread 把当前选中的会话转发为新会话。
-// 没有选中会话、或选中的会话还不在列表里时什么也不做，返回 false。
-func (s *chatState) forwardSelectedThread() bool {
+// isThreadForwarding 返回指定会话是否正处于转发请求进行中。
+func (s *chatState) isThreadForwarding(threadID string) bool {
+	if s == nil || threadID == "" {
+		return false
+	}
 	s.mu.Lock()
-	id := s.selectedThreadID
+	defer s.mu.Unlock()
+	return s.forwardInflight[threadID]
+}
+
+// forwardThreadByID 将指定会话（为空时取当前选中会话）转发为新会话。
+// 找不到目标会话时什么也不做，返回 false。
+func (s *chatState) forwardThreadByID(threadID string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	id := threadID
+	if id == "" {
+		id = s.selectedThreadID
+	}
 	projectID := ""
 	found := false
 	for _, th := range s.threads {
@@ -2605,6 +2623,12 @@ func (s *chatState) forwardSelectedThread() bool {
 	}
 	s.forwardThread(projectID, id)
 	return true
+}
+
+// forwardSelectedThread 把当前选中的会话转发为新会话。
+// 没有选中会话、或选中的会话还不在列表里时什么也不做，返回 false。
+func (s *chatState) forwardSelectedThread() bool {
+	return s.forwardThreadByID("")
 }
 
 // setThreadDormant 设置指定会话的休眠状态，成功后播放休眠提示音。

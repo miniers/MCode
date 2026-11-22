@@ -312,6 +312,7 @@ var builtinSlashCatalog = []slashCatalogEntry{
 	{Name: "mode", Detail: "Toggle plan mode", Providers: nil},
 	{Name: "plan", Detail: "Turn plan mode on or off", Providers: nil},
 	{Name: "compact", Detail: "Summarize the conversation to free up context", Providers: []string{"claude", "codex"}},
+	{Name: "forward", Detail: "Forward conversation to a new thread", Providers: nil},
 	{Name: "clear", Detail: "Clear conversation history", Providers: nil},
 	{Name: "model", Detail: "Switch the active language model", Providers: nil},
 	{Name: "effort", Detail: "Set reasoning effort", Providers: nil},

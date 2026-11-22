@@ -166,6 +166,12 @@ export function localCommandName(text: string): 'plan' | 'compact' | null {
   return null;
 }
 
+/** 去除首尾空白后精确等于 `/forward` 或其别名（`/handoff`、`/fw`）时视为本地转发命令。 */
+export function isForwardSlashCommand(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  return trimmed === '/forward' || trimmed === '/handoff' || trimmed === '/fw';
+}
+
 /**
  * `#模型` 候选：Mac 输入框的模型列表顺序（catalog），没有 catalog 时按各 Provider 的模型顺序；
  * 只列 available 的 Provider，编排组合不在其中。

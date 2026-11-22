@@ -618,12 +618,19 @@ export type RemoteThreadMessage = {
   media?: Array<RemoteMediaRef>;
 };
 
+export type RemoteForwardedContext = {
+  sourceTitle: string;
+  content: string;
+  truncated: boolean;
+};
+
 export type RemoteThreadHistoryPage = {
   threadID: UUID;
   messages: Array<RemoteThreadMessage>;
   nextCursor: string | null;
   hasMore: boolean;
   truncated: boolean;
+  forwardedContext?: RemoteForwardedContext;
 };
 
 export type RemoteThreadStreamSnapshot = {

@@ -26,6 +26,7 @@ export type {
   RemoteThreadSummary,
   RemoteThreadExecutionStatus,
   RemoteThreadMessage,
+  RemoteForwardedContext,
   RemoteThreadHistoryPage,
   RemoteCapabilityDeclaration,
   RemoteProjectsListResult as ProjectsListResult,

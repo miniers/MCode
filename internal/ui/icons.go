@@ -336,6 +336,8 @@ func IconByName(name string) *ui.SVG {
 		return iconArrowUpToLine
 	case "reply":
 		return iconReply
+	case "forward":
+		return iconForward
 	case "chevrons-up":
 		return iconChevronsUp
 	case "git-commit-vertical":
@@ -486,6 +488,7 @@ const (
 	svgPathLayoutDashboard       = `<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>`
 	svgPathArrowUpToLine         = `<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>`
 	svgPathReply                 = `<path d="M20 18v-2a4 4 0 0 0-4-4H4"/><path d="m9 17-5-5 5-5"/>`
+	svgPathForward               = `<path d="M4 18v-2a4 4 0 0 1 4-4h12"/><path d="m15 17 5-5-5-5"/>`
 	svgPathChevronsUp            = `<path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/>`
 	svgPathGitCommitVertical     = `<path d="M12 3v6"/><circle cx="12" cy="12" r="3"/><path d="M12 15v6"/>`
 	svgPathOctagonAlert          = `<path d="M12 16h.01"/><path d="M12 8v4"/><path d="M15.312 2a2 2 0 0 1 1.414.586l4.688 4.688A2 2 0 0 1 22 8.688v6.624a2 2 0 0 1-.586 1.414l-4.688 4.688a2 2 0 0 1-1.414.586H8.688a2 2 0 0 1-1.414-.586l-4.688-4.688A2 2 0 0 1 2 15.312V8.688a2 2 0 0 1 .586-1.414l4.688-4.688A2 2 0 0 1 8.688 2z"/>`
@@ -629,6 +632,7 @@ var (
 	iconLayoutDashboard       = parseLucideSVG(svgPathLayoutDashboard)
 	iconArrowUpToLine         = parseLucideSVG(svgPathArrowUpToLine)
 	iconReply                 = parseLucideSVG(svgPathReply)
+	iconForward               = parseLucideSVG(svgPathForward)
 	iconChevronsUp            = parseLucideSVG(svgPathChevronsUp)
 	iconGitCommitVertical     = parseLucideSVG(svgPathGitCommitVertical)
 	iconOctagonAlert          = parseLucideSVG(svgPathOctagonAlert)
@@ -721,6 +725,7 @@ func IconPower() *ui.SVG                 { return iconPower }
 func IconLayoutDashboard() *ui.SVG       { return iconLayoutDashboard }
 func IconArrowUpToLine() *ui.SVG         { return iconArrowUpToLine }
 func IconReply() *ui.SVG                 { return iconReply }
+func IconForward() *ui.SVG               { return iconForward }
 func IconChevronsUp() *ui.SVG            { return iconChevronsUp }
 func IconGitCommitVertical() *ui.SVG     { return iconGitCommitVertical }
 func IconOctagonAlert() *ui.SVG          { return iconOctagonAlert }

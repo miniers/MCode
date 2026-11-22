@@ -55,6 +55,7 @@ var slashCommandAliases = map[string][]string{
 	"export":  {"save", "dump"},
 	"clear":   {"new", "reset"},
 	"compact": {"summarize"},
+	"forward": {"handoff", "fw"},
 	"pair":    {"swarm", "hydra"},
 }
 
@@ -66,6 +67,7 @@ var slashCommandArgHints = map[string]string{
 	"copy":    "复制会话 Markdown",
 	"plan":    "<任务描述>",
 	"compact": "[保留重点]",
+	"forward": "转发到新会话",
 }
 
 // detectCompletion 检测草稿末尾的补全触发符及参数。
@@ -884,7 +886,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 func isNoArgLocalSlashCommand(insert string) bool {
 	cmd := strings.TrimSpace(insert)
 	switch cmd {
-	case "/mode", "/model", "/effort", "/fast", "/pair", "/clear", "/copy":
+	case "/mode", "/model", "/effort", "/fast", "/pair", "/clear", "/copy", "/forward":
 		return true
 	default:
 		return false
@@ -1021,6 +1023,11 @@ func (s *chatState) runLocalSlashCommand(threadID, draft string) bool {
 		}
 		s.clearDraftAndCompletion()
 		requestCopyThreadMarkdown(tid)
+		return true
+
+	case "/forward":
+		s.clearDraftAndCompletion()
+		s.forwardThreadByID(threadID)
 		return true
 
 	case "/clear":

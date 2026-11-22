@@ -1722,6 +1722,8 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 	sidebarWidth := s.sidebarWidth
 	inspector := inspectorExistingSessionLocked(s, s.selectedThreadID)
 	inspectorOpen := inspector != nil && inspector.Open
+	hasMessages := len(s.messages) > 0 && s.selectedThreadID == selectedID
+	forwarding := s.forwardInflight[selectedID]
 	for _, th := range s.threads {
 		if th.ID == selectedID {
 			selectedThread = th
@@ -1770,6 +1772,21 @@ func renderChatHeader(c *ui.Context, s *chatState, selectedID string, _ ThreadUs
 			}
 			IconButton(c, IconButtonProps{Key: "chat-header-new-thread-btn", Icon: IconMessageSquarePlus(), Size: ControlMD, Variant: ButtonGhost,
 				Label: "新建会话 " + shortcutDisplay("⌘N"), OnClick: s.headerNewThread})
+			if selectedThread.ID != "" && !stewardSelected(s, selectedThread.ID) && hasMessages {
+				fwdLabel := "转发到新会话 " + shortcutKeysDisplay("forward-thread", "⇧⌘D")
+				if forwarding {
+					fwdLabel = "正在转发…"
+				}
+				IconButton(c, IconButtonProps{
+					Key:      "chat-header-forward-thread-btn",
+					Icon:     IconForward(),
+					Size:     ControlMD,
+					Variant:  ButtonGhost,
+					Label:    fwdLabel,
+					Disabled: forwarding,
+					OnClick:  func() { s.forwardThread(selectedThread.ProjectID, selectedThread.ID) },
+				})
+			}
 			renderSwarmHeaderButton(c, s)
 			if collapseLeft {
 				gitHS, gitST, gitOK = syncChatHeaderGit(c, s, selectedID)

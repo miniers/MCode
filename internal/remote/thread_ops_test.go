@@ -744,7 +744,7 @@ func TestThreadOps_CommandsAssembly(t *testing.T) {
 
 	// 4) 命令顺序：内置命令 -> Provider 专有命令 -> 技能（按名称排序）
 	expectedNames := []string{
-		"mode", "plan", "compact", "clear", "model", "effort", "fast", "pair", "export",
+		"mode", "plan", "compact", "forward", "clear", "model", "effort", "fast", "pair", "export",
 		"review", "pr_comments", "bug", "init", "doctor",
 		"alpha-skill", "beta-skill",
 	}
@@ -771,7 +771,7 @@ func TestThreadOps_CommandsAssembly(t *testing.T) {
 	if resErr.Error == nil || *resErr.Error != "命令列表加载失败，已显示内置命令" {
 		t.Fatalf("expected error message '命令列表加载失败，已显示内置命令', got: %v", resErr.Error)
 	}
-	if len(resErr.Commands) != 14 || resErr.Commands[0].Name != "mode" || resErr.Commands[1].Name != "plan" {
+	if len(resErr.Commands) != 15 || resErr.Commands[0].Name != "mode" || resErr.Commands[1].Name != "plan" {
 		t.Fatalf("expected base commands returned when scanSkills fails, got: %+v", resErr.Commands)
 	}
 }
@@ -922,7 +922,7 @@ func TestThreadOps_SlashCommands_CatalogAndProviders(t *testing.T) {
 
 	// 顺序：内置命令 -> Provider 专有命令（model、export 与内置同名被去重，compact 保留）
 	expectedPiNames := []string{
-		"mode", "plan", "clear", "model", "effort", "fast", "pair", "export",
+		"mode", "plan", "forward", "clear", "model", "effort", "fast", "pair", "export",
 		"compact", "reload", "login", "logout", "help",
 	}
 	if len(piNames) != len(expectedPiNames) {
