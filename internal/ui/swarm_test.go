@@ -1791,23 +1791,17 @@ func TestSwarmPopoverDismissHelpers(t *testing.T) {
 	}
 }
 
-// TestSwarmIdlePopover 覆盖没有 bee 时的编排按钮：左键切换浮窗显示，第二次点击收起。
+// TestSwarmIdlePopover 覆盖没有活跃 bee 且无待审查时的编排按钮：左键切换汇总面板显示，第二次点击收起。
 func TestSwarmIdlePopover(t *testing.T) {
 	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
 	s.selectedThreadID = "t1"
 	hp := getSwarmPanelState(s)
 	swarmPanelMu.Lock()
 	hp.loadedFor = "t1"
 	hp.setStateLocked(SwarmState{LeadThreadID: "t1", Available: true, Enabled: true})
 	swarmPanelMu.Unlock()
-	t.Cleanup(func() {
-		swarmFloatMu.Lock()
-		delete(swarmFloatForced, "t1")
-		delete(swarmFloatPanelDismissed, "t1")
-		delete(swarmFloatDismissedBees, "t1")
-		swarmFloatMu.Unlock()
-	})
 
 	tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
 	clickSwarmButton := func() {
@@ -1820,22 +1814,19 @@ func TestSwarmIdlePopover(t *testing.T) {
 	}
 
 	clickSwarmButton()
-	if !swarmFloatForcedFor("t1") {
-		t.Fatal("没有 bee 时点击编排按钮应强制显示空团队面板")
+	if !getSwarmPanelState(s).IsOpen() {
+		t.Fatal("没有活跃 bee 也无待审查时点击编排按钮应打开汇总面板")
 	}
 
 	clickSwarmButton()
-	if swarmFloatForcedFor("t1") {
-		t.Fatal("再次点击编排按钮应收起浮窗")
+	if getSwarmPanelState(s).IsOpen() {
+		t.Fatal("再次点击编排按钮应关闭汇总面板")
 	}
 }
 
-// TestSwarmHeaderToggleHitArea 验证「编排」开关的命中区是 32×32，绘制直径仍是 ControlMD。
+// TestSwarmHeaderToggleHitArea 验证「编排」按钮尺寸与标题栏其它 Ghost 按钮一致（ControlMD × ControlMD）。
 func TestSwarmHeaderToggleHitArea(t *testing.T) {
 	testenv.TempHome(t)
-	if swarmToggleSize != ControlMD {
-		t.Fatalf("swarmToggleSize = %v, 期望 ControlMD(%v)", swarmToggleSize, ControlMD)
-	}
 	s := newChatState(NewFakeClient())
 	s.selectedThreadID = "t1"
 	hp := getSwarmPanelState(s)
@@ -1848,10 +1839,10 @@ func TestSwarmHeaderToggleHitArea(t *testing.T) {
 	tt.Frame()
 	rect, ok := tt.Find("编排")
 	if !ok {
-		t.Fatal("没有找到 Label 为「编排」的开关")
+		t.Fatal("没有找到 Label 为「编排」的按钮")
 	}
-	if rect.W != ControlLG || rect.H != ControlLG {
-		t.Errorf("编排开关命中区 = %v×%v, 期望 %v×%v", rect.W, rect.H, ControlLG, ControlLG)
+	if rect.W != ControlMD || rect.H != ControlMD {
+		t.Errorf("编排按钮尺寸 = %v×%v, 期望 %v×%v", rect.W, rect.H, ControlMD, ControlMD)
 	}
 }
 
@@ -1888,13 +1879,16 @@ func TestSwarmHeaderWaitingBadge(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
 	tt.Frame()
 
-	// 三个 bee 都是终态，运行中计数为 0，因此文本 "2" 只可能来自等待角标。
+	// 三个 bee 都是终态，运行中计数为 0，因此文本 "2" 只可能来自等待角标，且不显示运行点。
 	if !tt.HasText("2") {
 		t.Fatalf("应显示等待回答的角标 2，实际文本：%v", tt.Texts())
 	}
+	if _, ok := tt.Find("运行中"); ok {
+		t.Fatal("无运行中 bee 时不应显示运行点")
+	}
 }
 
-// TestSwarmHeaderReviewBadge 验证会话头显示「待审查 N」：统计 PendingMerge 的非 bee 子代理。
+// TestSwarmHeaderReviewBadge 验证会话头编排按钮右上角显示待审查数字角标：统计 PendingMerge 的非 bee 子代理，不再渲染胶囊。
 func TestSwarmHeaderReviewBadge(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
@@ -1905,6 +1899,7 @@ func TestSwarmHeaderReviewBadge(t *testing.T) {
 		},
 	})
 	s := newChatState(fake)
+	t.Cleanup(s.close)
 	s.selectedThreadID = "t1"
 	hp := getSwarmPanelState(s)
 	swarmPanelMu.Lock()
@@ -1928,8 +1923,11 @@ func TestSwarmHeaderReviewBadge(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
 	tt.Frame()
 
-	if !tt.HasText("待审查 1") {
-		t.Fatalf("应显示「待审查 1」角标，实际文本：%v", tt.Texts())
+	if tt.HasText("待审查 1") {
+		t.Fatalf("不应再渲染「待审查 1」胶囊，实际文本：%v", tt.Texts())
+	}
+	if !tt.HasText("1") {
+		t.Fatalf("应显示待审查数字角标 1，实际文本：%v", tt.Texts())
 	}
 }
 
@@ -2040,14 +2038,21 @@ func TestSwarmHeaderFailedBadge(t *testing.T) {
 	swarmPanelMu.Unlock()
 	tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
 	tt.Frame()
-	if !tt.HasText("2") || !tt.HasText("1") {
-		t.Fatalf("应同时显示失败数和运行数：%v", tt.Texts())
+	// 失败与运行同时存在时只取一个角标（失败优先），不叠两个角标；运行状态改由右下角运行点指示。
+	if !tt.HasText("2") {
+		t.Fatalf("应显示失败角标 2：%v", tt.Texts())
+	}
+	if tt.HasText("1") {
+		t.Fatalf("不应同时叠加两个数字角标：%v", tt.Texts())
+	}
+	if _, ok := tt.Find("运行中"); !ok {
+		t.Fatal("有运行中 bee 时应显示运行点")
 	}
 }
 
 func TestSwarmHeaderBadgeColors(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
-		for _, bg := range []ui.Color{ThemeAccent(c), ThemeDanger(c)} {
+		for _, bg := range []ui.Color{ThemeAccent(c), ThemeDanger(c), ThemeWarning(c)} {
 			fg, actualBG := swarmHeaderBadgeColors(c, bg)
 			if fg == actualBG {
 				t.Errorf("角标文字与背景颜色相同: %v", fg)
@@ -2055,6 +2060,104 @@ func TestSwarmHeaderBadgeColors(t *testing.T) {
 		}
 	}, 100, 100)
 	tt.Frame()
+}
+
+func TestSwarmHeaderMergedButton(t *testing.T) {
+	testenv.TempHome(t)
+	const leadID = "t-merged"
+
+	t.Run("无四宫格按钮且待审查显示角标并点击直达待审查筛选", func(t *testing.T) {
+		s := newChatState(NewFakeClient())
+		t.Cleanup(s.close)
+		s.selectedThreadID = leadID
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.loaded = true
+		hp.loadedFor = leadID
+		hp.refreshed = time.Now()
+		hp.setStateLocked(SwarmState{
+			LeadThreadID: leadID,
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{
+				{ThreadID: "b-rev", Index: 1, Name: "RevBee", Status: "completed", PendingMerge: true},
+				{ThreadID: "b-done", Index: 2, Name: "DoneBee", Status: "completed", Merged: true},
+			},
+		})
+		swarmPanelMu.Unlock()
+
+		tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
+		tt.Frame()
+
+		if _, ok := tt.Find("子代理汇总面板"); ok {
+			t.Fatal("chat-header-swarm-panel-btn 不应再存在")
+		}
+		if _, ok := tt.Find("chat-header-swarm-panel-btn"); ok {
+			t.Fatal("chat-header-swarm-panel-btn 不应再存在")
+		}
+		if tt.HasText("待审查 1") {
+			t.Fatalf("不应再渲染待审查胶囊，texts=%v", tt.Texts())
+		}
+		if _, ok := tt.Find("1"); !ok || !tt.HasText("1") {
+			t.Fatalf("reviewCount>0 时应带待审查数字角标，texts=%v", tt.Texts())
+		}
+		if _, ok := tt.Find("运行中"); ok {
+			t.Fatal("无运行中 bee 时不应显示运行点")
+		}
+
+		if err := tt.Click("编排"); err != nil {
+			if keyErr := tt.Click("chat-header-swarm-btn"); keyErr != nil {
+				t.Fatalf("点击编排按钮失败: %v (key: %v)", err, keyErr)
+			}
+		}
+		swarmPanelMu.Lock()
+		opened := hp.open
+		filter := hp.filter
+		swarmPanelMu.Unlock()
+		if !opened || filter != swarmFilterReview {
+			t.Fatalf("无活跃 bee 且有待审查时点击应打开待审查筛选的汇总面板: open=%v filter=%v", opened, filter)
+		}
+	})
+
+	t.Run("有运行中bee时显示静态运行点且推进时钟后不请求下一帧", func(t *testing.T) {
+		s := newChatState(NewFakeClient())
+		t.Cleanup(s.close)
+		s.selectedThreadID = leadID
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.loaded = true
+		hp.loadedFor = leadID
+		hp.refreshed = time.Now()
+		hp.setStateLocked(SwarmState{
+			LeadThreadID: leadID,
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{
+				{ThreadID: "b-run", Index: 1, Name: "RunBee", Status: "running"},
+			},
+		})
+		swarmPanelMu.Unlock()
+
+		tt := ui.NewTester(func(c *ui.Context) { renderSwarmHeaderButton(c, s) }, 900, 600)
+		tt.Frame()
+
+		if _, ok := tt.Find("子代理汇总面板"); ok {
+			t.Fatal("chat-header-swarm-panel-btn 不应再存在")
+		}
+		if _, ok := tt.Find("chat-header-swarm-panel-btn"); ok {
+			t.Fatal("chat-header-swarm-panel-btn 不应再存在")
+		}
+		if _, ok := tt.Find("运行中"); !ok {
+			t.Fatal("有运行中 bee 时应显示右下角运行点")
+		}
+		for i := 0; i < 20; i++ {
+			tt.Advance(50 * time.Millisecond)
+			tt.Frame()
+		}
+		if tt.FramePending() {
+			t.Fatal("有运行中 bee 时编排按钮及运行点应保持静止，推进时钟后不应请求下一帧")
+		}
+	})
 }
 
 func TestSwarmCapsuleTint(t *testing.T) {

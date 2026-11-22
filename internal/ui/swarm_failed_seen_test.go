@@ -92,6 +92,7 @@ func TestSwarmFailedBadgeSeenHeaderButtonClick(t *testing.T) {
 	})
 
 	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
 	s.selectedThreadID = leadID
 	hp := getSwarmPanelState(s)
 	swarmPanelMu.Lock()

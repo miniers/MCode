@@ -943,60 +943,6 @@ func swarmPopOutBeeID(st SwarmState) string {
 	return ""
 }
 
-// swarmToggleSize 是标题栏编排开关的绘制直径，与模型选择面板里的编排开关一致（ControlMD 28）。
-const swarmToggleSize float32 = ControlMD
-
-// swarmToggleHitSize 是编排开关的命中区：绘制仍是 28，外圈各留 2 便于点击。
-const swarmToggleHitSize float32 = ControlLG
-
-// swarmToggleInset 是命中区与绘制圆之间单侧的留白。
-const swarmToggleInset float32 = (swarmToggleHitSize - swarmToggleSize) / 2
-
-// 编排开关环内 accent 微光的不透明度：平时 0.16（与模型选择面板一致），
-// 浮窗展开时加深到 0.30，保留原有“面板已打开”的反馈。
-const (
-	swarmToggleGlow     float32 = 0.16
-	swarmToggleGlowOpen float32 = 0.30
-)
-
-// swarmTogglePaint 描述「编排」开关按钮的底，对应模型选择面板里的编排开关
-// （effort_slider.go 的 renderProviderRainbowAvatar）的同一套外观。
-type swarmTogglePaint struct {
-	On      bool     // 开关态：开启时画名册色角向渐变环
-	Hovered bool     // 悬停：关闭态底色从 6% 加深到 10%
-	RingW   float32  // 环宽，也是镂空环内侧的内缩量；<=0 时按 2 处理
-	Glow    float32  // 镂空环内侧 accent 微光的不透明度，0 表示不叠
-	InnerBg ui.Color // 镂空环内侧的底色（用调用方所在视图的底，环心才能透出本视图底色）
-}
-
-// paintSwarmToggle 按统一外观绘制编排开关按钮的底：关闭时白 6%（悬停 10%）圆底；
-// 开启时先用名册色角向渐变铺满圆，再用视图底色盖出镂空的环，最后叠一层 accent 微光。
-func paintSwarmToggle(c *ui.Context, painter *ui.Painter, r ui.Rect, p swarmTogglePaint) {
-	if !p.On {
-		bg := ThemeOverlay(c, 0.06)
-		if p.Hovered {
-			bg = ThemeOverlay(c, 0.10)
-		}
-		painter.Fill(r, bg, r.W/2)
-		return
-	}
-	ringW := p.RingW
-	if ringW <= 0 {
-		ringW = 2
-	}
-	stops := make([]ui.GradientStop, 0, len(swarmRosterColors)+1)
-	for i, col := range swarmRosterColors {
-		stops = append(stops, ui.GradientStop{Color: col, At: float32(i) / float32(len(swarmRosterColors))})
-	}
-	stops = append(stops, ui.GradientStop{Color: swarmRosterColors[0], At: 1})
-	painter.FillConicGradient(r, ui.ConicGradient{Stops: stops}, r.W/2)
-	inner := ui.Rect{X: r.X + ringW, Y: r.Y + ringW, W: r.W - 2*ringW, H: r.H - 2*ringW}
-	painter.Fill(inner, p.InnerBg, inner.W/2)
-	if p.Glow > 0 {
-		painter.Fill(inner, ThemeAccent(c).Alpha(p.Glow), inner.W/2)
-	}
-}
-
 var (
 	swarmFailedSeenMu sync.Mutex
 	// swarmFailedSeen 记录当前进程内用户已查看的失败子代理（主会话 ID -> 子代理 ID -> 查看时的 FinishedAt）。
@@ -1121,8 +1067,8 @@ func mergeSwarmFailedSeenMemory(records map[string]map[string]string) {
 	}
 }
 
-// renderSwarmHeaderButton 渲染会话头部的 Swarm 切换按钮：外观与模型选择面板里的编排开关一致
-// （开启时外圈为名册色渐变环），右键弹出会话专属开关菜单。
+// renderSwarmHeaderButton 渲染会话头部的 Swarm 按钮：与标题栏其它 Ghost 图标按钮统一，
+// 右键弹出会话专属工作模式菜单。
 func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -1134,8 +1080,7 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 	if selected == "" {
 		return
 	}
-	hp := getSwarmPanelState(s)
-	if hp == nil {
+	if getSwarmPanelState(s) == nil {
 		return
 	}
 	// 运行中计数、排队数、待审查数与有效子线程列表都读派生视图，不再每帧拷贝整份 SwarmState。
@@ -1170,174 +1115,134 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 		tooltip = fmt.Sprintf("编排：%d 个子任务（右键切换工作模式）", len(activeBees))
 	}
 
-	// 仓库尚无性能模式设置，固定按普通模式渲染。
-	haloSpec := swarmHaloStyle(enabled, runningCount, false)
-	on := haloSpec.Width > 0
-	panelOpen := hp.IsOpen()
+	on := enabled
 
-	// 容器包住待审查胶囊、编排按钮及其角标、以及一级汇总面板图标按钮；
-	// 编排按钮与角标放进内层盒子，确保 Right(-6)/Right(18) 仅相对于编排按钮定位。
-	ui.Row(c.Key("chat-header-swarm-btn-wrap")).
-		AlignItems(ui.Center).
+	ui.Box(c.Key("chat-header-swarm-btn-wrap")).
+		Shrink(0).
 		Children(func() {
-			// 待审查胶囊放在按钮左侧：点击直接打开汇总面板并切到「待审查」筛选视图。
-			if !isBee && reviewCount > 0 {
-				renderSwarmReviewBadge(c, s, reviewCount)
+			btn := ui.ButtonBase(c.Key("chat-header-swarm-btn")).
+				Label("编排").
+				Value(map[bool]string{true: "开启", false: "关闭"}[on]).
+				Tooltip(tooltip).
+				Size(ControlMD, ControlMD).
+				Radius(RadiusMD).
+				Center()
+
+			hoverTarget, pressTarget := float32(0), float32(0)
+			if btn.Hovered() {
+				hoverTarget = 1
 			}
+			if btn.Pressed() {
+				pressTarget = 1
+			}
+			hover := btn.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
+			press := btn.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+			bg := buttonBackground(ButtonGhost, on, windowActiveFor(c), hover, press, buttonColors{
+				accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
+				tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
+				overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
+			})
+			btn.Background(bg)
+			focusRing(c, btn)
+			scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+			btn.Scale(scale, scale)
 
-			ui.Box(c.Key("chat-header-swarm-toggle-box")).
-				Shrink(0).
-				Children(func() {
-					// 外观与模型选择面板里的编排开关完全一致：绘制 28 圆形，命中区 32；关闭时是白 6% 圆底
-					// （悬停 10%），开启时是名册色角向渐变环 + 内衬 accent 微光。
-					btn := ui.ButtonBase(c.Key("chat-header-swarm-btn")).
-						Label("编排").
-						Value(map[bool]string{true: "开启", false: "关闭"}[on]).
-						Tooltip(tooltip).
-						Size(swarmToggleHitSize, swarmToggleHitSize).
-						Radius(swarmToggleHitSize / 2).
-						Center()
-					focusRing(c, btn)
-					{
-						scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-						btn.Scale(scale, scale)
-					}
-
-					hovered := btn.Hovered()
-					glow := swarmToggleGlow
+			if btn.Clicked() && !isBee {
+				switch {
+				case len(waitingBees) > 0 && leadID != "":
+					openSwarmFloatForBee(leadID, waitingBees[0])
+					s.invalidate()
+				case runningCount > 0 && leadID != "":
 					if floatShown {
-						// 保留原来「浮窗已展开」的反馈：环内微光加深。
-						glow = swarmToggleGlowOpen
+						dismissSwarmFloatPanel(leadID, activeBees)
+					} else {
+						undismissSwarmFloatPanel(leadID)
 					}
-					btn.Draw(func(painter *ui.Painter, r ui.Rect) {
-						paintSwarmToggle(c, painter, ui.Rect{
-							X: r.X + swarmToggleInset,
-							Y: r.Y + swarmToggleInset,
-							W: swarmToggleSize,
-							H: swarmToggleSize,
-						}, swarmTogglePaint{
-							On:      on,
-							Hovered: hovered,
-							RingW:   haloSpec.Width,
-							Glow:    glow,
-							InnerBg: ThemeWindowBg(c),
-						})
-					})
-
-					if btn.Clicked() && leadID != "" && !isBee {
-						// 有待回答的提问时，左键直接打开第一个等待的子线程；否则只切换浮窗：
-						// 显示中则隐藏，隐藏中则清除关闭记录并强制显示（没有 bee 时是空团队面板）。
-						if len(waitingBees) > 0 {
-							openSwarmFloatForBee(leadID, waitingBees[0])
-						} else if floatShown {
-							dismissSwarmFloatPanel(leadID, activeBees)
-						} else {
-							undismissSwarmFloatPanel(leadID)
+					s.invalidate()
+				case reviewCount > 0:
+					s.openSwarmPanelWithFilter(swarmFilterReview)
+				default:
+					s.toggleSwarmPanel()
+				}
+				markSwarmFailedBeesSeen(s, leadID, activeBees)
+			}
+			// 右键菜单直接切换会话级工作模式；子线程（isBee）本身不承载主导角色，不挂菜单。
+			if !isBee {
+				btn.ContextMenu(func(m *ui.Menu) {
+					current := swarmModeOptionFor(s.threadSwarmMode(selected))
+					for _, opt := range swarmModeOptions {
+						o := opt
+						if m.Item(o.Label).Checked(o.Mode == current.Mode).Chosen() && o.Mode != current.Mode {
+							s.setThreadSwarmMode(selected, o.Mode)
 						}
-						markSwarmFailedBeesSeen(s, leadID, activeBees)
-						s.invalidate()
-					}
-					// 右键菜单直接切换会话级工作模式；子线程（isBee）本身不承载主导角色，不挂菜单。
-					if !isBee {
-						btn.ContextMenu(func(m *ui.Menu) {
-							current := swarmModeOptionFor(s.threadSwarmMode(selected))
-							for _, opt := range swarmModeOptions {
-								o := opt
-								if m.Item(o.Label).Checked(o.Mode == current.Mode).Chosen() && o.Mode != current.Mode {
-									s.setThreadSwarmMode(selected, o.Mode)
-								}
-							}
-						})
-					}
-
-					btn.Children(func() {
-						// 图标两态取色与开关一致：关闭 60% 主文本色，开启或悬停为实色。
-						alpha := float32(0.6)
-						if on || hovered {
-							alpha = 1
-						}
-						ui.Row(c.Key("chat-header-swarm-btn-content")).
-							Gap(Space1).
-							AlignItems(ui.Center).
-							Children(func() {
-								ui.Icon(c, IconSwarm()).Size(IconMD, IconMD).TextColor(ThemePrimaryText(c).Alpha(alpha))
-							})
-					})
-
-					// 有待回答提问时优先显示危险色等待角标；否则在主导会话上显示运行中与排队中的子代理数量角标。
-					if len(waitingBees) > 0 {
-						renderSwarmHeaderBadge(c, "chat-header-swarm-waiting-badge", len(waitingBees), ThemeDanger(c))
-					} else if !isBee && pendingCount > 0 {
-						renderSwarmHeaderBadge(c, "chat-header-swarm-count-badge", pendingCount, ThemeAccent(c))
-					}
-					if !isBee && failedCount > 0 {
-						renderSwarmHeaderBadge(c, "chat-header-swarm-failed-badge", failedCount, ThemeDanger(c))
 					}
 				})
+			}
 
-			if !isBee && (enabled || len(activeBees) > 0 || reviewCount > 0) {
-				IconButton(c, IconButtonProps{
-					Key:     "chat-header-swarm-panel-btn",
-					Icon:    IconLayoutDashboard(),
-					Label:   "子代理汇总面板",
-					Tooltip: "子代理汇总面板",
-					Size:    ControlMD,
-					Variant: ButtonGhost,
-					Active:  panelOpen,
-					OnClick: func() {
-						s.toggleSwarmPanel()
-					},
-				}).Margin(0, 0, 0, Space1)
+			fg := ThemeSecondaryText(c)
+			if on {
+				fg = ThemePrimaryText(c)
+			}
+			btn.Children(func() {
+				ui.Icon(c, IconSwarm()).Size(IconMD, IconMD).TextColor(fg)
+			})
+
+			// 右上角只显示单个数字角标，按优先级取一：等待回答 > 未查看失败 > 待审查 > 运行与排队数。
+			switch {
+			case len(waitingBees) > 0:
+				renderSwarmHeaderBadge(c, "chat-header-swarm-waiting-badge", len(waitingBees), ThemeDanger(c))
+			case !isBee && failedCount > 0:
+				renderSwarmHeaderBadge(c, "chat-header-swarm-failed-badge", failedCount, ThemeDanger(c))
+			case !isBee && reviewCount > 0:
+				renderSwarmHeaderBadge(c, "chat-header-swarm-review-badge", reviewCount, ThemeWarning(c))
+			case !isBee && pendingCount > 0:
+				renderSwarmHeaderBadge(c, "chat-header-swarm-count-badge", pendingCount, ThemeAccent(c))
+			}
+
+			// 右下角 6px 静态运行点：仅在有 bee 运行中时显示，不做任何循环动画。
+			if !isBee && runningCount > 0 {
+				ui.Box(c.Key("chat-header-swarm-running-dot")).
+					Label("运行中").
+					Absolute().
+					Bottom(1.5).
+					Right(1.5).
+					Size(9, 9).
+					Radius(RadiusPill).
+					Background(ThemeSurfaceMain(c)).
+					Center().
+					Children(func() {
+						ui.Box(c.Key("chat-header-swarm-running-dot-core")).
+							Size(Space2, Space2).
+							Radius(RadiusPill).
+							Background(ThemeSuccess(c))
+					})
 			}
 		})
 }
 
 // renderSwarmHeaderBadge 渲染编排按钮右上角的数字角标：用 Absolute 叠在按钮容器上，
-// 不占布局宽度也不撑高按钮；背景色由调用方指定（等待回答用危险色、子任务数量用强调色），
-// 白字，超过 99 显示 99+。
+// 不占布局宽度也不撑高按钮；背景色由调用方指定，白字，超过 99 显示 99+。
 func renderSwarmHeaderBadge(c *ui.Context, key string, count int, bg ui.Color) {
 	text := strconv.Itoa(count)
 	if count > 99 {
 		text = "99+"
 	}
-	right := float32(-6)
-	if key == "chat-header-swarm-failed-badge" {
-		right = 18
-	}
 	fg, bg := swarmHeaderBadgeColors(c, bg)
 	ui.Row(c.Key(key)).Label(text).Absolute().
 		Top(-4).
-		Right(right).
+		Right(-6).
 		Height(IconSM).
 		MinWidth(14).
 		Padding(0, Space1).
 		Radius(CapsuleRadius).
 		Center().
 		Background(bg).Children(func() {
-		ui.Text(c, text).FontSize(uiFont(TypeCaption)).TextColor(fg).SingleLine()
+		ui.Text(c, text).FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(fg).SingleLine()
 	})
 }
 
 func swarmHeaderBadgeColors(c *ui.Context, bg ui.Color) (ui.Color, ui.Color) {
 	return ThemeOnAccent(c), bg
-}
-
-// renderSwarmReviewBadge 在编排按钮左侧显示可点击的「待审查 N」胶囊：
-// 点击直接打开汇总面板并切换到「待审查」筛选视图。
-func renderSwarmReviewBadge(c *ui.Context, s *chatState, count int) {
-	cap := Capsule(c, CapsuleProps{
-		Key:         "chat-header-swarm-review-badge",
-		Text:        fmt.Sprintf("待审查 %d", count),
-		Tone:        ToneWarning,
-		Size:        ControlSM,
-		Interactive: true,
-		Tooltip:     "查看待审查子代理",
-		OnClick: func() {
-			s.openSwarmPanelWithFilter(swarmFilterReview)
-		},
-	})
-	cap.Shrink(0).Margin(0, Space1, 0, 0)
-	focusRing(c, cap)
 }
 
 // reviewBeeStatusTag 计算 bee 在审查器中的状态标签文本与语义颜色。

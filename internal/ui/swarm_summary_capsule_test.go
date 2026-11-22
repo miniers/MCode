@@ -250,15 +250,18 @@ func TestSwarmSummaryPanelEntryAndFilter(t *testing.T) {
 		{ThreadID: "b-done", Index: 3, Name: "DoneBee", Status: "completed", Merged: true, Summary: "已结束合并"},
 	}
 
-	t.Run("顶栏一级入口与待审查胶囊直达", func(t *testing.T) {
+	t.Run("顶栏合并入口直达汇总面板与待审查筛选", func(t *testing.T) {
 		fake := NewFakeClient()
-		st := SwarmState{
+		reviewOnly := SwarmState{
 			LeadThreadID: leadID,
 			Available:    true,
 			Enabled:      true,
-			Bees:         bees,
+			Bees: []SwarmBee{
+				{ThreadID: "b-rev", Index: 2, Name: "RevBee", Status: "completed", PendingMerge: true, Summary: "待合并审查"},
+				{ThreadID: "b-done", Index: 3, Name: "DoneBee", Status: "completed", Merged: true, Summary: "已结束合并"},
+			},
 		}
-		fake.SetSwarmState(leadID, st)
+		fake.SetSwarmState(leadID, reviewOnly)
 
 		s := newChatState(fake)
 		t.Cleanup(s.close)
@@ -268,7 +271,7 @@ func TestSwarmSummaryPanelEntryAndFilter(t *testing.T) {
 		hp.loaded = true
 		hp.loadedFor = leadID
 		hp.refreshed = time.Now()
-		hp.setStateLocked(st)
+		hp.setStateLocked(reviewOnly)
 		swarmPanelMu.Unlock()
 
 		tt := ui.NewTesterWith(func(c *ui.Context) {
@@ -276,31 +279,54 @@ func TestSwarmSummaryPanelEntryAndFilter(t *testing.T) {
 		}, 900, 120, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 		tt.Frame()
 
-		if err := tt.Click("子代理汇总面板"); err != nil {
-			t.Fatalf("未找到一级汇总面板按钮: %v", err)
+		if _, ok := tt.Find("子代理汇总面板"); ok {
+			t.Fatal("不应再存在独立四宫格按钮 chat-header-swarm-panel-btn")
 		}
-		if !getSwarmPanelState(s).IsOpen() {
-			t.Fatal("点击汇总面板一级按钮应打开面板")
+		if _, ok := tt.Find("chat-header-swarm-panel-btn"); ok {
+			t.Fatal("不应再存在独立四宫格按钮 chat-header-swarm-panel-btn")
 		}
-
-		// 再点一次关闭
-		if err := tt.Click("子代理汇总面板"); err != nil {
-			t.Fatalf("再次点击汇总面板按钮失败: %v", err)
-		}
-		if getSwarmPanelState(s).IsOpen() {
-			t.Fatal("再次点击汇总面板按钮应关闭面板")
+		if !tt.HasText("1") {
+			t.Fatalf("应显示待审查角标 1，实际文本：%v", tt.Texts())
 		}
 
-		// 点击「待审查 1」胶囊直接打开汇总面板并切到待审查筛选
-		if err := tt.Click("待审查 1"); err != nil {
-			t.Fatalf("点击待审查胶囊失败: %v", err)
+		// 无活跃 bee 且有待审查时点击编排按钮，打开汇总面板并切到待审查筛选
+		if err := tt.Click("编排"); err != nil {
+			t.Fatalf("点击编排按钮失败: %v", err)
 		}
 		swarmPanelMu.Lock()
 		opened := hp.open
 		filter := hp.filter
 		swarmPanelMu.Unlock()
 		if !opened || filter != swarmFilterReview {
-			t.Fatalf("点击待审查胶囊后 open=%v filter=%v，期望 true / swarmFilterReview", opened, filter)
+			t.Fatalf("点击待审查角标态编排按钮后 open=%v filter=%v，期望 true / swarmFilterReview", opened, filter)
+		}
+
+		// 切到无待审查也无活跃 bee 的状态：点击编排按钮应能关闭并再次打开汇总面板
+		doneOnly := SwarmState{
+			LeadThreadID: leadID,
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{
+				{ThreadID: "b-done", Index: 3, Name: "DoneBee", Status: "completed", Merged: true, Summary: "已结束合并"},
+			},
+		}
+		fake.SetSwarmState(leadID, doneOnly)
+		swarmPanelMu.Lock()
+		hp.setStateLocked(doneOnly)
+		swarmPanelMu.Unlock()
+		tt.Frame()
+
+		if err := tt.Click("编排"); err != nil {
+			t.Fatalf("再次点击编排按钮失败: %v", err)
+		}
+		if getSwarmPanelState(s).IsOpen() {
+			t.Fatal("无待审查且无活跃 bee 时点击编排按钮应关闭已打开的汇总面板")
+		}
+		if err := tt.Click("编排"); err != nil {
+			t.Fatalf("第三次点击编排按钮失败: %v", err)
+		}
+		if !getSwarmPanelState(s).IsOpen() {
+			t.Fatal("无待审查且无活跃 bee 时再次点击编排按钮应打开汇总面板")
 		}
 	})
 
