@@ -55,6 +55,13 @@ func TestRootCreateThread(t *testing.T) {
 		return tt.HasText("测试会话1")
 	})
 
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Advance(400 * time.Millisecond)
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("新建会话 ⌘N")
+		return ok
+	})
+
 	if err := tt.Click("新建会话 ⌘N"); err != nil {
 		t.Fatalf("click '新建会话 ⌘N' failed: %v", err)
 	}
@@ -606,8 +613,8 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	tt := ui.NewTester(view, 1000, 700)
 
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	if _, ok := tt.Find("新建会话 ⌘N"); !ok {
-		t.Fatalf("初始应显示新建会话按钮")
+	if _, ok := tt.Find("新建会话 ⌘N"); ok {
+		t.Fatalf("初始（侧栏展开）不应显示新建会话按钮")
 	}
 
 	// ⌘B 折叠：动画开始时侧边栏内容仍按目标宽度渲染（只裁切，不消失）
@@ -616,7 +623,7 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	if !state.sidebarCollapsed {
 		t.Fatalf("⌘B 后 sidebarCollapsed 应为 true")
 	}
-	if _, ok := tt.Find("新建会话 ⌘N"); !ok {
+	if _, ok := tt.Find("在此项目中新建会话"); !ok {
 		t.Fatalf("动画刚开始时侧边栏内容应保持渲染（裁切）")
 	}
 
@@ -638,9 +645,12 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	if _, ok := tt.Find("root-split"); ok {
 		t.Fatalf("折叠结束后应回到只渲染主区的静态布局（无侧边栏分栏）")
 	}
-	// 侧栏收起后头部出现会话列表入口，作为侧栏内容被移除的正面校验。
+	// 侧栏收起后头部出现会话列表入口与新建会话按钮，作为侧栏内容被移除的正面校验。
 	if _, ok := tt.Find("会话列表"); !ok {
 		t.Fatalf("折叠结束后头部应显示会话列表入口")
+	}
+	if _, ok := tt.Find("新建会话 ⌘N"); !ok {
+		t.Fatalf("折叠结束后头部应显示新建会话按钮")
 	}
 
 	// 再按一次 ⌘B 展开
@@ -650,7 +660,10 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	if p := sidebarVisibleProgress(state); p < 0.98 {
 		t.Fatalf("展开动画结束后显示进度应为 1, got %v", p)
 	}
-	if _, ok := tt.Find("新建会话 ⌘N"); !ok {
+	if _, ok := tt.Find("新建会话 ⌘N"); ok {
+		t.Fatalf("展开结束后不应显示头部新建会话按钮")
+	}
+	if _, ok := tt.Find("在此项目中新建会话"); !ok {
 		t.Fatalf("展开结束后应恢复侧边栏")
 	}
 }

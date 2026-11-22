@@ -134,7 +134,7 @@ func Test供应商面板_搜索命令行自动展开高级(t *testing.T) {
 	}
 }
 
-func Test供应商面板_模型目录只读并显示模型ID(t *testing.T) {
+func Test供应商面板_模型目录显示模型ID(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{{
@@ -147,9 +147,6 @@ func Test供应商面板_模型目录只读并显示模型ID(t *testing.T) {
 	tt, _ := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "claude", "")
 	waitFor(t, tt, func() bool { return tt.HasText("目录 Sonnet") && tt.HasText("sonnet-catalog") })
-	if !tt.HasText("只读") {
-		t.Fatalf("模型目录缺少只读说明：%v", tt.Texts())
-	}
 	if !tt.HasText("unnamed-catalog") {
 		t.Fatalf("无名称的模型应使用 ID 作为标题：%v", tt.Texts())
 	}

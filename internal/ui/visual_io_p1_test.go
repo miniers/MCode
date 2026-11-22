@@ -158,7 +158,7 @@ func TestVisualIOP1OpenInAndDownloadsNoSyncIOInRender(t *testing.T) {
 			return path == "/Applications/Cursor.app"
 		}
 
-		tt := ui.NewTester(root, 1000, 700)
+		tt := ui.NewTester(root, 1200, 700)
 		waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
 		getChatHeaderState(s).openInMenuOpen = true
