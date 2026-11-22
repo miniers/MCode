@@ -245,6 +245,8 @@ type gitPRDialogFake struct {
 	mergeErr      error
 	mergeStarted  chan struct{}
 	mergeWait     <-chan struct{}
+	mergeCalls    []gitPRActionCall
+	reviewCalls   []gitPRActionCall
 
 	checkoutCalls []gitPRCheckoutCall
 	checkoutPath  string
@@ -320,7 +322,10 @@ func (f *gitPRDialogFake) GitPRCleanupWorktree(_ context.Context, threadID strin
 	return reason, err
 }
 
-func (f *gitPRDialogFake) GitPRMerge(context.Context, string, int, string) error {
+func (f *gitPRDialogFake) GitPRMerge(_ context.Context, threadID string, number int, method string) error {
+	f.mu.Lock()
+	f.mergeCalls = append(f.mergeCalls, gitPRActionCall{threadID: threadID, number: number, kind: "merge", value: method})
+	f.mu.Unlock()
 	if f.mergeStarted != nil {
 		close(f.mergeStarted)
 		<-f.mergeWait
@@ -328,7 +333,24 @@ func (f *gitPRDialogFake) GitPRMerge(context.Context, string, int, string) error
 	return f.mergeErr
 }
 
-func (f *gitPRDialogFake) GitPRReview(context.Context, string, int, string, string) error { return nil }
+func (f *gitPRDialogFake) GitPRReview(_ context.Context, threadID string, number int, event, body string) error {
+	f.mu.Lock()
+	f.reviewCalls = append(f.reviewCalls, gitPRActionCall{threadID: threadID, number: number, kind: event, value: body})
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *gitPRDialogFake) mergeCallsSnapshot() []gitPRActionCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]gitPRActionCall(nil), f.mergeCalls...)
+}
+
+func (f *gitPRDialogFake) reviewCallsSnapshot() []gitPRActionCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]gitPRActionCall(nil), f.reviewCalls...)
+}
 
 // ReviewGetPR 让 AI 审查后的改动视图能读到 PR 数据，满足 reviewPRClient。
 func (f *gitPRDialogFake) ReviewGetPR(context.Context, string, int, string) (ReviewSnapshot, error) {
@@ -502,17 +524,20 @@ func TestGitPRDialogEmptyStateOffersCreate(t *testing.T) {
 	s.openGitPRDialog()
 	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool { return !st.listLoading && st.listErr == "" })
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	for _, text := range []string{"开放的 PR/MR", "从左侧选择一条 PR 查看详情", "Esc 关闭"} {
 		if tt.HasText(text) {
 			t.Errorf("空状态不应显示 %q", text)
 		}
 	}
-	for _, text := range []string{"没有开放的 PR", "创建 PR…"} {
+	for _, text := range []string{"没有开放的 PR", "创建 PR"} {
 		if !tt.HasText(text) {
 			t.Errorf("空状态缺少 %q", text)
 		}
+	}
+	if tt.FramePending() {
+		t.Error("空状态弹窗动画结束后仍在请求下一帧")
 	}
 }
 
@@ -531,14 +556,14 @@ func TestGitPRDialogAutoSelectsFirst(t *testing.T) {
 		t.Fatalf("详情请求 = %v，期望只请求第一条 #7", calls)
 	}
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	if !tt.HasText("第一条") {
 		t.Error("左列没有显示第一条 PR")
 	}
 }
 
-// TestGitPRDialogConflictList 覆盖冲突时读取并展示冲突文件路径。
+// TestGitPRDialogConflictList 覆盖冲突时点击状态条文字展开冲突文件路径。
 func TestGitPRDialogConflictList(t *testing.T) {
 	f := &gitPRDialogFake{
 		FakeClient: NewFakeClient(),
@@ -559,16 +584,25 @@ func TestGitPRDialogConflictList(t *testing.T) {
 		t.Fatalf("冲突预演调用 = %+v，期望 #42 base main", calls)
 	}
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
-	for _, text := range []string{"2 个文件冲突", "src/a.go", "src/b.go"} {
-		if !tt.HasText(text) {
-			t.Errorf("详情缺少 %q", text)
-		}
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+	if !tt.HasText("2 个文件冲突") {
+		t.Fatal("状态条缺少冲突文件数量")
+	}
+	if tt.HasText("src/a.go") {
+		t.Fatal("冲突文件列表默认应折叠")
+	}
+	if err := tt.Click("2 个文件冲突"); err != nil {
+		t.Fatalf("点击展开冲突列表: %v", err)
 	}
 	tt.Advance(time.Second)
+	for _, text := range []string{"src/a.go", "src/b.go"} {
+		if !tt.HasText(text) {
+			t.Errorf("展开后缺少 %q", text)
+		}
+	}
 	if tt.FramePending() {
-		t.Error("冲突列表加载完成后仍在请求下一帧")
+		t.Error("冲突列表加载并展开完成后仍在请求下一帧")
 	}
 }
 
@@ -590,8 +624,8 @@ func TestGitPRDialogConflictResolve(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading && !st.conflictLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
 	}
@@ -634,7 +668,7 @@ func TestGitPRDialogConflictResolve(t *testing.T) {
 	}
 }
 
-// TestGitPRAIReviewThread 覆盖 AI 审查检出 PR、新建审查会话并发送审查指令。
+// TestGitPRAIReviewThread 覆盖从「⋯」菜单发起 AI 审查：检出 PR、新建审查会话并发送审查指令。
 func TestGitPRAIReviewThread(t *testing.T) {
 	f := &gitPRDialogFake{
 		FakeClient: NewFakeClient(),
@@ -650,11 +684,15 @@ func TestGitPRAIReviewThread(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
-	// 拿不到改动文件数的客户端（如 GitLab）也要显示这个按钮。
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+	if err := tt.Click("更多操作"); err != nil {
+		t.Fatalf("打开更多操作菜单: %v", err)
+	}
+	tt.Advance(time.Second)
+	// 拿不到改动文件数的客户端（如 GitLab）也要显示这个菜单项。
 	if !tt.HasText("AI 审查") {
-		t.Fatal("缺少 AI 审查按钮")
+		t.Fatal("缺少 AI 审查菜单项")
 	}
 	if err := tt.Click("AI 审查"); err != nil {
 		t.Fatalf("点击 AI 审查: %v", err)
@@ -715,14 +753,14 @@ func TestGitPRAIReviewThread(t *testing.T) {
 	}
 }
 
-// TestGitPRAIReviewCrossRepo 覆盖 fork 来的 PR 也能发起 AI 审查与检出，并把 crossRepo=true 传给后端。
+// TestGitPRAIReviewCrossRepo 覆盖 fork 来的 PR 也能通过「⋯」菜单发起 AI 审查与检出，并把 crossRepo=true 传给后端。
 func TestGitPRAIReviewCrossRepo(t *testing.T) {
 	for _, tc := range []struct {
 		button    string
 		wantTitle string
 	}{
 		{"AI 审查", "审查 PR #42"},
-		{"检出", "PR #42"},
+		{"检出到 worktree", "PR #42"},
 	} {
 		t.Run(tc.button, func(t *testing.T) {
 			f := &gitPRDialogFake{
@@ -740,10 +778,14 @@ func TestGitPRAIReviewCrossRepo(t *testing.T) {
 				return st.selected == 42 && st.detail != nil && !st.detailLoading
 			})
 
-			tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-			tt.Advance(DurSheet)
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+			tt.Advance(time.Second)
+			if err := tt.Click("更多操作"); err != nil {
+				t.Fatalf("打开更多操作菜单: %v", err)
+			}
+			tt.Advance(time.Second)
 			if !tt.HasText(tc.button) {
-				t.Fatalf("缺少 %s 按钮", tc.button)
+				t.Fatalf("缺少 %s 菜单项", tc.button)
 			}
 			if err := tt.Click(tc.button); err != nil {
 				t.Fatalf("点击 %s: %v", tc.button, err)
@@ -780,8 +822,8 @@ func TestGitPRDialogCrossRepoBlocksResolve(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	if !tt.HasText("解决冲突") {
 		t.Fatal("缺少解决冲突按钮")
 	}
@@ -906,8 +948,8 @@ func TestGitPRResolveSendsPrompt(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading && !st.conflictLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
 	}
@@ -929,7 +971,7 @@ func TestGitPRResolveSendsPrompt(t *testing.T) {
 	}
 }
 
-// TestGitPRCheckout 覆盖检出后切到新会话，不发送消息。
+// TestGitPRCheckout 覆盖通过「⋯」菜单检出后切到新会话，不发送消息。
 func TestGitPRCheckout(t *testing.T) {
 	f := &gitPRDialogFake{
 		FakeClient: NewFakeClient(),
@@ -945,13 +987,17 @@ func TestGitPRCheckout(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
-	if !tt.HasText("检出") {
-		t.Fatal("缺少检出按钮")
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+	if err := tt.Click("更多操作"); err != nil {
+		t.Fatalf("打开更多操作菜单: %v", err)
 	}
-	if err := tt.Click("检出"); err != nil {
-		t.Fatalf("点击检出: %v", err)
+	tt.Advance(time.Second)
+	if !tt.HasText("检出到 worktree") {
+		t.Fatal("缺少检出到 worktree 菜单项")
+	}
+	if err := tt.Click("检出到 worktree"); err != nil {
+		t.Fatalf("点击检出到 worktree: %v", err)
 	}
 	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool { return !st.open })
 
@@ -1086,8 +1132,8 @@ func TestGitPRResolveSendFailureSelectsThreadAndToasts(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1000, 800)
-	tt.Advance(DurSheet)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
 	}
@@ -1212,5 +1258,343 @@ func TestGitPRActionTip(t *testing.T) {
 				t.Errorf("gitPRActionTip(%q, %q, %q) = %q, want %q", tc.busy, tc.self, tc.reason, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestGitPRStatusStrip 覆盖状态条各分支与优先级判定。
+func TestGitPRStatusStrip(t *testing.T) {
+	cases := []struct {
+		name          string
+		detail        git.PRDetail
+		conflictFiles []string
+		wantTone      string
+		wantText      string
+	}{
+		{
+			name: "已合并优先于冲突与检查失败",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "merged", IsDraft: true, BaseBranch: "main", ReviewDecision: "CHANGES_REQUESTED"},
+				Mergeable: "CONFLICTING",
+				Checks:    []git.PRCheck{{Name: "ci", State: "failure"}},
+			},
+			conflictFiles: []string{"a.go"},
+			wantTone:      "plan",
+			wantText:      "已合并到 main",
+		},
+		{
+			name: "已合并无目标分支",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "merged"},
+			},
+			wantTone: "plan",
+			wantText: "已合并",
+		},
+		{
+			name: "已关闭优先于草稿与冲突",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "closed", IsDraft: true},
+				Mergeable: "CONFLICTING",
+			},
+			wantTone: "neutral",
+			wantText: "已关闭",
+		},
+		{
+			name: "草稿优先于冲突与检查失败",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", IsDraft: true},
+				Mergeable: "CONFLICTING",
+				Checks:    []git.PRCheck{{Name: "ci", State: "failure"}},
+			},
+			conflictFiles: []string{"a.go"},
+			wantTone:      "neutral",
+			wantText:      "草稿",
+		},
+		{
+			name: "冲突且有文件列表优先于检查失败",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "CHANGES_REQUESTED"},
+				Mergeable: "CONFLICTING",
+				Checks:    []git.PRCheck{{Name: "ci", State: "failure"}},
+			},
+			conflictFiles: []string{"a.go", "b.go"},
+			wantTone:      "danger",
+			wantText:      "2 个文件冲突",
+		},
+		{
+			name: "冲突无文件列表",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open"},
+				Mergeable: "CONFLICTING",
+			},
+			wantTone: "danger",
+			wantText: "有冲突",
+		},
+		{
+			name: "仅conflictFiles非空也判为冲突",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open"},
+				Mergeable: "MERGEABLE",
+			},
+			conflictFiles: []string{"c.go"},
+			wantTone:      "danger",
+			wantText:      "1 个文件冲突",
+		},
+		{
+			name: "检查失败优先于检查进行中与评审",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "REVIEW_REQUIRED"},
+				Checks: []git.PRCheck{
+					{Name: "a", State: "failure"},
+					{Name: "b", State: "FAILURE"},
+					{Name: "c", State: "pending"},
+					{Name: "d", State: "success"},
+				},
+			},
+			wantTone: "danger",
+			wantText: "2 项检查失败",
+		},
+		{
+			name: "检查进行中优先于评审",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "CHANGES_REQUESTED"},
+				Checks: []git.PRCheck{
+					{Name: "a", State: "pending"},
+					{Name: "b", State: "pending"},
+					{Name: "c", State: "success"},
+				},
+			},
+			wantTone: "neutral",
+			wantText: "2 项检查进行中",
+		},
+		{
+			name: "需要修改",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "CHANGES_REQUESTED"},
+				Checks:    []git.PRCheck{{Name: "a", State: "success"}},
+			},
+			wantTone: "danger",
+			wantText: "需要修改",
+		},
+		{
+			name: "等待评审",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "REVIEW_REQUIRED"},
+			},
+			wantTone: "neutral",
+			wantText: "等待评审",
+		},
+		{
+			name: "可以合并",
+			detail: git.PRDetail{
+				PRSummary: git.PRSummary{State: "open", ReviewDecision: "APPROVED"},
+				Mergeable: "MERGEABLE",
+				Checks:    []git.PRCheck{{Name: "a", State: "success"}},
+			},
+			wantTone: "success",
+			wantText: "可以合并",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tone, text := gitPRStatusStrip(tc.detail, tc.conflictFiles)
+			if tone != tc.wantTone || text != tc.wantText {
+				t.Errorf("gitPRStatusStrip() = (%q, %q), want (%q, %q)", tone, text, tc.wantTone, tc.wantText)
+			}
+		})
+	}
+}
+
+// TestGitPRDialogEmptySameSize 覆盖空态与非空弹窗卡片尺寸一致，且入场动画完成后不再续帧。
+func TestGitPRDialogEmptySameSize(t *testing.T) {
+	emptyState := newGitPRDialogTestState(t, &gitPRDialogFake{FakeClient: NewFakeClient()})
+	emptyState.openGitPRDialog()
+	waitGitPRDialog(t, emptyState, func(st *gitPRDialogState) bool { return !st.listLoading })
+
+	emptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, emptyState) }, 1200, 800)
+	emptyTT.Advance(time.Second)
+	emptyBox, ok := emptyTT.Find("PR 弹窗卡片")
+	if !ok {
+		t.Fatal("找不到空态 PR 弹窗卡片")
+	}
+	if emptyTT.FramePending() {
+		t.Fatal("空态弹窗入场动画结束后仍在请求下一帧")
+	}
+
+	nonEmptyState := newGitPRDialogTestState(t, &gitPRDialogFake{
+		FakeClient: NewFakeClient(),
+		prs:        []git.PRSummary{{Number: 7, Title: "第一条", State: "open"}},
+	})
+	nonEmptyState.openGitPRDialog()
+	waitGitPRDialog(t, nonEmptyState, func(st *gitPRDialogState) bool {
+		return st.selected == 7 && st.detail != nil && !st.detailLoading
+	})
+
+	nonEmptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, nonEmptyState) }, 1200, 800)
+	nonEmptyTT.Advance(time.Second)
+	nonEmptyBox, ok := nonEmptyTT.Find("PR 弹窗卡片")
+	if !ok {
+		t.Fatal("找不到非空 PR 弹窗卡片")
+	}
+	if nonEmptyTT.FramePending() {
+		t.Fatal("非空弹窗入场动画结束后仍在请求下一帧")
+	}
+
+	if emptyBox.W != nonEmptyBox.W || emptyBox.H != nonEmptyBox.H {
+		t.Fatalf("空态尺寸 (%v×%v) != 非空尺寸 (%v×%v)", emptyBox.W, emptyBox.H, nonEmptyBox.W, nonEmptyBox.H)
+	}
+	if emptyBox.W != gitPRDialogWidth {
+		t.Fatalf("弹窗宽度 = %v，期望 %v", emptyBox.W, gitPRDialogWidth)
+	}
+}
+
+// TestGitPRListSearch 覆盖列表搜索按标题与 #号不区分大小写过滤。
+func TestGitPRListSearch(t *testing.T) {
+	f := &gitPRDialogFake{
+		FakeClient: NewFakeClient(),
+		prs: []git.PRSummary{
+			{Number: 101, Title: "Fix auth bug", Author: "alice", HeadBranch: "fix/auth", State: "open"},
+			{Number: 102, Title: "Add dark mode", Author: "bob", HeadBranch: "feat/dark", State: "open"},
+			{Number: 103, Title: "Refactor parser", Author: "carol", HeadBranch: "chore/parser", State: "open"},
+		},
+	}
+	s := newGitPRDialogTestState(t, f)
+	s.openGitPRDialog()
+	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
+		return st.selected == 101 && st.detail != nil && !st.detailLoading
+	})
+
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+	for _, title := range []string{"Fix auth bug", "Add dark mode", "Refactor parser"} {
+		if !tt.HasText(title) {
+			t.Fatalf("初始列表缺少 %q", title)
+		}
+	}
+
+	if err := tt.Click("搜索"); err != nil {
+		t.Fatalf("聚焦搜索框: %v", err)
+	}
+	tt.Type("DARK")
+	tt.Frame()
+	if !tt.HasText("Add dark mode") || tt.HasText("Fix auth bug") || tt.HasText("Refactor parser") {
+		t.Fatalf("按标题过滤失败，当前文本: %v", tt.Texts())
+	}
+
+	if err := tt.Click("清空"); err != nil {
+		t.Fatalf("清空搜索框: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("搜索"); err != nil {
+		t.Fatalf("重新聚焦搜索框: %v", err)
+	}
+	tt.Type("#103")
+	tt.Frame()
+	if !tt.HasText("Refactor parser") || tt.HasText("Fix auth bug") || tt.HasText("Add dark mode") {
+		t.Fatalf("按 #号过滤失败，当前文本: %v", tt.Texts())
+	}
+}
+
+// TestGitPRDialogStatusActionsAndBrowser 覆盖合并二次确认、批准确认、在浏览器打开与「⋯」复制链接。
+func TestGitPRDialogStatusActionsAndBrowser(t *testing.T) {
+	f := &gitPRDialogFake{
+		FakeClient: NewFakeClient(),
+		prs:        []git.PRSummary{{Number: 42, Title: "状态条与菜单", State: "open", URL: "https://example.com/pr/42"}},
+		detail: git.PRDetail{
+			PRSummary: git.PRSummary{
+				Number:     42,
+				Title:      "状态条与菜单",
+				State:      "open",
+				Author:     "liukai",
+				HeadBranch: "feat/ui",
+				BaseBranch: "main",
+				URL:        "https://example.com/pr/42",
+			},
+			Mergeable: "MERGEABLE",
+		},
+	}
+	s := newGitPRDialogTestState(t, f)
+	s.openGitPRDialog()
+	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
+		return st.selected == 42 && st.detail != nil && !st.detailLoading
+	})
+
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("弹窗静止后仍在请求下一帧")
+	}
+
+	// 打开浏览器。
+	if err := tt.Click("在浏览器打开"); err != nil {
+		t.Fatalf("点击在浏览器打开: %v", err)
+	}
+	tt.Frame()
+	if opened := tt.OpenedURLs(); len(opened) != 1 || opened[0] != "https://example.com/pr/42" {
+		t.Fatalf("打开浏览器 URL = %v", opened)
+	}
+
+	// 「⋯」菜单复制链接。
+	if err := tt.Click("更多操作"); err != nil {
+		t.Fatalf("打开更多操作菜单: %v", err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.Click("复制链接"); err != nil {
+		t.Fatalf("点击复制链接: %v", err)
+	}
+	tt.Advance(time.Second)
+	s.mu.Lock()
+	toast := s.toastMessage
+	s.mu.Unlock()
+	if toast != "已复制链接" {
+		t.Fatalf("复制链接 toast = %q，期望 已复制链接", toast)
+	}
+
+	// 切换合并方式并执行二次确认。
+	if err := tt.Click("选择合并方式"); err != nil {
+		t.Fatalf("打开合并方式菜单: %v", err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.Click("变基合并"); err != nil {
+		t.Fatalf("选择变基合并: %v", err)
+	}
+	tt.Advance(time.Second)
+	if err := tt.Click("变基合并"); err != nil {
+		t.Fatalf("点击合并主按钮: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("确认合并") || !tt.HasText("取消") {
+		t.Fatal("点击合并后未进入二次确认")
+	}
+	if len(f.mergeCallsSnapshot()) != 0 {
+		t.Fatal("未确认前不应调用 GitPRMerge")
+	}
+	if err := tt.Click("确认合并"); err != nil {
+		t.Fatalf("点击确认合并: %v", err)
+	}
+	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
+		return st.actionBusy == "" && !st.detailLoading && !st.listLoading
+	})
+	merges := f.mergeCallsSnapshot()
+	if len(merges) != 1 || merges[0] != (gitPRActionCall{threadID: "thread-1", number: 42, kind: "merge", value: "rebase"}) {
+		t.Fatalf("合并调用 = %+v，期望 rebase", merges)
+	}
+
+	// 概览底部批准确认。
+	if err := tt.Click("批准"); err != nil {
+		t.Fatalf("点击批准: %v", err)
+	}
+	tt.Frame()
+	if len(f.reviewCallsSnapshot()) != 0 {
+		t.Fatal("未确认批准前不应调用 GitPRReview")
+	}
+	if err := tt.Click("确认批准"); err != nil {
+		t.Fatalf("点击确认批准: %v", err)
+	}
+	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool {
+		return st.actionBusy == "" && !st.detailLoading && !st.listLoading
+	})
+	reviews := f.reviewCallsSnapshot()
+	if len(reviews) != 1 || reviews[0] != (gitPRActionCall{threadID: "thread-1", number: 42, kind: "approve", value: ""}) {
+		t.Fatalf("批准调用 = %+v", reviews)
 	}
 }
