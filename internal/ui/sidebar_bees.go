@@ -823,6 +823,11 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 	})
 }
 
+// beeAvatarSettled 判断子代理头像是否应退成中性灰（已完成或空闲态）。
+func beeAvatarSettled(status string) bool {
+	return status == swarmStatusCompleted || status == swarmStatusIdle
+}
+
 // renderSidebarSingleBeeAvatar 渲染单个 bee 的约 14pt 头像及约 8pt 带描边的状态角标。
 func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, bee Thread, status string, isSelected bool) {
 	name := extractBeeName(bee.Title)
@@ -860,15 +865,28 @@ func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, 
 		}
 	}
 
+	settled := beeAvatarSettled(status) && !isSelected && !btn.Hovered()
+	fg := persona.Color
+	bg := persona.Color.Alpha(0.18)
+	border := persona.Color.Alpha(0.55)
+	if settled {
+		secondary := ThemeSecondaryText(c)
+		fg = secondary.Alpha(0.7)
+		bg = secondary.Alpha(0.10)
+		border = secondary.Alpha(0.25)
+	}
+
 	btn.Children(func() {
-		// 头像容器（约 14pt，人设专属色底与边框）
+		// 头像容器（约 14pt，未结束保留人设色，已结束退成中性灰）
 		Avatar(c, AvatarProps{
 			Key: btnKey + "-glyph", Name: name, Icon: icon, Size: avatarSize, FontSize: avatarSize * 0.48,
-			Foreground: persona.Color, Background: persona.Color.Alpha(0.18), Border: persona.Color.Alpha(0.55),
+			Foreground: fg, Background: bg, Border: border,
 		})
 
-		// 约 8pt 带深色描边的状态角标
-		renderSidebarBeeBadge(c, btnKey, status)
+		// 约 8pt 带深色描边的状态角标（已完成状态以灰色头像本身体现，不再绘制角标）
+		if status != swarmStatusCompleted {
+			renderSidebarBeeBadge(c, btnKey, status)
+		}
 	})
 }
 

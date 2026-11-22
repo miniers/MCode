@@ -389,3 +389,27 @@ func TestFilterIdleSwarmBees(t *testing.T) {
 		})
 	}
 }
+
+// TestBeeAvatarSettled 验证子代理头像弱化状态判定。
+func TestBeeAvatarSettled(t *testing.T) {
+	cases := []struct {
+		name   string
+		status string
+		want   bool
+	}{
+		{name: "completed", status: swarmStatusCompleted, want: true},
+		{name: "idle", status: swarmStatusIdle, want: true},
+		{name: "running", status: swarmStatusRunning, want: false},
+		{name: "waiting_review", status: swarmStatusWaitingReview, want: false},
+		{name: "errored", status: swarmStatusErrored, want: false},
+		{name: "empty", status: "", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := beeAvatarSettled(tc.status); got != tc.want {
+				t.Errorf("beeAvatarSettled(%q) = %v, 期望 %v", tc.status, got, tc.want)
+			}
+		})
+	}
+}
