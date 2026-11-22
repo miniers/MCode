@@ -374,37 +374,15 @@ func swarmNewlyWaiting(prev map[string]bool, waiting []string) (newIDs []string,
 	return newIDs, next
 }
 
-// trackSwarmQuestionPop 每帧检查有没有子线程刚进入「等用户回答」状态：
-// 新进入的立即弹出浮窗并选中该子线程，属于强提醒——既不受「自动弹出子代理面板」开关影响，
-// 也不管用户是否手动关过浮窗；它走 revealSwarmFloatForBee，是程序自动弹出而非用户手动打开，
-// 所以不设强制显示、也不把其它已完成的子线程记成已处理，那些子线程仍按各自的 5 秒规则收起。
-// 不再等待的从集合里删掉，下次再提问可以再弹一次。
-// precomputedWait 是调用方已经算好的等待集合（同一帧只算一次），没传时自己算。
+// trackSwarmQuestionPop 保留每帧调用入口，但不再因提问自动弹出浮窗：
+// 主窗口提示条已直接内联第一位待答 bee 的提问卡，用户点「去回答」时再走 openSwarmFloatForBee 打开浮窗。
 func trackSwarmQuestionPop(s *chatState, leadID string, bees []SwarmBee, precomputedWait ...[]string) {
 	if s == nil || leadID == "" {
 		return
 	}
-	var waiting []string
-	if len(precomputedWait) > 0 {
-		waiting = precomputedWait[0]
-	} else {
-		waiting = swarmWaitingBeeIDs(s, bees)
-	}
 	swarmFloatMu.Lock()
-	newIDs, next := swarmNewlyWaiting(swarmQuestionPopped[leadID], waiting)
-	if len(next) == 0 {
-		delete(swarmQuestionPopped, leadID)
-	} else {
-		swarmQuestionPopped[leadID] = next
-	}
+	delete(swarmQuestionPopped, leadID)
 	swarmFloatMu.Unlock()
-	if len(newIDs) == 0 {
-		return
-	}
-	for _, id := range newIDs {
-		revealSwarmFloatForBee(leadID, id)
-	}
-	s.invalidate()
 }
 
 // trackSwarmAutoHide 每帧按子线程检查一次自动收起：某个子线程进入终态的那一帧记下时刻，

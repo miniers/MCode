@@ -792,7 +792,8 @@ func TestSwarmNewlyWaitingRepeatCycle(t *testing.T) {
 	}
 }
 
-// TestTrackSwarmQuestionPop 验证每帧跟踪：新进入等待的子线程会打开浮窗并选中它。
+// TestTrackSwarmQuestionPop 验证子线程提问不再自动弹出浮窗或选中子线程，
+// 仅在用户主动点开（openSwarmFloatForBee）时才弹出并选中。
 func TestTrackSwarmQuestionPop(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	s.selectedThreadID = "lead-thread-1"
@@ -807,34 +808,30 @@ func TestTrackSwarmQuestionPop(t *testing.T) {
 		delete(swarmFloatDismissedBees, "lead-thread-1")
 		delete(swarmFloatForced, "lead-thread-1")
 		delete(swarmSelectedBeeID, "lead-thread-1")
+		delete(swarmBeeKeptOpen, "lead-thread-1")
+		delete(swarmBeeAutoHideHandled, "lead-thread-1")
 		delete(swarmPulseTime, "lead-thread-1|h-birch")
 		swarmFloatMu.Unlock()
 	})
 
 	bees := []SwarmBee{{ThreadID: "h-birch", Status: "completed"}, {ThreadID: "h-isle", Status: "completed"}}
+	dismissSwarmFloatPanel("lead-thread-1", bees)
 	trackSwarmQuestionPop(s, "lead-thread-1", bees)
+
 	swarmFloatMu.Lock()
 	selectedBee := swarmSelectedBeeID["lead-thread-1"]
 	swarmFloatMu.Unlock()
-	if selectedBee != "h-birch" {
-		t.Fatalf("新进入等待的子线程应被选中，got %q", selectedBee)
+	if selectedBee != "" {
+		t.Fatalf("子线程提问不应自动选中子线程，got %q", selectedBee)
 	}
 	if swarmFloatForcedFor("lead-thread-1") {
-		t.Fatal("子线程提问自动弹出不应强制显示浮窗")
+		t.Fatal("子线程提问不应强制显示浮窗")
 	}
-	if !swarmFloatVisible("lead-thread-1", bees) {
-		t.Fatal("子线程提问应弹出浮窗")
-	}
-
-	// 用户手动关掉浮窗后，持续等待不再重复弹。
-	dismissSwarmFloatPanel("lead-thread-1", bees)
-	trackSwarmQuestionPop(s, "lead-thread-1", bees)
 	if swarmFloatVisible("lead-thread-1", bees) {
-		t.Fatal("持续等待不应重复弹窗")
+		t.Fatal("子线程提问不再自动弹出浮窗")
 	}
 
-	// 提问结束后再次提问：集合已清空，应再弹一次。
-	// 直接改 HasPendingRequest 时必须同步递增运行态版本，否则待处理请求集合缓存命中旧值。
+	// 提问状态变化后再次检查，仍不自动弹出。
 	s.mu.Lock()
 	s.threads[0].HasPendingRequest = false
 	s.bumpThreadsRuntimeLocked()
@@ -845,8 +842,17 @@ func TestTrackSwarmQuestionPop(t *testing.T) {
 	s.bumpThreadsRuntimeLocked()
 	s.mu.Unlock()
 	trackSwarmQuestionPop(s, "lead-thread-1", bees)
-	if !swarmFloatVisible("lead-thread-1", bees) {
-		t.Fatal("提问结束后再次提问应再弹一次")
+	if swarmFloatVisible("lead-thread-1", bees) {
+		t.Fatal("再次提问仍不应自动弹出浮窗")
+	}
+
+	// 用户手动点「去回答」时仍可打开浮窗并选中该子线程。
+	openSwarmFloatForBee("lead-thread-1", "h-birch")
+	swarmFloatMu.Lock()
+	selectedBee = swarmSelectedBeeID["lead-thread-1"]
+	swarmFloatMu.Unlock()
+	if selectedBee != "h-birch" || !swarmFloatVisible("lead-thread-1", bees) {
+		t.Fatalf("手动打开应弹出浮窗并选中 h-birch，selected=%q visible=%v", selectedBee, swarmFloatVisible("lead-thread-1", bees))
 	}
 }
 
@@ -869,8 +875,7 @@ func resetSwarmQuestionPopFor(leadID string) {
 	}
 }
 
-// TestTrackSwarmQuestionPopKeepsOtherDoneAutoHide 验证程序自动弹出请求浮窗后，
-// 已完成的其它子线程不被记成已处理、浮窗也不被强制显示，它们仍满 5 秒后自动收起。
+// TestTrackSwarmQuestionPopKeepsOtherDoneAutoHide 验证等待提问期间不会干扰已完成子线程的 5 秒自动收起。
 func TestTrackSwarmQuestionPopKeepsOtherDoneAutoHide(t *testing.T) {
 	const leadID = "lead-question-pop-done"
 	resetSwarmAutoHideFor(leadID)
@@ -890,7 +895,6 @@ func TestTrackSwarmQuestionPopKeepsOtherDoneAutoHide(t *testing.T) {
 	swarmBeeDoneSince[leadID] = map[string]time.Time{"h-aspen": time.Now().Add(-time.Second)}
 	swarmFloatMu.Unlock()
 
-	// 子线程 Cove 新进入等待，程序自动弹出浮窗。
 	trackSwarmQuestionPop(s, leadID, bees, []string{"h-cove"})
 
 	swarmFloatMu.Lock()
@@ -898,31 +902,28 @@ func TestTrackSwarmQuestionPopKeepsOtherDoneAutoHide(t *testing.T) {
 	handledAtPop := swarmBeeAutoHideHandled[leadID]["h-aspen"]
 	swarmFloatMu.Unlock()
 	if handledAtPop {
-		t.Fatal("程序自动弹出不应把已完成的其他子线程记成已处理")
+		t.Fatal("不应把已完成的其他子线程记成已处理")
 	}
 	if swarmFloatForcedFor(leadID) {
-		t.Fatal("程序自动弹出不应强制显示浮窗")
+		t.Fatal("不应强制显示浮窗")
 	}
 	if !swarmBeeShouldAutoHide(bees[0], false, doneSince, doneSince.Add(swarmAutoHideDelay), handledAtPop) {
 		t.Fatal("已完成的其他子线程满 5 秒后应可自动收起")
 	}
 
-	// 把完成时刻往前挪，模拟延迟已过：已完成的照常收起，等待中的继续显示。
+	// 把完成时刻往前挪，模拟延迟已过：已完成的照常收起，等待中的继续留在可见列表。
 	swarmFloatMu.Lock()
 	swarmBeeDoneSince[leadID]["h-aspen"] = time.Now().Add(-swarmAutoHideDelay - time.Second)
 	swarmFloatMu.Unlock()
 	trackSwarmAutoHide(s, leadID, bees, []string{"h-cove"})
 	got := swarmVisibleBees(leadID, bees)
 	if len(got) != 1 || got[0].ThreadID != "h-cove" {
-		t.Fatalf("等待中的子线程应继续显示，已完成的应自动收起：%v", got)
-	}
-	if !swarmFloatVisible(leadID, bees) {
-		t.Fatal("还有等待中的子线程时浮窗应继续显示")
+		t.Fatalf("等待中的子线程应留在列表，已完成的应自动收起：%v", got)
 	}
 }
 
-// TestTrackSwarmQuestionPopKeepsDismissedDoneHidden 验证用户关掉浮窗后子线程新进入等待时，
-// 程序自动弹出只放回这个等待中的子线程，之前关掉的已完成子线程仍留在关闭记录里。
+// TestTrackSwarmQuestionPopKeepsDismissedDoneHidden 验证用户关掉浮窗后子线程新进入等待时不再自动重弹，
+// 只有用户手动点「去回答」才只放回该子线程，之前关掉的已完成子线程仍保持收起。
 func TestTrackSwarmQuestionPopKeepsDismissedDoneHidden(t *testing.T) {
 	const leadID = "lead-question-pop-dismissed"
 	resetSwarmAutoHideFor(leadID)
@@ -944,12 +945,17 @@ func TestTrackSwarmQuestionPopKeepsDismissedDoneHidden(t *testing.T) {
 	}
 
 	trackSwarmQuestionPop(s, leadID, bees, []string{"h-cove"})
+	if swarmFloatVisible(leadID, bees) {
+		t.Fatal("子线程新进入等待不应自动重新弹出浮窗")
+	}
+
+	openSwarmFloatForBee(leadID, "h-cove")
 	if !swarmFloatVisible(leadID, bees) {
-		t.Fatal("子线程新进入等待应重新弹出浮窗")
+		t.Fatal("用户手动打开后浮窗应显示")
 	}
 	got := swarmVisibleBees(leadID, bees)
 	if len(got) != 1 || got[0].ThreadID != "h-cove" {
-		t.Fatalf("只应放回等待中的子线程，仍可见：%v", got)
+		t.Fatalf("只应放回被打开的子线程，仍可见：%v", got)
 	}
 }
 

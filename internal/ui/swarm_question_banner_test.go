@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,10 @@ func TestSwarmQuestionBannerShowsPendingQuestion(t *testing.T) {
 	fake.SetSwarmState("lead", st)
 
 	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		s.close()
+	})
 	s.selectedThreadID = "lead"
 	hp := getSwarmPanelState(s)
 	swarmPanelMu.Lock()
@@ -53,14 +58,14 @@ func TestSwarmQuestionBannerShowsPendingQuestion(t *testing.T) {
 	}, 900, 400)
 
 	tt.Frame()
-	if !tt.HasText("在提问") {
-		t.Fatalf("banner missing question text, got %v", tt.Texts())
+	if !tt.HasText("快手 在提问") {
+		t.Fatalf("banner missing bee name header, got %v", tt.Texts())
 	}
-	if !tt.HasText("快手 在提问：要不要删掉旧配置？") {
-		t.Fatalf("banner missing bee name and prompt, got %v", tt.Texts())
+	if !tt.HasText("要不要删掉旧配置？") {
+		t.Fatalf("banner missing inline question prompt, got %v", tt.Texts())
 	}
-	if !tt.HasText("共 2 题") {
-		t.Fatalf("banner missing question count, got %v", tt.Texts())
+	if !tt.HasText("第 1 / 2 题") {
+		t.Fatalf("banner missing inline question progress, got %v", tt.Texts())
 	}
 	// 没有提问的 bee 不占行
 	if tt.HasText("疾风") {
@@ -84,6 +89,10 @@ func TestSwarmQuestionBannerForwarded(t *testing.T) {
 	fake.SetSwarmState("lead", st)
 
 	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		s.close()
+	})
 	s.selectedThreadID = "lead"
 	hp := getSwarmPanelState(s)
 	swarmPanelMu.Lock()
@@ -178,8 +187,13 @@ func TestUIReview4_SwarmQuestionCountdownNextChange(t *testing.T) {
 	}
 
 	// 2. headless 渲染：使用 c.Now() 与按需 c.After，且数字等宽、已到期后不再重绘
+	setAppReduceMotion(t, true)
 	fake := NewFakeClient()
 	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		s.close()
+	})
 	s.selectedThreadID = "lead"
 	hp := getSwarmPanelState(s)
 
@@ -194,7 +208,7 @@ func TestUIReview4_SwarmQuestionCountdownNextChange(t *testing.T) {
 	}
 
 	builds := 0
-	tt := ui.NewTester(func(c *ui.Context) {
+	tt := ui.NewTesterWith(func(c *ui.Context) {
 		if baseTime.IsZero() {
 			baseTime = c.Now()
 			setCountdown(150 * time.Second)
@@ -202,8 +216,29 @@ func TestUIReview4_SwarmQuestionCountdownNextChange(t *testing.T) {
 		builds++
 		s.init(c)
 		renderSwarmQuestionBanner(c, s)
-	}, 900, 400)
+	}, 900, 400, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 
+	tt.Frame()
+	// 等待嵌入子会话首次 selectThread 完成并消化其异步 invalidate，避免干扰后续倒计时帧数断言。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		embeddedMu.Lock()
+		entry := embeddedBees[embeddedBeeKey{s, "h1"}]
+		var child *chatState
+		if entry != nil {
+			child = entry.state
+		}
+		embeddedMu.Unlock()
+		if child != nil {
+			child.mu.Lock()
+			ready := child.watchStop != nil
+			child.mu.Unlock()
+			if ready {
+				break
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	tt.Frame()
 	if !tt.HasText("3 分钟后自动交给主线程") {
 		t.Fatalf("应显示 3 分钟倒计时，got %v", tt.Texts())
@@ -269,10 +304,21 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 					PendingQuestion: &SwarmBeeQuestion{
 						RequestID: "req-wrap",
 						Questions: []ApprovalQuestion{
+							{ID: "q1", Prompt: "是否立即执行迁移？"},
+						},
+						AutoForwardAt: baseTime.Add(150 * time.Second),
+					},
+				},
+				{
+					ThreadID: "h2",
+					Name:     "巧手",
+					Status:   "running",
+					PendingQuestion: &SwarmBeeQuestion{
+						RequestID: "req-wrap-2",
+						Questions: []ApprovalQuestion{
 							{ID: "q1", Prompt: longPrompt},
 							{ID: "q2", Prompt: "是否保留旧索引？"},
 						},
-						AutoForwardAt: baseTime.Add(150 * time.Second),
 					},
 				},
 			},
@@ -287,7 +333,10 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 		t.Run(fmt.Sprintf("width_%d", winW), func(t *testing.T) {
 			fake := NewFakeClient()
 			s := newChatState(fake)
-			t.Cleanup(s.close)
+			t.Cleanup(func() {
+				closeEmbeddedBees(s)
+				s.close()
+			})
 			s.selectedThreadID = "lead"
 			hp := getSwarmPanelState(s)
 
@@ -299,7 +348,7 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 				if baseTime.IsZero() {
 					baseTime = c.Now()
 					st := makeState(baseTime)
-					summaryText = swarmQuestionSingleLine(swarmQuestionBannerFullSummary(st.Bees[0]), swarmQuestionBannerMaxRunes)
+					summaryText = swarmQuestionSingleLine(swarmQuestionBannerFullSummary(st.Bees[1]), swarmQuestionBannerMaxRunes)
 					swarmPanelMu.Lock()
 					hp.loadedFor = "lead"
 					hp.setStateLocked(st)
@@ -307,7 +356,7 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 				}
 				s.init(c)
 				renderSwarmQuestionBanner(c, s)
-			}, winW, 400)
+			}, winW, 560)
 
 			tt.Frame()
 
@@ -319,9 +368,13 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 				t.Fatalf("winW=%d: 头像尺寸应保持 22x22，got %+v", winW, avatarRect)
 			}
 
+			headerRect, ok := tt.Find("快手 在提问")
+			if !ok || headerRect.W <= 0 || headerRect.H <= 0 {
+				t.Fatalf("winW=%d: 标题布局异常 ok=%v rect=%+v texts=%v", winW, ok, headerRect, tt.Texts())
+			}
 			summaryRect, ok := tt.Find(summaryText)
 			if !ok || summaryRect.W <= 0 || summaryRect.H <= 0 {
-				t.Fatalf("winW=%d: 摘要布局异常 ok=%v rect=%+v texts=%v", winW, ok, summaryRect, tt.Texts())
+				t.Fatalf("winW=%d: 第二行摘要布局异常 ok=%v rect=%+v texts=%v", winW, ok, summaryRect, tt.Texts())
 			}
 			hintRect, ok := tt.Find("3 分钟后自动交给主线程")
 			if !ok || hintRect.W <= 0 || hintRect.H <= 0 {
@@ -343,10 +396,11 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 				r    ui.Rect
 			}{
 				{"avatar", avatarRect},
-				{"summary", summaryRect},
+				{"header", headerRect},
 				{"hint", hintRect},
 				{"forward", forwardRect},
 				{"open", openRect},
+				{"summary", summaryRect},
 			}
 			for _, it := range items {
 				if it.r.X < -0.5 || it.r.X+it.r.W > float32(winW)+0.5 {
@@ -362,11 +416,11 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 			}
 
 			if winW >= 900 {
-				if summaryRect.X+summaryRect.W > hintRect.X+0.5 {
-					t.Fatalf("winW=%d: 宽窗下摘要与操作栏应在同一行，summary=%+v hint=%+v", winW, summaryRect, hintRect)
+				if headerRect.X+headerRect.W > hintRect.X+0.5 {
+					t.Fatalf("winW=%d: 宽窗下标题与操作栏应在同一行，header=%+v hint=%+v", winW, headerRect, hintRect)
 				}
-				if max(summaryRect.Y, openRect.Y) >= min(summaryRect.Y+summaryRect.H, openRect.Y+openRect.H) {
-					t.Fatalf("winW=%d: 宽窗下摘要与按钮应同一行对齐，summary=%+v open=%+v", winW, summaryRect, openRect)
+				if max(headerRect.Y, openRect.Y) >= min(headerRect.Y+headerRect.H, openRect.Y+openRect.H) {
+					t.Fatalf("winW=%d: 宽窗下标题与按钮应同一行对齐，header=%+v open=%+v", winW, headerRect, openRect)
 				}
 			} else {
 				if summaryRect.W < 120 {
@@ -380,11 +434,221 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 					{"forward", forwardRect},
 					{"open", openRect},
 				} {
-					if action.r.Y < summaryRect.Y+summaryRect.H-0.5 {
-						t.Fatalf("winW=%d: 窄窗下 %s 应折到摘要下方，summary=%+v %s=%+v", winW, action.name, summaryRect, action.name, action.r)
+					if action.r.Y < headerRect.Y+headerRect.H-0.5 {
+						t.Fatalf("winW=%d: 窄窗下 %s 应折到标题下方，header=%+v %s=%+v", winW, action.name, headerRect, action.name, action.r)
 					}
 				}
 			}
 		})
 	}
+}
+
+func TestSwarmQuestionBannerInlineAnswer(t *testing.T) {
+	t.Run("inline_first_and_promote_second", func(t *testing.T) {
+		fake := NewFakeClient()
+		st := SwarmState{
+			LeadThreadID: "lead",
+			Available:    true,
+			Enabled:      true,
+			Bees: []SwarmBee{
+				{
+					ThreadID: "h1",
+					Name:     "快手",
+					Status:   "running",
+					PendingQuestion: &SwarmBeeQuestion{
+						RequestID: "req-1",
+						Questions: []ApprovalQuestion{
+							{
+								ID:     "q1",
+								Prompt: "要不要删掉旧配置？",
+								Choices: []ApprovalQuestionChoice{
+									{Label: "保留"},
+									{Label: "删除"},
+								},
+							},
+						},
+					},
+				},
+				{
+					ThreadID: "h2",
+					Name:     "巧手",
+					Status:   "running",
+					PendingQuestion: &SwarmBeeQuestion{
+						RequestID: "req-2",
+						Questions: []ApprovalQuestion{
+							{
+								ID:     "q2",
+								Prompt: "是否合并旧分支？",
+								Choices: []ApprovalQuestionChoice{
+									{Label: "直接合并"},
+									{Label: "暂缓处理"},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		fake.SetSwarmState("lead", st)
+		fake.TriggerApprovals("h1", []Approval{{
+			ThreadID:  "h1",
+			RequestID: "req-1",
+			Kind:      ApprovalKindQuestion,
+			Questions: st.Bees[0].PendingQuestion.Questions,
+		}})
+		fake.TriggerApprovals("h2", []Approval{{
+			ThreadID:  "h2",
+			RequestID: "req-2",
+			Kind:      ApprovalKindQuestion,
+			Questions: st.Bees[1].PendingQuestion.Questions,
+		}})
+
+		s := newChatState(fake)
+		t.Cleanup(func() {
+			closeEmbeddedBees(s)
+			s.close()
+			resetSwarmAutoHideFor("lead")
+			resetSwarmQuestionPopFor("lead")
+		})
+		s.selectedThreadID = "lead"
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.loadedFor = "lead"
+		hp.setStateLocked(st)
+		swarmPanelMu.Unlock()
+
+		tt := ui.NewTester(func(c *ui.Context) {
+			s.init(c)
+			renderSwarmQuestionBanner(c, s)
+		}, 900, 600)
+
+		tt.Frame()
+		// 第一位待答 bee 内联渲染提问卡，保留名称与转交按钮；第二位保持摘要行
+		for _, want := range []string{"快手 在提问", "要不要删掉旧配置？", "保留", "删除", "提交", "交给主线程回答", "巧手 在提问：是否合并旧分支？"} {
+			if !tt.HasText(want) {
+				t.Fatalf("missing %q in banner texts: %v", want, tt.Texts())
+			}
+		}
+		if tt.HasText("直接合并") || tt.HasText("暂缓处理") {
+			t.Fatalf("second bee choices should not be rendered inline while first is pending, got %v", tt.Texts())
+		}
+
+		// 在内联卡片点选并提交答案，请求必须发往 bee 的线程（h1）而非主会话（lead）
+		if err := tt.Click("保留"); err != nil {
+			t.Fatalf("click choice failed: %v", err)
+		}
+		if err := tt.Click("提交"); err != nil {
+			t.Fatalf("click submit failed: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			_, ok := fake.LastRespondAnswers()
+			return ok
+		})
+		call, _ := fake.LastRespondAnswers()
+		if call.Approval.ThreadID != "h1" {
+			t.Fatalf("RespondAnswers ThreadID = %q, want h1 (not lead)", call.Approval.ThreadID)
+		}
+		if call.Approval.RequestID != "req-1" {
+			t.Fatalf("RespondAnswers RequestID = %q, want req-1", call.Approval.RequestID)
+		}
+		if call.Skip || !slices.Equal(call.Answers["q1"], []string{"保留"}) {
+			t.Fatalf("RespondAnswers = %+v, want answer 保留", call)
+		}
+
+		// 第一位答完后，第二位自动升级为内联提问卡
+		waitFor(t, tt, func() bool {
+			return tt.HasText("巧手 在提问") && tt.HasText("直接合并") && !tt.HasText("快手 在提问")
+		})
+
+		// 用户点「去回答」仍可打开该 bee 的浮窗
+		dismissSwarmFloatPanel("lead", st.Bees)
+		if err := tt.Click("去回答"); err != nil {
+			t.Fatalf("click open float failed: %v", err)
+		}
+		swarmFloatMu.Lock()
+		sel := swarmSelectedBeeID["lead"]
+		swarmFloatMu.Unlock()
+		if sel != "h2" || !swarmFloatVisible("lead", st.Bees) {
+			t.Fatalf("click 去回答 should open float for h2, selected=%q visible=%v", sel, swarmFloatVisible("lead", st.Bees))
+		}
+	})
+
+	t.Run("motion_respects_reduce_motion_and_stops_when_idle", func(t *testing.T) {
+		for _, reduced := range []bool{false, true} {
+			name := "normal"
+			if reduced {
+				name = "reduce_motion"
+			}
+			t.Run(name, func(t *testing.T) {
+				setAppReduceMotion(t, reduced)
+				fake := NewFakeClient()
+				st := swarmQuestionBannerState(false)
+				fake.SetSwarmState("lead", st)
+
+				s := newChatState(fake)
+				t.Cleanup(func() {
+					closeEmbeddedBees(s)
+					s.close()
+				})
+				s.selectedThreadID = "lead"
+				hp := getSwarmPanelState(s)
+				swarmPanelMu.Lock()
+				hp.loadedFor = "lead"
+				hp.setStateLocked(st)
+				swarmPanelMu.Unlock()
+
+				builds := 0
+				tt := ui.NewTesterWith(func(c *ui.Context) {
+					builds++
+					s.init(c)
+					renderSwarmQuestionBanner(c, s)
+				}, 900, 500, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+
+				tt.Frame()
+				// 等待嵌入子会话初始化结束，避免异步 selectThread 干扰空闲帧统计
+				waitFor(t, tt, func() bool {
+					embeddedMu.Lock()
+					entry := embeddedBees[embeddedBeeKey{s, "h1"}]
+					var child *chatState
+					if entry != nil {
+						child = entry.state
+					}
+					embeddedMu.Unlock()
+					if child == nil {
+						return false
+					}
+					child.mu.Lock()
+					ready := child.watchStop != nil
+					child.mu.Unlock()
+					return ready
+				})
+
+				if !reduced {
+					tt.Advance(DurBase + DurSnap + 50*time.Millisecond)
+				}
+				tt.Frame()
+				if tt.FramePending() {
+					t.Fatalf("reduced=%v: 静止时不应有动画继续调度下一帧", reduced)
+				}
+				before := builds
+				tt.Advance(time.Second)
+				if builds != before {
+					t.Fatalf("reduced=%v: 静止时不应继续重绘 builds %d -> %d", reduced, before, builds)
+				}
+
+				// 收起后同样在过渡结束（ReduceMotion 时立即）停止调度
+				swarmPanelMu.Lock()
+				hp.setStateLocked(SwarmState{LeadThreadID: "lead", Available: true, Enabled: true})
+				swarmPanelMu.Unlock()
+				tt.Frame()
+				if !reduced {
+					tt.Advance(DurBase + DurSnap + 50*time.Millisecond)
+					tt.Frame()
+				}
+				if tt.FramePending() {
+					t.Fatalf("reduced=%v: 收起结束后不应继续调度下一帧", reduced)
+				}
+			})
+		}
+	})
 }
