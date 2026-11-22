@@ -33,8 +33,8 @@ func Avatar(c *ui.Context, p AvatarProps) ui.Element {
 				top = p.Background
 				bottom = p.Background.Alpha(0.45)
 			} else {
-				top = p.Background.Mix(ui.RGB(255, 255, 255), 0.14)
-				bottom = p.Background.Mix(ui.RGB(0, 0, 0), 0.14)
+				top = p.Background.Mix(ColorSurfaceCardLight, 0.14)
+				bottom = p.Background.Mix(ColorSurfaceCanvasDark, 0.16)
 			}
 			painter.FillGradient(r, ui.LinearGradient{
 				Angle: 135,
