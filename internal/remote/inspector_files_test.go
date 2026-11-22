@@ -279,7 +279,7 @@ func TestInspectorPreviewHTMLResourcePolicy(t *testing.T) {
 		t.Fatalf("HTML 状态=%d", resp.StatusCode)
 	}
 	csp := resp.Header.Get("Content-Security-Policy")
-	for _, directive := range []string{"script-src 'none'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"} {
+	for _, directive := range []string{"script-src 'self' 'unsafe-inline'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'"} {
 		if !strings.Contains(csp, directive) {
 			t.Fatalf("CSP 缺少 %q: %q", directive, csp)
 		}
@@ -351,5 +351,48 @@ func TestInspectorPreviewServerStopsOnBackendClose(t *testing.T) {
 	if resp, err := client.Get(previewURL); err == nil {
 		resp.Body.Close()
 		t.Fatal("后端关闭后本地内容服务仍在响应")
+	}
+}
+
+func TestInspectorPreviewCSPAllowsSameOriginScripts(t *testing.T) {
+	root := t.TempDir()
+	writeInspectorPreviewTestFile(t, root, "index.html", `<html><body><script src="app.js"></script></body></html>`)
+	writeInspectorPreviewTestFile(t, root, "app.js", `console.log("ok")`)
+	writeInspectorPreviewTestFile(t, root, "diagram.svg", `<svg xmlns="http://www.w3.org/2000/svg"></svg>`)
+
+	b := newInspectorPreviewTestBackend(t, map[string]string{"thread-a": root})
+	previewURL, err := b.InspectorPreviewURL(context.Background(), "thread-a", "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := strings.TrimSuffix(previewURL, "index.html")
+
+	htmlResp, _ := fetchInspectorPreview(t, previewURL, nil)
+	if htmlResp.StatusCode != http.StatusOK {
+		t.Fatalf("HTML 状态=%d", htmlResp.StatusCode)
+	}
+	htmlCSP := htmlResp.Header.Get("Content-Security-Policy")
+	for _, directive := range []string{
+		"script-src 'self' 'unsafe-inline'",
+		"font-src 'self' data:",
+		"connect-src 'none'",
+		"default-src 'none'",
+		"object-src 'none'",
+		"form-action 'none'",
+		"frame-ancestors 'none'",
+		"base-uri 'none'",
+	} {
+		if !strings.Contains(htmlCSP, directive) {
+			t.Fatalf("HTML CSP 缺少 %q: %q", directive, htmlCSP)
+		}
+	}
+
+	svgResp, _ := fetchInspectorPreview(t, prefix+"diagram.svg", nil)
+	if svgResp.StatusCode != http.StatusOK {
+		t.Fatalf("SVG 状态=%d", svgResp.StatusCode)
+	}
+	svgCSP := svgResp.Header.Get("Content-Security-Policy")
+	if !strings.Contains(svgCSP, "script-src 'none'") {
+		t.Fatalf("SVG CSP 应禁用脚本: %q", svgCSP)
 	}
 }

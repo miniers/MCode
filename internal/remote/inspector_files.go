@@ -31,9 +31,13 @@ const (
 	inspectorPreviewShutdownGrace = 2 * time.Second
 )
 
-// inspectorPreviewCSP 是 HTML 响应的内容安全策略：默认什么都不允许，
-// 只放行同源的样式、图片与字体；脚本、对象、表单与跨源连接全部关闭。
-const inspectorPreviewCSP = "default-src 'none'; script-src 'none'; object-src 'none'; " +
+// inspectorPreviewCSP 是 HTML 响应的内容安全策略：放行同源与内联脚本以支持可交互设计稿，跨源连接、表单、对象仍全部关闭。
+const inspectorPreviewCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; object-src 'none'; " +
+	"base-uri 'none'; frame-ancestors 'none'; form-action 'none'; connect-src 'none'; " +
+	"img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'"
+
+// inspectorPreviewSVGCSP 为 SVG 顶层预览保留严格禁脚本策略。
+const inspectorPreviewSVGCSP = "default-src 'none'; script-src 'none'; object-src 'none'; " +
 	"base-uri 'none'; frame-ancestors 'none'; form-action 'none'; connect-src 'none'; " +
 	"img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; media-src 'self'"
 
@@ -317,9 +321,11 @@ func (srv *inspectorPreviewServer) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", inspectorPreviewContentType(target))
 	// SVG 作为顶层文档打开时也可能执行脚本；虽然 UI 不在 WebView 里渲染 SVG，
-	// 这里仍给它同样的限制，避免被 HTML 里的同源链接带进可执行上下文。
-	if inspectorPreviewHTMLPath(target) || strings.EqualFold(filepath.Ext(target), ".svg") {
+	// 这里仍为 SVG 保留严格禁脚本策略，避免被 HTML 里的同源链接带进可执行上下文。
+	if inspectorPreviewHTMLPath(target) {
 		w.Header().Set("Content-Security-Policy", inspectorPreviewCSP)
+	} else if strings.EqualFold(filepath.Ext(target), ".svg") {
+		w.Header().Set("Content-Security-Policy", inspectorPreviewSVGCSP)
 	}
 	// 不传修改时间：no-store 下不做 304，Range 仍由 ServeContent 处理。
 	http.ServeContent(w, r, filepath.Base(target), time.Time{}, f)
