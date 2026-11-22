@@ -116,6 +116,82 @@ func (r *Runner) PRList(ctx context.Context, root string, limit int) ([]PRSummar
 	}
 }
 
+// PRForBranch 查询 head 分支为 branch 的最近一条 PR/MR（任意状态，含已合并）。
+// branch 为空或没有匹配结果时返回 (nil, nil)。
+func (r *Runner) PRForBranch(ctx context.Context, root, branch string) (*PRSummary, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil, nil
+	}
+	forge, err := r.prForge(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	args, err := prForBranchArgs(forge, branch)
+	if err != nil {
+		return nil, err
+	}
+	callCtx, cancel := context.WithTimeout(ctx, prCommandTimeout)
+	defer cancel()
+
+	switch forge {
+	case ForgeGitHub:
+		out, err := runForgeCLI(callCtx, root, "gh", args...)
+		if err != nil {
+			return nil, forgeCLIError("gh", "查询分支 PR", out, err)
+		}
+		items, err := parseGHPRList(out)
+		if err != nil {
+			return nil, err
+		}
+		return firstPRSummary(items), nil
+	case ForgeGitLab:
+		out, err := runForgeCLI(callCtx, root, "glab", args...)
+		if err != nil {
+			return nil, forgeCLIError("glab", "查询分支 MR", out, err)
+		}
+		items, err := parseGLabMRList(out)
+		if err != nil {
+			return nil, err
+		}
+		return firstPRSummary(items), nil
+	default:
+		return nil, ErrForgeUnsupported
+	}
+}
+
+// prForBranchArgs 构造按源分支查询 PR/MR 列表（含已关闭与已合并）的 gh/glab 参数。
+func prForBranchArgs(forge Forge, branch string) ([]string, error) {
+	switch forge {
+	case ForgeGitHub:
+		return []string{
+			"pr", "list",
+			"--head", branch,
+			"--state", "all",
+			"--limit", "1",
+			"--json", ghPRListFields,
+		}, nil
+	case ForgeGitLab:
+		return []string{
+			"mr", "list",
+			"--source-branch", branch,
+			"--all",
+			"-F", "json",
+		}, nil
+	default:
+		return nil, ErrForgeUnsupported
+	}
+}
+
+// firstPRSummary 返回解析结果的第一条摘要指针；空切片返回 nil。
+func firstPRSummary(items []PRSummary) *PRSummary {
+	if len(items) == 0 {
+		return nil
+	}
+	first := items[0]
+	return &first
+}
+
 // PRDetail 读取单条 PR/MR 的详情；number 必须是正整数。
 func (r *Runner) PRDetail(ctx context.Context, root string, number int) (PRDetail, error) {
 	if number <= 0 {

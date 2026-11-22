@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -379,5 +380,30 @@ func TestGitPRDiffQuotedPath(t *testing.T) {
 	valid := prDiffNewLines(patch)
 	if !valid[cnPath][1] || !valid[cnPath][2] {
 		t.Fatalf("中文路径未正确解析: %+v\npatch:\n%s", valid, patch)
+	}
+}
+
+// TestGitPRCreateValidation 验证空标题与空目标分支在调用任何 git 或 backend 之前就报错。
+func TestGitPRCreateValidation(t *testing.T) {
+	c := NewClient(nil)
+	ctx := context.Background()
+
+	for _, title := range []string{"", "   \t\n "} {
+		if _, err := c.GitPRCreate(ctx, "no-thread", title, "body", "main"); err == nil || !strings.Contains(err.Error(), "标题") {
+			t.Fatalf("空标题 (%q) err = %v, 期望返回标题校验错误", title, err)
+		}
+	}
+	for _, base := range []string{"", "   \t\n "} {
+		if _, err := c.GitPRCreate(ctx, "no-thread", "feat: add pr", "body", base); err == nil || !strings.Contains(err.Error(), "目标分支") {
+			t.Fatalf("空目标分支 (%q) err = %v, 期望返回目标分支校验错误", base, err)
+		}
+	}
+}
+
+// TestGitPRCreateNoRemote 验证临时 git 仓库没有 remote 时返回 git.ErrForgeUnsupported。
+func TestGitPRCreateNoRemote(t *testing.T) {
+	c, _, thread := branchClient(t)
+	if _, err := c.GitPRCreate(context.Background(), thread, "feat: add pr", "body", "main"); !errors.Is(err, git.ErrForgeUnsupported) {
+		t.Fatalf("无 remote 时 err = %v, 期望 git.ErrForgeUnsupported", err)
 	}
 }

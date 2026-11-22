@@ -1,6 +1,9 @@
 package git
 
 import (
+	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -399,5 +402,91 @@ func TestGHChecksURL(t *testing.T) {
 	}
 	if checks[3].URL != "https://details.example.com" {
 		t.Errorf("两种链接都有时应优先 detailsUrl，得到 %q", checks[3].URL)
+	}
+}
+
+// TestPRForBranchArgs 覆盖 gh 与 glab 的参数组装及未知平台报错。
+func TestPRForBranchArgs(t *testing.T) {
+	t.Parallel()
+	ghArgs, err := prForBranchArgs(ForgeGitHub, "feat/pr-view")
+	if err != nil {
+		t.Fatalf("gh prForBranchArgs 失败: %v", err)
+	}
+	wantGH := []string{"pr", "list", "--head", "feat/pr-view", "--state", "all", "--limit", "1", "--json", ghPRListFields}
+	if !reflect.DeepEqual(ghArgs, wantGH) {
+		t.Errorf("gh 参数 = %v, 期望 %v", ghArgs, wantGH)
+	}
+
+	glabArgs, err := prForBranchArgs(ForgeGitLab, "feat/mr-view")
+	if err != nil {
+		t.Fatalf("glab prForBranchArgs 失败: %v", err)
+	}
+	wantGLab := []string{"mr", "list", "--source-branch", "feat/mr-view", "--all", "-F", "json"}
+	if !reflect.DeepEqual(glabArgs, wantGLab) {
+		t.Errorf("glab 参数 = %v, 期望 %v", glabArgs, wantGLab)
+	}
+
+	if _, err := prForBranchArgs(ForgeUnknown, "feat/x"); !errors.Is(err, ErrForgeUnsupported) {
+		t.Errorf("未知平台 err = %v, 期望 ErrForgeUnsupported", err)
+	}
+}
+
+// TestPRForBranchFirstSummary 覆盖空列表返回 nil，以及有数据时取第一条（含已合并状态）。
+func TestPRForBranchFirstSummary(t *testing.T) {
+	t.Parallel()
+
+	emptyGH, err := parseGHPRList([]byte("[]"))
+	if err != nil {
+		t.Fatalf("parseGHPRList([]) 失败: %v", err)
+	}
+	if got := firstPRSummary(emptyGH); got != nil {
+		t.Errorf("gh 空列表期望 nil, 得到 %+v", got)
+	}
+
+	emptyGLab, err := parseGLabMRList([]byte("[]"))
+	if err != nil {
+		t.Fatalf("parseGLabMRList([]) 失败: %v", err)
+	}
+	if got := firstPRSummary(emptyGLab); got != nil {
+		t.Errorf("glab 空列表期望 nil, 得到 %+v", got)
+	}
+
+	ghItems, err := parseGHPRList([]byte(ghPRListJSON))
+	if err != nil {
+		t.Fatalf("parseGHPRList 失败: %v", err)
+	}
+	firstGH := firstPRSummary(ghItems)
+	if firstGH == nil || firstGH.Number != 42 || firstGH.HeadBranch != "feat/pr-view" {
+		t.Errorf("gh 第一条 = %+v, 期望 #42 feat/pr-view", firstGH)
+	}
+
+	mergedGH, err := parseGHPRList([]byte(`[{"number":99,"title":"merged pr","state":"MERGED","headRefName":"feat/done","baseRefName":"main","url":"https://github.com/acme/mcode/pull/99"}]`))
+	if err != nil {
+		t.Fatalf("parseGHPRList(merged) 失败: %v", err)
+	}
+	gotMerged := firstPRSummary(mergedGH)
+	if gotMerged == nil || gotMerged.Number != 99 || gotMerged.State != "merged" {
+		t.Errorf("已合并 PR = %+v, 期望 #99 merged", gotMerged)
+	}
+
+	glabItems, err := parseGLabMRList([]byte(glabMRListJSON))
+	if err != nil {
+		t.Fatalf("parseGLabMRList 失败: %v", err)
+	}
+	firstGLab := firstPRSummary(glabItems)
+	if firstGLab == nil || firstGLab.Number != 12 || firstGLab.HeadBranch != "feat/mr-view" {
+		t.Errorf("glab 第一条 = %+v, 期望 #12 feat/mr-view", firstGLab)
+	}
+}
+
+// TestPRForBranchEmptyBranch 覆盖 branch 为空或纯空白时直接返回 nil 且不调 CLI。
+func TestPRForBranchEmptyBranch(t *testing.T) {
+	t.Parallel()
+	var r *Runner
+	for _, branch := range []string{"", "   \t\n "} {
+		got, err := r.PRForBranch(context.Background(), "", branch)
+		if err != nil || got != nil {
+			t.Errorf("PRForBranch(%q) = (%+v, %v), 期望 (nil, nil)", branch, got, err)
+		}
 	}
 }

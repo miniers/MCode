@@ -28,6 +28,63 @@ func (c *Client) GitPRList(ctx context.Context, threadID string, limit int) ([]g
 	return runner.PRList(ctx, root, limit)
 }
 
+// GitPRForBranch 查询当前分支最近的一条 PR/MR（任意状态，含已合并）。
+// 处于游离 HEAD 或空分支时返回 (nil, nil)。
+func (c *Client) GitPRForBranch(ctx context.Context, threadID string) (*git.PRSummary, error) {
+	runner, root, err := c.gitStashTarget(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	branch, err := runner.CurrentBranch(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(branch) == "" {
+		return nil, nil
+	}
+	return runner.PRForBranch(ctx, root, branch)
+}
+
+// GitPRCreate 为当前分支创建 PR/MR 并返回其网页地址（推送由调用方先执行）。
+func (c *Client) GitPRCreate(ctx context.Context, threadID, title, body, base string) (string, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", errors.New("PR 标题不能为空")
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return "", errors.New("目标分支不能为空")
+	}
+	runner, root, err := c.gitStashTarget(ctx, threadID)
+	if err != nil {
+		return "", err
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	head, err := runner.CurrentBranch(callCtx, root)
+	if err != nil {
+		return "", err
+	}
+	head = strings.TrimSpace(head)
+	if head == "" {
+		return "", errors.New("当前处于游离 HEAD 状态，无法创建 PR/MR")
+	}
+	remoteURL, err := runner.RemoteURL(callCtx, root)
+	if err != nil && callCtx.Err() != nil {
+		return "", callCtx.Err()
+	}
+	forge := git.DetectForge(remoteURL)
+	if forge == git.ForgeUnknown {
+		return "", git.ErrForgeUnsupported
+	}
+	return git.NewForgeClient(nil).CreatePullRequest(callCtx, root, forge, git.PullRequestSpec{
+		Title: title,
+		Body:  body,
+		Head:  head,
+		Base:  base,
+	})
+}
+
 // GitPRMerge 按指定方式合入 PR/MR，并删除源分支。
 func (c *Client) GitPRMerge(ctx context.Context, threadID string, number int, method string) error {
 	if method == "" {
