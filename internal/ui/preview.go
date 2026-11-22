@@ -436,6 +436,10 @@ func openPreviewURLForThread(s *chatState, previewThreadID, raw string) {
 	}
 
 	previewMu.Lock()
+	var revokeURL, revokeThreadID string
+	if st.localPreview {
+		revokeURL, revokeThreadID = releaseLocalPreviewLocked(st)
+	}
 	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
@@ -449,6 +453,8 @@ func openPreviewURLForThread(s *chatState, previewThreadID, raw string) {
 	// 用户重新打开/改地址时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
+
+	revokeLocalPreview(s, revokeURL, revokeThreadID)
 
 	inspectorSelect(s, sidePanePreviewID, false)
 
@@ -474,6 +480,10 @@ func openPreviewHTMLWith(s *chatState, html string, untrusted bool) {
 	}
 
 	previewMu.Lock()
+	var revokeURL, revokeThreadID string
+	if st.localPreview {
+		revokeURL, revokeThreadID = releaseLocalPreviewLocked(st)
+	}
 	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
 	st.webCreating = false
@@ -487,6 +497,8 @@ func openPreviewHTMLWith(s *chatState, html string, untrusted bool) {
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
+
+	revokeLocalPreview(s, revokeURL, revokeThreadID)
 
 	inspectorSelect(s, sidePanePreviewID, false)
 
@@ -573,20 +585,17 @@ func disposePreviewState(s *chatState, st *previewState) {
 	previewMu.Unlock()
 }
 
-func disposeBrowserTab(s *chatState, st *browserTab) {
+// releaseLocalPreviewLocked 在 previewMu 内清理标签的本地预览状态，并返回需要撤销的 URL 与会话 ID。
+func releaseLocalPreviewLocked(st *browserTab) (previewURL, threadID string) {
 	if st == nil {
-		return
+		return "", ""
 	}
-	browserReleaseView(st)
-	previewMu.Lock()
 	// 本地标签释放后清掉地址，避免再次加载已撤销的 URL。
-	threadID := st.previewThreadID
-	previewURL := st.localPreviewURL
+	threadID = st.previewThreadID
+	previewURL = st.localPreviewURL
 	wasLocal := st.localPreview
 	st.localPreviewURL = ""
 	st.previewThreadID = ""
-	st.feedbackText = ""
-	st.feedbackSending = false
 	// 现有接口按会话撤销，等最后一个同会话本地标签释放，避免使兄弟页失效。
 	if st.owner != nil && threadID != "" {
 		for _, tab := range st.owner.tabs {
@@ -602,18 +611,41 @@ func disposeBrowserTab(s *chatState, st *browserTab) {
 		st.html = ""
 		st.addr = ""
 	}
-	previewMu.Unlock()
+	if !wasLocal {
+		threadID = ""
+	}
+	return previewURL, threadID
+}
 
-	if s != nil && previewURL != "" {
+// revokeLocalPreview 在 previewMu 外通知后端撤销本地预览 URL 与会话 Token。
+func revokeLocalPreview(s *chatState, previewURL, threadID string) {
+	if s == nil {
+		return
+	}
+	if previewURL != "" {
 		if client, ok := s.client.(inspectorPreviewURLRevoker); ok {
 			client.RevokeInspectorPreviewURL(previewURL)
 		}
 	}
-	if s != nil && wasLocal && threadID != "" {
+	if threadID != "" {
 		if client, ok := s.client.(inspectorPreviewClient); ok {
 			client.RevokeInspectorPreviews(threadID)
 		}
 	}
+}
+
+func disposeBrowserTab(s *chatState, st *browserTab) {
+	if st == nil {
+		return
+	}
+	browserReleaseView(st)
+	previewMu.Lock()
+	previewURL, threadID := releaseLocalPreviewLocked(st)
+	st.feedbackText = ""
+	st.feedbackSending = false
+	previewMu.Unlock()
+
+	revokeLocalPreview(s, previewURL, threadID)
 }
 
 // togglePreview 切换预览面板的可见状态。

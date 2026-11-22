@@ -285,7 +285,6 @@ func resetSwarmFloatsBenchGlobals(leadID string) {
 	delete(swarmBeeDoneSince, leadID)
 	delete(swarmBeeAutoHideHandled, leadID)
 	delete(swarmBeeSeenActive, leadID)
-	delete(swarmQuestionPopped, leadID)
 	for key, timer := range swarmAutoHideTimers {
 		if strings.HasPrefix(key, leadID+"|") {
 			timer.Stop()

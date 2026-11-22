@@ -53,9 +53,6 @@ var (
 	swarmFloatForcedHadBees = make(map[string]bool)
 	// swarmAutoPopsOverride 是对“自动分散展示”的临时覆盖：键存在即覆盖，值为分散与否，不写配置。
 	swarmAutoPopsOverride = make(map[string]bool)
-	// swarmQuestionPopped 记录每个主会话下已经为「等用户回答」弹出过浮窗的子线程：
-	// 新进入等待的弹一次，不再等待就删掉，下次再提问可以再弹。
-	swarmQuestionPopped = make(map[string]map[string]bool)
 	// swarmPulseTime 记录每个子代理浮窗的激活脉冲起点，键为「主会话|子线程」。
 	// swarmPulseTimers 是脉冲到点的重绘唤醒，避免强调色边框要等下一帧事件才褪回。
 	swarmPulseTime   = make(map[string]time.Time)
@@ -372,17 +369,6 @@ func swarmNewlyWaiting(prev map[string]bool, waiting []string) (newIDs []string,
 		}
 	}
 	return newIDs, next
-}
-
-// trackSwarmQuestionPop 保留每帧调用入口，但不再因提问自动弹出浮窗：
-// 主窗口提示条已直接内联第一位待答 bee 的提问卡，用户点「去回答」时再走 openSwarmFloatForBee 打开浮窗。
-func trackSwarmQuestionPop(s *chatState, leadID string, bees []SwarmBee, precomputedWait ...[]string) {
-	if s == nil || leadID == "" {
-		return
-	}
-	swarmFloatMu.Lock()
-	delete(swarmQuestionPopped, leadID)
-	swarmFloatMu.Unlock()
 }
 
 // trackSwarmAutoHide 每帧按子线程检查一次自动收起：某个子线程进入终态的那一帧记下时刻，
@@ -841,12 +827,10 @@ func renderSwarmBeeFloats(c *ui.Context, s *chatState) {
 		leadID = view.leadID
 		activeBees = view.active
 	}
-	// 等待集合同一帧只算一次：自动收起与提问弹出共用。
+	// 等待集合同一帧只算一次，供自动收起使用。
 	waiting := swarmWaitingBeeIDs(s, activeBees)
 	// 每个子线程各自进入终态满 5 秒后从浮窗里收起（每帧检查一次，到点后重绘一次）。
 	trackSwarmAutoHide(s, leadID, activeBees, waiting)
-	// 子线程开始提问时立即弹出浮窗：放在渲染判定之前，浮窗被关掉时也要能弹回来。
-	trackSwarmQuestionPop(s, leadID, activeBees, waiting)
 
 	f := swarmFloatFrameFor(c, s)
 	if f.scene.has() {
@@ -1307,7 +1291,7 @@ func renderBeesMenu(c *ui.Context, s *chatState, leadID string, bees []SwarmBee,
 					for _, h := range bees {
 						bee := h
 						canUndock := multiInTeam || isSwarmAutoHeld(leadID, bee.ThreadID)
-						row := ui.Row(c.Key("swarm-menu-row-" + bee.ThreadID)).
+						row := ui.Row(c.Key("swarm-menu-row-"+bee.ThreadID)).
 							FillWidth().
 							AlignItems(ui.Center).
 							Radius(RadiusSM).

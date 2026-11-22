@@ -277,7 +277,7 @@ func renderSwarmQuestionBannerHeaderRow(c *ui.Context, s *chatState, leadID stri
 		Gap(Space3).
 		AlignItems(ui.Center).
 		Children(func() {
-			ui.Row(c.Key(key+"-summary")).
+			ui.Row(c.Key(key + "-summary")).
 				Grow(1).
 				Basis(240).
 				MinWidth(0).
@@ -285,7 +285,7 @@ func renderSwarmQuestionBannerHeaderRow(c *ui.Context, s *chatState, leadID stri
 				Gap(Space3).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Box(c.Key(key+"-avatar-wrap")).Label(h.Name+" 头像").Shrink(0).Children(func() {
+					ui.Box(c.Key(key + "-avatar-wrap")).Label(h.Name + " 头像").Shrink(0).Children(func() {
 						renderSwarmGlyph(c, key+"-avatar", h, 22)
 					})
 					ui.Text(c, summary).
@@ -299,7 +299,7 @@ func renderSwarmQuestionBannerHeaderRow(c *ui.Context, s *chatState, leadID stri
 						Ellipsis("…").
 						Tooltip(tooltip)
 				})
-			ui.Row(c.Key(key+"-actions")).
+			ui.Row(c.Key(key + "-actions")).
 				Wrap().
 				MinWidth(0).
 				Gap(Space2).
