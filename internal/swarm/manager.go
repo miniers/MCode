@@ -3257,7 +3257,6 @@ func (m *Manager) resetBeeForNewRoundLocked(bee *Bee, now time.Time) {
 
 // FinalizeDesignBee 结束设计档位子代理的待定稿暂缓状态，通知其输出最终汇报并在本轮结束后放行给主代理。
 func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
-	now := m.now()
 	m.mu.Lock()
 	lead, ok := m.leads[leadThreadID]
 	if !ok {
@@ -3283,41 +3282,52 @@ func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThread
 		m.mu.Unlock()
 		return errors.New("该设计子代理当前未处于待定稿状态")
 	}
-	prev := bee.clone()
-	m.resetBeeForNewRoundLocked(bee, now)
-	bee.FinalizeRequested = true
 	m.mu.Unlock()
 
-	var sentErr error
 	if messenger, ok := m.opts.Driver.(kanban.SessionMessenger); ok {
-		sentErr = messenger.SendFollowUp(ctx, beeThreadID, finalizeDesignPrompt)
-	} else {
-		sentErr = errors.New("driver does not support SessionMessenger")
-	}
-	if sentErr != nil {
-		m.mu.Lock()
-		if lead := m.leads[leadThreadID]; lead != nil {
-			for i := range lead.bees {
-				if lead.bees[i].ThreadID == beeThreadID {
-					b := &lead.bees[i]
-					if b.Status == StatusRunning && b.FinalizeRequested {
-						*b = prev
-						b.AwaitingFinalize = true
-						b.FinalizeRequested = false
-						b.Status = StatusCompleted
-					}
-					break
-				}
-			}
+		if err := messenger.SendFollowUp(ctx, beeThreadID, finalizeDesignPrompt); err != nil {
+			return err
 		}
-		m.mu.Unlock()
-		return sentErr
+	} else {
+		return errors.New("driver does not support SessionMessenger")
 	}
 
-	m.resetEmptyNudge(beeThreadID)
-	m.setContinueNudge(beeThreadID, false)
-	m.setRetryCount(beeThreadID, 0)
-	m.notifyChange(leadThreadID)
+	now := m.now()
+	m.mu.Lock()
+	lead, ok = m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return ErrLeadNotFound
+	}
+	bee = nil
+	for i := range lead.bees {
+		if lead.bees[i].ThreadID == beeThreadID {
+			bee = &lead.bees[i]
+			break
+		}
+	}
+	if bee == nil {
+		m.mu.Unlock()
+		return ErrBeeNotFound
+	}
+	updated := false
+	if bee.AwaitingFinalize {
+		m.resetBeeForNewRoundLocked(bee, now)
+		bee.FinalizeRequested = true
+		updated = true
+	} else if bee.Status == StatusRunning {
+		// 发送期间可能已被 detectReactivatedBees 抢先标为 Running：补上 FinalizeRequested 确保这一轮的汇报放行。
+		bee.FinalizeRequested = true
+		updated = true
+	}
+	m.mu.Unlock()
+
+	if updated {
+		m.resetEmptyNudge(beeThreadID)
+		m.setContinueNudge(beeThreadID, false)
+		m.setRetryCount(beeThreadID, 0)
+		m.notifyChange(leadThreadID)
+	}
 	return nil
 }
 

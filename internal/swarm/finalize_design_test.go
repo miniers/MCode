@@ -369,3 +369,298 @@ func TestFinalizeDesignBee(t *testing.T) {
 		}
 	})
 }
+
+type finalizeHookDriver struct {
+	*fakeDriver
+	onSendFollowUp func(ctx context.Context, threadID, text string) error
+}
+
+func (d *finalizeHookDriver) SendFollowUp(ctx context.Context, threadID, text string) error {
+	if d.onSendFollowUp != nil {
+		if err := d.onSendFollowUp(ctx, threadID, text); err != nil {
+			return err
+		}
+	}
+	return d.fakeDriver.SendFollowUp(ctx, threadID, text)
+}
+
+func TestFinalizeDesignBeeNoStaleReport(t *testing.T) {
+	t.Parallel()
+
+	t.Run("no_stale_report_across_ticks", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		runner, dir := initTestRepo(t)
+		clock := newTestClock()
+		baseDriver := newFakeDriver()
+		driver := &finalizeHookDriver{fakeDriver: baseDriver}
+
+		var reportMu sync.Mutex
+		var reports []string
+
+		mgr := NewManager(Options{
+			Git:         runner,
+			Driver:      driver,
+			WorktreeDir: t.TempDir(),
+			Now:         clock.Now,
+			OnReport: func(_ string, msg string) error {
+				reportMu.Lock()
+				reports = append(reports, msg)
+				reportMu.Unlock()
+				return nil
+			},
+		})
+		mgr.SetSettingsFunc(func() Settings {
+			return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree"}
+		})
+
+		const leadID = "lead-no-stale-report"
+		bees, err := mgr.Dispatch(ctx, DispatchRequest{
+			LeadThreadID: leadID,
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Bees: []BeeSpec{
+				{Name: "Bee-Design", Task: "设计任务", Prompt: "出初稿", SharedWorkspace: true, Interactive: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Dispatch failed: %v", err)
+		}
+		designBee := bees[0]
+
+		const staleText = "旧初稿文本：design draft v1"
+		const finalText = "最终定稿文本：docs/final-design.md"
+
+		// 第一轮结束，LastAssistantText 为旧文本，进入待定稿状态。
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: staleText,
+		})
+		mgr.Tick(ctx)
+
+		got := beeByThread(t, mgr, leadID, designBee.ThreadID)
+		if !got.AwaitingFinalize || got.Status != StatusCompleted || got.Reported {
+			t.Fatalf("第一轮结束后应处于待定稿已完成状态，实际: %+v", got)
+		}
+
+		// 调用 FinalizeDesignBee 前穿插 Tick。
+		clock.Advance(2 * time.Second)
+		mgr.Tick(ctx)
+
+		// 在 SendFollowUp 尚未把会话置为 Running 前穿插并发 Tick，模拟 UI 与 Tick 竞争窗口。
+		driver.onSendFollowUp = func(callCtx context.Context, threadID, _ string) error {
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				clock.Advance(2 * time.Second)
+				mgr.Tick(callCtx)
+			}()
+			<-done
+
+			// SendFollowUp 返回前，驱动会话已同步进入 Running（仍保留上一轮旧 LastAssistantText）。
+			driver.setSessionState(threadID, kanban.SessionState{
+				Running:           true,
+				LastAssistantText: staleText,
+			})
+			return nil
+		}
+
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+			t.Fatalf("FinalizeDesignBee failed: %v", err)
+		}
+
+		// 定稿轮仍在运行期间穿插 Tick，不应发出旧文本汇报。
+		clock.Advance(2 * time.Second)
+		mgr.Tick(ctx)
+
+		reportMu.Lock()
+		midReports := len(reports)
+		reportMu.Unlock()
+		if midReports != 0 {
+			t.Fatalf("定稿轮未结束前不应发出任何汇报，实际 %d 次", midReports)
+		}
+
+		// 定稿轮完成并输出新文本后 Tick，应放行含新文本的定稿汇报。
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: finalText,
+		})
+		clock.Advance(2 * time.Second)
+		mgr.Tick(ctx)
+
+		reportMu.Lock()
+		gotReports := append([]string(nil), reports...)
+		reportMu.Unlock()
+		if len(gotReports) != 1 {
+			t.Fatalf("定稿轮结束后应只收到 1 次汇报，实际 %d 次: %v", len(gotReports), gotReports)
+		}
+		if !strings.Contains(gotReports[0], "用户已定稿") || !strings.Contains(gotReports[0], finalText) {
+			t.Fatalf("定稿汇报应包含「用户已定稿」与新文本 %q，实际:\n%s", finalText, gotReports[0])
+		}
+		if strings.Contains(gotReports[0], staleText) {
+			t.Fatalf("定稿汇报不应包含上一轮旧文本 %q，实际:\n%s", staleText, gotReports[0])
+		}
+	})
+
+	t.Run("send_failure_keeps_awaiting_finalize", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		runner, dir := initTestRepo(t)
+		clock := newTestClock()
+		baseDriver := newFakeDriver()
+		driver := &finalizeHookDriver{fakeDriver: baseDriver}
+
+		var reportMu sync.Mutex
+		var reports []string
+
+		mgr := NewManager(Options{
+			Git:         runner,
+			Driver:      driver,
+			WorktreeDir: t.TempDir(),
+			Now:         clock.Now,
+			OnReport: func(_ string, msg string) error {
+				reportMu.Lock()
+				reports = append(reports, msg)
+				reportMu.Unlock()
+				return nil
+			},
+		})
+		mgr.SetSettingsFunc(func() Settings {
+			return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree"}
+		})
+
+		const leadID = "lead-finalize-send-fail"
+		bees, err := mgr.Dispatch(ctx, DispatchRequest{
+			LeadThreadID: leadID,
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Bees: []BeeSpec{
+				{Name: "Bee-Design", Task: "设计任务", Prompt: "出初稿", SharedWorkspace: true, Interactive: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Dispatch failed: %v", err)
+		}
+		designBee := bees[0]
+
+		const staleText = "旧初稿文本：design draft v1"
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: staleText,
+		})
+		mgr.Tick(ctx)
+
+		before := beeByThread(t, mgr, leadID, designBee.ThreadID)
+		driver.onSendFollowUp = func(context.Context, string, string) error {
+			return errors.New("send failed")
+		}
+
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err == nil {
+			t.Fatal("SendFollowUp 失败时 FinalizeDesignBee 应返回错误")
+		}
+
+		clock.Advance(2 * time.Second)
+		mgr.Tick(ctx)
+
+		after := beeByThread(t, mgr, leadID, designBee.ThreadID)
+		if after.Status != StatusCompleted || !after.AwaitingFinalize || after.FinalizeRequested || after.Reported {
+			t.Fatalf("发送失败后 bee 应保持 AwaitingFinalize 且状态未变，实际: %+v", after)
+		}
+		if after.Summary != before.Summary || after.Merged != before.Merged {
+			t.Fatalf("发送失败后 bee 摘要与合并状态不应改变: before=%+v after=%+v", before, after)
+		}
+
+		reportMu.Lock()
+		defer reportMu.Unlock()
+		if len(reports) != 0 {
+			t.Fatalf("发送失败后不应发出任何汇报，实际 %d 次: %v", len(reports), reports)
+		}
+	})
+
+	t.Run("reactivated_during_send_still_sets_finalize_requested", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		runner, dir := initTestRepo(t)
+		clock := newTestClock()
+		baseDriver := newFakeDriver()
+		driver := &finalizeHookDriver{fakeDriver: baseDriver}
+
+		var reportMu sync.Mutex
+		var reports []string
+
+		mgr := NewManager(Options{
+			Git:         runner,
+			Driver:      driver,
+			WorktreeDir: t.TempDir(),
+			Now:         clock.Now,
+			OnReport: func(_ string, msg string) error {
+				reportMu.Lock()
+				reports = append(reports, msg)
+				reportMu.Unlock()
+				return nil
+			},
+		})
+		mgr.SetSettingsFunc(func() Settings {
+			return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree"}
+		})
+
+		const leadID = "lead-finalize-reactivate-race"
+		bees, err := mgr.Dispatch(ctx, DispatchRequest{
+			LeadThreadID: leadID,
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Bees: []BeeSpec{
+				{Name: "Bee-Design", Task: "设计任务", Prompt: "出初稿", SharedWorkspace: true, Interactive: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Dispatch failed: %v", err)
+		}
+		designBee := bees[0]
+
+		const staleText = "旧初稿文本"
+		const finalText = "定稿新文本"
+
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: staleText,
+		})
+		mgr.Tick(ctx)
+
+		// 模拟 SendFollowUp 已将驱动切到 Running 后，解锁期间 detectReactivatedBees 抢先将其重置为 Running（FinalizeRequested=false）。
+		driver.onSendFollowUp = func(callCtx context.Context, threadID, _ string) error {
+			driver.setSessionState(threadID, kanban.SessionState{
+				Running:           true,
+				LastAssistantText: staleText,
+			})
+			clock.Advance(reactivateProbeInterval)
+			mgr.Tick(callCtx)
+			clock.Advance(reactivateProbeInterval)
+			mgr.Tick(callCtx)
+			return nil
+		}
+
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+			t.Fatalf("FinalizeDesignBee failed: %v", err)
+		}
+
+		got := beeByThread(t, mgr, leadID, designBee.ThreadID)
+		if got.Status != StatusRunning || got.AwaitingFinalize || !got.FinalizeRequested {
+			t.Fatalf("即使 SendFollowUp 期间被 detectReactivatedBees 抢先重置为 Running，仍应补上 FinalizeRequested=true，实际: %+v", got)
+		}
+
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: finalText,
+		})
+		clock.Advance(2 * time.Second)
+		mgr.Tick(ctx)
+
+		reportMu.Lock()
+		gotReports := append([]string(nil), reports...)
+		reportMu.Unlock()
+		if len(gotReports) != 1 || !strings.Contains(gotReports[0], finalText) || strings.Contains(gotReports[0], staleText) {
+			t.Fatalf("应只放行定稿轮新文本汇报，实际: %v", gotReports)
+		}
+	})
+}
