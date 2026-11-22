@@ -1328,3 +1328,127 @@ func TestPreviewFeedbackManualOpen(t *testing.T) {
 		}
 	})
 }
+
+func TestPreviewFeedbackRevealsBeeFloat(t *testing.T) {
+	const leadID = "t1"
+	const beeID = "bee-1"
+
+	setupDismissed := func(t *testing.T) (*chatState, *inspectorContextClient, *browserTab) {
+		t.Helper()
+		setAppReduceMotion(t, true)
+		s, client := inspectorContextSetup(t)
+		s.mu.Lock()
+		s.threads = append(s.threads, Thread{ID: beeID, ProjectID: "p1", ParentThreadID: leadID})
+		s.mu.Unlock()
+
+		t.Cleanup(func() {
+			swarmFloatMu.Lock()
+			delete(swarmFloatPanelDismissed, leadID)
+			delete(swarmFloatDismissedBees, leadID)
+			delete(swarmSelectedBeeID, leadID)
+			delete(swarmBeeAutoHideHandled, leadID)
+			delete(swarmPulseTime, leadID+"|"+beeID)
+			swarmFloatMu.Unlock()
+		})
+
+		swarmFloatMu.Lock()
+		swarmFloatPanelDismissed[leadID] = true
+		swarmFloatDismissedBees[leadID] = map[string]bool{beeID: true}
+		delete(swarmSelectedBeeID, leadID)
+		swarmFloatMu.Unlock()
+
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = true
+		tab.previewThreadID = beeID
+		previewMu.Unlock()
+		return s, client, tab
+	}
+
+	assertRevealed := func(t *testing.T) {
+		t.Helper()
+		swarmFloatMu.Lock()
+		panelDismissed := swarmFloatPanelDismissed[leadID]
+		beeDismissed := swarmFloatDismissedBees[leadID][beeID]
+		selected := swarmSelectedBeeID[leadID]
+		swarmFloatMu.Unlock()
+		if panelDismissed {
+			t.Fatal("发送意见后应清除主会话浮窗关闭记录")
+		}
+		if beeDismissed {
+			t.Fatal("发送意见后应清除该 bee 的浮窗关闭记录")
+		}
+		if selected != beeID {
+			t.Fatalf("swarmSelectedBeeID[%q] = %q, want %q", leadID, selected, beeID)
+		}
+	}
+
+	t.Run("text_feedback_bar", func(t *testing.T) {
+		s, client, tab := setupDismissed(t)
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if err := tester.Click("修改意见"); err != nil {
+			t.Fatalf("聚焦意见输入框失败: %v", err)
+		}
+		tester.Type("把按钮改大")
+		tester.Frame()
+		if err := tester.Click("发送"); err != nil {
+			t.Fatalf("点击「发送」失败: %v", err)
+		}
+
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			sent := len(client.sendCalls)
+			client.mu.Unlock()
+			previewMu.Lock()
+			sending := tab.feedbackSending
+			previewMu.Unlock()
+			if sent >= 1 && !sending {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+		client.mu.Lock()
+		sent := len(client.sendCalls)
+		client.mu.Unlock()
+		previewMu.Lock()
+		sending := tab.feedbackSending
+		previewMu.Unlock()
+		if sent < 1 || sending {
+			t.Fatalf("意见发送未完成: sent=%d sending=%v", sent, sending)
+		}
+		assertRevealed(t)
+	})
+
+	t.Run("annotated_direct_send", func(t *testing.T) {
+		s, client, tab := setupDismissed(t)
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page = page
+		tab.annotating = true
+		tab.feedbackText = "按标注调整"
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta", Comment: "圆角加大"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitFeedback(s, token)
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+
+		client.mu.Lock()
+		sent := len(client.sendWithAttachCalls)
+		client.mu.Unlock()
+		if sent != 1 {
+			t.Fatalf("SendWithAttachments 调用次数 = %d, want 1", sent)
+		}
+		assertRevealed(t)
+	})
+}

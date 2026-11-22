@@ -607,6 +607,29 @@ func (s *chatState) sendToTargetThread(threadID, text string, attachmentIDs []st
 	return nil
 }
 
+// revealPreviewFeedbackBee 在预览意见或标注直发到 bee 成功后，弹出其所属主会话的浮窗并选中该 bee。
+func (s *chatState) revealPreviewFeedbackBee(ownerThreadID, targetThreadID string) {
+	beeID := strings.TrimSpace(targetThreadID)
+	if s == nil || beeID == "" || beeID == strings.TrimSpace(ownerThreadID) {
+		return
+	}
+	s.mu.Lock()
+	var leadID string
+	for _, th := range s.threads {
+		parentID := strings.TrimSpace(th.ParentThreadID)
+		if th.ID == beeID && parentID != "" && parentID != beeID {
+			leadID = parentID
+			break
+		}
+	}
+	s.mu.Unlock()
+	if leadID == "" {
+		return
+	}
+	revealSwarmFloatForBee(leadID, beeID)
+	s.invalidate()
+}
+
 // previewSendAnnotations 把已标注元素作为附件加入发起时的会话。
 func previewSendAnnotations(s *chatState, token previewPageToken) {
 	previewSubmitAnnotations(s, token, false)
@@ -770,6 +793,7 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 				s.setToast("发送失败: " + err.Error())
 				return
 			}
+			s.revealPreviewFeedbackBee(ownerThreadID, targetThreadID)
 			previewMu.Lock()
 			if token.state != nil && token.state.feedbackText == feedbackText {
 				token.state.feedbackText = ""
@@ -853,6 +877,9 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 
 	go func() {
 		err := s.sendToTargetThread(feedbackThreadID, text, nil)
+		if err == nil {
+			s.revealPreviewFeedbackBee(ownerThreadID, feedbackThreadID)
+		}
 		previewMu.Lock()
 		if token.state != nil {
 			token.state.feedbackSending = false
