@@ -746,3 +746,85 @@ func TestReviewPRSubmitWithBody(t *testing.T) {
 		t.Fatalf("提交清空后「评论」应重新禁用: ok=%v node=%+v", ok, node)
 	}
 }
+
+func TestReviewPRApproveConfirm(t *testing.T) {
+	s, f, dp := reviewPRSetup(t)
+	calls := make(chan reviewPRCall, 2)
+	f.submit = func(_ context.Context, call reviewPRCall) error {
+		calls <- call
+		return nil
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderReviewPRAction(c, s, dp, "t1") }, 800, 100)
+	tt.Frame()
+
+	// 点击「批准」后进入二次确认，不直接调用 GitPRSubmitReview。
+	if err := tt.Click("批准"); err != nil {
+		t.Fatalf("点击批准: %v", err)
+	}
+	tt.Frame()
+	select {
+	case got := <-calls:
+		t.Fatalf("未确认前不应直接批准 PR: %+v", got)
+	default:
+	}
+	if _, hasApprove := tt.Find("批准"); !tt.HasText("确认批准") || !tt.HasText("取消") || hasApprove {
+		t.Fatalf("批准确认态按钮异常: %v", tt.Texts())
+	}
+
+	// 点击「取消」清除确认态并恢复「批准」。
+	if err := tt.Click("取消"); err != nil {
+		t.Fatalf("点击取消: %v", err)
+	}
+	tt.Frame()
+	if !tt.HasText("批准") || tt.HasText("确认批准") {
+		t.Fatalf("取消后未恢复「批准」: %v", tt.Texts())
+	}
+
+	// 切换 PR 时清除确认态。
+	if err := tt.Click("批准"); err != nil {
+		t.Fatalf("再次点击批准: %v", err)
+	}
+	tt.Frame()
+	preparePRReview(s, 8)
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return !dp.loading && dp.prNumber == 8 && dp.prApproveConfirm == 0
+	})
+	tt.Frame()
+	if !tt.HasText("批准") || tt.HasText("确认批准") {
+		t.Fatalf("切换 PR 后应清除批准确认态: %v", tt.Texts())
+	}
+
+	// 确认批准后才调用一次 GitPRSubmitReview，成功后恢复「批准」。
+	if err := tt.Click("批准"); err != nil {
+		t.Fatalf("PR #8 点击批准: %v", err)
+	}
+	tt.Frame()
+	if err := tt.Click("确认批准"); err != nil {
+		t.Fatalf("点击确认批准: %v", err)
+	}
+	select {
+	case got := <-calls:
+		if got.threadID != "t1" || got.number != 8 || got.event != "approve" {
+			t.Fatalf("批准确认后调用参数异常: %+v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("批准确认后未调用 GitPRSubmitReview")
+	}
+	select {
+	case extra := <-calls:
+		t.Fatalf("批准确认只应调用一次，收到多余调用: %+v", extra)
+	default:
+	}
+	waitReviewComments(t, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return dp.prReviewEvent == "" && dp.prApproveConfirm == 0
+	})
+	tt.Frame()
+	if !tt.HasText("批准") || tt.HasText("确认批准") {
+		t.Fatalf("提交成功后应恢复「批准」: %v", tt.Texts())
+	}
+}

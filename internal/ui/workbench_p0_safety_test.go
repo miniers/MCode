@@ -437,8 +437,8 @@ func TestWorkbenchP0DestructiveConfirm(t *testing.T) {
 		for _, item := range []struct {
 			menuLabel string
 		}{
-			{"Squash 合并"},
 			{"合并提交"},
+			{"Squash 合并"},
 			{"变基合并"},
 		} {
 			if err := tt.Click("选择合并方式"); err != nil {
@@ -483,6 +483,57 @@ func TestWorkbenchP0DestructiveConfirm(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("合并确认后未发起请求")
 		}
+
+		// 评审栏批准需二次确认：未确认前不调用 GitPRSubmitReview，取消后恢复「批准」，确认后才调用一次。
+		rs, rf, dp := reviewPRSetup(t)
+		submitCalls := make(chan reviewPRCall, 2)
+		rf.submit = func(_ context.Context, call reviewPRCall) error {
+			submitCalls <- call
+			return nil
+		}
+		rt := ui.NewTester(func(c *ui.Context) { renderReviewPRAction(c, rs, dp, "t1") }, 800, 100)
+		rt.Frame()
+
+		if err := rt.Click("批准"); err != nil {
+			t.Fatal(err)
+		}
+		rt.Frame()
+		select {
+		case got := <-submitCalls:
+			t.Fatalf("未确认前不应直接批准 PR：%+v", got)
+		default:
+		}
+		if !rt.HasText("确认批准") || !rt.HasText("取消") {
+			t.Fatalf("批准后未进入确认态：%v", rt.Texts())
+		}
+		if err := rt.Click("取消"); err != nil {
+			t.Fatal(err)
+		}
+		rt.Frame()
+		if !rt.HasText("批准") || rt.HasText("确认批准") {
+			t.Fatalf("取消批准确认后应恢复「批准」按钮：%v", rt.Texts())
+		}
+
+		if err := rt.Click("批准"); err != nil {
+			t.Fatal(err)
+		}
+		rt.Frame()
+		if err := rt.Click("确认批准"); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-submitCalls:
+			if got.number != 7 || got.event != "approve" {
+				t.Fatalf("批准确认后调用参数异常：%+v", got)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("批准确认后未发起 GitPRSubmitReview")
+		}
+		waitReviewComments(t, func() bool {
+			diffPanelMu.Lock()
+			defer diffPanelMu.Unlock()
+			return dp.prReviewEvent == "" && dp.prApproveConfirm == 0
+		})
 	})
 
 	t.Run("review_comment_delete_confirm", func(t *testing.T) {

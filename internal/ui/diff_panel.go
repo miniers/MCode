@@ -90,10 +90,11 @@ type diffPanelState struct {
 	// 之后只认非空路径之间的切换，识别短暂返回空串不触发重取。
 	worktreeResolved bool
 
-	prReviewEvent  string
-	prReviewNumber int
-	prReviewErr    string
-	prReviewBody   string
+	prReviewEvent    string
+	prReviewNumber   int
+	prReviewErr      string
+	prReviewBody     string
+	prApproveConfirm int
 
 	// prAIBusy 是正在生成 AI 审查草稿的 PR 编号，0 表示空闲。
 	prAIBusy int

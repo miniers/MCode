@@ -714,6 +714,9 @@ func submitReviewPR(s *chatState, dp *diffPanelState, tid, event string) bool {
 			if dp.prNumber == number && strings.TrimSpace(dp.prReviewBody) == body {
 				dp.prReviewBody = ""
 			}
+			if dp.prApproveConfirm == number {
+				dp.prApproveConfirm = 0
+			}
 		}
 		diffPanelMu.Unlock()
 		if err == nil {
@@ -736,6 +739,7 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	count := len(reviewPRComments(dp, tid, workspace))
 	body := dp.prReviewBody
 	busy, errText := dp.prReviewEvent, dp.prReviewErr
+	approveConfirm := dp.prApproveConfirm
 	current := dp.prReviewNumber == dp.prNumber
 	if !current {
 		errText = ""
@@ -745,6 +749,7 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	if aiErrNumber != number {
 		aiErr = ""
 	}
+	confirmingApprove := number > 0 && approveConfirm == number
 	showLoading := ai && number > 0 && aiBusy == number
 	canSubmit := count > 0 || strings.TrimSpace(body) != ""
 	ui.Row(c.Key("review-pr-actions")).FillWidth().Wrap().Gap(Space2).AlignItems(ui.Center).Children(func() {
@@ -767,14 +772,51 @@ func renderReviewPRAction(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 		if count > 0 {
 			ui.Text(c, fmt.Sprintf("%d 条评论", count)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).SingleLine().Shrink(0)
 		}
-		for _, action := range []struct{ event, title string }{{"comment", "评论"}, {"request-changes", "要求修改"}, {"approve", "批准"}} {
+		for _, action := range []struct{ event, title string }{{"comment", "评论"}, {"request-changes", "要求修改"}} {
 			event := action.event
-			variant := ButtonSecondary
-			if event == "approve" {
-				variant = ButtonPrimary
-			}
-			disabled := (busy != "" && (!current || busy != event)) || (event != "approve" && !canSubmit)
-			Button(c, ButtonOpts{Key: "review-pr-" + event, Text: action.title, Variant: variant, Size: ControlSM, Loading: current && busy == event, Disabled: disabled, OnClick: func() { submitReviewPR(s, dp, tid, event) }})
+			disabled := (busy != "" && (!current || busy != event)) || !canSubmit
+			Button(c, ButtonOpts{Key: "review-pr-" + event, Text: action.title, Variant: ButtonSecondary, Size: ControlSM, Loading: current && busy == event, Disabled: disabled, OnClick: func() { submitReviewPR(s, dp, tid, event) }})
+		}
+		if confirmingApprove {
+			Button(c, ButtonOpts{
+				Key:      "review-pr-approve-confirm",
+				Text:     "确认批准",
+				Variant:  ButtonPrimary,
+				Size:     ControlSM,
+				Loading:  current && busy == "approve",
+				Disabled: busy != "" && (!current || busy != "approve"),
+				OnClick:  func() { submitReviewPR(s, dp, tid, "approve") },
+			})
+			Button(c, ButtonOpts{
+				Key:      "review-pr-approve-cancel",
+				Text:     "取消",
+				Variant:  ButtonGhost,
+				Size:     ControlSM,
+				Disabled: busy != "",
+				OnClick: func() {
+					diffPanelMu.Lock()
+					dp.prApproveConfirm = 0
+					diffPanelMu.Unlock()
+					s.invalidate()
+				},
+			})
+		} else {
+			Button(c, ButtonOpts{
+				Key:      "review-pr-approve",
+				Text:     "批准",
+				Variant:  ButtonPrimary,
+				Size:     ControlSM,
+				Loading:  current && busy == "approve",
+				Disabled: busy != "" && (!current || busy != "approve"),
+				OnClick: func() {
+					diffPanelMu.Lock()
+					if dp.scope == "pr" && dp.prNumber > 0 && dp.prReviewEvent == "" {
+						dp.prApproveConfirm = dp.prNumber
+					}
+					diffPanelMu.Unlock()
+					s.invalidate()
+				},
+			})
 		}
 		if showLoading {
 			LoadingIndicator(c, "review-pr-ai-loading", "AI 审查中", IconSM)

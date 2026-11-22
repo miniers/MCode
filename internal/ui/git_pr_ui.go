@@ -894,7 +894,9 @@ func renderGitPRListPane(c *ui.Context, s *chatState, prs []git.PRSummary, selec
 
 			switch {
 			case loading && len(prs) == 0:
-				renderSkeletonRows(c, "modal-git-pr-list-skeleton", 6, uiFont(TypeBody)+Space2, Space2)
+				ui.Column(c.Key("modal-git-pr-list-loading")).FillWidth().Label("正在读取 PR 列表…").Children(func() {
+					renderSkeletonRows(c, "modal-git-pr-list-skeleton", 6, uiFont(TypeBody)+Space2, Space2)
+				})
 			case errText != "" && len(prs) == 0:
 				renderGitPRListError(c, s, errText)
 			default:
@@ -1008,8 +1010,8 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Box(c.Key(key + "-dot")).
-							Size(8, 8).
-							Radius(4).
+							Size(Space2, Space2).
+							Radius(RadiusPill).
 							Shrink(0).
 							Background(dotColor)
 						ui.Text(c, pr.Title).
@@ -1028,7 +1030,7 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 				ui.Row(c.Key(key + "-line2")).
 					FillWidth().
 					Gap(Space2).
-					Padding(0, 0, 0, 8+Space2).
+					Padding(0, 0, 0, Space4).
 					AlignItems(ui.Center).
 					Children(func() {
 						ui.Text(c, gitPRListSecondLine(pr)).
@@ -1093,7 +1095,9 @@ func renderGitPRDetailPane(c *ui.Context, s *chatState, detail *git.PRDetail, se
 			case selected == 0:
 				// 列表加载完成后会自动选中第一条；这里只在极短的过渡帧里留空。
 			case loading && detail == nil:
-				renderSkeletonRows(c, "modal-git-pr-detail-skeleton", 5, uiFont(TypeBody)+Space2, Space3)
+				ui.Column(c.Key("modal-git-pr-detail-loading")).FillWidth().Label("正在读取 PR 详情…").Children(func() {
+					renderSkeletonRows(c, "modal-git-pr-detail-skeleton", 5, uiFont(TypeBody)+Space2, Space3)
+				})
 			case errText != "" && detail == nil:
 				ui.Text(c, errText).
 					FontSize(uiFont(TypeFootnote)).
@@ -1583,7 +1587,7 @@ func renderGitPRStatusStrip(
 						if statusIcon != nil {
 							ui.Icon(c, statusIcon).Size(IconMD, IconMD).TextColor(fg)
 						} else {
-							ui.Box(c.Key("modal-git-pr-status-dot")).Size(8, 8).Radius(4).Shrink(0).Background(fg)
+							ui.Box(c.Key("modal-git-pr-status-dot")).Size(Space3, Space3).Radius(RadiusPill).Shrink(0).Background(fg)
 						}
 						ui.Text(c, text).
 							FontSize(uiFont(TypeBody)).
@@ -1864,6 +1868,7 @@ func preparePRReview(s *chatState, number int) {
 		dp.snapshot = ReviewSnapshot{}
 		dp.prReviewBody = ""
 		dp.prReviewErr = ""
+		dp.prApproveConfirm = 0
 	}
 	diffPanelMu.Unlock()
 	s.loadDiff(tid, "")
