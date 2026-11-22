@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const resourceDirectory = fileURLToPath(new URL('../internal/webassets/dist/', import.meta.url));
@@ -66,8 +66,17 @@ function updateRemoteManifest(webBuildID: string): void {
   }
 }
 
+const mermaidSourcePath = fileURLToPath(new URL('./node_modules/mermaid/dist/mermaid.min.js', import.meta.url));
+const mermaidPublicPath = fileURLToPath(new URL('./public/vendor/mermaid.min.js', import.meta.url));
+
 export default defineConfig({
   plugins: [react(), {
+    name: 'copy-mermaid-vendor',
+    buildStart() {
+      mkdirSync(dirname(mermaidPublicPath), { recursive: true });
+      copyFileSync(mermaidSourcePath, mermaidPublicPath);
+    }
+  }, {
     name: 'bundle-remote-page',
     transformIndexHtml(html) {
       const meta = `<meta name="mcode-build-id" content="${placeholderBuildID}" />`;

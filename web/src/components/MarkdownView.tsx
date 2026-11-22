@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { CheckCircleIcon, LayoutIcon, XMarkIcon } from './Icons';
 import { MarkdownImage } from './MarkdownImage';
+import { MermaidBlock } from './MermaidBlock';
 import { SheetFrame } from './sheet/SheetFrame';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -14,6 +15,7 @@ import {
   shouldUseMath,
   type MathPlugins
 } from '../utils/lazyMath';
+import { isMermaidLanguage } from '../utils/lazyMermaid';
 import {
   getHighlightLanguagesVersion,
   highlightCode,
@@ -477,6 +479,9 @@ const components: Components = {
     const langLower = language.toLowerCase().trim();
     if (langLower.startsWith('swarm') || langLower.startsWith('hydra')) {
       return <SwarmBlock content={text} language={language} />;
+    }
+    if (isMermaidLanguage(langLower)) {
+      return <MermaidBlock content={text} />;
     }
     // 代码块命中：CodeBlock 走 highlight.js 的 innerHTML，mark 塞不进去，这里退回纯文本渲染让高亮看得见；
     // 没有命中时仍走原来的语法着色，行为不变。
