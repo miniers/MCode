@@ -112,7 +112,25 @@ var (
 	previewMu         sync.Mutex
 	previewStates     = make(map[*chatState]*previewState)
 	previewNextPageID uint64
+	// shortcut: 仅内存，重启后手动打开的设计稿回落到所属会话，需要时再持久化
+	previewLocalPathBees = make(map[string]string) // guarded by previewMu
 )
+
+func recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID string) {
+	localPath = strings.TrimSpace(localPath)
+	previewThreadID = strings.TrimSpace(previewThreadID)
+	ownerThreadID = strings.TrimSpace(ownerThreadID)
+	if localPath == "" || previewThreadID == "" || ownerThreadID == "" || previewThreadID == ownerThreadID {
+		return
+	}
+	previewLocalPathBees[localPath] = previewThreadID
+}
+
+func recordPreviewLocalPathBee(localPath, previewThreadID, ownerThreadID string) {
+	previewMu.Lock()
+	recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID)
+	previewMu.Unlock()
+}
 
 // newPreviewWebView 是创建原生 WebView 的唯一入口；测试替换它来检查创建选项。
 var newPreviewWebView = func(win *mygo.Window, opts mygo.WebViewOptions) (*mygo.WebView, error) {
@@ -536,6 +554,9 @@ func openPreviewLocalURL(s *chatState, threadID, raw string) {
 	st.localPreview = true
 	st.previewThreadID = threadID
 	st.localPreviewURL = target
+	if st.owner != nil {
+		recordPreviewLocalPathBeeLocked(st.localPath, threadID, st.owner.threadID)
+	}
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()

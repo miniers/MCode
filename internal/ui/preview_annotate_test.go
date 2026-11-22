@@ -986,6 +986,7 @@ func TestPreviewFeedbackSendsToBee(t *testing.T) {
 				tab := getPreviewState(s)
 				previewMu.Lock()
 				tab.visible = true
+				tab.localPreview = true
 				tab.previewThreadID = "bee-1"
 				previewMu.Unlock()
 
@@ -1065,6 +1066,7 @@ func TestPreviewFeedbackSendsToBee(t *testing.T) {
 		page.eval = func(string) (any, error) { return nil, nil }
 		previewMu.Lock()
 		tab.page, tab.web, tab.visible, tab.annotating = page, &mygo.WebView{}, true, true
+		tab.localPreview = true
 		tab.previewThreadID = "bee-1"
 		tab.feedbackText = "按标注调整"
 		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta", Comment: "圆角加大"}}
@@ -1109,6 +1111,220 @@ func TestPreviewFeedbackSendsToBee(t *testing.T) {
 		previewMu.Unlock()
 		if remText != "" || remAnnots != 0 {
 			t.Fatalf("发送后未清空输入框或标注: text=%q annots=%d", remText, remAnnots)
+		}
+	})
+}
+
+func TestPreviewFeedbackManualOpen(t *testing.T) {
+	waitSent := func(t *testing.T, client *inspectorContextClient, want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			got := len(client.sendCalls)
+			client.mu.Unlock()
+			if got >= want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("等待 Send 超时")
+	}
+	waitSentWithAttachments := func(t *testing.T, client *inspectorContextClient, want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			client.mu.Lock()
+			got := len(client.sendWithAttachCalls)
+			client.mu.Unlock()
+			if got >= want {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("等待 SendWithAttachments 超时")
+	}
+
+	t.Run("manual_open_reuses_recorded_bee", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		const designPath = ".mcode/design/card.html"
+		t.Cleanup(func() {
+			previewMu.Lock()
+			delete(previewLocalPathBees, designPath)
+			previewMu.Unlock()
+		})
+
+		s, client := inspectorContextSetup(t)
+		ok, isCurrent := setPendingPreviewFor(s, "t1", "bee-1", designPath)
+		if !ok || !isCurrent {
+			t.Fatalf("setPendingPreviewFor 失败: ok=%v isCurrent=%v", ok, isCurrent)
+		}
+		consumePendingPreview(s, "t1")
+		s.mu.Lock()
+		s.toastMessage = ""
+		s.mu.Unlock()
+
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = true
+		tab.localPath = designPath
+		tab.previewThreadID = "t1"
+		snap := previewSnapshotLocked(tab)
+		previewMu.Unlock()
+
+		if snap.feedbackThreadID != "bee-1" {
+			t.Fatalf("feedbackThreadID = %q, want %q", snap.feedbackThreadID, "bee-1")
+		}
+
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if err := tester.Click("修改意见"); err != nil {
+			t.Fatalf("聚焦意见输入框失败: %v", err)
+		}
+		tester.Type("沿用设计 bee")
+		tester.Frame()
+		if err := tester.Click("发送"); err != nil {
+			t.Fatalf("点击「发送」失败: %v", err)
+		}
+		waitSent(t, client, 1)
+
+		client.mu.Lock()
+		call := client.sendCalls[0]
+		client.mu.Unlock()
+		if call.ThreadID != "bee-1" || call.Text != "沿用设计 bee" {
+			t.Fatalf("发送目标或内容错误: %+v", call)
+		}
+	})
+
+	t.Run("manual_open_without_record_falls_back_to_owner", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		const manualPath = ".mcode/design/manual-only.html"
+		previewMu.Lock()
+		delete(previewLocalPathBees, manualPath)
+		previewMu.Unlock()
+
+		s, client := inspectorContextSetup(t)
+		s.mu.Lock()
+		s.draft = "主会话草稿保留"
+		s.mu.Unlock()
+
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = true
+		tab.localPath = manualPath
+		tab.previewThreadID = "t1"
+		snap := previewSnapshotLocked(tab)
+		previewMu.Unlock()
+
+		if snap.feedbackThreadID != "t1" {
+			t.Fatalf("feedbackThreadID = %q, want %q", snap.feedbackThreadID, "t1")
+		}
+
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if err := tester.Click("修改意见"); err != nil {
+			t.Fatalf("聚焦意见输入框失败: %v", err)
+		}
+		tester.Type("发给所属会话")
+		tester.Frame()
+		if err := tester.Click("发送"); err != nil {
+			t.Fatalf("点击「发送」失败: %v", err)
+		}
+		waitSent(t, client, 1)
+
+		client.mu.Lock()
+		call := client.sendCalls[0]
+		client.mu.Unlock()
+		if call.ThreadID != "t1" || call.Text != "发给所属会话" {
+			t.Fatalf("发送目标或内容错误: %+v", call)
+		}
+		s.mu.Lock()
+		draft := s.draft
+		s.mu.Unlock()
+		if draft != "主会话草稿保留" {
+			t.Fatalf("意见栏发送不应改动主会话草稿, got=%q", draft)
+		}
+
+		// 带标注从意见栏发送时，连同标注截图附件和意见栏文本一起直发所属会话；
+		// 标注抽屉自身发送仍保持加入该会话草稿的原行为。
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page, tab.annotating = page, true
+		tab.feedbackText = "意见栏带标注"
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#btn", Comment: "对齐"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitFeedback(s, token)
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 1)
+
+		client.mu.Lock()
+		attachCall := client.sendWithAttachCalls[0]
+		client.mu.Unlock()
+		if attachCall.ThreadID != "t1" || attachCall.Text != "意见栏带标注" || len(attachCall.AttachmentIDs) != 2 {
+			t.Fatalf("意见栏带标注发送参数错误: %+v", attachCall)
+		}
+		s.mu.Lock()
+		draftAfterFeedback := s.draft
+		s.mu.Unlock()
+		if draftAfterFeedback != "主会话草稿保留" {
+			t.Fatalf("意见栏带标注发送不应改动主会话草稿, got=%q", draftAfterFeedback)
+		}
+
+		previewMu.Lock()
+		tab.annotating = true
+		tab.annotations = []previewAnnotation{{id: 2, PageID: 2, Selector: "#card", Comment: "间距"}}
+		drawerToken := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+		previewSubmitAnnotations(s, drawerToken, true)
+		for range 2 {
+			req := inspectorUpload(t, client)
+			req.finish <- nil
+		}
+		waitPreviewAnnotationSend(t, tab)
+		waitSentWithAttachments(t, client, 2)
+
+		client.mu.Lock()
+		drawerCall := client.sendWithAttachCalls[1]
+		client.mu.Unlock()
+		if drawerCall.ThreadID != "t1" || drawerCall.Text != "主会话草稿保留" || len(drawerCall.AttachmentIDs) != 2 {
+			t.Fatalf("标注抽屉发送应沿用所属会话草稿: %+v", drawerCall)
+		}
+	})
+
+	t.Run("normal_web_tab_hides_feedback_bar", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		s, _ := inspectorContextSetup(t)
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = false
+		tab.url = "https://example.com"
+		tab.previewThreadID = ""
+		snap := previewSnapshotLocked(tab)
+		previewMu.Unlock()
+
+		if snap.feedbackThreadID != "" {
+			t.Fatalf("普通网页标签 feedbackThreadID 应为空, got=%q", snap.feedbackThreadID)
+		}
+
+		tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tester.Frame()
+		tester.Advance(time.Second)
+		if _, ok := tester.Find("修改意见"); ok {
+			t.Fatal("普通网页标签不应显示意见输入栏")
 		}
 	})
 }

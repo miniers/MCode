@@ -615,6 +615,10 @@ func previewSendAnnotations(s *chatState, token previewPageToken) {
 // previewSubmitAnnotations 把已标注元素作为附件加入发起时的会话；send 为真且仍处于该会话时立即发送草稿。
 // 若标签指向非面板所属会话的 bee，则把标注（及预览反馈输入框文本）直发该 bee 线程，不切换主窗口选中的会话。
 func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
+	previewSubmitAnnotationsInternal(s, token, send, false)
+}
+
+func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send, fromFeedbackBar bool) {
 	if s == nil {
 		return
 	}
@@ -662,7 +666,7 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 		if ownerThreadID == "" {
 			ownerThreadID = strings.TrimSpace(selectedID)
 		}
-		beeThreadID := previewFeedbackThreadIDLocked(current, ownerThreadID)
+		feedbackThreadID := previewFeedbackThreadIDLocked(current, ownerThreadID)
 		feedbackText := current.feedbackText
 		page, active := current.page, current.annotating
 		current.annotHighlight = 0
@@ -704,9 +708,10 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 			}
 		}
 		targetThreadID := ownerThreadID
-		isBee := beeThreadID != ""
-		if isBee {
-			targetThreadID = beeThreadID
+		isBee := feedbackThreadID != "" && feedbackThreadID != ownerThreadID
+		directSend := isBee || (fromFeedbackBar && feedbackThreadID != "")
+		if directSend {
+			targetThreadID = feedbackThreadID
 		}
 		prompt := previewAnnotationsPrompt(items)
 		txtLocalID, ok := s.addAttachmentToThreadID(targetThreadID, "浏览器标注.txt", "text/plain", []byte(prompt), nil)
@@ -746,7 +751,7 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 			s.setToast(plan.toast)
 			return
 		}
-		if isBee {
+		if directSend {
 			attachmentIDs, ready := s.waitThreadAttachmentsByLocalIDs(targetThreadID, addedLocalIDs)
 			if !ready {
 				s.mu.Lock()
@@ -802,7 +807,7 @@ func previewSubmitAnnotations(s *chatState, token previewPageToken, send bool) {
 	}()
 }
 
-// previewSubmitFeedback 从预览底部意见栏发送意见到标签指向的 bee 线程；
+// previewSubmitFeedback 从预览底部意见栏发送意见到目标线程（bee 或所属会话）；
 // 若已有标注则沿用标注采集流程一起发送，否则仅发送文字。
 func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	if s == nil {
@@ -825,15 +830,15 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	if ownerThreadID == "" {
 		ownerThreadID = strings.TrimSpace(selectedID)
 	}
-	beeThreadID := previewFeedbackThreadIDLocked(st, ownerThreadID)
-	if beeThreadID == "" {
+	feedbackThreadID := previewFeedbackThreadIDLocked(st, ownerThreadID)
+	if feedbackThreadID == "" {
 		previewMu.Unlock()
 		return
 	}
 	if len(st.annotations) > 0 {
 		token = previewPageTokenLocked(st)
 		previewMu.Unlock()
-		previewSubmitAnnotations(s, token, true)
+		previewSubmitAnnotationsInternal(s, token, true, true)
 		return
 	}
 	text := strings.TrimSpace(st.feedbackText)
@@ -847,7 +852,7 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	s.invalidate()
 
 	go func() {
-		err := s.sendToTargetThread(beeThreadID, text, nil)
+		err := s.sendToTargetThread(feedbackThreadID, text, nil)
 		previewMu.Lock()
 		if token.state != nil {
 			token.state.feedbackSending = false
@@ -865,7 +870,7 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	}()
 }
 
-// renderPreviewFeedbackBar 在 bee 预览标签底部渲染单行意见输入栏与发送按钮。
+// renderPreviewFeedbackBar 在本地预览标签底部渲染单行意见输入栏与发送按钮。
 func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot) {
 	sending := snap.feedbackSending || snap.annotSending
 	draft := snap.feedbackText
@@ -893,7 +898,7 @@ func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot)
 				Grow(1)
 			if draft != snap.feedbackText {
 				previewMu.Lock()
-				if current := snap.token.state; current != nil && current.previewThreadID == snap.feedbackThreadID {
+				if current := previewStateForTokenLocked(s, snap.token); current != nil && previewFeedbackThreadIDLocked(current, "") == snap.feedbackThreadID {
 					current.feedbackText = draft
 				}
 				previewMu.Unlock()

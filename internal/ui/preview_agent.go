@@ -200,14 +200,19 @@ func setPendingPreviewFor(s *chatState, slotThreadID, previewThreadID, target st
 		previewThreadID = slotThreadID
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return false, false
 	}
 	st := inspectorSessionLocked(s, slotThreadID)
 	st.pendingPreview = target
 	st.pendingPreviewThreadID = previewThreadID
-	return true, s.selectedThreadID == slotThreadID
+	isCurrent = s.selectedThreadID == slotThreadID
+	s.mu.Unlock()
+	if !isPreviewHTTPURL(target) {
+		recordPreviewLocalPathBee(target, previewThreadID, slotThreadID)
+	}
+	return true, isCurrent
 }
 
 func takePendingPreview(s *chatState, threadID string) (target, previewThreadID string, ok bool) {
@@ -242,6 +247,7 @@ func consumePendingPreview(s *chatState, threadID string) {
 		openPreviewURLForThread(s, previewThreadID, target)
 		return
 	}
+	recordPreviewLocalPathBee(target, previewThreadID, threadID)
 	if !s.openInspectorPreview(previewThreadID, target) {
 		s.setToast("无法打开预览")
 	}

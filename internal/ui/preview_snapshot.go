@@ -68,21 +68,23 @@ type previewSnapshot struct {
 }
 
 func previewFeedbackThreadIDLocked(st *browserTab, ownerThreadID string) string {
-	if st == nil {
-		return ""
-	}
-	beeID := strings.TrimSpace(st.previewThreadID)
-	if beeID == "" {
+	if st == nil || !st.localPreview {
 		return ""
 	}
 	ownerID := strings.TrimSpace(ownerThreadID)
 	if ownerID == "" && st.owner != nil {
 		ownerID = strings.TrimSpace(st.owner.threadID)
 	}
-	if beeID == ownerID {
-		return ""
+	beeID := strings.TrimSpace(st.previewThreadID)
+	if beeID != "" && beeID != ownerID {
+		return beeID
 	}
-	return beeID
+	if lp := strings.TrimSpace(st.localPath); lp != "" {
+		if mapped := strings.TrimSpace(previewLocalPathBees[lp]); mapped != "" {
+			return mapped
+		}
+	}
+	return ownerID
 }
 
 // previewSnapshotLocked 调用方须持有 previewMu。
