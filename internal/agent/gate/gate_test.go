@@ -322,8 +322,8 @@ func TestOnlyReads(t *testing.T) {
 		{"adb pull /sdcard/a.txt", false}, {"adb shell rm /sdcard/x", false}, {"fd -x rm", false}, {"fd -Hx rm", false},
 		{"base64 -o out a", false}, {"git show HEAD@{1}", false},
 		{`cat \\server\share\a.txt`, true}, {`cat C:\x\a-b_1.txt`, true}, {`rg 'a{2}' .`, true},
-		{`cat a\`, false}, {`cat a\ b`, false}, {`cat a\|rm x`, false}, {`cat a\$x`, false},
-		{`cat a\<b`, false}, {`cat a\>b`, false}, {`cat a\&rm x`, false}, {"cat a\\\nrm x", false},
+		{`cat a\`, false}, {`cat a\ b`, currentOS != "windows"}, {`cat a\|rm x`, false}, {`cat a\$x`, false},
+		{`cat a\<b`, false}, {`cat a\>b`, false}, {`cat a\&rm x`, false}, {"cat a\\\nrm x", currentOS != "windows"},
 		{"ls > $NULL", true}, {"dir 2>>nul", true}, {"dir > NUL.txt", false}, {"ls > $nullx", false},
 		{"GET-CONTENT.EXE a.txt", true}, {"ipconfig", true}, {"ipconfig -ALL", true}, {"ipconfig /DISPLAYDNS", true},
 		{"ipconfig /all /release", false}, {"ipconfig /flushdns", false}, {"reg QUERY HKCU", true}, {"reg", false},
@@ -489,8 +489,8 @@ func TestReadOnlyPromptOmitsCmdletsOutsidePowerShell(t *testing.T) {
 func TestReadOnlyBashCommands(t *testing.T) {
 	allowed := []string{"whoami", "uname -a", "sed -n '1,20p' a.go", "go doc fmt", "go env GOPATH", "adb devices", "adb shell ls", "command -v adb", "env", "cd x && whoami", "jq '.' file", "uniq -c file", "xxd file", "date -u", "hostname"}
 	denied := []string{"xargs ls", "awk '{print}' f", "sed -i 's/a/b/' f", "sed 's/a/b/w out' f", "go build ./...", "go test ./...", "adb shell rm x", "adb install x.apk", "env FOO=1 rm x", "defaults write a b c", "command rm x", "which adb | xargs -I{} {} version", "go env -w GOPATH=/tmp", "go list -toolexec=sh ./...", "uniq a b", "xxd -r - out", "hostname newname", "date 010101012025", "git log --exec-path=/tmp", "git diff --out'put'=out", "find . '-exec' rm x +"}
-	allowed = append(allowed, `rg -e "->" internal`, `rg -- "->" .`, `git log --grep "-x"`, `grep -n "<div" a.html`, `rg "=>" .`, `rg 'a<b>c' .`, `rg "foo$" .`, `rg "a$|b$" .`, `rg 'foo$HOME' .`, `rg "a$)b" .`, `rg "a$ b" .`, `rg "a$\b" .`)
-	denied = append(denied, `rg '--pre=x' foo`, `rg "--pre" x foo`, `find . -ex''ec rm {} ';'`, `find . "-delete"`, `sort '-o' out a`, `git log '-cfoo=bar'`, `git "diff" '--output=x'`, `tree '-o' x`, `cat a > b`, `cat a >b`, `cat < a`, `echo ">" > f`, `echo "$HOME"`, `find . "${X:=-delete}"`, `rg "$(id)" .`, "rg \"`id`\" .", `echo $x`, `echo "$1"`, `echo "$@"`, `echo "$*"`, `echo "$#"`, `echo "$?"`, `echo "$$"`, `echo "$!"`, `echo "$-"`, `rg "--pre=sh" x`)
+	allowed = append(allowed, `rg -e "->" internal`, `rg -- "->" .`, `git log --grep "-x"`, `grep -n "<div" a.html`, `rg "=>" .`, `rg 'a<b>c' .`, `rg "foo$" .`, `rg "a$|b$" .`, `rg 'foo$HOME' .`, `rg "a$)b" .`, `rg "a$ b" .`, `rg "a$\b" .`, `echo "$HOME"`)
+	denied = append(denied, `rg '--pre=x' foo`, `rg "--pre" x foo`, `find . -ex''ec rm {} ';'`, `find . "-delete"`, `sort '-o' out a`, `git log '-cfoo=bar'`, `git "diff" '--output=x'`, `tree '-o' x`, `cat a > b`, `cat a >b`, `cat < a`, `echo ">" > f`, `find . "${X:=-delete}"`, `rg "$(id)" .`, "rg \"`id`\" .", `echo $x`, `echo "$1"`, `echo "$@"`, `echo "$*"`, `echo "$#"`, `echo "$?"`, `echo "$$"`, `echo "$!"`, `echo "$-"`, `rg "--pre=sh" x`)
 	for _, group := range []struct {
 		commands []string
 		want     Action
@@ -680,4 +680,267 @@ func TestCheckHardLock(t *testing.T) {
 	if got := run(true, "D-42"); got.Action != Allow {
 		t.Fatalf("带 override 时应放行，实际 %+v", got)
 	}
+}
+
+func TestOnlyReadsRelaxations(t *testing.T) {
+	origOS := currentOS
+	t.Cleanup(func() { currentOS = origOS })
+
+	t.Run("quoted_ampersand_vs_background", func(t *testing.T) {
+		for _, tc := range []struct {
+			cmd  string
+			want bool
+		}{
+			{`rg -n --glob '!*_test.go' '&(s\.threads|list)\[' internal/ui`, true},
+			{`rg "a&b" file`, true},
+			{`ls && echo hi`, true},
+			{`ls &`, false},
+			{`ls & echo hi`, false},
+			{`ls &&& echo hi`, false},
+		} {
+			if got := OnlyReads(tc.cmd); got != tc.want {
+				t.Errorf("OnlyReads(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("env_regex_vs_credential_files", func(t *testing.T) {
+		work := t.TempDir()
+		home := t.TempDir()
+		testenv.SetHome(t, home)
+
+		currentOS = "darwin"
+		for _, tc := range []struct {
+			cmd       string
+			mode      harness.PermissionMode
+			action    Action
+			sensitive string
+		}{
+			{`rg -n "process\.env" web/src`, harness.ModeAuto, Allow, ""},
+			{`rg -n "process\.env" web/src`, harness.ModeReadOnly, Allow, ""},
+			{`rg '\.env' src/`, harness.ModeReadOnly, Allow, ""},
+			{`cat .env`, harness.ModeAuto, Ask, "credential"},
+			{`cat ./.env`, harness.ModeAuto, Ask, "credential"},
+			{`cat /path/.env`, harness.ModeAuto, Ask, "credential"},
+			{`cat ~/.env.local`, harness.ModeAuto, Ask, "credential"},
+			{`rg foo .env`, harness.ModeAuto, Ask, "credential"},
+		} {
+			args, _ := json.Marshal(map[string]string{"command": tc.cmd})
+			got := Check(Input{Mode: tc.mode, ToolName: "bash", Args: args, WorkDir: work})
+			if got.Action != tc.action || got.Request.Sensitive != tc.sensitive {
+				t.Errorf("darwin Check(%q, %s) = %+v, want action=%s sensitive=%s", tc.cmd, tc.mode, got, tc.action, tc.sensitive)
+			}
+		}
+
+		currentOS = "windows"
+		for _, cmd := range []string{`cat foo\.env`, `cat C:\app\.env`} {
+			args, _ := json.Marshal(map[string]string{"command": cmd})
+			got := Check(Input{Mode: harness.ModeAuto, ToolName: "bash", Args: args, WorkDir: work})
+			if got.Action != Ask || got.Request.Sensitive != "credential" {
+				t.Errorf("windows Check(%q) = %+v, want Ask/credential", cmd, got)
+			}
+		}
+		currentOS = origOS
+	})
+
+	t.Run("unquoted_safe_escapes", func(t *testing.T) {
+		currentOS = "darwin"
+		for _, tc := range []struct {
+			cmd  string
+			want bool
+		}{
+			{`find internal/ui -type f \( -name "*.go" -o -name "*.md" \)`, true},
+			{`ls -la ~/Library/Application\ Support/mcode/`, true},
+			{"rg -n foo \\\n  internal/agent/gate", true},
+			{"rg -n foo \\\r\n  internal/agent/gate", true},
+			{`find . -exec rm {} \;`, false},
+			{`find . ( -name "*.go" )`, false},
+			{`cat a\;rm x`, false},
+			{`cat a\`, false},
+		} {
+			if got := OnlyReads(tc.cmd); got != tc.want {
+				t.Errorf("darwin OnlyReads(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		}
+
+		currentOS = "windows"
+		for _, cmd := range []string{
+			`ls -la ~/Library/Application\ Support/mcode/`,
+			`find internal/ui -type f \( -name "*.go" \)`,
+			"rg -n foo \\\n  internal/agent/gate",
+		} {
+			if OnlyReads(cmd) {
+				t.Errorf("windows OnlyReads(%q) = true, want false", cmd)
+			}
+		}
+		currentOS = origOS
+	})
+
+	t.Run("safe_env_vars_and_credential_check", func(t *testing.T) {
+		for _, tc := range []struct {
+			cmd  string
+			want bool
+		}{
+			{`ls "$HOME/Desktop"`, true},
+			{`ls $HOME`, true},
+			{`ls "${HOME}/projects"`, true},
+			{`ls $TMPDIR/foo`, true},
+			{`ls "${TMPDIR}"`, true},
+			{`ls $OTHER`, false},
+			{`ls $HOME_X`, false},
+			{`ls $HOME_DIR`, false},
+			{`echo "${HOME:-x}"`, false},
+			{`echo "$(id)"`, false},
+			{`echo "$1"`, false},
+		} {
+			if got := OnlyReads(tc.cmd); got != tc.want {
+				t.Errorf("OnlyReads(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		}
+
+		work := t.TempDir()
+		home := t.TempDir()
+		testenv.SetHome(t, home)
+		for _, cmd := range []string{
+			`cat "$HOME/.mcode/config.json"`,
+			`cat "${HOME}/.ssh/id_rsa"`,
+		} {
+			for _, mode := range []harness.PermissionMode{harness.ModeAuto, harness.ModeReadOnly} {
+				args, _ := json.Marshal(map[string]string{"command": cmd})
+				got := Check(Input{Mode: mode, ToolName: "bash", Args: args, WorkDir: work})
+				if got.Action != Ask || got.Request.Sensitive != "credential" {
+					t.Errorf("Check(%q, %s) = %+v, want Ask/credential", cmd, mode, got)
+				}
+			}
+		}
+	})
+
+	t.Run("brace_expansion", func(t *testing.T) {
+		for _, tc := range []struct {
+			cmd  string
+			want bool
+		}{
+			{`ls -1 internal/ui/{steward,kanban,automation,settings}*.go`, true},
+			{`ls {a,b}.go`, true},
+			{`ls internal/{a,b}`, true},
+			{`{ rm -rf /; }`, false},
+			{`{ echo hi; }`, false},
+			{`ls }`, false},
+			{`ls {a}`, false},
+			{`ls {a, b}`, false},
+			{`ls {a,$b}`, false},
+			{`ls {a,b}`, false},
+		} {
+			if got := OnlyReads(tc.cmd); got != tc.want {
+				t.Errorf("OnlyReads(%q) = %v, want %v", tc.cmd, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("wrapper_stripping", func(t *testing.T) {
+		for _, tc := range []struct {
+			cmd      string
+			readOnly bool
+			goCheck  bool
+		}{
+			{`perl -e 'alarm 15; exec @ARGV' gh api repos/a/b`, true, true},
+			{`perl -e 'alarm 10; exec @ARGV' -- ls -la`, true, true},
+			{`rtk bypass CGO_ENABLED=0 LC_ALL=C time -p timeout 30s ls -la`, true, true},
+			{`GOOS=linux GOARCH=amd64 GOTOOLCHAIN=local TZ=UTC NO_COLOR=1 LANG=en_US.UTF-8 go list ./...`, true, true},
+			{`gtimeout --foreground --preserve-status -k 5s --kill-after=10s -s TERM --signal=KILL 30s ls`, true, true},
+			{`rtk bypass time timeout 10s perl -e 'alarm 5; exec @ARGV' git status`, true, true},
+			{`CGO_ENABLED=0 timeout 60s go test ./internal/agent/gate`, false, true},
+			{`perl -e 'alarm 10; system("id"); exec @ARGV' ls`, false, false},
+			{`perl -e 'alarm 10; exec @ARGV' git clone https://example.com/a`, false, false},
+			{`perl -e 'print 1'`, false, false},
+			{`LD_PRELOAD=x ls`, false, false},
+			{`DYLD_INSERT_LIBRARIES=x ls`, false, false},
+			{`PATH=/tmp ls`, false, false},
+			{`GOFLAGS=-mod=mod go list ./...`, false, false},
+			{`CGO_ENABLED=2 ls`, false, false},
+			{`LC_ALL= ls`, false, false},
+			{`time`, false, false},
+			{`time -p`, false, false},
+			{`timeout 30s`, false, false},
+			{`timeout ls`, false, false},
+			{`timeout -k "" 30s ls`, false, false},
+			{`timeout --kill-after= 30s ls`, false, false},
+		} {
+			if got := OnlyReads(tc.cmd); got != tc.readOnly {
+				t.Errorf("OnlyReads(%q) = %v, want %v", tc.cmd, got, tc.readOnly)
+			}
+			if got := OnlyReadsOrGoChecks(tc.cmd); got != tc.goCheck {
+				t.Errorf("OnlyReadsOrGoChecks(%q) = %v, want %v", tc.cmd, got, tc.goCheck)
+			}
+		}
+	})
+
+	t.Run("subcommands_and_flags", func(t *testing.T) {
+		for _, tc := range []struct {
+			cmd     string
+			goCheck bool
+			want    bool
+		}{
+			{`go test -json -benchmem -cover -skip Foo -C dir -list . -covermode=atomic ./...`, true, true},
+			{`go build -o /dev/null ./...`, true, true},
+			{`go build -o=/dev/null ./...`, true, true},
+			{`go build -o NUL ./...`, true, true},
+			{`go vet -C dir ./...`, true, true},
+			{`go build -o /tmp/a ./...`, true, false},
+			{`go test -c ./...`, true, false},
+			{`go test -c -o /dev/null ./...`, true, false},
+			{`go test -coverprofile=cov.out ./...`, true, false},
+			{`go test -cpuprofile=cpu.out ./...`, true, false},
+			{`go test -memprofile=mem.out ./...`, true, false},
+			{`go list -C dir ./...`, false, true},
+			{`go list -C=dir ./...`, false, true},
+			{`go list -C`, false, false},
+			{`go list -C= ./...`, false, false},
+			{`gofmt -l .`, false, true},
+			{`gofmt -d -e -s internal/`, false, true},
+			{`gofmt -w a.go`, false, false},
+			{`gofmt a.go`, false, false},
+			{`gofmt -r 'a -> b' -l a.go`, false, false},
+			{`sed -n '10,20p;30,40p' a.go`, false, true},
+			{`sed -n '1170,1190p;1640,1660p' a.go`, false, true},
+			{`sed -n '10p;w /tmp/x' a.go`, false, false},
+			{`git hash-object a.go`, false, true},
+			{`git hash-object -t blob a.go`, false, true},
+			{`git hash-object -w a.go`, false, false},
+			{`git hash-object -tw blob a.go`, false, false},
+			{`git hash-object --write a.go`, false, false},
+			{`git hash-object --stdin-paths`, false, false},
+			{`curl -sIL -o /dev/null https://example.com`, false, true},
+			{`curl --output=/dev/null https://example.com`, false, true},
+			{`curl --output nul https://example.com`, false, true},
+			{`curl -o /tmp/x https://example.com`, false, false},
+			{`curl --output=/tmp/x https://example.com`, false, false},
+			{`agy --version`, false, true},
+			{`agy acp --help`, false, true},
+			{`agy acp -h`, false, true},
+			{`dlv version`, false, true},
+			{`node --version`, false, true},
+			{`node --help`, false, true},
+			{`python3 --version`, false, true},
+			{`python3 -V`, false, true},
+			{`claude --version`, false, true},
+			{`codex --help`, false, true},
+			{`python3 -c 'print(1)'`, false, false},
+			{`python3 -v`, false, false},
+			{`node -e 'console.log(1)'`, false, false},
+			{`node -v`, false, false},
+			{`agy --print hi`, false, false},
+			{`claude -p hi`, false, false},
+		} {
+			var got bool
+			if tc.goCheck {
+				got = OnlyReadsOrGoChecks(tc.cmd)
+			} else {
+				got = OnlyReads(tc.cmd)
+			}
+			if got != tc.want {
+				t.Errorf("%q (goCheck=%v) = %v, want %v", tc.cmd, tc.goCheck, got, tc.want)
+			}
+		}
+	})
 }

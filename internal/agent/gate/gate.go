@@ -267,7 +267,7 @@ var fdRedirect = regexp.MustCompile(`\d?>&\d`)
 
 // sc 在 Windows PowerShell 5.1 中是 Set-Content 的别名，所以不能加入白名单。
 var safe = " ls cat head tail wc grep rg find tree du stat file pwd echo which sort diff cd whoami id uname printenv nl cut tr basename dirname realpath readlink md5 md5sum shasum sha1sum sha256sum od hexdump strings df uptime sw_vers ps jq true false tac rev paste comm cmp column fold expand seq cksum sha512sum b2sum type dir netstat where tasklist systeminfo findstr get-childitem gci get-content gc get-item gi get-itemproperty gp get-location gl test-path resolve-path split-path join-path get-filehash get-command gcm get-process gps get-service gsv get-date get-acl get-computerinfo get-ciminstance get-netipaddress get-nettcpconnection get-winevent select-string sls select-object select sort-object measure-object measure group-object group compare-object format-table ft format-list fl format-wide out-string convertto-json convertfrom-json write-output where-object "
-var git = " status log diff show blame branch ls-files describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged tag remote config reflog "
+var git = " status log diff show blame branch ls-files describe rev-parse rev-list shortlog cat-file ls-tree ls-remote show-ref name-rev merge-base for-each-ref count-objects grep whatchanged tag remote config reflog hash-object "
 var branch = " -a -r -v -vv --list --all --remotes --show-current --verbose --contains --merged --no-merged "
 var find = " -delete -exec -execdir -ok -okdir -fprint -fprint0 -fprintf -fls "
 
@@ -311,17 +311,28 @@ func goCheckArgs(args []string) bool {
 		}
 		name, value, hasValue := strings.Cut(a, "=")
 		switch name {
-		case "-v", "-race", "-short", "-failfast", "-fullpath", "-trimpath", "-a", "-n", "-x":
+		case "-v", "-race", "-short", "-failfast", "-fullpath", "-trimpath", "-a", "-n", "-x", "-json", "-benchmem", "-cover":
 			if hasValue && value != "true" && value != "false" {
 				return false
 			}
-		case "-timeout", "-run", "-count", "-tags", "-bench", "-benchtime", "-cpu", "-parallel", "-p", "-vet", "-shuffle":
+		case "-timeout", "-run", "-count", "-tags", "-bench", "-benchtime", "-cpu", "-parallel", "-p", "-vet", "-shuffle", "-skip", "-C", "-list", "-covermode":
 			if !hasValue {
 				i++
 				if i >= len(args) || strings.HasPrefix(args[i], "-") {
 					return false
 				}
 			} else if value == "" {
+				return false
+			}
+		case "-o":
+			if !hasValue {
+				i++
+				if i >= len(args) {
+					return false
+				}
+				value = args[i]
+			}
+			if value != "/dev/null" && !strings.EqualFold(value, "NUL") {
 				return false
 			}
 		case "-mod":
@@ -354,6 +365,164 @@ func OnlyReadsOrGoChecks(command string) bool {
 
 var currentOS = runtime.GOOS
 
+var (
+	timeoutDurationRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
+	perlAlarmRe       = regexp.MustCompile(`^alarm\s+[0-9]+(?:\.[0-9]+)?\s*;\s*exec\s+@ARGV\s*;?$`)
+	sedPrintScriptRe  = regexp.MustCompile(`^(([0-9$]+,)?[0-9$]+p)(;([0-9$]+,)?[0-9$]+p)*$`)
+)
+
+func isEnvNameByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+}
+
+func matchSafeEnvVar(s string) int {
+	for _, braced := range []string{"${HOME}", "${TMPDIR}"} {
+		if strings.HasPrefix(s, braced) {
+			return len(braced)
+		}
+	}
+	for _, plain := range []string{"$HOME", "$TMPDIR"} {
+		if strings.HasPrefix(s, plain) && (len(s) == len(plain) || !isEnvNameByte(s[len(plain)])) {
+			return len(plain)
+		}
+	}
+	return 0
+}
+
+func isBraceItemByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._/*?+-", rune(c))
+}
+
+func matchBraceExpansion(text string, start int) (int, bool) {
+	end := 0
+	hasComma := false
+	for j := start + 1; j < len(text); j++ {
+		c := text[j]
+		if c == '}' {
+			end = j
+			break
+		}
+		if c == ',' {
+			hasComma = true
+			continue
+		}
+		if !isBraceItemByte(c) {
+			return 0, false
+		}
+	}
+	if end == 0 || !hasComma || end == start+1 {
+		return 0, false
+	}
+	prevAdj := start > 0 && (isBraceItemByte(text[start-1]) || text[start-1] == '=')
+	nextAdj := end+1 < len(text) && isBraceItemByte(text[end+1])
+	if !prevAdj && !nextAdj {
+		return 0, false
+	}
+	return end, true
+}
+
+func normalizeCommandName(p string) (string, bool) {
+	if strings.HasPrefix(p, "/") {
+		if path.Dir(p) != "/bin" && path.Dir(p) != "/usr/bin" {
+			return "", false
+		}
+		p = filepath.Base(p)
+	}
+	return strings.TrimSuffix(strings.ToLower(p), ".exe"), true
+}
+
+func isAllowedWrapperEnv(token string) (matched, allowed bool) {
+	key, val, ok := strings.Cut(token, "=")
+	if !ok {
+		return false, false
+	}
+	switch key {
+	case "CGO_ENABLED":
+		return true, val == "0" || val == "1"
+	case "LC_ALL", "LANG", "TZ", "NO_COLOR", "GOOS", "GOARCH", "GOTOOLCHAIN":
+		if val == "" {
+			return true, false
+		}
+		for i := 0; i < len(val); i++ {
+			c := val[i]
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("._/:+-", rune(c))) {
+				return true, false
+			}
+		}
+		return true, true
+	default:
+		return true, false
+	}
+}
+
+func stripWrapperLayer(t []string, p string) (next []string, stripped, ok bool) {
+	if matched, allowed := isAllowedWrapperEnv(t[0]); matched {
+		if !allowed {
+			return nil, false, false
+		}
+		return t[1:], true, true
+	}
+	switch p {
+	case "rtk":
+		rest := t[1:]
+		if len(rest) > 0 && rest[0] == "bypass" {
+			rest = rest[1:]
+		}
+		return rest, true, true
+	case "time":
+		rest := t[1:]
+		if len(rest) > 0 && rest[0] == "-p" {
+			rest = rest[1:]
+		}
+		return rest, true, true
+	case "timeout", "gtimeout":
+		idx := 1
+		for idx < len(t) {
+			a := t[idx]
+			if a == "--foreground" || a == "--preserve-status" {
+				idx++
+				continue
+			}
+			if a == "-k" || a == "--kill-after" || a == "-s" || a == "--signal" {
+				if idx+1 >= len(t) || t[idx+1] == "" {
+					return nil, false, false
+				}
+				idx += 2
+				continue
+			}
+			if strings.HasPrefix(a, "--kill-after=") {
+				if a[len("--kill-after="):] == "" {
+					return nil, false, false
+				}
+				idx++
+				continue
+			}
+			if strings.HasPrefix(a, "--signal=") {
+				if a[len("--signal="):] == "" {
+					return nil, false, false
+				}
+				idx++
+				continue
+			}
+			break
+		}
+		if idx >= len(t) || !timeoutDurationRe.MatchString(t[idx]) {
+			return nil, false, false
+		}
+		return t[idx+1:], true, true
+	case "perl":
+		if len(t) < 4 || t[1] != "-e" || !perlAlarmRe.MatchString(strings.TrimSpace(t[2])) {
+			return nil, false, false
+		}
+		rest := t[3:]
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+		return rest, true, true
+	}
+	return t, false, true
+}
+
 func isDoubleQuoteEscapable(c byte) bool {
 	return c == '"' || c == '\\' || c == '$' || c == '`' || c == '\n'
 }
@@ -368,11 +537,6 @@ func onlyReads(command string, allowGoChecks bool) bool {
 	windows := currentOS == "windows"
 	if windows && (strings.ContainsAny(text, "\r\n`") || strings.Contains(text, "$(")) {
 		return false
-	}
-	for i := 0; i < len(text); i++ {
-		if text[i] == '&' && (i == 0 || text[i-1] != '&') && (i+1 == len(text) || text[i+1] != '&') {
-			return false
-		}
 	}
 	// 仅在引号外拆分命令；引号未闭合时保守处理。
 	var pieces []string
@@ -397,6 +561,16 @@ func onlyReads(command string, allowGoChecks bool) bool {
 						i++
 						continue
 					}
+					if !windows {
+						if next == '\r' && i+2 < len(text) && text[i+2] == '\n' {
+							i += 2
+							continue
+						}
+						if next == '\n' || next == ' ' || next == '(' || next == ')' {
+							i++
+							continue
+						}
+					}
 					if next >= 'a' && next <= 'z' || next >= 'A' && next <= 'Z' || next >= '0' && next <= '9' || strings.ContainsRune("._-/:", rune(next)) {
 						continue
 					}
@@ -420,6 +594,10 @@ func onlyReads(command string, allowGoChecks bool) bool {
 			return false
 		}
 		if c == '$' {
+			if n := matchSafeEnvVar(text[i:]); n > 0 {
+				i += n - 1
+				continue
+			}
 			if quote == 0 || i+1 < len(text) && (text[i+1] >= 'a' && text[i+1] <= 'z' || text[i+1] >= 'A' && text[i+1] <= 'Z' || text[i+1] >= '0' && text[i+1] <= '9' || strings.ContainsRune("_{(@*#?$!-", rune(text[i+1]))) {
 				return false
 			}
@@ -434,12 +612,28 @@ func onlyReads(command string, allowGoChecks bool) bool {
 			quote = c
 			continue
 		}
+		if c == '{' {
+			if end, ok := matchBraceExpansion(text, i); ok {
+				i = end
+				continue
+			}
+			return false
+		}
 		if strings.ContainsRune("<>(){}", rune(c)) {
 			return false
 		}
-		if c == '|' || c == ';' || c == '&' && i+1 < len(text) && text[i+1] == '&' {
+		if c == '&' {
+			if i+1 < len(text) && text[i+1] == '&' {
+				pieces = append(pieces, text[start:i])
+				i++
+				start = i + 1
+				continue
+			}
+			return false
+		}
+		if c == '|' || c == ';' {
 			pieces = append(pieces, text[start:i])
-			if (c == '|' || c == '&') && i+1 < len(text) && text[i+1] == c {
+			if c == '|' && i+1 < len(text) && text[i+1] == '|' {
 				i++
 			}
 			start = i + 1
@@ -456,6 +650,23 @@ func onlyReads(command string, allowGoChecks bool) bool {
 		started := false
 		for i := 0; i < len(piece); i++ {
 			c := piece[i]
+			if c == '\\' && q == 0 && !windows && i+1 < len(piece) {
+				next := piece[i+1]
+				if next == '\r' && i+2 < len(piece) && piece[i+2] == '\n' {
+					i += 2
+					continue
+				}
+				if next == '\n' {
+					i++
+					continue
+				}
+				if next == ' ' || next == '(' || next == ')' {
+					i++
+					word.WriteByte(next)
+					started = true
+					continue
+				}
+			}
 			if c == '\\' && q == '"' && i+1 < len(piece) {
 				next := piece[i+1]
 				if windows {
@@ -503,24 +714,32 @@ func onlyReads(command string, allowGoChecks bool) bool {
 		if len(t) == 0 {
 			continue
 		}
-		p := t[0]
-		if strings.HasPrefix(p, "/") {
-			if path.Dir(p) != "/bin" && path.Dir(p) != "/usr/bin" {
-				return false
-			}
-			p = filepath.Base(p)
+		p, ok := normalizeCommandName(t[0])
+		if !ok {
+			return false
 		}
-		p = strings.TrimSuffix(strings.ToLower(p), ".exe")
-		// rtk 是透传包装器：去掉 rtk 前缀后按剩余命令判断，bypass 只表示原样执行。
-		if p == "rtk" {
-			t = t[1:]
-			if len(t) > 0 && t[0] == "bypass" {
-				t = t[1:]
-			}
-			if len(t) == 0 {
+		for layer := 0; layer < 16; layer++ {
+			next, stripped, ok := stripWrapperLayer(t, p)
+			if !ok {
 				return false
 			}
-			p = strings.TrimSuffix(strings.ToLower(t[0]), ".exe")
+			if !stripped {
+				break
+			}
+			if len(next) == 0 {
+				return false
+			}
+			t = next
+			p, ok = normalizeCommandName(t[0])
+			if !ok {
+				return false
+			}
+			if layer == 15 {
+				// 有界剥离达到上限仍为包装器时拒绝。
+				if _, stillWrapped, _ := stripWrapperLayer(t, p); stillWrapped {
+					return false
+				}
+			}
 		}
 		switch p {
 		case "base64":
@@ -623,6 +842,15 @@ func onlyReads(command string, allowGoChecks bool) bool {
 						if i >= len(t) {
 							return false
 						}
+					} else if a == "-C" {
+						i++
+						if i >= len(t) || t[i] == "" {
+							return false
+						}
+					} else if strings.HasPrefix(a, "-C=") {
+						if a == "-C=" {
+							return false
+						}
 					} else if strings.HasPrefix(a, "-") && !strings.Contains(" -m -json -e -deps -test -u -versions -find -compiled -retracted ", " "+a+" ") && !strings.HasPrefix(a, "-json=") && !strings.HasPrefix(a, "-f=") {
 						return false
 					}
@@ -646,8 +874,38 @@ func onlyReads(command string, allowGoChecks bool) bool {
 				}
 			}
 			continue
+		case "gofmt":
+			listOrDiff := false
+			for _, a := range t[1:] {
+				switch a {
+				case "-l", "-d":
+					listOrDiff = true
+				case "-e", "-s":
+				default:
+					if strings.HasPrefix(a, "-") {
+						return false
+					}
+				}
+			}
+			if !listOrDiff {
+				return false
+			}
+			continue
+		case "agy", "dlv", "claude", "codex":
+			if len(t) == 2 && (t[1] == "--version" || t[1] == "-v" || t[1] == "-V" || t[1] == "--help" || t[1] == "-h" || t[1] == "version") {
+				continue
+			}
+			if p == "agy" && len(t) == 3 && t[1] == "acp" && (t[2] == "--help" || t[2] == "-h") {
+				continue
+			}
+			return false
+		case "node", "python3":
+			if len(t) == 2 && (t[1] == "--version" || t[1] == "-V" || t[1] == "--help" || t[1] == "-h") {
+				continue
+			}
+			return false
 		case "sed":
-			if len(t) < 3 || t[1] != "-n" || !regexp.MustCompile(`^([0-9$]+,)?[0-9$]+p$`).MatchString(t[2]) {
+			if len(t) < 3 || t[1] != "-n" || !sedPrintScriptRe.MatchString(t[2]) {
 				return false
 			}
 			for _, a := range t[3:] {
@@ -767,6 +1025,13 @@ func gitReadArgs(sub string, args []string) bool {
 			}
 		}
 		return read
+	case "hash-object":
+		for _, a := range args {
+			name, _, _ := strings.Cut(a, "=")
+			if name == "--write" || name == "--stdin-paths" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a[1:], "w") {
+				return false
+			}
+		}
 	case "tag":
 		list, positional := false, false
 		for i := 0; i < len(args); i++ {
@@ -816,7 +1081,7 @@ func curlReads(args []string) bool {
 					return false
 				}
 				continue
-			case "--max-time", "--connect-timeout", "--header", "--user-agent", "--referer", "--range", "--retry", "--retry-delay", "--write-out", "--request":
+			case "--max-time", "--connect-timeout", "--header", "--user-agent", "--referer", "--range", "--retry", "--retry-delay", "--write-out", "--request", "--output":
 			default:
 				return false
 			}
@@ -839,7 +1104,7 @@ func curlReads(args []string) bool {
 			if strings.ContainsRune("sSLfIivkg", rune(a[j])) {
 				continue
 			}
-			if !strings.ContainsRune("mHAerwX", rune(a[j])) {
+			if !strings.ContainsRune("mHAerwXo", rune(a[j])) {
 				return false
 			}
 			name, value := "-"+string(a[j]), a[j+1:]
@@ -862,6 +1127,9 @@ func curlReads(args []string) bool {
 func curlValueAllowed(name, value string) bool {
 	if value == "" {
 		return false
+	}
+	if name == "-o" || name == "--output" {
+		return value == "/dev/null" || strings.EqualFold(value, "NUL")
 	}
 	if name == "-X" || name == "--request" {
 		return value == "GET" || value == "HEAD"
@@ -1187,6 +1455,9 @@ func credential(text, project string, insideRoots []string) bool {
 	// 示例文件不是凭证；fullAccess 下项目内 .env 也可直接访问。
 	for _, loc := range envFile.FindAllStringSubmatchIndex(text, -1) {
 		start, end := loc[0], loc[1]
+		if currentOS != "windows" && text[start] == '\\' && strings.HasPrefix(text[start+1:], ".env") {
+			continue
+		}
 		if end < len(text) && !strings.ContainsRune("\\/ \t\r\n\"'`=;:,&|", rune(text[end])) {
 			continue
 		}
