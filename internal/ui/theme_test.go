@@ -43,7 +43,7 @@ func TestSurfaceAndAccentTokens(t *testing.T) {
 }
 
 func TestIdentityAndLegacyColors(t *testing.T) {
-	if ThemeIdentity("aspen") != ThemeIdentity("aspen") || ThemeIdentity("").A == 0 {
+	if ThemeIdentity("aria") != ThemeIdentity("aria") || ThemeIdentity("").A == 0 {
 		t.Fatal("身份色应稳定且空 key 应返回有效颜色")
 	}
 	for _, dark := range []bool{false, true} {

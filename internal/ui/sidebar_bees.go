@@ -867,8 +867,8 @@ func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, 
 
 	settled := beeAvatarSettled(status) && !isSelected && !btn.Hovered()
 	fg := persona.Color
-	bg := persona.Color.Alpha(0.18)
-	border := persona.Color.Alpha(0.55)
+	bg := persona.Color.Alpha(0.16)
+	border := persona.Color.Alpha(0.32)
 	if settled {
 		secondary := ThemeSecondaryText(c)
 		fg = secondary.Alpha(0.7)
@@ -880,7 +880,7 @@ func renderSidebarSingleBeeAvatar(c *ui.Context, s *chatState, parentID string, 
 		// 头像容器（约 14pt，未结束保留人设色，已结束退成中性灰）
 		Avatar(c, AvatarProps{
 			Key: btnKey + "-glyph", Name: name, Icon: icon, Size: avatarSize, FontSize: avatarSize * 0.48,
-			Foreground: fg, Background: bg, Border: border,
+			Foreground: fg, Background: bg, Border: border, Gradient: !settled,
 		})
 
 		// 约 8pt 带深色描边的状态角标（已完成状态以灰色头像本身体现，不再绘制角标）

@@ -428,11 +428,11 @@ func renderFastModeButton(c *ui.Context, p EffortSliderCardProps) {
 	})
 }
 
-// swarmRosterColors 是 Swarm 名册前六位的代表色（Aspen、Birch、Cove、Dune、Ember、Flint），
-// 开关的彩虹环与同 Provider 配对的融合色都取自这里；色值统一由 theme.go 的 identityPalette 提供。
+// swarmRosterColors 是 Swarm 名册前六位的代表色（Aria、Finn、Cora、Eva、Bram、Dean），
+// 按色环顺滑排列使编排开关角向渐变环自然闭合；色值统一由 theme.go 的 identityPalette 提供。
 var swarmRosterColors = []ui.Color{
-	ThemeIdentity("aspen"), ThemeIdentity("birch"), ThemeIdentity("cove"),
-	ThemeIdentity("dune"), ThemeIdentity("ember"), ThemeIdentity("flint"),
+	ThemeIdentity("aria"), ThemeIdentity("finn"), ThemeIdentity("cora"),
+	ThemeIdentity("eva"), ThemeIdentity("bram"), ThemeIdentity("dean"),
 }
 
 // renderProviderRainbowAvatar 渲染卡片右侧的 Swarm 开关：

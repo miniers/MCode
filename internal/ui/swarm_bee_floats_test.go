@@ -13,21 +13,21 @@ import (
 
 func TestSwarmPersonaLookup(t *testing.T) {
 	// 精确匹配
-	pBirch := findSwarmPersona("Birch")
-	if pBirch.Name != "Birch" || pBirch.Asset != "swarm-bee-02.svg" {
-		t.Errorf("findSwarmPersona(Birch) = %+v, want Birch and swarm-bee-02.svg", pBirch)
+	pBram := findSwarmPersona("Bram")
+	if pBram.Name != "Bram" || pBram.Asset != "swarm-bee-02.svg" {
+		t.Errorf("findSwarmPersona(Bram) = %+v, want Bram and swarm-bee-02.svg", pBram)
 	}
 
 	// 轮次后缀匹配
-	pBirch2 := findSwarmPersona("Birch 2")
-	if pBirch2.Asset != "swarm-bee-02.svg" {
-		t.Errorf("findSwarmPersona(Birch 2) = %+v, want swarm-bee-02.svg", pBirch2)
+	pBram2 := findSwarmPersona("Bram 2")
+	if pBram2.Asset != "swarm-bee-02.svg" {
+		t.Errorf("findSwarmPersona(Bram 2) = %+v, want swarm-bee-02.svg", pBram2)
 	}
 
 	// 大小写不敏感
-	pCove := findSwarmPersona("cove")
-	if pCove.Name != "Cove" || pCove.Asset != "swarm-bee-03.svg" {
-		t.Errorf("findSwarmPersona(cove) = %+v, want Cove and swarm-bee-03.svg", pCove)
+	pCora := findSwarmPersona("cora")
+	if pCora.Name != "Cora" || pCora.Asset != "swarm-bee-03.svg" {
+		t.Errorf("findSwarmPersona(cora) = %+v, want Cora and swarm-bee-03.svg", pCora)
 	}
 
 	// 未知名称兜底

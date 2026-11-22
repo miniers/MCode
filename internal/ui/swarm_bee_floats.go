@@ -1657,31 +1657,31 @@ type swarmPersonaInfo struct {
 
 // swarmRosterPersonas 是 mcode 的 25 位预设 Swarm 协作者名单与配色。
 var swarmRosterPersonas = []swarmPersonaInfo{
-	{"Aspen", "swarm-bee-01.svg", ThemeIdentity("Aspen")},
-	{"Birch", "swarm-bee-02.svg", ThemeIdentity("Birch")},
-	{"Cove", "swarm-bee-03.svg", ThemeIdentity("Cove")},
-	{"Dune", "swarm-bee-04.svg", ThemeIdentity("Dune")},
-	{"Ember", "swarm-bee-05.svg", ThemeIdentity("Ember")},
-	{"Flint", "swarm-bee-06.svg", ThemeIdentity("Flint")},
-	{"Grove", "swarm-bee-07.svg", ThemeIdentity("Grove")},
-	{"Heath", "swarm-bee-08.svg", ThemeIdentity("Heath")},
-	{"Isle", "swarm-bee-09.svg", ThemeIdentity("Isle")},
-	{"Jade", "swarm-bee-10.svg", ThemeIdentity("Jade")},
-	{"Kestrel", "swarm-bee-11.svg", ThemeIdentity("Kestrel")},
-	{"Larch", "swarm-bee-12.svg", ThemeIdentity("Larch")},
-	{"Moss", "swarm-bee-13.svg", ThemeIdentity("Moss")},
-	{"Nimbus", "swarm-bee-14.svg", ThemeIdentity("Nimbus")},
-	{"Onyx", "swarm-bee-15.svg", ThemeIdentity("Onyx")},
-	{"Pike", "swarm-bee-16.svg", ThemeIdentity("Pike")},
-	{"Quill", "swarm-bee-17.svg", ThemeIdentity("Quill")},
-	{"Reed", "swarm-bee-18.svg", ThemeIdentity("Reed")},
-	{"Sage", "swarm-bee-19.svg", ThemeIdentity("Sage")},
-	{"Tide", "swarm-bee-20.svg", ThemeIdentity("Tide")},
-	{"Umber", "swarm-bee-21.svg", ThemeIdentity("Umber")},
-	{"Vale", "swarm-bee-22.svg", ThemeIdentity("Vale")},
-	{"Wren", "swarm-bee-23.svg", ThemeIdentity("Wren")},
-	{"Yarrow", "swarm-bee-24.svg", ThemeIdentity("Yarrow")},
-	{"Zephyr", "swarm-bee-25.svg", ThemeIdentity("Zephyr")},
+	{"Aria", "swarm-bee-01.svg", ThemeIdentity("Aria")},
+	{"Bram", "swarm-bee-02.svg", ThemeIdentity("Bram")},
+	{"Cora", "swarm-bee-03.svg", ThemeIdentity("Cora")},
+	{"Dean", "swarm-bee-04.svg", ThemeIdentity("Dean")},
+	{"Eva", "swarm-bee-05.svg", ThemeIdentity("Eva")},
+	{"Finn", "swarm-bee-06.svg", ThemeIdentity("Finn")},
+	{"Gwen", "swarm-bee-07.svg", ThemeIdentity("Gwen")},
+	{"Hugo", "swarm-bee-08.svg", ThemeIdentity("Hugo")},
+	{"Iris", "swarm-bee-09.svg", ThemeIdentity("Iris")},
+	{"Jude", "swarm-bee-10.svg", ThemeIdentity("Jude")},
+	{"Kai", "swarm-bee-11.svg", ThemeIdentity("Kai")},
+	{"Leo", "swarm-bee-12.svg", ThemeIdentity("Leo")},
+	{"Milo", "swarm-bee-13.svg", ThemeIdentity("Milo")},
+	{"Nora", "swarm-bee-14.svg", ThemeIdentity("Nora")},
+	{"Owen", "swarm-bee-15.svg", ThemeIdentity("Owen")},
+	{"Pia", "swarm-bee-16.svg", ThemeIdentity("Pia")},
+	{"Quinn", "swarm-bee-17.svg", ThemeIdentity("Quinn")},
+	{"Remy", "swarm-bee-18.svg", ThemeIdentity("Remy")},
+	{"Sora", "swarm-bee-19.svg", ThemeIdentity("Sora")},
+	{"Theo", "swarm-bee-20.svg", ThemeIdentity("Theo")},
+	{"Uma", "swarm-bee-21.svg", ThemeIdentity("Uma")},
+	{"Vera", "swarm-bee-22.svg", ThemeIdentity("Vera")},
+	{"Wynn", "swarm-bee-23.svg", ThemeIdentity("Wynn")},
+	{"Yuki", "swarm-bee-24.svg", ThemeIdentity("Yuki")},
+	{"Zoe", "swarm-bee-25.svg", ThemeIdentity("Zoe")},
 }
 
 // findSwarmPersona 根据 bee 名称匹配对应的人设，带轮次后缀（如 "Birch 2"）时归一化匹配。
@@ -1769,7 +1769,7 @@ func formatSwarmShortDuration(started time.Time, finished *time.Time) string {
 	return formatDuration(end.Sub(started))
 }
 
-// renderSwarmGlyph 渲染 bee 的龙形标识或首字圆形头像。
+// renderSwarmGlyph 渲染 bee 的几何徽章或首字圆形头像。
 func renderSwarmGlyph(c *ui.Context, keyPrefix string, h SwarmBee, size float32) {
 	persona := findSwarmPersona(h.Name)
 	icon := safePersonaIcon(persona.Asset)
@@ -1781,7 +1781,8 @@ func renderSwarmGlyph(c *ui.Context, keyPrefix string, h SwarmBee, size float32)
 		Size:       size,
 		FontSize:   size * 0.45,
 		Foreground: persona.Color,
-		Background: persona.Color.Alpha(0.18),
-		Border:     persona.Color.Alpha(0.55),
+		Background: persona.Color.Alpha(0.16),
+		Border:     persona.Color.Alpha(0.32),
+		Gradient:   true,
 	})
 }

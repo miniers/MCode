@@ -51,3 +51,48 @@ func TestAvatarInsideButton(t *testing.T) {
 		t.Fatalf("点击次数 = %d", clicks)
 	}
 }
+
+func TestAvatarGradientAndIconScale(t *testing.T) {
+	base := ThemeIdentity("aria")
+	textTester := ui.NewTester(func(c *ui.Context) {
+		Avatar(c, AvatarProps{
+			Name:       "Aria",
+			Size:       40,
+			FontSize:   16,
+			Foreground: ui.Hex("#FFFFFF"),
+			Background: base,
+			Gradient:   true,
+		}).Label("渐变文字头像")
+	}, 100, 100)
+	if !textTester.HasText("A") {
+		t.Error("渐变文字头像未显示首字 A")
+	}
+	if r, ok := textTester.Find("渐变文字头像"); !ok || r.W != 40 || r.H != 40 {
+		t.Errorf("渐变文字头像尺寸 = %v，存在 = %v", r, ok)
+	}
+	if textTester.FramePending() {
+		t.Error("渐变头像应为静态绘制，不应触发下一帧动画")
+	}
+
+	iconTester := ui.NewTester(func(c *ui.Context) {
+		Avatar(c, AvatarProps{
+			Name:       "Aria",
+			Icon:       IconSearch(),
+			Size:       36,
+			FontSize:   14,
+			Foreground: base,
+			Background: base.Alpha(0.16),
+			Border:     base.Alpha(0.32),
+			Gradient:   true,
+		}).Label("渐变图标头像")
+	}, 100, 100)
+	if iconTester.HasText("A") {
+		t.Error("渐变图标头像不应显示名字首字")
+	}
+	if r, ok := iconTester.Find("渐变图标头像"); !ok || r.W != 36 || r.H != 36 {
+		t.Errorf("渐变图标头像尺寸 = %v，存在 = %v", r, ok)
+	}
+	if iconTester.FramePending() {
+		t.Error("渐变图标头像应为静态绘制，不应触发下一帧动画")
+	}
+}

@@ -2969,23 +2969,23 @@ func swarmReportCaptionParts(e swarmReportEntry, h *SwarmBee) (duration string, 
 	return duration, tools, files, added, deleted
 }
 
-// swarmAvatarColors 是名册头像按名字哈希取用的固定八色，依次为蓝、绿、紫、橙、靛蓝、粉红、蓝绿、棕；
+// swarmAvatarColors 是名册头像按名字哈希取用的固定八色，依次为蓝、绿、紫、琥珀、珊瑚红、青、粉、靛蓝；
 // 取自 identityPalette 的人设色，与浮卡外发光、名字同一套色，同一名字颜色恒定。
 var swarmAvatarColors = []ui.Color{
-	ThemeIdentity("isle"),
-	ThemeIdentity("yarrow"),
-	ThemeIdentity("sage"),
-	ThemeIdentity("tide"),
-	ThemeIdentity("zephyr"),
-	ThemeIdentity("jade"),
-	ThemeIdentity("onyx"),
-	ThemeIdentity("wren"),
+	ThemeIdentity("aria"),
+	ThemeIdentity("cora"),
+	ThemeIdentity("dean"),
+	ThemeIdentity("eva"),
+	ThemeIdentity("bram"),
+	ThemeIdentity("finn"),
+	ThemeIdentity("gwen"),
+	ThemeIdentity("hugo"),
 }
 
 // swarmAvatarColor 根据名字哈希返回一组固定的主题色，保证同一名字的颜色稳定。
 func swarmAvatarColor(name string) ui.Color {
 	if len(swarmAvatarColors) == 0 {
-		return ThemeIdentity("isle")
+		return ThemeIdentity("aria")
 	}
 	var h uint32
 	for _, b := range []byte(name) {
@@ -3021,7 +3021,8 @@ func renderSwarmAvatarStack(c *ui.Context, keyPrefix string, entries []swarmRepo
 				}
 				Avatar(c, AvatarProps{
 					Key: avatarKey, Name: entry.Name, Size: 22, FontSize: TypeCaption,
-					Foreground: ThemeOnAccent(c), Background: swarmAvatarColor(entry.Name), Border: ThemeSurface(c),
+					Foreground: ThemeOnAccent(c), Background: findSwarmPersona(entry.Name).Color, Border: ThemeSurface(c),
+					Gradient: true,
 				}).Margin(0, 0, 0, margin)
 			}
 			if hasMore {
@@ -3111,7 +3112,8 @@ func swarmReportPillText(e swarmReportEntry) string {
 func renderSwarmReportAvatar(c *ui.Context, key, name string, size, fontSize float32) {
 	Avatar(c, AvatarProps{
 		Key: key, Name: name, Size: size, FontSize: fontSize,
-		Foreground: ThemeOnAccent(c), Background: swarmAvatarColor(name),
+		Foreground: ThemeOnAccent(c), Background: findSwarmPersona(name).Color,
+		Gradient: true,
 	})
 }
 
