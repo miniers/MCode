@@ -673,28 +673,45 @@ func newChatState(client Client) *chatState {
 	}
 	s.windowActive.Store(true)
 	s.inspector.Persist = func(tid string, st *inspectorSessionState) { inspectorPersistSession(s, tid, st) }
-	htmlCodeRenderer := func(c *ui.Context, b *markdown.CodeBlockView) {
-		ui.Column(c).AlignSelf(ui.Stretch).Children(func() {
-			ui.Row(c).AlignItems(ui.Center).Justify(ui.End).Padding(0, 0, Space1, 0).Children(func() {
-				Button(c, ButtonOpts{
-					Text:    "预览",
-					Label:   "预览 HTML",
-					Size:    ControlXS,
-					Variant: ButtonSecondary,
-					OnClick: func() {
-						openPreviewHTML(s, b.Code())
-					},
+	previewCodeRenderer := func(label string, hideWhileOpen bool, onPreview func(string)) func(c *ui.Context, b *markdown.CodeBlockView) {
+		return func(c *ui.Context, b *markdown.CodeBlockView) {
+			if b == nil {
+				return
+			}
+			if hideWhileOpen && b.Open {
+				markdown.DefaultCodeBlock(c, b)
+				return
+			}
+			ui.Column(c).AlignSelf(ui.Stretch).Children(func() {
+				ui.Row(c).AlignItems(ui.Center).Justify(ui.End).Padding(0, 0, Space1, 0).Children(func() {
+					Button(c, ButtonOpts{
+						Text:    "预览",
+						Label:   label,
+						Size:    ControlXS,
+						Variant: ButtonSecondary,
+						OnClick: func() {
+							onPreview(b.Code())
+						},
+					})
 				})
+				markdown.DefaultCodeBlock(c, b)
 			})
-			markdown.DefaultCodeBlock(c, b)
-		})
+		}
 	}
+	htmlCodeRenderer := previewCodeRenderer("预览 HTML", false, func(code string) {
+		openPreviewHTML(s, code)
+	})
+	mermaidCodeRenderer := previewCodeRenderer("预览 Mermaid", true, func(code string) {
+		openPreviewMermaid(s, code)
+	})
 	s.mdOpts.Code = map[string]func(c *ui.Context, b *markdown.CodeBlockView){
 		"html":      htmlCodeRenderer,
+		"mermaid":   mermaidCodeRenderer,
 		"pr-review": func(c *ui.Context, b *markdown.CodeBlockView) { renderPRReviewCard(c, s, b) },
 	}
 	s.mdStaticOpts.Code = map[string]func(c *ui.Context, b *markdown.CodeBlockView){
 		"html":      htmlCodeRenderer,
+		"mermaid":   mermaidCodeRenderer,
 		"pr-review": func(c *ui.Context, b *markdown.CodeBlockView) { renderPRReviewCard(c, s, b) },
 	}
 	// 选择与右键菜单交给消息容器，避免 Markdown 的内置菜单拦截消息操作。

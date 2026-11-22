@@ -455,6 +455,11 @@ func openPreviewURL(s *chatState, raw string) {
 
 // openPreviewHTML 载入指定 HTML 字符串并显示预览面板。
 func openPreviewHTML(s *chatState, html string) {
+	openPreviewHTMLWith(s, html, false)
+}
+
+// openPreviewHTMLWith 载入指定 HTML 字符串并按指定信任级别显示预览面板。
+func openPreviewHTMLWith(s *chatState, html string, untrusted bool) {
 	if s == nil {
 		return
 	}
@@ -471,7 +476,7 @@ func openPreviewHTML(s *chatState, html string) {
 	st.url = ""
 	st.addr = "html-preview"
 	st.addressEditing = false
-	st.untrusted = false
+	st.untrusted = untrusted
 	st.localPreview = false
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
