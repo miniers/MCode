@@ -354,8 +354,8 @@ func TestFileManagerBinaryOpenDefault(t *testing.T) {
 
 	s.openFileManagerFile("t1", "archive.zip", false)
 	tab := waitInspectorPreviewTab(t, s, "archive.zip")
-	if tab.kind != "binary" {
-		t.Fatalf("二进制文件类型=%q", tab.kind)
+	if tab.kind != "binary" || !tab.binaryLocal {
+		t.Fatalf("二进制文件类型=%q binaryLocal=%v", tab.kind, tab.binaryLocal)
 	}
 
 	tester := ui.NewTester(func(c *ui.Context) { renderFileManagerPanel(c, s) }, 900, 600)
@@ -375,12 +375,49 @@ func TestFileManagerBinaryOpenDefault(t *testing.T) {
 
 	// 非本地文件不显示「用默认应用打开」按钮。
 	s.openFileManagerFile("t1", "remote.bin", false)
-	waitInspectorPreviewTab(t, s, "remote.bin")
+	remoteTab := waitInspectorPreviewTab(t, s, "remote.bin")
+	if remoteTab.kind != "binary" || remoteTab.binaryLocal {
+		t.Fatalf("非本地二进制文件类型=%q binaryLocal=%v", remoteTab.kind, remoteTab.binaryLocal)
+	}
 	tester.Frame()
 	if !tester.HasText("无法预览此文件") {
 		t.Fatalf("非本地二进制文件缺少「无法预览此文件」文案: %v", tester.Texts())
 	}
 	if _, ok := tester.Find("用默认应用打开"); ok {
 		t.Fatal("非本地二进制文件不应显示「用默认应用打开」按钮")
+	}
+}
+
+func TestFileManagerBinaryLocalNoRenderIO(t *testing.T) {
+	workDir := t.TempDir()
+	binPath := filepath.Join(workDir, "archive.zip")
+	if err := os.WriteFile(binPath, []byte{0x50, 0x4b, 0x03, 0x04}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewFakeClient()
+	client.SetThreadWorkDir(workDir)
+	client.SetFileContents(map[string]FileContent{
+		"archive.zip": {Path: "archive.zip", Kind: "binary", TotalSize: 4},
+	})
+	s := newInspectorPreviewState(t, client)
+
+	s.openFileManagerFile("t1", "archive.zip", false)
+	tab := waitInspectorPreviewTab(t, s, "archive.zip")
+	if tab.kind != "binary" || !tab.binaryLocal {
+		t.Fatalf("二进制文件类型=%q binaryLocal=%v", tab.kind, tab.binaryLocal)
+	}
+
+	// 读取完成后删除磁盘文件，验证后续渲染不再每帧调用 os.Stat。
+	if err := os.Remove(binPath); err != nil {
+		t.Fatal(err)
+	}
+
+	tester := ui.NewTester(func(c *ui.Context) { renderFileManagerPanel(c, s) }, 900, 600)
+	for i := 0; i < 3; i++ {
+		tester.Frame()
+		if _, ok := tester.Find("用默认应用打开"); !ok {
+			t.Fatalf("第 %d 帧缺少「用默认应用打开」按钮: %v", i+1, tester.AccessAll())
+		}
 	}
 }

@@ -11,6 +11,7 @@ type fileManagerTabSnapshot struct {
 	path         string
 	temporary    bool
 	kind         string
+	binaryLocal  bool
 	fileLoading  bool
 	fileErr      string
 	content      string
@@ -52,6 +53,7 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			path:         tab.path,
 			temporary:    tab.temporary,
 			kind:         tab.kind,
+			binaryLocal:  tab.binaryLocal,
 			fileLoading:  tab.fileLoading,
 			fileErr:      tab.fileErr,
 			content:      tab.content,

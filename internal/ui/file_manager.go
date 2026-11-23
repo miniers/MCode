@@ -728,7 +728,6 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			})
 	case "binary":
 		abs := fileManagerWorkspacePath(s, fileManagerThreadID(s), tab.path)
-		local := fileManagerLocalPath(abs)
 		ui.Column(c.Key(keyPrefix + "file-manager-binary")).
 			Center().
 			Gap(Space3).
@@ -737,7 +736,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 				ui.Text(c, "无法预览此文件").
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeSecondaryText(c))
-				if local {
+				if tab.binaryLocal {
 					Button(c, ButtonOpts{
 						Key:     keyPrefix + "file-manager-binary-open",
 						Text:    "用默认应用打开",

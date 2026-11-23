@@ -20,6 +20,7 @@ type fileManagerTab struct {
 	temporary    bool
 	gen          int
 	kind         string
+	binaryLocal  bool
 	fileLoading  bool
 	fileErr      string
 	content      string
@@ -89,6 +90,7 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 	tab.path = path
 	tab.temporary = true
 	tab.kind = ""
+	tab.binaryLocal = false
 	tab.fileErr = ""
 	tab.content = ""
 	tab.totalSize = 0
@@ -243,6 +245,10 @@ func (s *chatState) readFileManagerChunk(threadID, filePath string, offset, limi
 func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab, threadID, filePath string, gen int) {
 	go func() {
 		content, err := s.readFileManagerChunk(threadID, filePath, 0, fileManagerTextChunkSize)
+		var binaryLocal bool
+		if err == nil && content.Kind == "binary" {
+			binaryLocal = fileManagerLocalPath(fileManagerWorkspacePath(s, threadID, filePath))
+		}
 
 		fileManagerMu.Lock()
 		if !st.tabLiveLocked(tab, gen) {
@@ -261,6 +267,7 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 			// SVG 一律尝试解析，但只有完整读入且通过上限/外链检查时才有预览。
 			svg := fileManagerSVGForContent(filePath, content.Text, content.TotalSize, content.HasMore)
 			tab.kind = content.Kind
+			tab.binaryLocal = binaryLocal
 			tab.content = content.Text
 			tab.totalSize = content.TotalSize
 			tab.nextOffset = content.NextOffset
@@ -304,10 +311,15 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 			}
 			if chunk.Kind != "" && chunk.Kind != "image" {
 				// 读取过程中类型变了（文件被改写）：按二进制处理，不再拼接。
+				var binaryLocal bool
+				if chunk.Kind == "binary" {
+					binaryLocal = fileManagerLocalPath(fileManagerWorkspacePath(s, threadID, filePath))
+				}
 				fileManagerMu.Lock()
 				if st.tabLiveLocked(tab, gen) {
 					tab.fileLoading = false
 					tab.kind = chunk.Kind
+					tab.binaryLocal = binaryLocal
 					tab.imageData = nil
 					tab.imageBmp = nil
 					tab.totalSize = chunk.TotalSize
