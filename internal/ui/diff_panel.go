@@ -193,6 +193,20 @@ func (s *chatState) toggleGitTabScope(targetScope string) {
 	s.invalidate()
 }
 
+// cancelDiffLoad 让进行中的差异/审阅加载失效并复位 loading 状态；过期回包到达时会因 requestGen 不匹配而丢弃。
+func (s *chatState) cancelDiffLoad(dp *diffPanelState) {
+	if dp == nil {
+		return
+	}
+	diffPanelMu.Lock()
+	dp.requestGen++
+	dp.loading = false
+	diffPanelMu.Unlock()
+	if s != nil {
+		s.invalidate()
+	}
+}
+
 // loadDiff 在后台异步加载指定会话或轮次的代码差异。
 func (s *chatState) loadDiff(threadID, turnID string) {
 	if s == nil {

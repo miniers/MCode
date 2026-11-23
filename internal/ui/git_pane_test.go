@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -158,13 +159,17 @@ func TestGitPaneSyncButtonLabels(t *testing.T) {
 				t.Fatalf("同步状态 = %s/%s", label, action)
 			}
 			tt := ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, tc.state, 600) }, 600, 100)
-			if node, ok := tt.Access(tc.label); !ok || node.Disabled {
+			btnLabel := tc.label
+			if tc.action == "fetch" {
+				btnLabel = "刷新"
+			}
+			if node, ok := tt.Access(btnLabel); !ok || node.Disabled || node.Description != btnLabel {
 				t.Fatalf("同步按钮 = %+v，%v", node, ok)
 			}
 			if tc.action != "fetch" && !tt.HasText(tc.label) {
 				t.Fatalf("缺少同步文案 %s", tc.label)
 			}
-			if err := tt.Click(tc.label); err != nil {
+			if err := tt.Click(btnLabel); err != nil {
 				t.Fatal(err)
 			}
 			gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.syncing })
@@ -199,20 +204,24 @@ func TestGitPaneToolbarBackgroundRefresh(t *testing.T) {
 }
 
 func TestGitPaneDetachedAndNarrowToolbar(t *testing.T) {
-	s, ps, _ := gitPaneTestState(t)
+	s, ps, client := gitPaneTestState(t)
 	state := GitState{WorkDir: "/repo", Detached: true, Head: "0123456789", HasUpstream: true, Ahead: 1}
 	tt := ui.NewTester(func(c *ui.Context) { renderGitPaneToolbar(c, s, ps, state, 350) }, 350, 100)
-	if node, ok := tt.Access("推送 ↑1"); !ok || !node.Disabled || node.Description != "分离 HEAD 时无法同步" {
+	if node, ok := tt.Access("刷新"); !ok || node.Disabled || node.Description != "刷新" {
 		t.Fatalf("分离 HEAD 按钮 = %+v，%v", node, ok)
 	}
-	labels := 0
-	for _, text := range tt.Texts() {
-		if text == "推送 ↑1" {
-			labels++
-		}
+	if tt.HasText("推送 ↑1") || !tt.HasText("0123456") {
+		t.Fatalf("分离 HEAD 文案或短哈希错误：%q", tt.Texts())
 	}
-	if labels != 1 || !tt.HasText("0123456") {
-		t.Fatalf("窄面板文案或短哈希错误：%q", tt.Texts())
+	if err := tt.Click("刷新"); err != nil {
+		t.Fatal(err)
+	}
+	gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.refreshing })
+	client.paneMu.Lock()
+	calls := append([]string(nil), client.calls...)
+	client.paneMu.Unlock()
+	if slices.Contains(calls, "fetch") || slices.Contains(calls, "push") {
+		t.Fatalf("分离 HEAD 点击刷新不应触发远端操作：%v", calls)
 	}
 }
 
@@ -708,13 +717,15 @@ func TestGitPaneMenuSinglePull(t *testing.T) {
 	if err := tt.Click("Git 更多操作"); err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"抓取", "拉取（变基）", "拉取（合并）"} {
+	for _, label := range []string{"拉取（变基）", "拉取（合并）"} {
 		if _, ok := tt.Access(label); ok {
 			t.Fatalf("菜单不应再有 %q", label)
 		}
 	}
-	if _, ok := tt.Access("拉取"); !ok {
-		t.Fatal("菜单缺少「拉取」")
+	for _, label := range []string{"抓取", "拉取"} {
+		if _, ok := tt.Access(label); !ok {
+			t.Fatalf("菜单缺少「%s」", label)
+		}
 	}
 	if err := tt.Click("拉取"); err != nil {
 		t.Fatal(err)
@@ -1234,5 +1245,437 @@ func TestGitPaneHasUnmergedBees(t *testing.T) {
 	}
 	if gitPaneHasUnmergedBees("", SwarmState{Bees: []SwarmBee{{Status: "completed"}}}) {
 		t.Fatal("空会话误匹配")
+	}
+}
+
+func TestGitPaneHeaderSingleRefreshAndMore(t *testing.T) {
+	setAppReduceMotion(t, true)
+	_, ps, h, client, _, start := gitAllTimelineSetup(t, 480, 600)
+	client.state.HasUpstream = true
+	client.log = []git.LogCommit{{SHA: "sha-1", Subject: "初始提交", AuthorTime: time.Now()}}
+	client.entries = []git.StatusEntry{{Path: "a.go", Worktree: 'M'}}
+	ps.mu.Lock()
+	ps.state.HasUpstream = true
+	ps.entries = slices.Clone(client.entries)
+	ps.mu.Unlock()
+	client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{
+		Scope:        "uncommitted",
+		HeadRevision: "work",
+		Files:        []ReviewFile{{Path: "a.go", Status: "M", Additions: 1}},
+	})
+
+	tt := start()
+	gitHistoryWaitLoaded(t, h)
+	waitFor(t, tt, func() bool { return tt.HasText("a.go") && tt.HasText("初始提交") })
+
+	for _, forbidden := range []string{"diff-refresh-btn", "diff-more-btn", "git-all-wip-more", "改动更多操作", "未提交操作", "刷新改动"} {
+		if _, ok := tt.Find(forbidden); ok {
+			t.Fatalf("Git 面板不应再存在旧控件 %q", forbidden)
+		}
+	}
+	refreshCount, moreCount := 0, 0
+	for _, a := range tt.AccessAll() {
+		if a.Role == ui.RoleButton && a.Name == "刷新" {
+			refreshCount++
+		}
+		if a.Role == ui.RoleButton && a.Name == "Git 更多操作" {
+			moreCount++
+		}
+	}
+	if refreshCount != 1 || moreCount != 1 {
+		t.Fatalf("应只有一个刷新/同步按钮和一个 ⋯：refresh=%d more=%d", refreshCount, moreCount)
+	}
+
+	// !hasGit && modern 时第 2 行继续使用 renderDiffHeaderActions。
+	noGitFake := NewFakeClient()
+	noGitFake.SetReviewSnapshot("t1", "uncommitted", "", "", ReviewSnapshot{
+		Scope:        "uncommitted",
+		HeadRevision: "h1",
+		Files:        []ReviewFile{{Path: "x.go", Status: "M"}},
+	})
+	noGitState := newChatState(noGitFake)
+	t.Cleanup(noGitState.close)
+	noGitState.mu.Lock()
+	noGitState.selectedThreadID = "t1"
+	noGitState.mu.Unlock()
+	noGitDP := getDiffPanelState(noGitState)
+	diffPanelMu.Lock()
+	noGitDP.scope = "all"
+	diffPanelMu.Unlock()
+	noGitState.loadDiff("t1", "")
+	ttNoGit := ui.NewTester(func(c *ui.Context) { renderGitPane(c, noGitState) }, 480, 400)
+	waitFor(t, ttNoGit, func() bool { return ttNoGit.HasText("x.go") })
+	if _, ok := ttNoGit.Find("Git 更多操作"); ok {
+		t.Fatal("无 Git 能力时不应渲染第 1 行")
+	}
+	if _, ok := ttNoGit.Access("改动更多操作"); !ok {
+		t.Fatal("无 Git 能力但为 modern 客户端时第 2 行应保留 renderDiffHeaderActions")
+	}
+}
+
+func TestGitPaneHeaderUnifiedMoreMenu(t *testing.T) {
+	setAppReduceMotion(t, true)
+	s, ps, h, client, dp, _ := gitAllTimelineSetup(t, 760, 720)
+	client.state.RemoteURL = "git@github.com:owner/repo.git"
+	client.log = []git.LogCommit{{SHA: "sha-1", Subject: "初始提交", AuthorTime: time.Now()}}
+	client.entries = []git.StatusEntry{{Path: "a.go", Worktree: 'M'}}
+	ps.mu.Lock()
+	ps.state = client.state
+	ps.entries = slices.Clone(client.entries)
+	ps.mu.Unlock()
+	client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{
+		Scope:        "uncommitted",
+		HeadRevision: "work",
+		Files:        []ReviewFile{{Path: "a.go", Status: "M"}},
+	})
+	client.SetReviewSnapshot("git-test", "turn", "", "", ReviewSnapshot{
+		Scope:        "turn",
+		HeadRevision: "turn-h",
+		Files:        []ReviewFile{{Path: "a.go", Status: "M"}},
+	})
+	s.mu.Lock()
+	s.messages = []Message{
+		{ID: "m1", TurnID: "turn-1", TurnIndex: 0},
+		{ID: "m2", TurnID: "turn-2", TurnIndex: 1},
+	}
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPane(c, s) }, 760, 720)
+	gitHistoryWaitLoaded(t, h)
+	waitFor(t, tt, func() bool { return tt.HasText("a.go") })
+
+	if err := tt.Click("Git 更多操作"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	for _, want := range []string{
+		"刷新改动", "抓取", "拉取", "强制推送…",
+		"并排显示", "全部展开", "全部收起",
+		"全部暂存", "全部取消暂存", "贮藏…", "全部撤销…",
+		"创建 PR…", "查看 Pull Request…", "打开仓库", "远端…",
+	} {
+		if _, ok := tt.Access(want); !ok {
+			t.Fatalf("⋯ 浮层缺少菜单项 %q，texts=%v", want, tt.Texts())
+		}
+	}
+	if _, ok := tt.Access("轮次"); ok {
+		t.Fatal("all 范围不应显示轮次")
+	}
+
+	// 切到 turn 范围时显示「轮次」，且不显示仅 all 可用的批量暂存/撤销项。
+	s.selectReviewScope(dp, "turn")
+	waitFor(t, tt, func() bool {
+		diffPanelMu.Lock()
+		defer diffPanelMu.Unlock()
+		return !dp.loading && dp.scope == "turn"
+	})
+	tt.Frame()
+	if _, ok := tt.Access("全部暂存"); ok {
+		t.Fatal("turn 范围不应显示全部暂存")
+	}
+	if _, ok := tt.Access("轮次"); !ok {
+		t.Fatal("turn 范围且多轮时应显示轮次")
+	}
+	if err := tt.Click("轮次"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Access("最新一轮"); !ok {
+		t.Fatal("展开轮次后缺少「最新一轮」")
+	}
+	if _, ok := tt.Access("第 2 轮"); !ok {
+		t.Fatal("展开轮次后缺少「第 2 轮」")
+	}
+}
+
+type gitHeaderStopClient struct {
+	*gitTabMergedFakeClient
+	diffStarted chan struct{}
+	diffRelease chan struct{}
+	diffDone    chan struct{}
+}
+
+func (f *gitHeaderStopClient) ReviewGet(ctx context.Context, tid, scope, turn, path string) (ReviewSnapshot, error) {
+	if scope == "uncommitted" && f.diffStarted != nil {
+		close(f.diffStarted)
+		<-f.diffRelease
+		defer close(f.diffDone)
+		return ReviewSnapshot{
+			Scope:        "uncommitted",
+			HeadRevision: "late",
+			Files:        []ReviewFile{{Path: "late.go", Status: "M"}},
+		}, nil
+	}
+	return f.gitTabMergedFakeClient.ReviewGet(ctx, tid, scope, turn, path)
+}
+
+func TestGitPaneHeaderStopCancelsAll(t *testing.T) {
+	setAppReduceMotion(t, true)
+	s, ps, _, base, dp, _ := gitAllTimelineSetup(t, 600, 480)
+	client := &gitHeaderStopClient{
+		gitTabMergedFakeClient: base,
+		diffStarted:            make(chan struct{}),
+		diffRelease:            make(chan struct{}),
+		diffDone:               make(chan struct{}),
+	}
+	s.client = client
+
+	pullStarted := make(chan context.Context, 1)
+	refreshStarted := make(chan context.Context, 1)
+	var pullOnce, refreshOnce sync.Once
+	base.pullHook = func(ctx context.Context) error {
+		pullOnce.Do(func() { pullStarted <- ctx })
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	base.stateHook = func(ctx context.Context) (GitState, error) {
+		refreshOnce.Do(func() { refreshStarted <- ctx })
+		<-ctx.Done()
+		return GitState{}, ctx.Err()
+	}
+
+	diffPanelMu.Lock()
+	dp.threadID = ps.threadID
+	dp.requestGen = 1
+	diffPanelMu.Unlock()
+
+	s.loadDiff(ps.threadID, "")
+	select {
+	case <-client.diffStarted:
+	case <-time.After(time.Second):
+		t.Fatal("diff 请求未开始")
+	}
+	ps.run("sync")
+	var pullCtx context.Context
+	select {
+	case pullCtx = <-pullStarted:
+	case <-time.After(time.Second):
+		t.Fatal("sync 未开始")
+	}
+	ps.requestRefresh()
+	var refreshCtx context.Context
+	select {
+	case refreshCtx = <-refreshStarted:
+	case <-time.After(time.Second):
+		t.Fatal("状态刷新未开始")
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPane(c, s) }, 600, 480)
+	tt.Frame()
+	if err := tt.Click("停止"); err != nil {
+		t.Fatalf("点击停止失败: %v", err)
+	}
+
+	gitPaneWait(t, func() bool { return pullCtx.Err() == context.Canceled && refreshCtx.Err() == context.Canceled })
+	diffPanelMu.Lock()
+	loadingAfterStop := dp.loading
+	diffPanelMu.Unlock()
+	if loadingAfterStop {
+		t.Fatal("点击停止后 dp.loading 未复位为 false")
+	}
+
+	close(client.diffRelease)
+	select {
+	case <-client.diffDone:
+	case <-time.After(time.Second):
+		t.Fatal("迟到的 diff 请求未结束")
+	}
+	tt.Frame()
+
+	diffPanelMu.Lock()
+	loadingFinal := dp.loading
+	files := append([]ReviewFile(nil), dp.snapshot.Files...)
+	diffPanelMu.Unlock()
+	if loadingFinal {
+		t.Fatal("迟到的 diff 回包不应重新把 dp.loading 设为 true")
+	}
+	for _, f := range files {
+		if f.Path == "late.go" {
+			t.Fatal("迟到的 diff 结果未被丢弃")
+		}
+	}
+}
+
+func TestGitPaneHeaderDetachedOnlyRefreshesLocally(t *testing.T) {
+	setAppReduceMotion(t, true)
+	s, ps, h, client, _, start := gitAllTimelineSetup(t, 480, 500)
+	client.state = GitState{WorkDir: client.state.WorkDir, Detached: true, Head: "0123456789abcdef", HasUpstream: true, Ahead: 2}
+	client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{Scope: "uncommitted", HeadRevision: "h1"})
+	ps.mu.Lock()
+	ps.state = client.state
+	ps.mu.Unlock()
+
+	tt := start()
+	gitHistoryWaitLoaded(t, h)
+	waitFor(t, tt, func() bool { return tt.HasText("0123456") })
+
+	node, ok := tt.Access("刷新")
+	if !ok || node.Disabled || node.Description != "刷新" {
+		t.Fatalf("分离 HEAD 刷新按钮状态错误: %+v ok=%v", node, ok)
+	}
+	beforeReview := len(client.ReviewGetCalls())
+	stateCalls := 0
+	var stateMu sync.Mutex
+	client.stateHook = func(context.Context) (GitState, error) {
+		stateMu.Lock()
+		stateCalls++
+		stateMu.Unlock()
+		return client.state, nil
+	}
+	if err := tt.Click("刷新"); err != nil {
+		t.Fatal(err)
+	}
+	gitPaneWait(t, func() bool {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		return stateCalls > 0 && len(client.ReviewGetCalls()) > beforeReview
+	})
+	gitPaneWait(t, func() bool { ps.mu.Lock(); defer ps.mu.Unlock(); return !ps.refreshing })
+	client.paneMu.Lock()
+	calls := append([]string(nil), client.calls...)
+	client.paneMu.Unlock()
+	if slices.Contains(calls, "fetch") {
+		t.Fatalf("分离 HEAD 点击刷新不应触发 fetch：%v", calls)
+	}
+
+	// 无工作目录时禁用。
+	ps.mu.Lock()
+	ps.state = GitState{}
+	ps.mu.Unlock()
+	tt.Frame()
+	if node, ok := tt.Access("刷新"); !ok || !node.Disabled {
+		t.Fatalf("无工作目录时应禁用刷新按钮: %+v ok=%v", node, ok)
+	}
+	_ = s
+}
+
+func TestGitPaneHeaderSearchAndBranchFilterOnlyInAllScope(t *testing.T) {
+	setAppReduceMotion(t, true)
+	s, ps, h, client, dp, start := gitAllTimelineSetup(t, 480, 600)
+	client.log = []git.LogCommit{{SHA: "sha-1", Subject: "初始提交", AuthorTime: time.Now()}}
+	client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{Scope: "uncommitted", HeadRevision: "h1"})
+	client.SetReviewSnapshot("git-test", "turn", "", "", ReviewSnapshot{Scope: "turn", HeadRevision: "t1"})
+	client.SetReviewSnapshot("git-test", "session", "", "", ReviewSnapshot{Scope: "session", HeadRevision: "s1"})
+
+	tt := start()
+	gitHistoryWaitLoaded(t, h)
+	tt.Frame()
+
+	if _, ok := tt.Find("git-history-filters"); ok {
+		t.Fatal("不应再存在第 3 层独立的 git-history-filters")
+	}
+	allRect, okAll := tt.Find("全部")
+	searchRect, okSearch := tt.Find("搜索提交")
+	branchRect, okBranch := tt.Find("当前分支")
+	if !okAll || !okSearch || !okBranch {
+		t.Fatalf("all 范围第 2 行缺少分段或历史筛选控件: all=%v search=%v branch=%v", okAll, okSearch, okBranch)
+	}
+	if !(allRect.Y < searchRect.Y+searchRect.H && searchRect.Y < allRect.Y+allRect.H && allRect.Y < branchRect.Y+branchRect.H && branchRect.Y < allRect.Y+allRect.H) {
+		t.Fatalf("搜索与分支筛选应与分段控件在同一行: all=%+v search=%+v branch=%+v", allRect, searchRect, branchRect)
+	}
+
+	// 点 🔍 后整行换成 SearchField + 当前分支，按 Esc 恢复分段控件。
+	if err := tt.Click("搜索提交"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("全部"); ok {
+		t.Fatal("展开搜索后分段控件应暂时隐藏")
+	}
+	if _, ok := tt.Find("当前分支"); !ok {
+		t.Fatal("展开搜索后「当前分支」应保留在右侧")
+	}
+	tt.Type("初始")
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if _, ok := tt.Find("全部"); !ok {
+		t.Fatal("按 Esc 后应恢复分段控件")
+	}
+
+	// 窄宽下带文件过滤 chip 时不溢出。
+	openGitFileHistory(ps, "very/long/nested/directory/some_very_long_component_filename.go")
+	tt.SetSize(360, 600)
+	tt.Frame()
+	chipRect, okChip := tt.Find("清除文件过滤")
+	scopeRect, okScope := tt.Find("当前分支")
+	if !okChip || !okScope {
+		t.Fatalf("窄宽下缺少文件过滤 chip 或分支筛选: chip=%v scope=%v", okChip, okScope)
+	}
+	if chipRect.X+chipRect.W > 360 || scopeRect.X+scopeRect.W > 360 {
+		t.Fatalf("窄宽下第 2 行溢出 360: chip=%+v scope=%+v", chipRect, scopeRect)
+	}
+
+	// turn 与 session 范围不显示搜索和分支筛选。
+	for _, target := range []string{"turn", "session"} {
+		s.selectReviewScope(dp, target)
+		tt.Frame()
+		if _, ok := tt.Find("搜索提交"); ok {
+			t.Fatalf("%s 范围不应显示搜索提交", target)
+		}
+		if _, ok := tt.Find("当前分支"); ok {
+			t.Fatalf("%s 范围不应显示当前分支筛选", target)
+		}
+	}
+}
+
+func TestGitPaneHeaderCommentsStripAnimatesAndSettles(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce=%v", reduced), func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
+			s, ps, h, client, dp, _ := gitAllTimelineSetup(t, 480, 600)
+			client.log = []git.LogCommit{{SHA: "sha-1", Subject: "初始提交", AuthorTime: time.Now()}}
+			client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{Scope: "uncommitted", HeadRevision: "h1"})
+
+			builds := 0
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				builds++
+				renderGitPane(c, s)
+			}, 480, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+			gitHistoryWaitLoaded(t, h)
+			tt.Frame()
+			tt.Advance(2 * DurSlow)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("初始静止时不应继续请求下一帧")
+			}
+
+			// 添加未附着批注，触发批注提示条展开。
+			diffPanelMu.Lock()
+			dp.comments = append(dp.comments, &reviewComment{
+				id:   1,
+				key:  reviewDiffKey{threadID: ps.threadID, workspace: client.state.WorkDir, scope: "all", head: "h1", path: "a.go"},
+				body: "需要调整",
+			})
+			diffPanelMu.Unlock()
+			tt.Frame()
+			if !tt.HasText("添加到对话 1") {
+				t.Fatalf("有未添加批注时应显示提示条，texts=%v", tt.Texts())
+			}
+
+			tt.Advance(2 * DurSlow)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("批注提示条展开动画结束后仍在请求下一帧")
+			}
+			settled := builds
+			tt.Advance(time.Second)
+			if tt.FramePending() || builds != settled {
+				t.Fatalf("静止后不应重绘: pending=%v builds=%d->%d", tt.FramePending(), settled, builds)
+			}
+
+			// 移除批注，收起动画结束后同样静止。
+			diffPanelMu.Lock()
+			dp.comments = nil
+			diffPanelMu.Unlock()
+			tt.Frame()
+			tt.Advance(2 * DurSlow)
+			tt.Frame()
+			if tt.HasText("添加到对话 1") {
+				t.Fatal("清空批注后提示条应消失")
+			}
+			if tt.FramePending() {
+				t.Fatal("批注提示条收起动画结束后仍在请求下一帧")
+			}
+		})
 	}
 }

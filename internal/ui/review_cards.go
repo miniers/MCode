@@ -517,69 +517,183 @@ func openReviewUncommitted(s *chatState, path string) {
 	s.selectReviewScope(dp, "all")
 }
 
-// renderReviewHeaderMenu 是标题栏「⋯」：并排显示、全部展开或收起、轮次与「未提交」的批量操作。
-func renderReviewHeaderMenu(m *ui.Menu, s *chatState, dp *diffPanelState, tid string, data ThreadDiff, turnID string) {
+type reviewHeaderMenuItem struct {
+	key      string
+	label    string
+	tooltip  string
+	checked  bool
+	danger   bool
+	disabled bool
+	onClick  func()
+}
+
+type reviewHeaderTurnOption struct {
+	label   string
+	checked bool
+	onClick func()
+}
+
+type reviewHeaderMenuData struct {
+	viewItems  []reviewHeaderMenuItem
+	turns      []reviewHeaderTurnOption
+	stageItems []reviewHeaderMenuItem
+	discardAll *reviewHeaderMenuItem
+}
+
+func buildReviewHeaderMenuData(s *chatState, dp *diffPanelState, tid string, data ThreadDiff, turnID, scope string) reviewHeaderMenuData {
 	diffPanelMu.Lock()
-	split, width, scope := dp.preferSplit, dp.reviewWidth, reviewScope(dp.scope)
+	split, width := dp.preferSplit, dp.reviewWidth
 	files := dp.snapshot.Files
 	diffPanelMu.Unlock()
-	if m.Item("并排显示").Checked(split).Disabled(width < reviewWideWidth).Tooltip(fmt.Sprintf("面板宽于 %d 时可用", int(reviewWideWidth))).Chosen() {
-		diffPanelMu.Lock()
-		dp.preferSplit = !split
-		diffPanelMu.Unlock()
-		s.invalidate()
+
+	out := reviewHeaderMenuData{
+		viewItems: []reviewHeaderMenuItem{
+			{
+				key:      "split",
+				label:    "并排显示",
+				checked:  split,
+				disabled: width < reviewWideWidth,
+				tooltip:  fmt.Sprintf("面板宽于 %d 时可用", int(reviewWideWidth)),
+				onClick: func() {
+					diffPanelMu.Lock()
+					dp.preferSplit = !split
+					diffPanelMu.Unlock()
+					s.invalidate()
+				},
+			},
+			{
+				key:      "expand-all",
+				label:    "全部展开",
+				disabled: len(files) == 0,
+				onClick: func() {
+					diffPanelMu.Lock()
+					for _, file := range files {
+						setReviewCardOpenLocked(dp, file.Path, true)
+					}
+					diffPanelMu.Unlock()
+					s.invalidate()
+				},
+			},
+			{
+				key:      "collapse-all",
+				label:    "全部收起",
+				disabled: len(files) == 0,
+				onClick: func() {
+					diffPanelMu.Lock()
+					for _, file := range files {
+						setReviewCardOpenLocked(dp, file.Path, false)
+					}
+					diffPanelMu.Unlock()
+					s.invalidate()
+				},
+			},
+		},
 	}
-	for _, item := range []struct {
-		label string
-		open  bool
-	}{{"全部展开", true}, {"全部收起", false}} {
-		if m.Item(item.label).Disabled(len(files) == 0).Chosen() {
-			diffPanelMu.Lock()
-			for _, file := range files {
-				setReviewCardOpenLocked(dp, file.Path, item.open)
-			}
-			diffPanelMu.Unlock()
-			s.invalidate()
-		}
-	}
+
 	if scope == "turn" && len(data.Turns) > 1 {
-		m.Separator()
-		m.Submenu("轮次", func(m *ui.Menu) {
-			if m.Item("最新一轮").Radio(turnID == "").Chosen() {
+		out.turns = append(out.turns, reviewHeaderTurnOption{
+			label:   "最新一轮",
+			checked: turnID == "",
+			onClick: func() {
 				inspectorFollowPause(s, "")
 				s.loadDiff(tid, "")
-			}
-			for i := len(data.Turns) - 1; i >= 0; i-- {
-				t := data.Turns[i]
-				if m.Item(fmt.Sprintf("第 %d 轮", t.Index+1)).Radio(turnID == t.TurnID).Chosen() {
-					inspectorFollowPause(s, "")
-					s.loadDiff(tid, t.TurnID)
-				}
-			}
+			},
 		})
+		for i := len(data.Turns) - 1; i >= 0; i-- {
+			t := data.Turns[i]
+			targetTurn := t.TurnID
+			out.turns = append(out.turns, reviewHeaderTurnOption{
+				label:   fmt.Sprintf("第 %d 轮", t.Index+1),
+				checked: turnID == targetTurn,
+				onClick: func() {
+					inspectorFollowPause(s, "")
+					s.loadDiff(tid, targetTurn)
+				},
+			})
+		}
 	}
+
 	g := reviewGitFor(s, scope)
 	if g == nil {
-		return
+		return out
 	}
 	g.ps.mu.Lock()
 	groups := gitChangesGroups(g.ps.entries)
 	g.ps.mu.Unlock()
+	out.stageItems = []reviewHeaderMenuItem{
+		{
+			key:      "stage-all",
+			label:    "全部暂存",
+			disabled: g.busy || len(groups[2].entries) == 0,
+			onClick: func() {
+				gitChangesRun(g.ps, g.st, "group:2", func(ctx context.Context) error {
+					return g.client.GitStageFiles(ctx, tid, gitChangesPaths(groups[2].entries))
+				})
+			},
+		},
+		{
+			key:      "unstage-all",
+			label:    "全部取消暂存",
+			disabled: g.busy || len(groups[1].entries) == 0,
+			onClick: func() {
+				gitChangesRun(g.ps, g.st, "group:1", func(ctx context.Context) error {
+					return g.client.GitUnstageFiles(ctx, tid, gitChangesPaths(groups[1].entries))
+				})
+			},
+		},
+	}
+	out.discardAll = &reviewHeaderMenuItem{
+		key:      "discard-all",
+		label:    "全部撤销…",
+		danger:   true,
+		disabled: g.busy || len(groups[2].entries) == 0 || gitPaneAgentBusy(s, tid),
+		onClick: func() {
+			g.st.mu.Lock()
+			g.st.confirm = true
+			g.st.mu.Unlock()
+			s.invalidate()
+		},
+	}
+	return out
+}
+
+// renderReviewHeaderMenu 是独立差异面板标题栏「⋯」：并排显示、全部展开或收起、轮次与「未提交」的批量操作。
+func renderReviewHeaderMenu(m *ui.Menu, s *chatState, dp *diffPanelState, tid string, data ThreadDiff, turnID string) {
+	diffPanelMu.Lock()
+	scope := reviewScope(dp.scope)
+	diffPanelMu.Unlock()
+	menuData := buildReviewHeaderMenuData(s, dp, tid, data, turnID, scope)
+	for _, it := range menuData.viewItems {
+		item := m.Item(it.label).Checked(it.checked).Disabled(it.disabled)
+		if it.tooltip != "" {
+			item = item.Tooltip(it.tooltip)
+		}
+		if item.Chosen() {
+			it.onClick()
+		}
+	}
+	if len(menuData.turns) > 0 {
+		m.Separator()
+		m.Submenu("轮次", func(m *ui.Menu) {
+			for _, opt := range menuData.turns {
+				if m.Item(opt.label).Radio(opt.checked).Chosen() {
+					opt.onClick()
+				}
+			}
+		})
+	}
+	if len(menuData.stageItems) == 0 && menuData.discardAll == nil {
+		return
+	}
 	m.Separator()
-	if m.Item("全部暂存").Disabled(g.busy || len(groups[2].entries) == 0).Chosen() {
-		gitChangesRun(g.ps, g.st, "group:2", func(ctx context.Context) error {
-			return g.client.GitStageFiles(ctx, tid, gitChangesPaths(groups[2].entries))
-		})
+	for _, it := range menuData.stageItems {
+		if m.Item(it.label).Disabled(it.disabled).Chosen() {
+			it.onClick()
+		}
 	}
-	if m.Item("全部取消暂存").Disabled(g.busy || len(groups[1].entries) == 0).Chosen() {
-		gitChangesRun(g.ps, g.st, "group:1", func(ctx context.Context) error {
-			return g.client.GitUnstageFiles(ctx, tid, gitChangesPaths(groups[1].entries))
-		})
-	}
-	if m.Item("全部撤销…").Danger().Disabled(g.busy || len(groups[2].entries) == 0 || gitPaneAgentBusy(s, tid)).Chosen() {
-		g.st.mu.Lock()
-		g.st.confirm = true
-		g.st.mu.Unlock()
-		s.invalidate()
+	if it := menuData.discardAll; it != nil {
+		if m.Item(it.label).Danger().Disabled(it.disabled).Chosen() {
+			it.onClick()
+		}
 	}
 }

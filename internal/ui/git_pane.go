@@ -96,8 +96,8 @@ type gitPaneState struct {
 	undoTimer                    *time.Timer
 	undoSeq                      uint64
 	// 浮层与弹窗只由 UI 线程读写。
-	branchOpen, menuOpen, forceOpen, detailOpen bool
-	forceBranch                                 string
+	branchOpen, menuOpen, turnsOpen, forceOpen, detailOpen bool
+	forceBranch                                            string
 	stash                                       *gitStashDialog
 	prCreate                                    *gitPRCreateDialog
 	remotesOpen                                 bool
@@ -384,7 +384,7 @@ func gitPaneWatchRoot(state GitState) string {
 
 func (ps *gitPaneState) ensureWatch(root string) {
 	ps.mu.Lock()
-	if ps.disposed || !ps.visible || root == ps.watchRoot {
+	if ps.disposed || !ps.visible || root == ps.watchRoot || ps.lifeCtx == nil || ps.lifeCtx.Err() != nil {
 		ps.mu.Unlock()
 		return
 	}
@@ -616,6 +616,30 @@ func (ps *gitPaneState) run(action string) {
 	}()
 }
 
+func (ps *gitPaneState) stopSyncAndRefresh(s *chatState, dp *diffPanelState) {
+	ps.mu.Lock()
+	cancel := ps.cancel
+	refreshCancel := ps.refreshCancel
+	ps.pending = false
+	ps.loading = false
+	ps.refreshSeq++
+	ps.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if refreshCancel != nil {
+		refreshCancel()
+	}
+	if s != nil {
+		s.cancelDiffLoad(dp)
+	} else if dp != nil {
+		diffPanelMu.Lock()
+		dp.requestGen++
+		dp.loading = false
+		diffPanelMu.Unlock()
+	}
+}
+
 func renderGitPane(c *ui.Context, s *chatState) {
 	ps := getGitPaneState(s)
 	if ps == nil {
@@ -641,6 +665,7 @@ func renderGitPane(c *ui.Context, s *chatState) {
 
 	_, hasGit := s.client.(gitPaneClient)
 	_, modern := s.client.(reviewClient)
+	_, hasHist := s.client.(gitHistoryClient)
 	if !hasGit && scope == "all" && !(modern && hasLoadedReview) {
 		renderGitPaneEmpty(c, "Git", IconGitBranch())
 		return
@@ -655,6 +680,9 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		ps.mu.Lock()
 		state, syncing, progress, loading = ps.state, ps.syncing, ps.progress, ps.loading
 		ps.mu.Unlock()
+	}
+	if hasGit && modern && hasHist && state.WorkDir != "" && scope == "all" {
+		handleGitHistorySearchShortcut(c, gitHistoryStateFor(ps))
 	}
 	pane := ui.Column(c.Key("git-pane")).Fill().MinWidth(0)
 	pane.Draw(func(_ *ui.Painter, r ui.Rect) {
@@ -679,6 +707,7 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		if modern {
 			ui.Row(c.Key("git-pane-filter-bar")).
 				FillWidth().
+				MinWidth(0).
 				Height(diffHeaderHeight).
 				Shrink(0).
 				Padding(0, Space2, 0, Space3).
@@ -687,10 +716,17 @@ func renderGitPane(c *ui.Context, s *chatState) {
 				AlignItems(ui.Center).
 				Gap(Space1).
 				Children(func() {
-					renderReviewScope(c, s, dp)
-					ui.Spacer(c)
-					renderDiffHeaderActions(c, s, dp, ps.threadID, turnID, reviewTurns(s), diffLoading, true)
+					if !hasGit {
+						renderReviewScope(c, s, dp)
+						ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
+						renderDiffHeaderActions(c, s, dp, ps.threadID, turnID, reviewTurns(s), diffLoading, true)
+						return
+					}
+					renderGitPaneFilterBar(c, s, ps, dp, state, scope, hasHist)
 				})
+			if hasGit {
+				renderGitPaneCommentsStrip(c, s, dp, ps.threadID)
+			}
 		}
 		content := ui.Column(c.Key("git-pane-content")).Grow(1).MinHeight(0).FillWidth()
 		contentH := content.Bounds().H
@@ -741,9 +777,63 @@ func renderGitPane(c *ui.Context, s *chatState) {
 	}
 }
 
+func renderGitPaneFilterBar(c *ui.Context, s *chatState, ps *gitPaneState, dp *diffPanelState, state GitState, scope string, hasHist bool) {
+	if scope != "all" || !hasHist || state.WorkDir == "" {
+		renderReviewScope(c, s, dp)
+		ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
+		return
+	}
+	h := gitHistoryStateFor(ps)
+	h.mu.Lock()
+	searchOpen, search, all, path, writeIndicator := h.searchOpen, h.search, h.opts.All, h.opts.Path, h.writeIndicator
+	h.mu.Unlock()
+	closeSearch := func() { gitHistoryCloseSearch(ps, h) }
+	if searchOpen && c.Shortcut(0, ui.KeyEscape) {
+		closeSearch()
+		searchOpen = false
+	}
+	if searchOpen {
+		renderGitHistorySearchField(c, ps, h, search, closeSearch)
+		renderGitHistoryFileChip(c, ps, h, path)
+		renderGitHistoryScopeDropdown(c, ps, h, all)
+		if writeIndicator {
+			LoadingIndicator(c, "git-history-writing", "", IconSM)
+		}
+		return
+	}
+	renderReviewScope(c, s, dp)
+	ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
+	renderGitHistoryFileChip(c, ps, h, path)
+	renderGitHistorySearchButton(c, ps, h)
+	renderGitHistoryScopeDropdown(c, ps, h, all)
+	if writeIndicator {
+		LoadingIndicator(c, "git-history-writing", "", IconSM)
+	}
+}
+
+func renderGitPaneCommentsStrip(c *ui.Context, s *chatState, dp *diffPanelState, tid string) {
+	count, queueable, busy, show := reviewCommentsActionState(s, dp, tid)
+	if !show {
+		return
+	}
+	ui.Row(c.Key("git-pane-comments-strip")).
+		FillWidth().
+		Height(ControlLG).
+		Shrink(0).
+		Padding(0, Space3).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeBorder(c)).
+		Background(ThemeAccent(c).Alpha(0.08)).
+		AlignItems(ui.Center).
+		Transition(motionCollapse(c)).
+		Children(func() {
+			renderReviewCommentsActionButton(c, s, dp, tid, count, queueable, busy)
+		})
+}
+
 type gitTimelineRowKey string
 
-func renderGitTimelineWipHead(c *ui.Context, s *chatState, dp *diffPanelState, tid, turnID string, files []ReviewFile, entries []git.StatusEntry, graphWidth float32, g *reviewGit, connectDown bool) {
+func renderGitTimelineWipHead(c *ui.Context, tid string, files []ReviewFile, entries []git.StatusEntry, graphWidth float32, g *reviewGit, connectDown bool) {
 	fileCount := len(files)
 	if fileCount == 0 {
 		fileCount = len(entries)
@@ -797,18 +887,6 @@ func renderGitTimelineWipHead(c *ui.Context, s *chatState, dp *diffPanelState, t
 					})
 				}
 			}
-			if len(files) > 0 || g != nil {
-				IconButton(c, IconButtonProps{
-					Key:     "git-all-wip-more",
-					Icon:    IconMoreHorizontal(),
-					Label:   "未提交操作",
-					Tooltip: "未提交操作",
-					Variant: ButtonGhost,
-					Size:    ControlXS,
-				}).Menu(func(m *ui.Menu) {
-					renderReviewHeaderMenu(m, s, dp, tid, reviewTurns(s), turnID)
-				})
-			}
 		})
 	})
 }
@@ -816,7 +894,7 @@ func renderGitTimelineWipHead(c *ui.Context, s *chatState, dp *diffPanelState, t
 func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *diffPanelState, host ui.Element, contentH float32, modern bool) {
 	tid := ps.threadID
 	var g *reviewGit
-	var detail, errMsg, turnID string
+	var detail, errMsg string
 	var snapshot ReviewSnapshot
 	if modern {
 		diffPanelMu.Lock()
@@ -830,7 +908,6 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 		detail = dp.gitDetail
 		snapshot = dp.snapshot
 		errMsg = dp.err
-		turnID = dp.turnID
 		diffPanelMu.Unlock()
 		g = reviewGitFor(s, "all")
 		if g != nil {
@@ -875,9 +952,6 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 		if hasHist && mode == "commit" && width < 640 {
 			renderGitHistoryNarrowCommitPane(c, s, ps, h, histClient, sha)
 			return
-		}
-		if hasHist {
-			renderGitHistoryFilters(c, ps, h)
 		}
 
 		listPane := ui.Column(c.Key("git-all-timeline-pane")).FillWidth().MinHeight(0)
@@ -1006,7 +1080,7 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 			list := ui.List(c.Key("git-all-timeline"), &h.list, totalRows, func(row int) {
 				switch {
 				case nodeHeadRows == 1 && row == 0:
-					renderGitTimelineWipHead(c, s, dp, tid, turnID, files, entries, graphWidth, g, totalRows > 1)
+					renderGitTimelineWipHead(c, tid, files, entries, graphWidth, g, totalRows > 1)
 				case statusRowCount == 1 && row == nodeHeadRows:
 					ui.Row(c.Key("git-all-wip-status")).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
 						if composerRows == 1 || len(commits) > 0 {
@@ -1088,10 +1162,10 @@ func renderGitSyncSpin(c *ui.Context) {
 }
 
 // gitPaneMenuWidth 是 Git 面板更多菜单的固定列宽，能放下最长的「合并子代理改动（PR）」。
-const gitPaneMenuWidth = 200
+const gitPaneMenuWidth = 224
 
 func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state GitState, width float32) {
-	ui.Row(c.Key("git-pane-toolbar")).FillWidth().Height(diffHeaderHeight).Shrink(0).Padding(0, Space3).Gap(Space2).AlignItems(ui.Center).Children(func() {
+	ui.Row(c.Key("git-pane-toolbar")).FillWidth().Height(diffHeaderHeight).Shrink(0).Padding(0, Space3).Gap(Space2).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
 		branch := state.Branch
 		if state.Detached {
 			branch = state.Head
@@ -1130,33 +1204,51 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			}
 		})
 		ui.Spacer(c)
+		dp := getDiffPanelState(s)
+		var diffLoading bool
+		var turnID string
+		scope := "all"
+		if dp != nil {
+			diffPanelMu.Lock()
+			diffLoading = dp.loading
+			turnID = dp.turnID
+			scope = gitPaneCurrentScopeLocked(dp)
+			diffPanelMu.Unlock()
+		}
 		ps.mu.Lock()
-		syncing, cancel := ps.syncing, ps.cancel
+		syncing := ps.syncing
 		ps.mu.Unlock()
+		busy := syncing || diffLoading
 		label, action := gitPaneSyncAction(state)
-		tip := label
-		disabled := !syncing && (state.Detached || state.WorkDir == "")
-		if state.WorkDir == "" {
+		iconOnly := state.WorkDir == "" || state.Detached || action == "fetch"
+		btnLabel, tip := label, label
+		if iconOnly {
+			btnLabel, tip = "刷新", "刷新"
+		}
+		disabled := !busy && state.WorkDir == ""
+		if state.WorkDir == "" && !busy {
 			tip = "Git 状态不可用"
 		}
-		if state.Detached {
-			tip = "分离 HEAD 时无法同步"
-		}
-		b := ui.ButtonBase(c.Key("git-pane-sync")).Label(label).Tooltip(tip).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).Gap(Space1).AlignItems(ui.Center).Disabled(disabled).Transition(motionFeedback(c))
+		b := ui.ButtonBase(c.Key("git-pane-sync")).Label(btnLabel).Tooltip(tip).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).Gap(Space1).AlignItems(ui.Center).Disabled(disabled).Transition(motionFeedback(c))
 		scale = motionPressScale(c, b, "git-pane-sync-press", !disabled && b.Pressed())
 		b.Scale(scale, scale)
 		if b.Hovered() {
 			b.Background(ThemeHover(c))
 		}
-		stop := syncing && b.Hovered()
-		if syncing {
+		stop := busy && b.Hovered()
+		if busy {
 			b.Label("停止").Tooltip("停止")
 		}
 		if b.Clicked() && !disabled {
-			if syncing {
-				if cancel != nil {
-					cancel()
-				}
+			if busy {
+				ps.stopSyncAndRefresh(s, dp)
+			} else if state.Detached {
+				s.loadDiff(ps.threadID, turnID)
+				ps.requestRefresh()
+			} else if action == "fetch" {
+				s.loadDiff(ps.threadID, turnID)
+				ps.requestRefresh()
+				ps.run("fetch")
 			} else {
 				ps.run(action)
 			}
@@ -1165,20 +1257,31 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 			switch {
 			case stop:
 				ui.Icon(c, IconSquare()).Size(IconSM, IconSM)
-			case syncing:
+			case busy:
 				renderGitSyncSpin(c)
 			default:
 				ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM)
 			}
-			if width >= KanbanBoardPaneMinWidth && (action != "fetch" || syncing) {
-				if stop {
-					label = "停止"
+			if width >= KanbanBoardPaneMinWidth {
+				switch {
+				case stop:
+					ui.Text(c, "停止").FontSize(uiFont(TypeFootnote))
+				case busy:
+					text := "刷新中"
+					if syncing && !iconOnly {
+						text = label
+					}
+					ui.Text(c, text).FontSize(uiFont(TypeFootnote))
+				case !iconOnly:
+					ui.Text(c, label).FontSize(uiFont(TypeFootnote))
 				}
-				ui.Text(c, label).FontSize(uiFont(TypeFootnote))
 			}
 		})
-		more := IconButton(c, IconButtonProps{Key: "git-pane-more", Icon: IconMoreHorizontal(), Label: "Git 更多操作", Variant: ButtonGhost, Size: ControlMD, OnClick: func() { ps.menuOpen = true; s.invalidate() }})
-		appPopover(c.Key("git-pane-more-popover"), more, &ps.menuOpen, func() { s.cancelPushPRConfirm() }, func() {
+		more := IconButton(c, IconButtonProps{Key: "git-pane-more", Icon: IconMoreHorizontal(), Label: "Git 更多操作", Tooltip: "Git 更多操作", Variant: ButtonGhost, Size: ControlMD, OnClick: func() { ps.menuOpen = true; s.invalidate() }})
+		appPopover(c.Key("git-pane-more-popover"), more, &ps.menuOpen, func() {
+			s.cancelPushPRConfirm()
+			ps.turnsOpen = false
+		}, func() {
 			repoURL := normalizeGitRemoteURL(state.RemoteURL)
 			hs := getChatHeaderState(s)
 			chatHeaderMu.Lock()
@@ -1190,16 +1293,25 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 				canMergeBees = gitPaneHasUnmergedBees(ps.threadID, swarm.state)
 			}
 			swarmPanelMu.Unlock()
+			_, modern := s.client.(reviewClient)
+			var reviewData reviewHeaderMenuData
+			if modern && dp != nil {
+				reviewData = buildReviewHeaderMenuData(s, dp, ps.threadID, reviewTurns(s), turnID, scope)
+			}
+			_, winH := c.Size()
 			popoverCard(c, ui.Column(c.Key("git-pane-menu")).Width(gitPaneMenuWidth)).Padding(Space1).Gap(Space0).Children(func() {
-				// 菜单项左对齐，按同步、贮藏、PR、仓库分组，组间用细分隔线；禁用时保留原因提示。
-				option := func(key, label string, blocked bool, tip string, onClick func()) {
+				// 菜单项左对齐，按刷新与同步、视图与轮次、暂存与贮藏、PR、仓库分组，组间用细分隔线；禁用时保留原因提示。
+				option := func(key, label string, blocked, checked, danger bool, tip string, onClick func()) {
 					el := menuRow(c, menuRowProps{
 						Key:      "git-pane-menu-" + key,
 						Label:    label,
 						Title:    label,
+						Checked:  checked,
+						Danger:   danger,
 						Disabled: blocked,
 						OnClick: func() {
 							ps.menuOpen = false
+							ps.turnsOpen = false
 							s.cancelPushPRConfirm()
 							onClick()
 						},
@@ -1208,77 +1320,137 @@ func renderGitPaneToolbar(c *ui.Context, s *chatState, ps *gitPaneState, state G
 						el.Tooltip(tip)
 					}
 				}
-				ui.Column(c.Key("git-pane-menu-rows")).FillWidth().Gap(Space0).FocusGroup(ui.Vertical).Children(func() {
-					syncTip := ""
-					switch {
-					case syncing:
-						syncTip = "Git 操作进行中"
-					case state.WorkDir == "":
-						syncTip = "Git 状态不可用"
-					case state.Detached:
-						syncTip = "分离 HEAD 时无法执行此操作"
-					}
-					option("pull", "拉取", syncTip != "", syncTip, func() { ps.run("pull") })
-					option("force", "强制推送…", syncTip != "", syncTip, func() {
-						ps.mu.Lock()
-						ps.forceBranch, ps.forceOpen = state.Branch, true
-						ps.mu.Unlock()
-						s.invalidate()
-					})
-					gitMenuDivider(c)
-					stashTip := ""
-					switch {
-					case syncing:
-						stashTip = "Git 操作进行中"
-					case state.WorkDir == "":
-						stashTip = "Git 状态不可用"
-					}
-					option("stash", "贮藏…", stashTip != "", stashTip, func() {
-						if ps.stash == nil {
-							ps.stash = &gitStashDialog{s: s, threadID: ps.threadID, confirmAt: -1}
+				ui.Scroll(c.Key("git-pane-menu-scroll")).MaxHeight(max(120, winH-80)).FillWidth().Children(func() {
+					ui.Column(c.Key("git-pane-menu-rows")).FillWidth().Gap(Space0).FocusGroup(ui.Vertical).Children(func() {
+						// 1. 刷新与同步
+						option("refresh", "刷新改动", ps.threadID == "", false, false, "", func() {
+							s.loadDiff(ps.threadID, turnID)
+							ps.requestRefresh()
+						})
+						syncTip := ""
+						switch {
+						case syncing:
+							syncTip = "Git 操作进行中"
+						case state.WorkDir == "":
+							syncTip = "Git 状态不可用"
+						case state.Detached:
+							syncTip = "分离 HEAD 时无法执行此操作"
 						}
-						ps.stash.openStashDialog()
-					})
-					gitMenuDivider(c)
-					prTip := ""
-					if repoURL == "" {
-						prTip = "没有可用的远端仓库地址"
-					}
-					option("pr-create", "创建 PR…", prTip != "", prTip, func() {
-						openGitPRCreateDialog(s, ps.threadID)
-						s.invalidate()
-					})
-					if canMergeBees {
-						mergeTip := ""
-						if syncing || pushBusy || state.WorkDir == "" || state.Detached {
-							mergeTip = "Git 操作进行中或分支不可用"
-						}
-						option("push-pr", "合并子代理改动（PR）", mergeTip != "", mergeTip, func() {
-							ps.menuOpen = true
-							s.requestPushPRConfirm()
+						option("fetch", "抓取", syncTip != "", false, false, syncTip, func() { ps.run("fetch") })
+						option("pull", "拉取", syncTip != "", false, false, syncTip, func() { ps.run("pull") })
+						option("force", "强制推送…", syncTip != "", false, false, syncTip, func() {
+							ps.mu.Lock()
+							ps.forceBranch, ps.forceOpen = state.Branch, true
+							ps.mu.Unlock()
 							s.invalidate()
 						})
-					}
-					option("pr-view", "查看 Pull Request…", false, "", func() {
-						s.openGitPRDialog()
-						s.invalidate()
-					})
-					showRepo, showRemotes := repoURL != "", gitPaneRemotesDialog != nil
-					if showRepo || showRemotes {
+
+						// 2. 视图与轮次
+						if modern && dp != nil {
+							gitMenuDivider(c)
+							for _, it := range reviewData.viewItems {
+								it := it
+								tip := ""
+								if it.disabled {
+									tip = it.tooltip
+								}
+								option(it.key, it.label, it.disabled, it.checked, it.danger, tip, it.onClick)
+							}
+							if len(reviewData.turns) > 0 {
+								currentTurn := "最新一轮"
+								for _, opt := range reviewData.turns {
+									if opt.checked {
+										currentTurn = opt.label
+										break
+									}
+								}
+								menuRow(c, menuRowProps{
+									Key:      "git-pane-menu-turns",
+									Label:    "轮次",
+									Title:    "轮次",
+									Trailing: currentTurn + " ▸",
+									OnClick: func() {
+										ps.menuOpen = true
+										ps.turnsOpen = !ps.turnsOpen
+										s.invalidate()
+									},
+								})
+								if ps.turnsOpen {
+									for i, opt := range reviewData.turns {
+										opt := opt
+										option(fmt.Sprintf("turn-%d", i), opt.label, false, opt.checked, false, "", opt.onClick)
+									}
+								}
+							}
+						}
+
+						// 3. 暂存与贮藏
 						gitMenuDivider(c)
-						if showRepo {
-							option("repo", "打开仓库", false, "", func() {
-								c.OpenURL(repoURL)
+						for _, it := range reviewData.stageItems {
+							it := it
+							option(it.key, it.label, it.disabled, it.checked, it.danger, "", it.onClick)
+						}
+						stashTip := ""
+						switch {
+						case syncing:
+							stashTip = "Git 操作进行中"
+						case state.WorkDir == "":
+							stashTip = "Git 状态不可用"
+						}
+						option("stash", "贮藏…", stashTip != "", false, false, stashTip, func() {
+							if ps.stash == nil {
+								ps.stash = &gitStashDialog{s: s, threadID: ps.threadID, confirmAt: -1}
+							}
+							ps.stash.openStashDialog()
+						})
+						if it := reviewData.discardAll; it != nil {
+							option(it.key, it.label, it.disabled, it.checked, it.danger, "", it.onClick)
+						}
+
+						// 4. PR
+						gitMenuDivider(c)
+						prTip := ""
+						if repoURL == "" {
+							prTip = "没有可用的远端仓库地址"
+						}
+						option("pr-create", "创建 PR…", prTip != "", false, false, prTip, func() {
+							openGitPRCreateDialog(s, ps.threadID)
+							s.invalidate()
+						})
+						if canMergeBees {
+							mergeTip := ""
+							if syncing || pushBusy || state.WorkDir == "" || state.Detached {
+								mergeTip = "Git 操作进行中或分支不可用"
+							}
+							option("push-pr", "合并子代理改动（PR）", mergeTip != "", false, false, mergeTip, func() {
+								ps.menuOpen = true
+								s.requestPushPRConfirm()
 								s.invalidate()
 							})
 						}
-						if showRemotes {
-							option("remotes", "远端…", false, "", func() {
-								ps.remotesOpen = true
-								s.invalidate()
-							})
+						option("pr-view", "查看 Pull Request…", false, false, false, "", func() {
+							s.openGitPRDialog()
+							s.invalidate()
+						})
+
+						// 5. 仓库
+						showRepo, showRemotes := repoURL != "", gitPaneRemotesDialog != nil
+						if showRepo || showRemotes {
+							gitMenuDivider(c)
+							if showRepo {
+								option("repo", "打开仓库", false, false, false, "", func() {
+									c.OpenURL(repoURL)
+									s.invalidate()
+								})
+							}
+							if showRemotes {
+								option("remotes", "远端…", false, false, false, "", func() {
+									ps.remotesOpen = true
+									s.invalidate()
+								})
+							}
 						}
-					}
+					})
 				})
 				if pushConfirm {
 					renderGitPushPRConfirm(c, s, state)

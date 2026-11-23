@@ -541,58 +541,140 @@ func (h *gitHistoryState) back(ps *gitPaneState) {
 	gitHistoryInvalidate(ps)
 }
 
+func handleGitHistorySearchShortcut(c *ui.Context, h *gitHistoryState) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	dialog := h.dialog
+	h.mu.Unlock()
+	if dialog == "" && c.Shortcut(ui.Cmd, ui.KeyF) {
+		h.mu.Lock()
+		h.searchOpen = true
+		h.mode = ""
+		h.mu.Unlock()
+	}
+}
+
+func gitHistoryCloseSearch(ps *gitPaneState, h *gitHistoryState) {
+	h.mu.Lock()
+	h.searchOpen = false
+	h.mu.Unlock()
+	h.setSearch(ps, "", true)
+}
+
+func renderGitHistorySearchField(c *ui.Context, ps *gitPaneState, h *gitHistoryState, search string, closeSearch func()) {
+	SearchField(c, TextFieldProps{
+		Key:         "git-history-search",
+		Value:       &search,
+		Label:       "搜索提交",
+		Placeholder: "搜索提交",
+		Grow:        true,
+		AutoFocus:   true,
+		Size:        ControlMD,
+		OnChange:    func(value string) { h.setSearch(ps, value, false) },
+		OnKeyDown: func(k ui.TextKey) bool {
+			if k.Key == ui.KeyEscape {
+				closeSearch()
+				return true
+			}
+			return false
+		},
+	}).MinWidth(0).Shrink(1)
+}
+
+func renderGitHistorySearchButton(c *ui.Context, ps *gitPaneState, h *gitHistoryState) {
+	b := ui.ButtonBase(c.Key("git-history-search-button")).
+		Label("搜索提交").
+		Tooltip("搜索提交 "+shortcutDisplay("⌘F")).
+		Size(ControlMD, ControlMD).
+		Radius(RadiusSM).
+		Justify(ui.Center).
+		AlignItems(ui.Center).
+		Shrink(0).
+		Transition(motionFeedback(c))
+	if b.Hovered() {
+		b.Background(ThemeHover(c))
+	}
+	b.Children(func() { ui.Icon(c, IconSearch()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c)) })
+	b.OnClick(func() { h.mu.Lock(); h.searchOpen = true; h.mu.Unlock(); gitHistoryInvalidate(ps) })
+}
+
+func renderGitHistoryScopeDropdown(c *ui.Context, ps *gitPaneState, h *gitHistoryState, all bool) {
+	label := "当前分支"
+	if all {
+		label = "所有分支"
+	}
+	b := ui.ButtonBase(c.Key("git-history-scope")).
+		Label(label).
+		Tooltip("筛选提交分支范围").
+		Height(ControlMD).
+		Padding(0, Space2).
+		Radius(RadiusSM).
+		Gap(Space1).
+		AlignItems(ui.Center).
+		Shrink(0)
+	if b.Hovered() {
+		b.Background(ThemeHover(c))
+	}
+	b.Children(func() {
+		ui.Text(c, label).FontSize(uiFont(TypeFootnote)).SingleLine()
+		ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).Shrink(0)
+	})
+	b.Menu(func(m *ui.Menu) {
+		for i, label := range []string{"当前分支", "所有分支"} {
+			if m.Item(label).Chosen() {
+				h.mu.Lock()
+				h.opts.All = i == 1
+				h.resetLocked()
+				h.mu.Unlock()
+				gitHistoryInvalidate(ps)
+			}
+		}
+	})
+}
+
+func renderGitHistoryFileChip(c *ui.Context, ps *gitPaneState, h *gitHistoryState, path string) {
+	if path == "" {
+		return
+	}
+	chip := ui.ButtonBase(c.Key("git-history-file-chip")).
+		Label("清除文件过滤").
+		Tooltip(path).
+		Height(ControlSM).
+		MaxWidth(TasksSearchWidth).
+		MinWidth(0).
+		Shrink(1).
+		Padding(0, Space2).
+		Radius(RadiusPill).
+		Background(ThemeHover(c)).
+		Gap(Space1).
+		AlignItems(ui.Center)
+	chip.Children(func() {
+		ui.Text(c, filepath.Base(path)).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1).FontSize(uiFont(TypeCaption))
+		ui.Icon(c, IconX()).Size(IconSM, IconSM).Shrink(0)
+	})
+	chip.OnClick(func() { h.mu.Lock(); h.opts.Path = ""; h.resetLocked(); h.mu.Unlock(); gitHistoryInvalidate(ps) })
+}
+
 func renderGitHistoryFilters(c *ui.Context, ps *gitPaneState, h *gitHistoryState) {
 	h.mu.Lock()
 	searchOpen, search, all, path, writeIndicator := h.searchOpen, h.search, h.opts.All, h.opts.Path, h.writeIndicator
 	h.mu.Unlock()
-	closeSearch := func() { h.mu.Lock(); h.searchOpen = false; h.mu.Unlock(); h.setSearch(ps, "", true) }
+	closeSearch := func() { gitHistoryCloseSearch(ps, h) }
 	if searchOpen && c.Shortcut(0, ui.KeyEscape) {
 		closeSearch()
 		searchOpen = false
 	}
 	ui.Row(c.Key("git-history-filters")).FillWidth().Height(ControlLG).Shrink(0).Padding(0, Space2).Gap(Space2).AlignItems(ui.Center).Children(func() {
 		if searchOpen {
-			SearchField(c, TextFieldProps{Key: "git-history-search", Value: &search, Label: "搜索提交", Placeholder: "搜索提交", Grow: true, AutoFocus: true, Size: ControlMD, OnChange: func(value string) { h.setSearch(ps, value, false) }, OnKeyDown: func(k ui.TextKey) bool {
-				if k.Key == ui.KeyEscape {
-					closeSearch()
-					return true
-				}
-				return false
-			}})
+			renderGitHistorySearchField(c, ps, h, search, closeSearch)
 		} else {
-			b := ui.ButtonBase(c.Key("git-history-search-button")).Label("搜索提交").Tooltip("搜索提交 "+shortcutDisplay("⌘F")).Size(ControlMD, ControlMD).Radius(RadiusSM).Transition(motionFeedback(c))
-			b.Children(func() { ui.Icon(c, IconSearch()).Size(IconSM, IconSM) })
-			b.OnClick(func() { h.mu.Lock(); h.searchOpen = true; h.mu.Unlock(); gitHistoryInvalidate(ps) })
-			ui.Spacer(c)
+			renderGitHistorySearchButton(c, ps, h)
+			ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
 		}
-		label := "当前分支"
-		if all {
-			label = "所有分支"
-		}
-		b := ui.ButtonBase(c.Key("git-history-scope")).Label(label).Height(ControlMD).Padding(0, Space2).Radius(RadiusSM).Gap(Space1).AlignItems(ui.Center)
-		b.Children(func() {
-			ui.Text(c, label).FontSize(uiFont(TypeFootnote))
-			ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM)
-		})
-		b.Menu(func(m *ui.Menu) {
-			for i, label := range []string{"当前分支", "所有分支"} {
-				if m.Item(label).Chosen() {
-					h.mu.Lock()
-					h.opts.All = i == 1
-					h.resetLocked()
-					h.mu.Unlock()
-					gitHistoryInvalidate(ps)
-				}
-			}
-		})
-		if path != "" {
-			chip := ui.ButtonBase(c.Key("git-history-file-chip")).Label("清除文件过滤").Tooltip(path).Height(ControlSM).MaxWidth(TasksSearchWidth).MinWidth(0).Padding(0, Space2).Radius(RadiusPill).Background(ThemeHover(c)).Gap(Space1).AlignItems(ui.Center)
-			chip.Children(func() {
-				ui.Text(c, filepath.Base(path)).SingleLine().MinWidth(0).Shrink(1).FontSize(uiFont(TypeCaption))
-				ui.Icon(c, IconX()).Size(IconSM, IconSM)
-			})
-			chip.OnClick(func() { h.mu.Lock(); h.opts.Path = ""; h.resetLocked(); h.mu.Unlock(); gitHistoryInvalidate(ps) })
-		}
+		renderGitHistoryScopeDropdown(c, ps, h, all)
+		renderGitHistoryFileChip(c, ps, h, path)
 		if writeIndicator {
 			LoadingIndicator(c, "git-history-writing", "", IconSM)
 		}

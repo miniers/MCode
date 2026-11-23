@@ -522,16 +522,16 @@ func reviewCommentOriginCurrent(s *chatState, key reviewDiffKey) bool {
 	return !closed && reviewWorkspace(s, key.threadID) == key.workspace
 }
 
-func renderReviewCommentsAction(c *ui.Context, s *chatState, dp *diffPanelState, tid string) {
+func reviewCommentsActionState(s *chatState, dp *diffPanelState, tid string) (count, queueable int, busy, show bool) {
 	diffPanelMu.Lock()
 	isPR := reviewScope(dp.scope) == "pr"
 	diffPanelMu.Unlock()
 	if isPR {
-		return
+		return 0, 0, false, false
 	}
 	reconcileReviewCommentAttachments(s, dp, tid)
 	diffPanelMu.Lock()
-	count, queueable, busy := 0, 0, dp.commentBatch
+	busy = dp.commentBatch
 	for _, comment := range dp.comments {
 		if comment.key.scope != "pr" && !comment.added && !comment.stale {
 			count++
@@ -541,11 +541,20 @@ func renderReviewCommentsAction(c *ui.Context, s *chatState, dp *diffPanelState,
 		}
 	}
 	diffPanelMu.Unlock()
-	if count == 0 {
-		return
-	}
+	return count, queueable, busy, count > 0
+}
+
+func renderReviewCommentsActionButton(c *ui.Context, s *chatState, dp *diffPanelState, tid string, count, queueable int, busy bool) {
 	label := fmt.Sprintf("添加到对话 %d", count)
 	Button(c, ButtonOpts{Key: "review-comments-attach", Text: label, Variant: ButtonSecondary, Size: ControlSM, Disabled: busy || queueable == 0, OnClick: func() { reviewCommentsAddToConversation(s, dp, tid) }})
+}
+
+func renderReviewCommentsAction(c *ui.Context, s *chatState, dp *diffPanelState, tid string) {
+	count, queueable, busy, show := reviewCommentsActionState(s, dp, tid)
+	if !show {
+		return
+	}
+	renderReviewCommentsActionButton(c, s, dp, tid, count, queueable, busy)
 }
 
 func reviewCommentsToPR(comments []reviewComment) []git.PRReviewComment {
