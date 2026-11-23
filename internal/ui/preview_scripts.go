@@ -145,6 +145,7 @@ const previewAnnotateStopScript = `(function () {
   if (!state) return "idle";
   state.active = false;
   try { if (state.clearHover) state.clearHover(); } catch (e) {}
+  try { if (state.cancelDrag) state.cancelDrag(); } catch (e) {}
   if (document.documentElement) document.documentElement.style.cursor = "";
   return "idle";
 })()`
@@ -154,11 +155,13 @@ const previewAnnotateDrainScript = `(function () {
   if (!state) return "null";
   var items = state.queue || [];
   state.queue = [];
-  try { return JSON.stringify({items: items, active: state.active}); } catch (e) { return "null"; }
+  try { return JSON.stringify({items: items, active: state.active, hover: state.hoverPID || 0}); } catch (e) { return "null"; }
 })()`
 
 const previewAnnotateClearMarksScript = `window.__mcodeAnnot && window.__mcodeAnnot.clearMarks();`
 const previewAnnotateUnhighlightScript = `window.__mcodeAnnot && window.__mcodeAnnot.unhighlightMark();`
+const previewAnnotateHideOverlayScript = `window.__mcodeAnnot && window.__mcodeAnnot.setOverlayHidden(true);`
+const previewAnnotateShowOverlayScript = `window.__mcodeAnnot && window.__mcodeAnnot.setOverlayHidden(false);`
 
 // 预装拾取器只注册监听器，模式开关由短 start/stop 调用控制。
 const previewAnnotateInstallJS = `(function () {
@@ -171,15 +174,57 @@ const previewAnnotateInstallJS = `(function () {
     h5: "heading", h6: "heading", details: "group", dialog: "dialog", fieldset: "group",
     progress: "progressbar", summary: "button", option: "option", p: "paragraph"
   };
-  var state = { active: false, queue: [], hover: null, prevOutline: "", prevOffset: "", clearHover: null, nextPID: 0 };
+  var HANDLE_STYLES = {
+    n:  "top:-4px;left:8px;right:8px;height:8px;cursor:ns-resize;",
+    s:  "bottom:-4px;left:8px;right:8px;height:8px;cursor:ns-resize;",
+    w:  "left:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize;",
+    e:  "right:-4px;top:8px;bottom:8px;width:8px;cursor:ew-resize;",
+    nw: "left:-6px;top:-6px;width:12px;height:12px;cursor:nwse-resize;",
+    ne: "right:-6px;top:-6px;width:12px;height:12px;cursor:nesw-resize;",
+    sw: "left:-6px;bottom:-6px;width:12px;height:12px;cursor:nesw-resize;",
+    se: "right:-6px;bottom:-6px;width:12px;height:12px;cursor:nwse-resize;"
+  };
+  var state = { active: false, queue: [], hover: null, hoverPID: 0, prevOutline: "", prevOffset: "", clearHover: null, cancelDrag: null, nextPID: 0 };
   var host = document.createElement("div");
   host.style.cssText = "all:initial!important;position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483647!important;";
   var shadow = host.attachShadow({mode: "closed"});
+  var marquee = document.createElement("div");
+  marquee.style.cssText = "position:fixed;display:none;box-sizing:border-box;border:1.5px dashed #2563eb;background:rgba(37,99,235,0.08);pointer-events:none;border-radius:2px;";
+  shadow.appendChild(marquee);
   var marks = new Map();
   var highlighted = 0;
   var pendingFrame = 0;
+  var overlayHidden = false;
+  var manipulating = false;
+  var suppressClickUntil = 0;
+  var pointer = { active: false, id: 0, startX: 0, startY: 0, dragging: false, target: null };
+  var ensureHost = function () {
+    if (!host.isConnected && document.documentElement) document.documentElement.appendChild(host);
+  };
+  var viewportSize = function () {
+    return {
+      w: window.innerWidth || (document.documentElement && document.documentElement.clientWidth) || 0,
+      h: window.innerHeight || (document.documentElement && document.documentElement.clientHeight) || 0
+    };
+  };
   var positionMark = function (mark) {
+    if (mark.kind === "region") {
+      var sx = window.scrollX || window.pageXOffset || 0;
+      var sy = window.scrollY || window.pageYOffset || 0;
+      var vx = Math.round(mark.docRect.x - sx);
+      var vy = Math.round(mark.docRect.y - sy);
+      var vw = Math.round(mark.docRect.w);
+      var vh = Math.round(mark.docRect.h);
+      mark.rect = { x: vx, y: vy, w: vw, h: vh };
+      mark.box.style.display = "block";
+      mark.box.style.left = vx + "px";
+      mark.box.style.top = vy + "px";
+      mark.box.style.width = vw + "px";
+      mark.box.style.height = vh + "px";
+      return;
+    }
     var rect = mark.element.getBoundingClientRect();
+    mark.rect = { x: rect.left, y: rect.top, w: rect.width, h: rect.height };
     mark.box.style.display = mark.element.isConnected ? "block" : "none";
     mark.box.style.left = rect.left + "px";
     mark.box.style.top = rect.top + "px";
@@ -201,12 +246,15 @@ const previewAnnotateInstallJS = `(function () {
     marks.delete(pid);
     state.queue = state.queue.filter(function (item) { return item.pid !== pid; });
     if (highlighted === pid) highlighted = 0;
+    if (state.hoverPID === pid) state.hoverPID = 0;
   };
   state.clearMarks = function () {
     marks.forEach(function (mark) { mark.box.remove(); });
     marks.clear();
     state.queue = [];
     highlighted = 0;
+    state.hoverPID = 0;
+    marquee.style.display = "none";
     if (pendingFrame) cancelAnimationFrame(pendingFrame);
     pendingFrame = 0;
   };
@@ -220,21 +268,150 @@ const previewAnnotateInstallJS = `(function () {
     var mark = marks.get(pid);
     if (mark) { mark.box.style.color = "#ea580c"; mark.box.style.borderWidth = "3px"; highlighted = pid; }
   };
-  var addMark = function (pid, element) {
-    if (!host.isConnected) document.documentElement.appendChild(host);
+  state.setLabels = function (pids) {
+    if (!Array.isArray(pids)) return;
+    var keep = new Set(pids);
+    Array.from(marks.keys()).forEach(function (pid) {
+      if (!keep.has(pid)) state.removeMark(pid);
+    });
+    for (var i = 0; i < pids.length; i++) {
+      var mark = marks.get(pids[i]);
+      if (mark && mark.number) mark.number.textContent = String(i + 1);
+    }
+  };
+  state.setOverlayHidden = function (hidden) {
+    overlayHidden = Boolean(hidden);
+    if (overlayHidden) {
+      host.style.setProperty("display", "none", "important");
+      state.hoverPID = 0;
+      if (state.clearHover) state.clearHover();
+      marquee.style.display = "none";
+    } else {
+      host.style.removeProperty("display");
+    }
+  };
+  var createMarkBox = function (isRegion) {
+    ensureHost();
     var box = document.createElement("div");
-    box.style.cssText = "position:absolute;box-sizing:border-box;border:2px solid currentColor;color:#2563eb;pointer-events:none;";
+    box.style.cssText = "position:absolute;box-sizing:border-box;border:2px " + (isRegion ? "dashed" : "solid") + " currentColor;color:#2563eb;pointer-events:none;";
     var badge = document.createElement("span");
-    badge.textContent = String(pid);
-    badge.style.cssText = "position:absolute;left:-2px;top:-2px;min-width:20px;height:20px;box-sizing:border-box;padding:0 4px;background:currentColor;border-radius:3px;font:600 12px/20px system-ui;text-align:center;";
+    badge.style.cssText = "position:absolute;left:-2px;top:-2px;min-width:20px;height:20px;box-sizing:border-box;padding:0 4px;background:currentColor;border-radius:3px;font:600 12px/20px system-ui;text-align:center;" + (isRegion ? "pointer-events:auto;cursor:grab;user-select:none;touch-action:none;z-index:2;" : "");
     var number = document.createElement("span");
-    number.textContent = String(pid);
+    number.textContent = String(marks.size + 1);
     number.style.color = "white";
-    badge.textContent = "";
     badge.appendChild(number);
     box.appendChild(badge);
     shadow.appendChild(box);
-    var mark = {element: element, box: box};
+    return { box: box, badge: badge, number: number };
+  };
+  var pushRegionUpdate = function (mark) {
+    if (!marks.has(mark.pid)) return;
+    positionMark(mark);
+    var vp = viewportSize();
+    state.queue.push({
+      pid: mark.pid,
+      kind: "region",
+      update: true,
+      url: String(location.href || ""),
+      vw: vp.w,
+      rect: {
+        x: Math.round(mark.rect.x),
+        y: Math.round(mark.rect.y),
+        w: Math.round(mark.rect.w),
+        h: Math.round(mark.rect.h)
+      }
+    });
+  };
+  var bindWindowDrag = function (onMove, onDone) {
+    var cleanup = function () {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
+      manipulating = false;
+      suppressClickUntil = Date.now() + 400;
+    };
+    var onUp = function () {
+      cleanup();
+      onDone();
+    };
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", onUp, true);
+  };
+  var attachRegionHandles = function (mark) {
+    var MIN_SIZE = 8;
+    mark.badge.addEventListener("pointerdown", function (e) {
+      if (e.button !== 0 || overlayHidden) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      clearHover();
+      manipulating = true;
+      var startX = e.clientX, startY = e.clientY;
+      var orig = { x: mark.docRect.x, y: mark.docRect.y, w: mark.docRect.w, h: mark.docRect.h };
+      bindWindowDrag(function (ev) {
+        mark.docRect.x = Math.max(0, orig.x + Math.round(ev.clientX - startX));
+        mark.docRect.y = Math.max(0, orig.y + Math.round(ev.clientY - startY));
+        positionMark(mark);
+      }, function () {
+        if (mark.docRect.x !== orig.x || mark.docRect.y !== orig.y) pushRegionUpdate(mark);
+      });
+    });
+    Object.keys(HANDLE_STYLES).forEach(function (dir) {
+      var handle = document.createElement("span");
+      handle.style.cssText = "position:absolute;box-sizing:border-box;pointer-events:auto;touch-action:none;z-index:1;display:flex;align-items:center;justify-content:center;" + HANDLE_STYLES[dir];
+      if (dir.length === 2) {
+        var knob = document.createElement("span");
+        knob.style.cssText = "width:7px;height:7px;background:#fff;border:1.5px solid currentColor;border-radius:1.5px;box-sizing:border-box;pointer-events:none;";
+        handle.appendChild(knob);
+      }
+      handle.addEventListener("pointerdown", function (e) {
+        if (e.button !== 0 || overlayHidden) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        clearHover();
+        manipulating = true;
+        var startX = e.clientX, startY = e.clientY;
+        var orig = { x: mark.docRect.x, y: mark.docRect.y, w: mark.docRect.w, h: mark.docRect.h };
+        bindWindowDrag(function (ev) {
+          var dx = Math.round(ev.clientX - startX);
+          var dy = Math.round(ev.clientY - startY);
+          var left = orig.x, top = orig.y, right = orig.x + orig.w, bottom = orig.y + orig.h;
+          if (dir.indexOf("w") >= 0) left = Math.max(0, Math.min(right - MIN_SIZE, orig.x + dx));
+          if (dir.indexOf("e") >= 0) right = Math.max(left + MIN_SIZE, orig.x + orig.w + dx);
+          if (dir.indexOf("n") >= 0) top = Math.max(0, Math.min(bottom - MIN_SIZE, orig.y + dy));
+          if (dir.indexOf("s") >= 0) bottom = Math.max(top + MIN_SIZE, orig.y + orig.h + dy);
+          mark.docRect = { x: left, y: top, w: right - left, h: bottom - top };
+          positionMark(mark);
+        }, function () {
+          var r = mark.docRect;
+          if (r.x !== orig.x || r.y !== orig.y || r.w !== orig.w || r.h !== orig.h) pushRegionUpdate(mark);
+        });
+      });
+      mark.box.appendChild(handle);
+    });
+  };
+  var addMark = function (pid, element) {
+    var ui = createMarkBox(false);
+    var mark = {pid: pid, kind: "element", element: element, box: ui.box, badge: ui.badge, number: ui.number, rect: null};
+    marks.set(pid, mark);
+    positionMark(mark);
+  };
+  var addRegionMark = function (pid, rect) {
+    var ui = createMarkBox(true);
+    var sx = window.scrollX || window.pageXOffset || 0;
+    var sy = window.scrollY || window.pageYOffset || 0;
+    var mark = {
+      pid: pid,
+      kind: "region",
+      docRect: { x: rect.x + sx, y: rect.y + sy, w: rect.w, h: rect.h },
+      rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+      box: ui.box,
+      badge: ui.badge,
+      number: ui.number
+    };
+    attachRegionHandles(mark);
     marks.set(pid, mark);
     positionMark(mark);
   };
@@ -318,19 +495,62 @@ const previewAnnotateInstallJS = `(function () {
     }
     state.hover = null;
   };
+  var cancelDrag = function () {
+    if (pointer.active) {
+      try { if (document.documentElement && document.documentElement.releasePointerCapture) document.documentElement.releasePointerCapture(pointer.id); } catch (e) {}
+    }
+    pointer.active = false;
+    pointer.dragging = false;
+    pointer.target = null;
+    marquee.style.display = "none";
+  };
+  var hitTestMark = function (cx, cy) {
+    if (overlayHidden || !marks.size) return 0;
+    var entries = Array.from(marks.entries());
+    var limit = Math.min(entries.length, 32);
+    for (var i = entries.length - 1; i >= entries.length - limit; i--) {
+      var pid = entries[i][0];
+      var mark = entries[i][1];
+      var r = mark.rect;
+      if (!r && mark.element && mark.element.isConnected) {
+        var br = mark.element.getBoundingClientRect();
+        r = { x: br.left, y: br.top, w: br.width, h: br.height };
+      }
+      if (!r || r.w <= 0 || r.h <= 0) continue;
+      if (cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) return pid;
+    }
+    return 0;
+  };
+  var clampToViewport = function (x, y) {
+    var vp = viewportSize();
+    return {
+      x: Math.max(0, Math.min(vp.w, x)),
+      y: Math.max(0, Math.min(vp.h, y)),
+      vw: vp.w
+    };
+  };
   state.clearHover = clearHover;
+  state.cancelDrag = cancelDrag;
   document.addEventListener("keydown", function (event) {
     if (!state.active || event.key !== "Escape") return;
     state.active = false;
     clearHover();
+    cancelDrag();
     if (document.documentElement) document.documentElement.style.cursor = "";
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
   document.addEventListener("mousemove", function (event) {
-    if (!state.active) { return; }
+    if (overlayHidden) {
+      state.hoverPID = 0;
+      return;
+    }
+    if (!pointer.active && !manipulating) {
+      state.hoverPID = hitTestMark(event.clientX, event.clientY);
+    }
+    if (!state.active || pointer.dragging || manipulating) { return; }
     var el = event.target;
-    if (!el || el.nodeType !== 1 || el === state.hover) { return; }
+    if (!el || el.nodeType !== 1 || el === host || el === state.hover) { return; }
     clearHover();
     state.hover = el;
     state.prevOutline = el.style.outline;
@@ -338,34 +558,141 @@ const previewAnnotateInstallJS = `(function () {
     el.style.outline = "2px solid #3b82f6";
     el.style.outlineOffset = "1px";
   }, true);
-  document.addEventListener("click", function (event) {
-    if (!state.active) { return; }
+  document.addEventListener("mouseleave", function () {
+    state.hoverPID = 0;
+  }, true);
+  window.addEventListener("blur", function () {
+    state.hoverPID = 0;
+    cancelDrag();
+  });
+  document.addEventListener("pointerdown", function (event) {
+    if (!state.active || overlayHidden || manipulating || event.button !== 0) { return; }
+    if (event.target === host) { return; }
     var el = event.target;
     if (!el || el.nodeType !== 1) { return; }
     event.preventDefault();
     event.stopPropagation();
     if (event.stopImmediatePropagation) { event.stopImmediatePropagation(); }
-    var rect = el.getBoundingClientRect();
-    var pid = ++state.nextPID;
-    addMark(pid, el);
-    state.queue.push({
-      pid: pid,
-      selector: selectorFor(el),
-      tag: el.tagName ? el.tagName.toLowerCase() : "",
-      role: roleFor(el),
-      name: nameFor(el),
-      text: clip(el.innerText || el.textContent || "", 200),
-      url: String(location.href || ""),
-      rect: {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        w: Math.round(rect.width),
-        h: Math.round(rect.height)
+    suppressClickUntil = 0;
+    pointer = {
+      active: true,
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragging: false,
+      target: el
+    };
+  }, true);
+  window.addEventListener("pointermove", function (event) {
+    if (!pointer.active || event.pointerId !== pointer.id) { return; }
+    var dx = event.clientX - pointer.startX;
+    var dy = event.clientY - pointer.startY;
+    if (!pointer.dragging && Math.hypot(dx, dy) > 6) {
+      pointer.dragging = true;
+      clearHover();
+      ensureHost();
+      try {
+        if (document.documentElement && document.documentElement.setPointerCapture) {
+          document.documentElement.setPointerCapture(pointer.id);
+        }
+      } catch (e) {}
+    }
+    if (!pointer.dragging) { return; }
+    var a = clampToViewport(pointer.startX, pointer.startY);
+    var b = clampToViewport(event.clientX, event.clientY);
+    var x = Math.round(Math.min(a.x, b.x));
+    var y = Math.round(Math.min(a.y, b.y));
+    var w = Math.round(Math.abs(b.x - a.x));
+    var h = Math.round(Math.abs(b.y - a.y));
+    marquee.style.display = "block";
+    marquee.style.left = x + "px";
+    marquee.style.top = y + "px";
+    marquee.style.width = w + "px";
+    marquee.style.height = h + "px";
+  }, true);
+  window.addEventListener("pointerup", function (event) {
+    if (!pointer.active || event.pointerId !== pointer.id) { return; }
+    var wasDragging = pointer.dragging;
+    var startX = pointer.startX;
+    var startY = pointer.startY;
+    var fallbackTarget = pointer.target;
+    cancelDrag();
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) { event.stopImmediatePropagation(); }
+    suppressClickUntil = Date.now() + 400;
+    if (!state.active || overlayHidden) { return; }
+    if (wasDragging) {
+      var a = clampToViewport(startX, startY);
+      var b = clampToViewport(event.clientX, event.clientY);
+      var x = Math.round(Math.min(a.x, b.x));
+      var y = Math.round(Math.min(a.y, b.y));
+      var w = Math.round(Math.abs(b.x - a.x));
+      var h = Math.round(Math.abs(b.y - a.y));
+      if (w < 1 || h < 1) { return; }
+      var pid = ++state.nextPID;
+      var rect = { x: x, y: y, w: w, h: h };
+      addRegionMark(pid, rect);
+      state.queue.push({
+        pid: pid,
+        kind: "region",
+        selector: "",
+        tag: "",
+        role: "",
+        name: "",
+        text: "",
+        url: String(location.href || ""),
+        vw: b.vw,
+        rect: rect
+      });
+    } else {
+      var el = document.elementFromPoint ? document.elementFromPoint(event.clientX, event.clientY) : null;
+      if (!el || el === host || (el === document.documentElement && fallbackTarget && fallbackTarget !== document.documentElement)) {
+        el = fallbackTarget;
       }
-    });
+      if (!el || el.nodeType !== 1 || el === host) { return; }
+      var er = el.getBoundingClientRect();
+      var epid = ++state.nextPID;
+      var vp = viewportSize();
+      addMark(epid, el);
+      state.queue.push({
+        pid: epid,
+        kind: "element",
+        selector: selectorFor(el),
+        tag: el.tagName ? el.tagName.toLowerCase() : "",
+        role: roleFor(el),
+        name: nameFor(el),
+        text: clip(el.innerText || el.textContent || "", 200),
+        url: String(location.href || ""),
+        vw: vp.w,
+        rect: {
+          x: Math.round(er.left),
+          y: Math.round(er.top),
+          w: Math.round(er.width),
+          h: Math.round(er.height)
+        }
+      });
+    }
     // 与本地列表保持同一上限，drain 前被淘汰的标记也必须消失。
     if (marks.size > 32) state.removeMark(marks.keys().next().value);
     clearHover();
+  }, true);
+  window.addEventListener("pointercancel", function (event) {
+    if (!pointer.active || event.pointerId !== pointer.id) { return; }
+    cancelDrag();
+  }, true);
+  document.addEventListener("click", function (event) {
+    if (Date.now() <= suppressClickUntil) {
+      suppressClickUntil = 0;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) { event.stopImmediatePropagation(); }
+      return;
+    }
+    if (!state.active) { return; }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) { event.stopImmediatePropagation(); }
   }, true);
   window.__mcodeAnnot = state;
   return state;

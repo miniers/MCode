@@ -179,7 +179,7 @@ func TestPreviewAnnotationsFromJSON(t *testing.T) {
 		`"name":"提交","text":"提交表单","url":"http://localhost:3000/",` +
 		`"rect":{"x":12,"y":34,"w":56,"h":78}}]`
 
-	items := previewAnnotationsFromJSON(raw)
+	items, _ := previewAnnotationsFromJSON(raw)
 	if len(items) != 1 {
 		t.Fatalf("期望解析出 1 条标注，实际 %d 条", len(items))
 	}
@@ -197,11 +197,11 @@ func TestPreviewAnnotationsFromJSON(t *testing.T) {
 
 func TestPreviewAnnotationsFromJSONInvalid(t *testing.T) {
 	for _, raw := range []string{"", "  ", "null", "not json", "{}", `[1,2,3]`} {
-		if items := previewAnnotationsFromJSON(raw); items != nil {
+		if items, _ := previewAnnotationsFromJSON(raw); items != nil {
 			t.Fatalf("非法输入 %q 应返回 nil，实际 %+v", raw, items)
 		}
 	}
-	if items := previewAnnotationsFromJSON("[]"); items != nil {
+	if items, _ := previewAnnotationsFromJSON("[]"); items != nil {
 		t.Fatalf("空数组应返回 nil，实际 %+v", items)
 	}
 }
@@ -219,7 +219,7 @@ func TestPreviewAnnotationsFromJSONCapsItems(t *testing.T) {
 		t.Fatalf("构造测试数据失败: %v", err)
 	}
 
-	items := previewAnnotationsFromJSON(string(blob))
+	items, _ := previewAnnotationsFromJSON(string(blob))
 	if len(items) != previewAnnotationMaxItems {
 		t.Fatalf("超量标注应截断到 %d 条，实际 %d 条", previewAnnotationMaxItems, len(items))
 	}
@@ -238,7 +238,7 @@ func TestPreviewAnnotationsFromJSONTruncatesFields(t *testing.T) {
 		t.Fatalf("构造测试数据失败: %v", err)
 	}
 
-	items := previewAnnotationsFromJSON(string(raw))
+	items, _ := previewAnnotationsFromJSON(string(raw))
 	if len(items) != 1 {
 		t.Fatalf("期望 1 条标注，实际 %d 条", len(items))
 	}
@@ -428,7 +428,7 @@ func TestBrowserAnnotationSendAttachesMarkedScreenshot(t *testing.T) {
 			}
 			for range want {
 				req := inspectorUpload(t, client)
-				if req.mime == "text/plain" && (!strings.Contains(string(req.data), "7. selector=#app") || !strings.Contains(string(req.data), "评论：改为蓝色")) {
+				if req.mime == "text/plain" && (!strings.Contains(string(req.data), "1. selector=#app") || !strings.Contains(string(req.data), "评论：改为蓝色")) {
 					t.Fatalf("文本不完整: %s", req.data)
 				}
 				req.finish <- nil
@@ -504,7 +504,7 @@ func TestBrowserAnnotationDrainEscape(t *testing.T) {
 
 func TestBrowserAnnotationPromptPageID(t *testing.T) {
 	prompt := previewAnnotationsPrompt([]previewAnnotation{{PageID: 19, Selector: "#a"}, {Selector: "#b"}})
-	if !strings.Contains(prompt, "19. selector=#a") || !strings.Contains(prompt, "2. selector=#b") {
+	if !strings.Contains(prompt, "1. selector=#a") || !strings.Contains(prompt, "2. selector=#b") {
 		t.Fatalf("编号不匹配: %s", prompt)
 	}
 }
@@ -577,13 +577,16 @@ func TestBrowserAnnotationScriptHasNoContinuousAnimation(t *testing.T) {
 	if strings.Contains(callback, "schedulePositions(") || strings.Count(callback, "requestAnimationFrame(") != 1 {
 		t.Fatal("rAF 回调无条件自续")
 	}
-	for _, method := range []string{"removeMark", "clearMarks", "highlightMark", "unhighlightMark"} {
+	for _, method := range []string{"removeMark", "clearMarks", "highlightMark", "unhighlightMark", "setLabels", "setOverlayHidden"} {
 		if !strings.Contains(previewAnnotateInstallJS, "state."+method+" = function") {
 			t.Errorf("缺少 %s", method)
 		}
 	}
-	if !strings.Contains(previewAnnotateDrainScript, "{items: items, active: state.active}") {
+	if !strings.Contains(previewAnnotateDrainScript, "{items: items, active: state.active, hover: state.hoverPID || 0}") {
 		t.Fatal("drain 格式错误")
+	}
+	if !strings.Contains(previewAnnotateHideOverlayScript, "setOverlayHidden(true)") || !strings.Contains(previewAnnotateShowOverlayScript, "setOverlayHidden(false)") {
+		t.Fatal("覆盖层显隐脚本错误")
 	}
 }
 
@@ -1779,4 +1782,149 @@ func TestPreviewFinalizeButton(t *testing.T) {
 			t.Fatal("非待定稿 bee 不应显示「定稿」按钮")
 		}
 	})
+}
+
+func TestPreviewAnnotationRegionParse(t *testing.T) {
+	raw := `{
+		"items": [
+			{"pid": 1, "kind": "element", "selector": "#btn", "tag": "button", "vw": 1280, "rect": {"x": 10, "y": 20, "w": 80, "h": 32}},
+			{"pid": 2, "kind": "region", "selector": "", "url": "http://localhost:3000/checkout", "vw": 1280, "rect": {"x": 28, "y": 132, "w": 392, "h": 64}},
+			{"pid": 3, "kind": "region", "vw": 1280, "rect": {"x": 0, "y": 0, "w": 0, "h": 40}},
+			{"pid": 4, "kind": "region", "vw": 1280, "rect": {"x": 0, "y": 0, "w": 40, "h": 0}},
+			{"pid": 5, "kind": "unknown", "selector": ".card", "vw": 1024, "rect": {"x": 5, "y": 6, "w": 100, "h": 50}}
+		],
+		"hover": 0
+	}`
+	items, hover := previewAnnotationsFromJSON(raw)
+	if hover != 0 {
+		t.Fatalf("hover = %d, want 0", hover)
+	}
+	if len(items) != 3 {
+		t.Fatalf("期望保留 3 条有效标注（丢弃 w=0/h=0 的 region），实际 %d 条: %+v", len(items), items)
+	}
+	if items[0].Kind != "element" || items[0].VW != 1280 || items[0].Selector != "#btn" {
+		t.Fatalf("element 解析错误: %+v", items[0])
+	}
+	if items[1].Kind != "region" || items[1].VW != 1280 || items[1].Selector != "" || items[1].W != 392 || items[1].H != 64 {
+		t.Fatalf("region 解析错误: %+v", items[1])
+	}
+	if items[2].Kind != "element" || items[2].VW != 1024 {
+		t.Fatalf("非法 kind 应归为 element: %+v", items[2])
+	}
+}
+
+func TestPreviewAnnotationRegionUpdate(t *testing.T) {
+	st := &browserTab{}
+	previewMu.Lock()
+	defer previewMu.Unlock()
+
+	script := previewAppendPageAnnotationsLocked(st, []previewAnnotation{
+		{PageID: 1, Kind: "element", Selector: "#title", VW: 1200, X: 10, Y: 10, W: 100, H: 24},
+		{PageID: 2, Kind: "region", VW: 1200, X: 28, Y: 132, W: 392, H: 64},
+	})
+	if !strings.Contains(script, "setLabels([1,2])") {
+		t.Fatalf("首次追加未生成 setLabels([1,2]): %s", script)
+	}
+	st.annotations[1].Comment = "对齐价格明细右列"
+
+	updateScript := previewAppendPageAnnotationsLocked(st, []previewAnnotation{
+		{PageID: 2, Kind: "region", Update: true, VW: 1440, X: 40, Y: 150, W: 420, H: 80},
+		{PageID: 99, Kind: "region", Update: true, VW: 1440, X: 1, Y: 2, W: 30, H: 40},
+	})
+	if updateScript != "" {
+		t.Fatalf("仅坐标更新不应产生额外标记脚本: %s", updateScript)
+	}
+	if len(st.annotations) != 2 {
+		t.Fatalf("更新后条目数应保持 2，实际 %d", len(st.annotations))
+	}
+	got := st.annotations[1]
+	if got.PageID != 2 || got.X != 40 || got.Y != 150 || got.W != 420 || got.H != 80 || got.VW != 1440 {
+		t.Fatalf("region 坐标未原地更新: %+v", got)
+	}
+	if got.Comment != "对齐价格明细右列" {
+		t.Fatalf("region 更新后丢失 Comment: %q", got.Comment)
+	}
+}
+
+func TestPreviewAnnotationRenumberScript(t *testing.T) {
+	s := &chatState{}
+	tab := getPreviewState(s)
+	scripts := make(chan string, 8)
+	page := &previewTestPage{eval: func(script string) (any, error) {
+		scripts <- script
+		return nil, nil
+	}}
+	previewMu.Lock()
+	tab.page = page
+	tab.annotations = []previewAnnotation{
+		{id: 1, PageID: 10, Kind: "element", Selector: "#a"},
+		{id: 2, PageID: 20, Kind: "region", X: 10, Y: 20, W: 100, H: 50},
+		{id: 3, PageID: 30, Kind: "element", Selector: "#c"},
+	}
+	token := previewPageTokenLocked(tab)
+	previewMu.Unlock()
+
+	previewRemoveAnnotation(s, tab, 1)
+	select {
+	case got := <-scripts:
+		if !strings.Contains(got, "removeMark(20)") || !strings.Contains(got, "setLabels([10,30])") {
+			t.Fatalf("删除中间一条后重排脚本错误: %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未执行 removeMark/setLabels 脚本")
+	}
+
+	// 通过 previewCommitAnnotationEdits 删除首条，同样重排剩余 pid。
+	previewMu.Lock()
+	snap := previewSnapshotLocked(tab)
+	previewMu.Unlock()
+	if !previewCommitAnnotationEdits(s, token, snap.annotations, 1, false) {
+		t.Fatal("提交删除失败")
+	}
+	select {
+	case got := <-scripts:
+		if !strings.Contains(got, "removeMark(10)") || !strings.Contains(got, "setLabels([30])") {
+			t.Fatalf("提交删除后重排脚本错误: %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("提交删除未执行重排脚本")
+	}
+}
+
+func TestPreviewAnnotationDrainHover(t *testing.T) {
+	items, hover := previewAnnotationsFromJSON(`{"items":[{"pid":7,"kind":"region","vw":1280,"rect":{"x":12,"y":24,"w":200,"h":80}}],"hover":7,"active":true}`)
+	if hover != 7 {
+		t.Fatalf("hover = %d, want 7", hover)
+	}
+	if len(items) != 1 || items[0].PageID != 7 || items[0].Kind != "region" {
+		t.Fatalf("items 解析错误: %+v", items)
+	}
+
+	emptyItems, emptyHover := previewAnnotationsFromJSON(`{"items":[],"hover":7,"active":true}`)
+	if emptyItems != nil || emptyHover != 7 {
+		t.Fatalf("空列表仍应返回 hover=7, got items=%+v hover=%d", emptyItems, emptyHover)
+	}
+}
+
+func TestPreviewAnnotationRegionPrompt(t *testing.T) {
+	items := []previewAnnotation{
+		{PageID: 5, Kind: "element", Selector: "#title", Tag: "h1", X: 10, Y: 20, W: 120, H: 30, Comment: "字号改大"},
+		{PageID: 9, Kind: "region", X: 28, Y: 132, W: 392, H: 64, VW: 1280, URL: "http://localhost:3000/checkout", Comment: "对齐右侧金额"},
+	}
+	got := previewAnnotationsPrompt(items)
+	if !strings.Contains(got, "1. selector=#title") {
+		t.Fatalf("element 序号应与徽章一致从 1 开始: %s", got)
+	}
+	if !strings.Contains(got, "2. 区域 28,132 392×64（视口坐标，视口宽 1280）") {
+		t.Fatalf("region 行格式错误: %s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "区域 28,132") {
+			for _, emptyField := range []string{"selector=", "tag=", "role=", "name=", "text="} {
+				if strings.Contains(line, emptyField) {
+					t.Fatalf("region 行不应包含空字段 %q: %s", emptyField, line)
+				}
+			}
+		}
+	}
 }
