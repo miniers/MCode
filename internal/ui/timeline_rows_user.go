@@ -130,7 +130,7 @@ func renderUserMessageAttachments(c *ui.Context, s *chatState, m Message) {
 				name := med.Name
 				if !isImageMedia(med) {
 					// 非图片附件不会解码或加载缩略图，只在图片之后补一个文件胶囊。
-					renderUserMessageFileCapsule(c, m, i, med)
+					renderUserMessageFileCapsule(c, s, threadID, m, i, med)
 					continue
 				}
 				if name == "" {
@@ -171,7 +171,7 @@ func renderUserMessageAttachments(c *ui.Context, s *chatState, m Message) {
 				}
 				if _, ok := s.client.(messageMediaReader); !ok || med.ID == "" || threadID == "" {
 					// 客户端不支持读取消息媒体或缺少 ID，缩略图永远不会就绪，保持回形针胶囊。
-					renderUserMessageFileCapsule(c, m, i, med)
+					renderUserMessageFileCapsule(c, s, threadID, m, i, med)
 					continue
 				}
 				// 缩略图未就绪：加载中与加载失败各用一张可区分的占位卡。
@@ -264,14 +264,13 @@ func renderUserMessageImagePlaceholder(c *ui.Context, s *chatState, m Message, i
 }
 
 // renderUserMessageFileCapsule 在用户气泡顶部为非图片附件渲染文件胶囊：
-// 只显示文件图标与文件名（过长时中间省略），完整文件名放 hover 提示，
-// 不解码也不做文本预览；消息附件没有本地路径，因此不加点击跳转。
-func renderUserMessageFileCapsule(c *ui.Context, m Message, idx int, med MessageMedia) {
-	name := med.Name
-	if name == "" {
-		name = "附件"
-	}
-	ui.Row(c.Key(fmt.Sprintf("msg-user-attach-%s-%d", m.ID, idx))).
+// 显示文件图标与文件名（或解析出的工作区引用路径），完整名称放 hover 提示，
+// 挂上右键菜单，引用为文件时支持左键单击打开。
+func renderUserMessageFileCapsule(c *ui.Context, s *chatState, threadID string, m Message, idx int, med MessageMedia) {
+	prefetchTimelineAttachmentRef(s, threadID, m.ID, med)
+	ref := cachedTimelineAttachmentRef(threadID, m.ID, med.ID)
+	name := timelineFileCapsuleDisplayName(med, ref)
+	row := ui.Row(c.Key(fmt.Sprintf("msg-user-attach-%s-%d", m.ID, idx))).
 		Gap(Space2).
 		Padding(Space0, Space3, Space0, Space3).
 		Radius(RadiusLG).
@@ -279,12 +278,19 @@ func renderUserMessageFileCapsule(c *ui.Context, m Message, idx int, med Message
 		Border(1, ThemeBorder(c)).
 		AlignItems(ui.Center).
 		Tooltip(name).
-		Children(func() {
-			ui.Icon(c, IconFile()).Size(11, 11).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, truncateAttachmentName(name, 18)).
-				FontSize(scaledFont(TypeFootnote)).
-				TextColor(ThemePrimaryText(c))
+		ContextMenu(timelineFileCapsuleMenu(c, s, threadID, m, med))
+	if ref != nil && !ref.isDir {
+		targetRef := *ref
+		row.Cursor(ui.CursorPointer).OnClick(func() {
+			openTimelineInspectorRef(s, threadID, targetRef)
 		})
+	}
+	row.Children(func() {
+		ui.Icon(c, IconFile()).Size(11, 11).TextColor(ThemeSecondaryText(c))
+		ui.Text(c, truncateAttachmentName(name, 18)).
+			FontSize(scaledFont(TypeFootnote)).
+			TextColor(ThemePrimaryText(c))
+	})
 }
 
 // shouldAnimateMessageEnter 判断消息是否播放入场动画：只有第一次出现、且时间戳距今不到
