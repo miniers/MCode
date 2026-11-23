@@ -158,6 +158,8 @@ type SettingsState struct {
 	numberDrafts map[string]string
 	// numberErrors 按行 id 保存数值行最近一次非法/越界提交的校验错误（只在界面线程读写）。
 	numberErrors map[string]string
+	// detailScroll 记录详情区的滚动位置，切页时归零。
+	detailScroll ui.ScrollState
 	// jumpToItemID 是逐项搜索点了某条命中后要滚动到可视区的那一行 key，渲染到该行后立即清空。
 	jumpToItemID string
 	// highlightItemID 是同上要高亮的那一行 key，从 highlightStartedAt 起保持 settingsItemHighlightDuration。
@@ -487,7 +489,11 @@ func (s *SettingsState) Open() {
 	s.mu.Lock()
 	s.open = true
 	s.endpoints.failedAt = time.Time{}
-	s.currentPage = normalizeSettingsPageID(s.currentPage)
+	if normalized := normalizeSettingsPageID(s.currentPage); normalized != s.currentPage {
+		s.currentPage = normalized
+		s.detailScroll.X = 0
+		s.detailScroll.Y = 0
+	}
 	s.navSearch = ""
 	s.jumpToItemID = ""
 	s.highlightItemID = ""
@@ -1210,6 +1216,9 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 		s.openSheet = ""
 		s.sheetJumpRow = ""
 		s.sheetDiscardConfirmOpen = false
+		// 切到不同页面时把详情区滚动归零，避免沿用上一页的滚动偏移。
+		s.detailScroll.X = 0
+		s.detailScroll.Y = 0
 	}
 	if jump := settingsLegacyPageJumpRow(id); jump != "" {
 		s.jumpToItemID = jump
@@ -1566,12 +1575,19 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 				}).Label("搜索设置外框")
 			})
 
-		// 导航列表纵向滚动，命中项在页名下缩进列出。
-		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).Padding(settingsVerticalPadding, ListInset).Children(func() {
+		var aboutItem *settingsNavDef
+		// 导航列表纵向滚动，命中项在页名下缩进列出；「关于」单独固定在侧栏底部。
+		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).MinHeight(0).Padding(settingsVerticalPadding, ListInset).Children(func() {
 			previousGroup := ""
-			for i, item := range visible {
-				if item.group != previousGroup || (item.id == "about" && i > 0) {
-					if i > 0 {
+			scrollIndex := 0
+			for _, item := range visible {
+				if item.id == "about" {
+					aboutCopy := item
+					aboutItem = &aboutCopy
+					continue
+				}
+				if item.group != previousGroup {
+					if scrollIndex > 0 {
 						ui.Box(c.Key("settings-nav-" + "group-gap-" + item.id)).Height(Space5)
 					}
 					if item.group != "" {
@@ -1581,12 +1597,24 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 					}
 				}
 				previousGroup = item.group
+				scrollIndex++
 				renderSettingsNavItem(c, st, item, hitsByPage[item.id])
 			}
 			if len(visible) == 0 {
 				ui.Text(c, "无匹配结果").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Padding(Space4, Space3)
 			}
 		})
+		if aboutItem != nil {
+			ui.Column(c.Key("settings-nav-footer")).
+				FillWidth().
+				Shrink(0).
+				Padding(Space2, ListInset, Space2, ListInset).
+				BorderWidth(Hairline, 0, 0, 0).
+				BorderColor(ThemeHairline(c)).
+				Children(func() {
+					renderSettingsNavItem(c, st, *aboutItem, hitsByPage[aboutItem.id])
+				})
+		}
 	})
 }
 
@@ -1718,7 +1746,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 					})
 			})
 		}
-		detailScroll := ui.Scroll(c.Key("settings-detail-scroll")).FillWidth().Grow(1).MinHeight(0).Background(ThemeWindowBg(c))
+		detailScroll := ui.Scroll(c.Key("settings-detail-scroll")).FillWidth().Grow(1).MinHeight(0).Background(ThemeWindowBg(c)).TrackScroll(&st.detailScroll)
 		setSwarmTierEditorViewport(c, st, detailScroll.Bounds())
 		detailScroll.Children(func() {
 			ui.Row(c.Key("settings-detail-outer")).FillWidth().Justify(ui.Center).Padding(0, Space7).Children(func() {
