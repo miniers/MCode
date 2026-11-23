@@ -443,6 +443,7 @@ func fileTreeApplyGitLocked(tree *fileTreeState, files []GitChangedFile) bool {
 	if changed {
 		// 只看改动视图按新列表重建，并重新展开新增的父目录。
 		tree.changedSig = ""
+		fileTreeBumpOutlineGenLocked(tree)
 	}
 	return changed
 }
@@ -461,6 +462,7 @@ func (s *chatState) fileTreeToggleOnlyChanged(threadID string) {
 		tree.changedSig = ""
 		tree.changedCacheOK = false
 	}
+	fileTreeBumpOutlineGenLocked(tree)
 	fileManagerMu.Unlock()
 	if on {
 		fileTreeRefreshGit(s, threadID)
@@ -481,7 +483,10 @@ func fileTreeChangedOutlineLocked(tree *fileTreeState) *ui.OutlineState[string] 
 	if tree.changedOutline != nil {
 		return tree.changedOutline
 	}
-	outline := &ui.OutlineState[string]{}
+	if tree.outlineGen == 0 {
+		tree.outlineGen = 1
+	}
+	outline := &ui.OutlineState[string]{Generation: tree.outlineGen}
 	outline.List.Selected = &tree.changedSelected
 	outline.List.Selection = &tree.changedSelection
 	outline.Indent = Space3
@@ -556,6 +561,7 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 	tree.changedEntries = entries
 	tree.changedCacheRev = tree.gitRev
 	tree.changedCacheOK = true
+	fileTreeBumpOutlineGenLocked(tree)
 	return tree.changedRoots, tree.changedChildren, tree.changedEntries
 }
 

@@ -487,3 +487,73 @@ func TestFileManagerCloseLastTabReturnsToTree(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("sub") })
 }
+
+func TestFileManagerTreeRowCompact(t *testing.T) {
+	entries := []FileEntry{
+		{Name: "a.txt", Path: "a.txt", Size: 5},
+		{Name: "secret.env", Path: "secret.env", Size: 12, Protected: true},
+		{Name: "link.txt", Path: "link.txt", Size: 2048, IsSymlink: true},
+	}
+	fake := treeTestBase()
+	fake.SetFileTree(map[string][]FileEntry{"": entries})
+	_, tt := openFileTreeForTest(t, newTreeListRecorder(fake, map[string][]FileEntry{"": entries}))
+	waitFor(t, tt, func() bool {
+		return tt.HasText("a.txt") && tt.HasText("secret.env") && tt.HasText("link.txt")
+	})
+
+	if _, ok := tt.Find("引用到输入框"); ok || tt.HasText("@引用") {
+		t.Fatal("紧凑树行不应包含「引用到输入框」或「@引用」按钮")
+	}
+	for _, sizeText := range []string{formatFileSize(5), formatFileSize(12), formatFileSize(2048)} {
+		if tt.HasText(sizeText) {
+			t.Fatalf("紧凑树行不应显示文件大小 %q", sizeText)
+		}
+	}
+	if tt.HasText("链接") {
+		t.Fatal("紧凑树行不应显示「链接」文字")
+	}
+	if tt.HasText("受保护") {
+		t.Fatal("紧凑树行不应显示「受保护」文字")
+	}
+	if _, ok := tt.Find("更多操作"); ok {
+		t.Fatal("悬停前不应找到「更多操作」按钮")
+	}
+
+	row, ok := tt.Find("a.txt")
+	if !ok {
+		t.Fatal("找不到文件行 a.txt")
+	}
+	tt.Move(row.X+row.W/2, row.Y+row.H/2)
+	tt.Frame()
+	if _, ok := tt.Find("更多操作"); !ok {
+		t.Fatal("悬停后应能找到「更多操作」按钮")
+	}
+}
+
+func TestFileTreeLoadingIndicatorStops(t *testing.T) {
+	fake := treeTestBase()
+	client := newTreeListRecorder(fake, fileManagerTestTree())
+	client.gates["sub"] = make(chan chan struct{}, 1)
+	_, tt := openFileTreeForTest(t, client)
+	waitFor(t, tt, func() bool { return tt.HasText("sub") })
+
+	if err := tt.Click("sub"); err != nil {
+		t.Fatalf("click sub failed: %v", err)
+	}
+	gate := waitTreeGate(t, client.gates["sub"])
+	tt.Frame()
+	if _, ok := tt.Find("加载中"); !ok {
+		t.Fatal("目录加载中应在箭头位置显示加载指示")
+	}
+
+	close(gate)
+	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
+	tt.Advance(DurSlow + 100*time.Millisecond)
+	tt.Frame()
+	if _, ok := tt.Find("加载中"); ok {
+		t.Fatal("目录加载完成后加载指示应消失")
+	}
+	if tt.FramePending() {
+		t.Fatal("目录加载完成后不应继续请求下一帧")
+	}
+}

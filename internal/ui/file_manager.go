@@ -62,6 +62,8 @@ type fileManagerState struct {
 	searchResults   []FileMatch
 	searchTruncated bool
 	searchErr       string
+	searchSelected  int
+	searchReveal    bool
 
 	// 预览 tab 与拆分状态：拆分时第一栏固定为 splitAnchor，第二栏为 splitSide；
 	// splitVertical 为 true 表示上下分栏，false（默认）表示左右分栏，取消拆分后保留这个偏好。
@@ -164,10 +166,15 @@ func (s *chatState) loadFileManagerDir(threadID, dir string) {
 		fileManagerResetForThreadLocked(st, threadID)
 	}
 	tree := ensureFileTreeLocked(st)
+	addedOpen := false
 	for _, path := range fileTreeAncestors(dir) {
-		if path != "" {
+		if path != "" && !tree.outline.Open.Has(path) {
 			tree.outline.Open.Add(path)
+			addedOpen = true
 		}
+	}
+	if addedOpen {
+		fileTreeBumpOutlineGenLocked(tree)
 	}
 	st.dir = dir
 	fileManagerMu.Unlock()
@@ -217,6 +224,8 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 	st.searchResults = nil
 	st.searchTruncated = false
 	st.searchErr = ""
+	st.searchSelected = 0
+	st.searchReveal = false
 	st.searching = false
 	// 新会话的树从空缓存开始；展开偏好等该会话自己的 InspectorPreference 恢复。
 	st.tree = nil
@@ -227,7 +236,10 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 // loadingResetLocked 清除根目录加载状态，用于没有工作区的空会话。
 func (st *fileManagerState) loadingResetLocked() {
 	if st.tree != nil {
-		delete(st.tree.loading, "")
+		if st.tree.loading[""] {
+			delete(st.tree.loading, "")
+			fileTreeBumpOutlineGenLocked(st.tree)
+		}
 	}
 	st.err = ""
 }
@@ -250,6 +262,8 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 		st.searching = false
 		st.searchResults = nil
 		st.searchTruncated = false
+		st.searchSelected = 0
+		st.searchReveal = false
 		fileManagerMu.Unlock()
 		s.invalidate()
 		return
@@ -257,6 +271,8 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 	st.searching = true
 	st.searchResults = nil
 	st.searchTruncated = false
+	st.searchSelected = 0
+	st.searchReveal = false
 	fileManagerMu.Unlock()
 	s.invalidate()
 
@@ -283,6 +299,8 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 			return
 		}
 		st.searching = false
+		st.searchSelected = 0
+		st.searchReveal = false
 		if err != nil {
 			st.searchErr = err.Error()
 			st.searchResults = nil
@@ -384,14 +402,6 @@ func fileManagerThreadID(s *chatState) string {
 	return st.threadID
 }
 
-// fileManagerMentionHandler 在构建入口时固定来源，文件与目录共用引用附件。
-func fileManagerMentionHandler(s *chatState, _ bool, relPath string) func() {
-	ref := inspectorFileReference(s, fileManagerThreadID(s), relPath, 0, 0)
-	return func() {
-		s.addInspectorFileRefs([]inspectorFileRef{ref})
-	}
-}
-
 // renderFileManagerSearchResults 渲染搜索结果列表：结果与目录列表共用同一套行渲染。
 func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool, errMsg string, results []FileMatch, truncated bool) {
 	if errMsg != "" {
@@ -411,32 +421,58 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 		return
 	}
 
-	threadID := fileManagerThreadID(s)
+	st := getFileManagerState(s)
+	selectedIdx := 0
+	reveal := false
+	threadID := ""
+	if st != nil {
+		fileManagerMu.Lock()
+		threadID = st.threadID
+		selectedIdx = st.searchSelected
+		if selectedIdx < 0 {
+			selectedIdx = 0
+		} else if selectedIdx >= len(results) {
+			selectedIdx = len(results) - 1
+		}
+		st.searchSelected = selectedIdx
+		reveal = st.searchReveal
+		st.searchReveal = false
+		fileManagerMu.Unlock()
+	}
+
 	ui.Column(c.Key("file-manager-search-results")).
 		Gap(Hairline).
 		FillWidth().
 		Children(func() {
-			for _, match := range results {
+			for i, match := range results {
+				idx := i
 				item := match
 				icon := IconFile()
 				if item.IsDir {
 					icon = IconFolder()
 				}
+				isSelected := idx == selectedIdx
 				renderFileManagerRow(c, s, fileManagerRowProps{
-					key:      "file-manager-search-item-" + item.Path,
-					icon:     icon,
-					name:     item.Path,
-					isDir:    item.IsDir,
-					threadID: threadID,
-					entry:    FileEntry{Name: item.Name, Path: item.Path, IsDir: item.IsDir},
+					key:            "file-manager-search-item-" + item.Path,
+					icon:           icon,
+					name:           item.Path,
+					isDir:          item.IsDir,
+					selected:       isSelected,
+					scrollIntoView: isSelected && reveal,
+					threadID:       threadID,
+					entry:          FileEntry{Name: item.Name, Path: item.Path, IsDir: item.IsDir},
 					onOpen: func(pin bool, _ ui.Modifiers) {
+						if st != nil {
+							fileManagerMu.Lock()
+							st.searchSelected = idx
+							fileManagerMu.Unlock()
+						}
 						if item.IsDir {
 							s.fileTreeRevealDir(threadID, item.Path)
 							return
 						}
 						s.openFileManagerFile(threadID, item.Path, pin)
 					},
-					onMention: fileManagerMentionHandler(s, item.IsDir, item.Path),
 				})
 			}
 			if truncated {
@@ -450,34 +486,43 @@ func renderFileManagerSearchResults(c *ui.Context, s *chatState, searching bool,
 
 // fileManagerRowProps 是列表行需要的展示与回调字段。
 type fileManagerRowProps struct {
-	key       string
-	icon      *ui.SVG
-	name      string
-	size      string
-	ignored   bool
-	protected bool
-	symlink   bool
-	isDir     bool
+	key            string
+	icon           *ui.SVG
+	name           string
+	ignored        bool
+	protected      bool
+	isDir          bool
+	inTree         bool
+	selected       bool
+	focused        bool
+	scrollIntoView bool
+	hasGit         bool
+	git            GitChangedFile
 	// threadID 与 entry 供右键菜单使用：菜单里的打开、复制路径与写操作都按它们做。
 	threadID string
 	entry    FileEntry
 	// onOpen 打开文件：pin 为 false 表示单击（临时预览），true 表示双击（固定 tab）。
-	onOpen    func(pin bool, mods ui.Modifiers)
-	onMention func()
+	onOpen func(pin bool, mods ui.Modifiers)
 }
 
-// renderFileManagerRow 渲染单行条目：图标、名称、可选大小、标签与「@引用」按钮。
-// Protected 条目点击无效（行变灰、不绑定打开回调）。
+// renderFileManagerRow 渲染单行条目：图标、名称、可选锁图标、Git 标记与悬停「更多操作」按钮。
+// Protected 条目点击无效（次要文字色、不绑定打开回调）。
 func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps) {
 	row := ui.Row(c.Key(props.key)).
 		FillWidth().
-		Padding(Space1, Space2).
+		Height(RowHeightCompact).
+		Padding(0, Space2).
 		Radius(RadiusXS).
 		Gap(Space2).
 		AlignItems(ui.Center)
 	rowHovered := row.Hovered()
-	if rowHovered && !props.protected {
+	if props.selected && !props.inTree {
+		row.Selected(true)
+	} else if !props.selected && rowHovered && !props.protected {
 		row.Background(ThemeHover(c))
+	}
+	if props.scrollIntoView {
+		row.ScrollIntoView()
 	}
 
 	nameColor := ThemePrimaryText(c)
@@ -485,9 +530,8 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		nameColor = ThemeSecondaryText(c)
 	}
 
-	// 点「@引用」不应同时打开文件：按钮先于行评估点击，用标记拦下行的打开。
-	mentionClicked := false
 	morePressed := false
+	showMore := rowHovered || props.selected || props.focused || row.FocusWithin()
 
 	// 右键菜单与行尾「更多操作」按钮共用同一套菜单项。
 	row.ContextMenu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
@@ -499,66 +543,58 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		}
 		ui.Icon(c, props.icon).Size(IconSM, IconSM).TextColor(iconColor).Shrink(0)
 
-		nameText := ui.Text(c, props.name).
-			FontSize(uiFont(TypeFootnote)).
-			TextColor(nameColor).
-			SingleLine().
-			TruncateMiddle().
-			Grow(1).
-			MinWidth(0)
-		if props.entry.Path != "" {
-			if w := nameText.LayoutBounds().W; w > 0 {
-				naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
-				if naturalW > w+Hairline {
-					nameText.Tooltip(props.entry.Path)
+		renderName := func(grow bool) {
+			nameText := ui.Text(c, props.name).
+				FontSize(uiFont(TypeFootnote)).
+				TextColor(nameColor).
+				SingleLine().
+				TruncateMiddle().
+				MinWidth(0)
+			if grow {
+				nameText.Grow(1)
+			} else {
+				nameText.Shrink(1)
+			}
+			if props.entry.Path != "" {
+				if w := nameText.LayoutBounds().W; w > 0 {
+					naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
+					if naturalW > w+Hairline {
+						nameText.Tooltip(props.entry.Path)
+					}
 				}
 			}
 		}
-
-		if props.symlink {
-			renderFileManagerTag(c, props.key+"-symlink", "链接", ThemeSecondaryText(c))
-		}
 		if props.protected {
-			renderFileManagerTag(c, props.key+"-protected", "受保护", ThemeWarning(c))
-		}
-		if props.size != "" {
-			ui.Text(c, props.size).
-				FontSize(uiFont(TypeCaption)).
-				TextColor(ThemeSecondaryText(c)).
-				Shrink(0)
+			ui.Row(c.Key(props.key+"-name-wrap")).
+				Grow(1).
+				MinWidth(0).
+				AlignItems(ui.Center).
+				Gap(Space1).
+				Children(func() {
+					renderName(false)
+					ui.Icon(c, IconLock()).
+						Size(12, 12).
+						TextColor(ThemeSecondaryText(c)).
+						Shrink(0)
+				})
+		} else {
+			renderName(true)
 		}
 
-		if props.onMention != nil && !props.protected {
-			mention := ui.ButtonBase(c.Key(props.key+"-mention")).
-				Label("@引用 "+props.name).
-				Tooltip("引用到输入框").
-				Radius(RadiusXS).
-				Padding(Hairline, Space1).
-				Cursor(ui.CursorPointer)
-			mentionScale := motionPressScale(c, mention, "button-press-scale", mention.Pressed())
-			mention.Scale(mentionScale, mentionScale)
-			if mention.Hovered() {
-				mention.Background(ThemeSelected(c))
-			}
-			if mention.Clicked() {
-				mentionClicked = true
-				props.onMention()
-			}
-			mention.Children(func() {
-				ui.Text(c, "@引用").
-					FontSize(uiFont(TypeCaption)).
-					TextColor(ThemeSecondaryText(c))
-			})
+		if props.hasGit {
+			renderFileTreeGitTag(c, "file-tree-git-"+props.entry.Path, props.git)
 		}
 
 		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，所以常驻构建并用 Hidden 隐藏。
 		more := ui.ButtonBase(c.Key(props.key+"-more")).
 			Label("更多操作").
 			Tooltip("更多操作").
-			Hidden(!rowHovered).
+			Hidden(!showMore).
+			KeepFocus().
 			Radius(RadiusXS).
 			Padding(Hairline, Space1).
 			Cursor(ui.CursorPointer)
+		focusRing(c, more)
 		moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
 		more.Scale(moreScale, moreScale)
 		if more.Hovered() {
@@ -574,7 +610,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 				TextColor(ThemeSecondaryText(c))
 		})
 
-		if !props.protected && !mentionClicked && !morePressed && props.onOpen != nil {
+		if !props.protected && !morePressed && props.onOpen != nil {
 			// 双击固定预览，单击只开临时 tab；双击先于 Clicked 拦下。
 			if row.DoubleClicked() {
 				props.onOpen(true, 0)
@@ -585,7 +621,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 	})
 }
 
-// renderFileManagerTag 渲染行内小标签（链接 / 受保护）。
+// renderFileManagerTag 渲染行内单字母状态标签。
 func renderFileManagerTag(c *ui.Context, key, label string, color ui.Color) {
 	ui.Row(c.Key(key)).
 		Padding(Hairline, Space1).
@@ -606,14 +642,6 @@ func fileManagerEntryIcon(entry FileEntry) *ui.SVG {
 		return IconFolder()
 	}
 	return IconFile()
-}
-
-// fileManagerEntrySize 返回条目右侧的大小文本：目录不显示大小。
-func fileManagerEntrySize(entry FileEntry) string {
-	if entry.IsDir {
-		return ""
-	}
-	return formatFileSize(entry.Size)
 }
 
 // renderFileManagerError 渲染面板内的错误行（不弹窗），可选重试按钮。

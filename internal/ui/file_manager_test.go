@@ -438,3 +438,38 @@ func TestFileManagerClosedByOtherPanels(t *testing.T) {
 		t.Fatal("切换目的后文件状态被替换")
 	}
 }
+
+func TestFileManagerSearchKeyboardNav(t *testing.T) {
+	fake, s, tt := openFileManagerForTest(t)
+	fake.SetFiles([]FileMatch{
+		{Name: "first.go", Path: "src/first.go"},
+		{Name: "second.go", Path: "src/second.go"},
+	})
+	fake.SetFileContents(map[string]FileContent{
+		"src/first.go":  {Path: "src/first.go", Kind: "text", Text: "one", TotalSize: 3},
+		"src/second.go": {Path: "src/second.go", Kind: "text", Text: "two", TotalSize: 3},
+	})
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	if err := tt.Click("搜索文件"); err != nil {
+		t.Fatalf("click search input failed: %v", err)
+	}
+	tt.Type("go")
+	waitFor(t, tt, func() bool { return tt.HasText("src/first.go") && tt.HasText("src/second.go") })
+
+	tt.Key(0, ui.KeyDown)
+	tt.Key(0, ui.KeyEnter)
+	waitFor(t, tt, func() bool {
+		_, _, active := fileManagerSnapshot(s)
+		return active == "src/second.go"
+	})
+
+	st := getFileManagerState(s)
+	fileManagerMu.Lock()
+	tab := st.findTabLocked("src/second.go")
+	temporary := tab != nil && tab.temporary
+	fileManagerMu.Unlock()
+	if !temporary {
+		t.Fatal("Enter 应以临时预览打开选中项")
+	}
+}
