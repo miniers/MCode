@@ -1,8 +1,12 @@
 package mcodeui
 
 import (
+	"bytes"
+	"image"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // TestGroupThreadsByParent_ParentVisibleAndInvisible 验证父会话在列表中存在（可见）与不存在（不可见）时的分组表现。
@@ -412,4 +416,160 @@ func TestBeeAvatarSettled(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newFlatBeeRowSidebar(t *testing.T, threads []Thread, reduced bool) (*chatState, *ui.Tester) {
+	t.Helper()
+	ResetBeeFolded()
+	ResetBeeShowAll()
+	resetSidebarHoverCardForTest()
+	t.Cleanup(func() {
+		ResetBeeFolded()
+		ResetBeeShowAll()
+		resetSidebarHoverCardForTest()
+	})
+
+	fake := NewFakeClient()
+	fake.SetProjectsAndThreads(
+		[]Project{{ID: "p1", Name: "mcode-flat", Path: "/path/to/flat"}},
+		map[string][]Thread{"p1": threads},
+	)
+	state, view := buildRoot(fake, WithSettings(settingsTestDir(t), nil))
+	t.Cleanup(state.close)
+	// buildRoot 内部加载默认设置时会刷新全局减少动效开关，必须在之后覆盖。
+	setAppReduceMotion(t, reduced)
+	tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{
+		Preferences: ui.Preferences{ReduceMotion: reduced},
+	})
+	waitFor(t, tt, func() bool {
+		return len(threads) == 0 || tt.HasText(threads[0].Title)
+	})
+	return state, tt
+}
+
+// TestSidebarBeeRowFlat 验证侧栏子代理行改为无外框缩进样式后的行为：
+// (a) 子行不再渲染 bee-connector-btn-* 和 bee-container-box-* 这两个 key；
+// (b) 通过新入口触发收起时，会调用 ToggleBeeFold，父行下的子行随之收起（含键盘聚焦触发）；
+// (c) ReduceMotion 时运行中点阵静止，不再请求下一帧。
+func TestSidebarBeeRowFlat(t *testing.T) {
+	t.Run("no_connector_or_container_box", func(t *testing.T) {
+		src := uiProdFileByName(t, "sidebar_bees.go").Src
+		for _, oldKey := range []string{"bee-connector-btn-", "bee-container-box-"} {
+			if bytes.Contains(src, []byte(oldKey)) {
+				t.Fatalf("sidebar_bees.go 不应再渲染旧 key %q", oldKey)
+			}
+		}
+
+		now := time.Now()
+		_, tt := newFlatBeeRowSidebar(t, []Thread{
+			{ID: "lead-1", ProjectID: "p1", Title: "无外框主会话", UpdatedAt: now},
+			{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 运行任务", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now},
+			{ID: "bee-2", ProjectID: "p1", Title: "Birch: 运行任务", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now.Add(-time.Second)},
+		}, true)
+
+		aspenRect, ok := tt.Find("Aspen")
+		if !ok {
+			t.Fatalf("子行应渲染子代理头像 Aspen，texts: %q", tt.Texts())
+		}
+		if _, ok := tt.Find("Birch"); !ok {
+			t.Fatalf("子行应渲染子代理头像 Birch，texts: %q", tt.Texts())
+		}
+		foldRect, ok := tt.Find("收起子会话")
+		if !ok {
+			t.Fatalf("子行应渲染新收起入口 '收起子会话'，texts: %q", tt.Texts())
+		}
+		if foldRect.X < aspenRect.X+aspenRect.W {
+			t.Fatalf("新收起入口应位于头像右侧空白处，foldRect=%+v, aspenRect=%+v", foldRect, aspenRect)
+		}
+	})
+
+	t.Run("fold_via_new_entry_and_keyboard", func(t *testing.T) {
+		now := time.Now()
+		_, tt := newFlatBeeRowSidebar(t, []Thread{
+			{ID: "lead-1", ProjectID: "p1", Title: "折叠测试主会话", UpdatedAt: now},
+			{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 子任务 1", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now},
+			{ID: "bee-2", ProjectID: "p1", Title: "Birch: 子任务 2", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now.Add(-time.Second)},
+		}, true)
+
+		if IsBeeFolded("lead-1") {
+			t.Fatalf("初始状态应为展开")
+		}
+		if err := tt.Click("收起子会话"); err != nil {
+			t.Fatalf("点击新收起入口失败: %v", err)
+		}
+		tt.Frame()
+
+		if !IsBeeFolded("lead-1") {
+			t.Fatalf("点击新收起入口后应调用 ToggleBeeFold 标记为折叠")
+		}
+		if !tt.HasText("2 个子代理") {
+			t.Fatalf("收起后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+		}
+		if _, ok := tt.Find("Aspen"); ok {
+			t.Fatalf("收起后不应再显示子代理头像 Aspen，texts: %q", tt.Texts())
+		}
+
+		// 重新展开后验证新入口可键盘聚焦并通过 Enter 触发收起
+		if err := tt.Click("2 个子代理"); err != nil {
+			t.Fatalf("点击 '2 个子代理' 重新展开失败: %v", err)
+		}
+		tt.Frame()
+		if IsBeeFolded("lead-1") {
+			t.Fatalf("重新展开后应恢复展开状态")
+		}
+
+		for i := 0; i < 64 && !tt.Focused("收起子会话"); i++ {
+			tt.Key(0, ui.KeyTab)
+		}
+		if !tt.Focused("收起子会话") {
+			t.Fatalf("新收起入口应支持键盘 Tab 聚焦")
+		}
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+
+		if !IsBeeFolded("lead-1") {
+			t.Fatalf("键盘触发新收起入口后应折叠子行")
+		}
+		if !tt.HasText("2 个子代理") {
+			t.Fatalf("键盘收起后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+		}
+		if _, ok := tt.Find("Aspen"); ok {
+			t.Fatalf("键盘收起后不应再显示子代理头像 Aspen，texts: %q", tt.Texts())
+		}
+	})
+
+	t.Run("reduce_motion_glyph_static_no_pending_frame", func(t *testing.T) {
+		now := time.Now()
+		_, tt := newFlatBeeRowSidebar(t, []Thread{
+			{ID: "lead-1", ProjectID: "p1", Title: "减少动效主会话", UpdatedAt: now},
+			{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 运行中", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now},
+		}, true)
+
+		aspenRect, ok := tt.Find("Aspen")
+		if !ok {
+			t.Fatalf("运行中子代理 Aspen 应可见，texts: %q", tt.Texts())
+		}
+		tt.Move(0, 0)
+		tt.Frame()
+		if tt.FramePending() {
+			t.Fatalf("ReduceMotion 时运行中点阵不应请求下一帧")
+		}
+
+		// 只检查子代理头像与角标所在区域（含 Right(-1)/Bottom(-1) 溢出），确保点阵本身静止。
+		badgeBand := image.Rect(
+			int(aspenRect.X)-2,
+			int(aspenRect.Y)-2,
+			int(aspenRect.X+aspenRect.W)+4,
+			int(aspenRect.Y+aspenRect.H)+4,
+		).Intersect(tt.Image().Bounds())
+		before := cloneImage(tt.Image())
+		tt.Advance(400 * time.Millisecond)
+		tt.Frame()
+		if tt.FramePending() {
+			t.Fatalf("ReduceMotion 下推进时钟后仍不应请求下一帧")
+		}
+		if bandDiffers(before, tt.Image(), badgeBand) {
+			t.Fatalf("ReduceMotion 时运行中点阵画面应保持静止")
+		}
+	})
 }

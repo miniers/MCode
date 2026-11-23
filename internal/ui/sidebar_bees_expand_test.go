@@ -42,7 +42,7 @@ func newIdleBeesExpandSidebar(t *testing.T, threads []Thread) (*chatState, *ui.T
 }
 
 // TestSidebarIdleBeesExpand 验证开启自动隐藏空闲子代理后，按父会话展开查看全部历史子代理的交互：
-// (a) 全部子代理都空闲且父会话选中时直接展开全部子代理头像，支持点击连接线折叠为摘要行与再次展开；
+// (a) 全部子代理都空闲且父会话选中时直接展开全部子代理头像，支持点击子行收起入口折叠为摘要行与再次展开；
 // (b) 部分运行中 + 部分空闲时在容器末尾显示 +N 按钮，点击后展示全部子代理并支持再次收起。
 func TestSidebarIdleBeesExpand(t *testing.T) {
 	t.Run("all_idle_hidden_expand_and_collapse", func(t *testing.T) {
@@ -80,20 +80,20 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 			t.Fatalf("选中子代理 Aspen 后 Birch 仍应保持可见，texts: %q", tt.Texts())
 		}
 
-		// 切回主会话后点击连接线可手动折叠为 '2 个子代理'，再点击可重新展开
+		// 切回主会话后点击收起入口可手动折叠为 '2 个子代理'，再点击可重新展开
 		if err := tt.Click("全空闲主会话"); err != nil {
 			t.Fatalf("切回主会话失败: %v", err)
 		}
 		waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "lead-1" })
 
 		if err := tt.Click("收起子会话"); err != nil {
-			t.Fatalf("点击连接线折叠按钮失败: %v", err)
+			t.Fatalf("点击收起子会话入口失败: %v", err)
 		}
 		tt.Advance(DurSlow + 50*time.Millisecond)
 		tt.Frame()
 
 		if !IsBeeFolded("lead-1") {
-			t.Fatalf("点击连接线后应标记为折叠状态")
+			t.Fatalf("点击收起子会话后应标记为折叠状态")
 		}
 		if !tt.HasText("2 个子代理") {
 			t.Fatalf("折叠后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
@@ -187,7 +187,7 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 // TestSidebarIdleBeesHiddenUntilSelected 验证「侧边栏自动隐藏空闲子代理」开启时的完整隐藏与展开生命周期：
 // (a) 未选中且子代理全部空闲时，既不显示 "2 个子代理" 也不显示子代理头像；
 // (b) 点击父会话标题选中后直接展开全部子代理头像，且点击其中某个子代理后其余头像保持可见；
-// (c) 选中态可点击连接线折叠为 "2 个子代理"，再点击重新展开；
+// (c) 选中态可点击收起入口折叠为 "2 个子代理"，再点击重新展开；
 // (d) 切换到另一个会话后，原空闲父会话的子代理头像与 "2 个子代理" 自动隐藏；
 // (e) 过渡结束后不再持续请求下一帧，且 ReduceMotion 下即时完成。
 func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
@@ -281,13 +281,13 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 				t.Fatalf("选中 Aspen 后 Birch 仍应保持可见，texts: %q", tt.Texts())
 			}
 
-			// (c) 切回父会话选中态，点击连接线折叠为 "2 个子代理"，再点击重新展开
+			// (c) 切回父会话选中态，点击收起入口折叠为 "2 个子代理"，再点击重新展开
 			if err := tt.Click("全空闲主会话"); err != nil {
 				t.Fatalf("切回全空闲主会话失败: %v", err)
 			}
 			waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "lead-1" })
 			if err := tt.Click("收起子会话"); err != nil {
-				t.Fatalf("点击连接线收起子会话失败: %v", err)
+				t.Fatalf("点击收起子会话失败: %v", err)
 			}
 			tt.Move(0, 0)
 			tt.Advance(DurSlow + 200*time.Millisecond)

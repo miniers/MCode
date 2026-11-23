@@ -707,8 +707,9 @@ func renderSidebarBeeActionChip(c *ui.Context, s *chatState, key, text, label, t
 	})
 }
 
-// renderSidebarBeeSubRow 在父会话行下方渲染圆角容器、虚线连接线，以及容器里的 bee 头像条；
-// 自动隐藏空闲子代理开启时，补齐按会话展开/收起全部子代理的两态极简交互。
+// renderSidebarBeeSubRow 在父会话行下方渲染无外框的缩进 bee 头像条；
+// 末尾空白处点击或键盘聚焦触发收起子会话；自动隐藏空闲子代理开启时，
+// 补齐按会话展开/收起全部子代理的两态极简交互。
 func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptions) {
 	bees := o.bees
 	parentID := o.thread.ID
@@ -736,90 +737,57 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 		return
 	}
 
-	// 子行整行容器：包含左侧连接线与右侧圆角容器
+	// 无外框缩进头像行：头像与操作胶囊内联排列，右侧空白处可点击或键盘聚焦收起子会话。
 	row := ui.Row(c.Key("bee-subrow-"+o.projectID+"-"+parentID)).
-		Margin(Space0, ListInset, Space1, ListInset+o.indent).
-		AlignItems(ui.Stretch).
+		Margin(0, ListInset, Space1, ListInset+o.indent+Space3+Space2).
+		Gap(Space2).
+		AlignItems(ui.Center).
 		Transition(motionCollapse(c))
 
 	row.Children(func() {
-		// 1. 左侧虚线连接线：从父行引出，点击可折叠
-		connectorBtn := ui.ButtonBase(c.Key("bee-connector-btn-" + parentID)).
-			Width(Space7).
+		ui.Row(c.Key("bee-avatars-row-" + o.projectID + "-" + parentID)).
+			Wrap().
+			Gap(Space2).
+			AlignItems(ui.Center).
+			Shrink(1).
+			Children(func() {
+				for _, bee := range bees {
+					hVal := bee
+					isBeeSelected := (selectedID == hVal.ID)
+					status := resolveBeeStatus(s, parentID, hVal)
+					renderSidebarSingleBeeAvatar(c, s, parentID, hVal, status, isBeeSelected)
+				}
+				if o.hiddenBeeCount > 0 {
+					expandLabel := fmt.Sprintf("+%d", o.hiddenBeeCount)
+					renderSidebarBeeActionChip(c, s, "bee-expand-btn-"+o.projectID+"-"+parentID, expandLabel, expandLabel, "显示全部子代理", func() {
+						SetBeeShowAll(parentID, true)
+					})
+				} else if o.showAllBees && hasIdleSwarmBee(bees, selectedID) {
+					renderSidebarBeeActionChip(c, s, "bee-collapse-btn-"+o.projectID+"-"+parentID, "收起", "收起", "恢复自动隐藏空闲子代理", func() {
+						SetBeeShowAll(parentID, false)
+					})
+				}
+			})
+
+		foldBtn := ui.ButtonBase(c.Key("bee-fold-btn-" + o.projectID + "-" + parentID)).
+			Grow(1).
 			Shrink(0).
+			MinWidth(ControlKbd).
+			Height(ControlKbd).
+			Radius(RadiusXS).
 			Label("收起子会话").
-			Tooltip("收起子会话")
-		connectorBtnScale := motionPressScale(c, connectorBtn, "button-press-scale", connectorBtn.Pressed())
-		connectorBtn.Scale(connectorBtnScale, connectorBtnScale)
-
-		connectorHovered := connectorBtn.Hovered()
-		connectorBtn.Draw(func(painter *ui.Painter, r ui.Rect) {
-			lineCol := ThemeSecondaryText(c).Alpha(0.35)
-			if connectorHovered {
-				lineCol = ThemeSecondaryText(c).Alpha(0.85)
-			}
-			lineX := r.X + 14
-			midY := r.Y + r.H/2
-
-			// 竖直点状虚线：从顶部走到中点
-			for y := r.Y; y < midY; y += 4 {
-				endY := y + 1.8
-				if endY > midY {
-					endY = midY
-				}
-				painter.Line(lineX, y, lineX, endY, 1, lineCol)
-			}
-
-			// 水平点状虚线：从中点向右连接到容器
-			for x := lineX; x < r.X+r.W; x += 4 {
-				endX := x + 1.8
-				if endX > r.X+r.W {
-					endX = r.X + r.W
-				}
-				painter.Line(x, midY, endX, midY, 1, lineCol)
-			}
-		})
-
-		if connectorBtn.Clicked() {
+			Tooltip("收起子会话").
+			Focusable()
+		if foldBtn.Hovered() {
+			foldBtn.Background(ThemeHover(c))
+		}
+		focusRing(c, foldBtn)
+		if foldBtn.Clicked() {
 			ToggleBeeFold(parentID)
 			if s != nil {
 				s.invalidate()
 			}
 		}
-
-		// 2. 右侧圆角容器（细描边、内边距约 6pt，头像自动换行）
-		card := ui.Box(c.Key("bee-container-box-" + o.projectID + "-" + parentID)).
-			Radius(RadiusSM).
-			Padding(Space2).
-			Background(ThemeOverlayHover(c)).
-			BorderWidth(1).
-			BorderColor(ThemeBorder(c).Alpha(0.45)).
-			Grow(1)
-
-		card.Children(func() {
-			ui.Row(c.Key("bee-container-row-" + parentID)).
-				Wrap().
-				Gap(Space2).
-				AlignItems(ui.Center).
-				Children(func() {
-					for _, bee := range bees {
-						hVal := bee
-						isBeeSelected := (selectedID == hVal.ID)
-						status := resolveBeeStatus(s, parentID, hVal)
-						renderSidebarSingleBeeAvatar(c, s, parentID, hVal, status, isBeeSelected)
-					}
-					if o.hiddenBeeCount > 0 {
-						expandLabel := fmt.Sprintf("+%d", o.hiddenBeeCount)
-						renderSidebarBeeActionChip(c, s, "bee-expand-btn-"+o.projectID+"-"+parentID, expandLabel, expandLabel, "显示全部子代理", func() {
-							SetBeeShowAll(parentID, true)
-						})
-					} else if o.showAllBees && hasIdleSwarmBee(bees, selectedID) {
-						renderSidebarBeeActionChip(c, s, "bee-collapse-btn-"+o.projectID+"-"+parentID, "收起", "收起", "恢复自动隐藏空闲子代理", func() {
-							SetBeeShowAll(parentID, false)
-						})
-					}
-				})
-		})
 	})
 }
 
