@@ -15,9 +15,6 @@ import (
 // PR 只读查看弹窗：左列是当前仓库开放的 PR/MR 列表，右侧是选中项的详情。
 // 浏览之外支持批准、要求修改和合并。
 
-// modalDragGitPR 是「Pull Request 列表」弹窗的拖拽 key。
-const modalDragGitPR = "modal-drag-git-pr"
-
 const (
 	// gitPRListLimit 是一次读取的 PR/MR 条数上限。
 	gitPRListLimit = 30
@@ -169,10 +166,21 @@ func (s *chatState) openGitPRDialog() {
 	st.mu.Unlock()
 	s.invalidate()
 	s.fetchGitPRList()
+	openGitPRWindow(s)
 }
 
-// closeGitPRDialog 关闭弹窗，并丢弃在途请求的结果。
+// closeGitPRDialog 关闭 PR 独立窗口与状态，并丢弃在途请求的结果。
 func (s *chatState) closeGitPRDialog() {
+	if s == nil {
+		return
+	}
+	s.resetGitPRDialogState()
+	closeGitPRWindow()
+	s.invalidate()
+}
+
+// resetGitPRDialogState 清空 PR 窗口的会话状态与在途请求序号，不直接操作窗口句柄。
+func (s *chatState) resetGitPRDialogState() {
 	if s == nil {
 		return
 	}
@@ -194,8 +202,6 @@ func (s *chatState) closeGitPRDialog() {
 	st.listSeq++
 	st.detailSeq++
 	st.mu.Unlock()
-	modalDragReset(modalDragGitPR)
-	s.invalidate()
 }
 
 // refreshGitPRList 重新读取列表；弹窗没打开时什么也不做。
@@ -651,8 +657,9 @@ func (s *chatState) fetchGitPRConflicts(number int, base string, detailSeq uint6
 	}()
 }
 
-// renderGitPRDialog 渲染 PR 只读弹窗，由会话头部每帧调用。
-func renderGitPRDialog(c *ui.Context, s *chatState) {
+// renderGitPRWindow 渲染 PR 独立窗口的内容。
+func renderGitPRWindow(c *ui.Context, s *chatState) {
+	applyAppTheme(c)
 	if s == nil {
 		return
 	}
@@ -674,71 +681,64 @@ func renderGitPRDialog(c *ui.Context, s *chatState) {
 	st.mu.Unlock()
 
 	if !open {
-		modalDragReset(modalDragGitPR)
-		return
-	}
-	// 切换会话后旧列表没有意义，直接关掉。
-	if threadID != "" && threadID != s.gitPRThreadID() {
-		s.closeGitPRDialog()
 		return
 	}
 
-	winW, winH := c.Size()
+	_, winH := c.Size()
 	empty := !listLoading && listErr == "" && len(prs) == 0
-	cardW, cardH := modalResizeSize(modalDragGitPR, gitPRDialogWidth, max(400, winH-120), 360, 240, winW, winH)
-	contentH := max(0, cardH-72)
+	contentH := max(0, winH-beeWindowStripHeight-2*Space5)
 
-	modalDragModal(c, modalDragGitPR, &open, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			s.closeGitPRDialog()
-			return
-		}
+	ui.Column(c.Key("git-pr-window-root")).
+		Label("PR 窗口").
+		Fill().
+		Background(ThemeWindowBg(c)).
+		Clip().
+		Gap(0).
+		Children(func() {
+			if c.Shortcut(0, ui.KeyEscape) {
+				s.closeGitPRDialog()
+				return
+			}
 
-		ui.Column(c.Key("modal-git-pr-card")).
-			Label("PR 弹窗卡片").
-			Width(cardW).
-			Height(cardH).
-			Background(ThemeSurface(c)).
-			BorderColor(ThemeBorder(c)).
-			BorderWidth(Hairline).
-			Radius(RadiusLG).
-			Padding(Space5).
-			Gap(Space4).
-			Transition(motionDialog(c)).
-			Children(func() {
-				// 标题行同时是弹窗的拖拽把手。
-				modalDragHandle(c, modalDragGitPR, ui.Row(c.Key("modal-git-pr-title-row")).
-					FillWidth().
-					AlignItems(ui.Center).
-					Gap(Space2).
-					Children(func() {
-						ui.Text(c, "Pull Request").
-							FontSize(uiFont(TypeTitle)).
-							FontWeight(600).
-							TextColor(ThemePrimaryText(c)).
-							SingleLine()
-						ui.Spacer(c)
-						IconButton(c, IconButtonProps{
-							Key:     "modal-git-pr-refresh",
-							Icon:    IconRefreshCw(),
-							Label:   "刷新",
-							Variant: ButtonGhost,
-							Loading: listLoading,
-							OnClick: func() { s.refreshGitPRList() },
-						})
-						IconButton(c, IconButtonProps{
-							Key:     "modal-git-pr-close",
-							Icon:    IconX(),
-							Label:   "关闭",
-							Variant: ButtonGhost,
-							OnClick: func() { s.closeGitPRDialog() },
-						})
-					}))
+			stripLeading, stripTrailing := beeWindowStripInsets(titleBarGOOS, c.TitleBar())
+			ui.Row(c.Key("git-pr-window-strip")).
+				DragWindow().
+				FillWidth().
+				Height(beeWindowStripHeight).
+				AlignItems(ui.Center).
+				Padding(0, stripTrailing, 0, stripLeading).
+				Gap(Space2).
+				BorderWidth(0, 0, Hairline, 0).
+				BorderColor(ThemeBorder(c)).
+				Children(func() {
+					ui.Text(c, "Pull Request").
+						FontSize(uiFont(TypeTitle)).
+						FontWeight(600).
+						TextColor(ThemePrimaryText(c)).
+						SingleLine()
+					ui.Spacer(c)
+					IconButton(c, IconButtonProps{
+						Key:     "modal-git-pr-refresh",
+						Icon:    IconRefreshCw(),
+						Label:   "刷新",
+						Variant: ButtonGhost,
+						Loading: listLoading,
+						OnClick: func() { s.refreshGitPRList() },
+					})
+				})
 
-				if empty {
-					renderGitPREmptyState(c, s, threadID)
-				} else {
+			ui.Column(c.Key("git-pr-window-body")).
+				Grow(1).
+				MinHeight(0).
+				FillWidth().
+				Padding(Space5).
+				Children(func() {
+					if empty {
+						renderGitPREmptyState(c, s, threadID)
+						return
+					}
 					ui.Row(c.Key("modal-git-pr-body")).
+						Label("PR 内容区").
 						FillWidth().
 						Gap(Space4).
 						AlignItems(ui.Start).
@@ -751,15 +751,8 @@ func renderGitPRDialog(c *ui.Context, s *chatState) {
 								Background(ThemeHairline(c))
 							renderGitPRDetailPane(c, s, detail, selected, detailLoading, detailErr, contentH)
 						})
-				}
-
-				modalResizeGrips(c, modalDragGitPR, cardW, cardH)
-			})
-	})
-	// DialogBase 已经把遮罩点击与 Esc 写回 open，这里据此关闭。
-	if !open {
-		s.closeGitPRDialog()
-	}
+				})
+		})
 }
 
 // renderGitPREmptyState 渲染没有开放 PR 时的空状态：图标、标题与创建入口。

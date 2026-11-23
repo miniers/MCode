@@ -821,6 +821,7 @@ func (s *chatState) startQueueWatch() {
 func (s *chatState) invalidate() {
 	s.invalidateGen.Add(1)
 	s.uiServices().Invalidate()
+	invalidateGitPRWindow(s)
 }
 
 // uiServices 返回当前渲染服务句柄；调用方不得持有 servicesMu。

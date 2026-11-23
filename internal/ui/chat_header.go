@@ -582,15 +582,24 @@ func gitBranchLabel(st GitState) string {
 	return label
 }
 
-// syncChatHeaderGit 渲染 PR 只读弹窗并按会话变更拉取 Git 状态与头部脚本；
+// syncChatHeaderGit 检查 PR 独立窗口所属会话并按会话变更拉取 Git 状态与头部脚本；
 // 若当前为有效 Git 仓库且已加载状态，返回缓存状态以供渲染分支胶囊。
 func syncChatHeaderGit(c *ui.Context, s *chatState, threadID string) (*chatHeaderState, GitState, bool) {
 	if threadID == "" {
 		return nil, GitState{}, false
 	}
-	// PR 只读查看弹窗由 Git 菜单打开，每帧在这里渲染：与其它 Git 弹窗一样叠在界面上，
-	// 关闭时自己从渲染树里消失。放在早期返回之前，保证分支胶囊不显示时弹窗仍能关闭。
-	renderGitPRDialog(c, s)
+	// PR 独立窗口打开时若主窗口切换了会话，PR 窗口此时不一定重绘；
+	// 在这里只加锁检查一次状态，会话变化时直接关掉 PR 窗口（不做 IO）。
+	if s != nil {
+		st := getGitPRDialogState(s)
+		st.mu.Lock()
+		prOpen := st.open
+		prThreadID := st.threadID
+		st.mu.Unlock()
+		if prOpen && prThreadID != "" && prThreadID != s.gitPRThreadID() {
+			s.closeGitPRDialog()
+		}
+	}
 	hs := getChatHeaderState(s)
 
 	chatHeaderMu.Lock()

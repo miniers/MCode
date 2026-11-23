@@ -417,7 +417,6 @@ func newGitPRDialogTestState(t *testing.T, client *gitPRDialogFake) *chatState {
 	s.mu.Unlock()
 	t.Cleanup(func() {
 		s.close()
-		modalDragReset(modalDragGitPR)
 	})
 	return s
 }
@@ -526,7 +525,7 @@ func TestGitPRDialogEmptyStateOffersCreate(t *testing.T) {
 	s.openGitPRDialog()
 	waitGitPRDialog(t, s, func(st *gitPRDialogState) bool { return !st.listLoading && st.listErr == "" })
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	for _, text := range []string{"开放的 PR/MR", "从左侧选择一条 PR 查看详情", "Esc 关闭"} {
 		if tt.HasText(text) {
@@ -558,7 +557,7 @@ func TestGitPRDialogAutoSelectsFirst(t *testing.T) {
 		t.Fatalf("详情请求 = %v，期望只请求第一条 #7", calls)
 	}
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if !tt.HasText("第一条") {
 		t.Error("左列没有显示第一条 PR")
@@ -586,7 +585,7 @@ func TestGitPRDialogConflictList(t *testing.T) {
 		t.Fatalf("冲突预演调用 = %+v，期望 #42 base main", calls)
 	}
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if !tt.HasText("2 个文件冲突") {
 		t.Fatal("状态条缺少冲突文件数量")
@@ -626,7 +625,7 @@ func TestGitPRDialogConflictResolve(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading && !st.conflictLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
@@ -686,7 +685,7 @@ func TestGitPRAIReviewThread(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if err := tt.Click("更多操作"); err != nil {
 		t.Fatalf("打开更多操作菜单: %v", err)
@@ -780,7 +779,7 @@ func TestGitPRAIReviewCrossRepo(t *testing.T) {
 				return st.selected == 42 && st.detail != nil && !st.detailLoading
 			})
 
-			tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+			tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 			tt.Advance(time.Second)
 			if err := tt.Click("更多操作"); err != nil {
 				t.Fatalf("打开更多操作菜单: %v", err)
@@ -824,7 +823,7 @@ func TestGitPRDialogCrossRepoBlocksResolve(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if !tt.HasText("解决冲突") {
 		t.Fatal("缺少解决冲突按钮")
@@ -893,7 +892,7 @@ func TestGitPRResolveSendsPrompt(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading && !st.conflictLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
@@ -932,7 +931,7 @@ func TestGitPRCheckout(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if err := tt.Click("更多操作"); err != nil {
 		t.Fatalf("打开更多操作菜单: %v", err)
@@ -1077,7 +1076,7 @@ func TestGitPRResolveSendFailureSelectsThreadAndToasts(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if err := tt.Click("解决冲突"); err != nil {
 		t.Fatalf("点击解决冲突: %v", err)
@@ -1349,20 +1348,20 @@ func TestGitPRStatusStrip(t *testing.T) {
 	}
 }
 
-// TestGitPRDialogEmptySameSize 覆盖空态与非空弹窗卡片尺寸一致，且入场动画完成后不再续帧。
+// TestGitPRDialogEmptySameSize 覆盖空态与非空窗口尺寸一致且铺满窗口，且渲染完成后不再续帧。
 func TestGitPRDialogEmptySameSize(t *testing.T) {
 	emptyState := newGitPRDialogTestState(t, &gitPRDialogFake{FakeClient: NewFakeClient()})
 	emptyState.openGitPRDialog()
 	waitGitPRDialog(t, emptyState, func(st *gitPRDialogState) bool { return !st.listLoading })
 
-	emptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, emptyState) }, 1200, 800)
+	emptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, emptyState) }, 1200, 800)
 	emptyTT.Advance(time.Second)
-	emptyBox, ok := emptyTT.Find("PR 弹窗卡片")
+	emptyBox, ok := emptyTT.Find("PR 窗口")
 	if !ok {
-		t.Fatal("找不到空态 PR 弹窗卡片")
+		t.Fatal("找不到空态 PR 窗口")
 	}
 	if emptyTT.FramePending() {
-		t.Fatal("空态弹窗入场动画结束后仍在请求下一帧")
+		t.Fatal("空态窗口渲染结束后仍在请求下一帧")
 	}
 
 	nonEmptyState := newGitPRDialogTestState(t, &gitPRDialogFake{
@@ -1374,21 +1373,21 @@ func TestGitPRDialogEmptySameSize(t *testing.T) {
 		return st.selected == 7 && st.detail != nil && !st.detailLoading
 	})
 
-	nonEmptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, nonEmptyState) }, 1200, 800)
+	nonEmptyTT := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, nonEmptyState) }, 1200, 800)
 	nonEmptyTT.Advance(time.Second)
-	nonEmptyBox, ok := nonEmptyTT.Find("PR 弹窗卡片")
+	nonEmptyBox, ok := nonEmptyTT.Find("PR 窗口")
 	if !ok {
-		t.Fatal("找不到非空 PR 弹窗卡片")
+		t.Fatal("找不到非空 PR 窗口")
 	}
 	if nonEmptyTT.FramePending() {
-		t.Fatal("非空弹窗入场动画结束后仍在请求下一帧")
+		t.Fatal("非空窗口渲染结束后仍在请求下一帧")
 	}
 
 	if emptyBox.W != nonEmptyBox.W || emptyBox.H != nonEmptyBox.H {
 		t.Fatalf("空态尺寸 (%v×%v) != 非空尺寸 (%v×%v)", emptyBox.W, emptyBox.H, nonEmptyBox.W, nonEmptyBox.H)
 	}
-	if emptyBox.W != gitPRDialogWidth {
-		t.Fatalf("弹窗宽度 = %v，期望 %v", emptyBox.W, gitPRDialogWidth)
+	if emptyBox.W != 1200 || emptyBox.H != 800 {
+		t.Fatalf("窗口尺寸 = %v×%v，期望 1200×800", emptyBox.W, emptyBox.H)
 	}
 }
 
@@ -1408,7 +1407,7 @@ func TestGitPRListSearch(t *testing.T) {
 		return st.selected == 101 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	for _, title := range []string{"Fix auth bug", "Add dark mode", "Refactor parser"} {
 		if !tt.HasText(title) {
@@ -1463,7 +1462,7 @@ func TestGitPRDialogStatusActionsAndBrowser(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 	if tt.FramePending() {
 		t.Fatal("弹窗静止后仍在请求下一帧")
@@ -1545,7 +1544,7 @@ func TestGitPRDialogChangesTab(t *testing.T) {
 		return st.selected == 42 && st.detail != nil && !st.detailLoading
 	})
 
-	tt := ui.NewTester(func(c *ui.Context) { renderGitPRDialog(c, s) }, 1200, 800)
+	tt := ui.NewTester(func(c *ui.Context) { renderGitPRWindow(c, s) }, 1200, 800)
 	tt.Advance(time.Second)
 
 	if err := tt.Click("改动 2"); err != nil {
