@@ -1431,10 +1431,10 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 	for _, hit := range shown {
 		hitRow := ui.Row(c.Key("settings-nav-hit-"+hit.Item.ID)).
 			Height(ControlSM).
-			Padding(0, Space3).
+			Padding(0, Space2, 0, Space7).
 			Margin(0, 0, 0, 0).
 			Radius(RowCornerRadius).
-			Gap(Space3).
+			Gap(Space2).
 			AlignItems(ui.Center).
 			Focusable().
 			KeepFocus().
@@ -1450,7 +1450,6 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 		}
 
 		hitRow.Children(func() {
-			ui.Box(c.Key("settings-nav-hit-indent-" + hit.Item.ID)).Width(Space6)
 			ui.Text(c, hit.Item.Title).
 				FontSize(uiFont(TypeFootnote)).
 				SingleLine().
@@ -1468,7 +1467,7 @@ func renderSettingsNavHits(c *ui.Context, st *SettingsState, hits []settingsItem
 		ui.Text(c, fmt.Sprintf("还有 %d 项", more)).
 			FontSize(uiFont(TypeCaption)).
 			TextColor(ThemeSecondaryText(c)).
-			Padding(Space1, Space3, Space2, Space3)
+			Padding(Space0, Space3, Space2, Space7)
 	}
 }
 
@@ -1549,11 +1548,10 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 		st.requestSettingsPageSwitch(target)
 	}
 
-	ui.Column(c.Key("settings-nav-col")).Fill().Background(ThemeSidebarBg(c)).Children(func() {
-		ui.Row(c.Key("settings-nav-drag-handle")).Height(Space5).Shrink(0).DragWindow()
+	ui.Column(c.Key("settings-nav-col")).Fill().Background(ThemeSidebarBg(c)).BorderWidth(0, Hairline, 0, 0).BorderColor(ThemeHairline(c)).Children(func() {
 		// 按页面名和设置项过滤导航。
 		ui.Row(c.Key("settings-nav-search-wrap")).
-			Padding(0, ListInset, Space4, ListInset).
+			Padding(Space4, Space3, Space2, Space3).
 			Children(func() {
 				SearchField(c, TextFieldProps{
 					Key:         "settings-nav-search-input",
@@ -1566,12 +1564,12 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 					OnChange: func(string) {
 						st.invalidate()
 					},
-				}).Label("搜索设置外框")
+				}).Label("搜索设置外框").Radius(RadiusSM).Background(ThemeSurfaceCard(c))
 			})
 
 		var aboutItem *settingsNavDef
 		// 导航列表纵向滚动，命中项在页名下缩进列出；「关于」单独固定在侧栏底部。
-		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).MinHeight(0).Padding(settingsVerticalPadding, ListInset).Children(func() {
+		ui.Scroll(c.Key("settings-nav-scroll")).Grow(1).MinHeight(0).Padding(Space1, ListInset, Space4, ListInset).Children(func() {
 			previousGroup := ""
 			scrollIndex := 0
 			for _, item := range visible {
@@ -1580,15 +1578,14 @@ func renderSettingsNav(c *ui.Context, st *SettingsState) {
 					aboutItem = &aboutCopy
 					continue
 				}
-				if item.group != previousGroup {
-					if scrollIndex > 0 {
-						ui.Box(c.Key("settings-nav-" + "group-gap-" + item.id)).Height(Space5)
+				if item.group != previousGroup && item.group != "" {
+					topPad := Space4
+					if scrollIndex == 0 {
+						topPad = Space2
 					}
-					if item.group != "" {
-						ui.Row(c.Key("settings-nav-group-" + item.group)).Height(ControlSM).AlignItems(ui.Center).PaddingX(Space3).Children(func() {
-							SectionHeading(c, nil, item.group).SingleLine()
-						})
-					}
+					ui.Row(c.Key("settings-nav-group-"+item.group)).AlignItems(ui.Center).Padding(topPad, Space3, Space1, Space3).Children(func() {
+						SectionHeading(c, nil, item.group).FontWeight(600).SingleLine()
+					})
 				}
 				previousGroup = item.group
 				scrollIndex++
@@ -1743,12 +1740,11 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 		detailScroll := ui.Scroll(c.Key(fmt.Sprintf("settings-detail-scroll-%d", st.detailScrollGen))).FillWidth().Grow(1).MinHeight(0).Background(ThemeWindowBg(c))
 		setSwarmTierEditorViewport(c, st, detailScroll.Bounds())
 		detailScroll.Children(func() {
-			ui.Row(c.Key("settings-detail-outer")).FillWidth().Justify(ui.Center).Padding(0, Space7).Children(func() {
+			ui.Row(c.Key("settings-detail-outer")).FillWidth().Justify(ui.Center).Padding(Space5, Space7, Space8, Space7).Children(func() {
 				ui.Column(c.Key("settings-detail-container")).
 					Label("设置详情列").
 					MaxWidth(settingsContentMaxWidth).
 					FillWidth().
-					Padding(Space5, Space6, Space8, Space6).
 					Gap(settingsSectionGap).
 					Children(func() {
 						title := "通用"
@@ -1765,7 +1761,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 							Children(func() {
 								ui.Text(c, title).
 									FontSize(uiFont(TypePageTitle)).
-									FontWeight(500).
+									FontWeight(600).
 									TextColor(ThemePrimaryText(c)).
 									Grow(1)
 
@@ -1780,12 +1776,17 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 									refreshBtn := ui.ButtonBase(c.Key("settings-refresh-btn")).
 										Label(refreshLabel).
 										Disabled(refreshing).
+										Height(ControlMD).
+										AlignItems(ui.Center).
 										Radius(RadiusSM).
-										Padding(Space1, Space3)
+										Padding(0, Space4)
+									if !refreshing {
+										refreshBtn.Cursor(ui.CursorPointer)
+									}
 									scale := motionPressScale(c, refreshBtn, "button-press-scale", !refreshing && refreshBtn.Pressed())
 									refreshBtn.Scale(scale, scale)
-									if refreshBtn.Hovered() {
-										refreshBtn.Background(ThemeHover(c))
+									if !refreshing && refreshBtn.Hovered() {
+										refreshBtn.Background(ThemeAccentSubtle(c))
 									}
 									focusRing(c, refreshBtn)
 									if refreshBtn.Clicked() {
@@ -1801,9 +1802,13 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 										}
 									}
 									refreshBtn.Children(func() {
-										ui.Text(c, refreshLabel).
-											FontSize(uiFont(TypeBody)).
+										txt := ui.Text(c, refreshLabel).
+											FontSize(uiFont(TypeFootnote)).
+											FontWeight(500).
 											TextColor(ThemeAccent(c))
+										if refreshing {
+											txt.Opacity(settingsRowDisabledOpacity)
+										}
 									})
 								}
 							})
@@ -1845,10 +1850,10 @@ func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 	if openSheet == "" && st.resetPendingPage == "" && !st.shortcutResetConfirmOpen && c.Shortcut(0, ui.KeyEscape) {
 		closeSettingsWindowForOwner(st.chat)
 	}
-	width, _ := c.Size()
 	ui.Column(c.Key("settings-window-root")).Label("设置").Fill().Background(ThemeWindowBg(c)).Children(func() {
+		titleInset := max(titleBarLeadingInset(c), titleBarTrailingInset(c))
 		ui.Row(c.Key("settings-window-titlebar")).FillWidth().Height(HeaderHeight).DragWindow().AlignItems(ui.Center).
-			Padding(settingsVerticalPadding, titleBarTrailingInset(c), settingsVerticalPadding, titleBarLeadingInset(c)).Children(func() {
+			Padding(settingsVerticalPadding, titleInset, settingsVerticalPadding, titleInset).Children(func() {
 			ui.Spacer(c)
 			if st.savedBadgeVisible() {
 				ui.Row(c.Key("settings-saved-badge-wrap")).Transition(motionTransition(c, ui.ElementTransition{
@@ -1857,9 +1862,10 @@ func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 					Capsule(c, CapsuleProps{Key: "settings-saved-badge", Text: "已保存", Icon: IconCheck(), Tone: ToneSuccess, Size: ControlXS})
 				})
 			}
+			ui.Spacer(c)
 		})
 		ui.Row(c.Key("settings-dialog-body")).FillWidth().Grow(1).MinHeight(0).Children(func() {
-			ui.Column(c.Key("settings-dialog-nav")).Width(min(float32(220), width*0.35)).FillHeight().Children(func() {
+			ui.Column(c.Key("settings-dialog-nav")).Width(settingsNavWidth).Shrink(0).FillHeight().Children(func() {
 				renderSettingsNav(c, st)
 			})
 			ui.Column(c.Key("settings-dialog-detail")).Grow(1).MinWidth(0).FillHeight().Children(func() {

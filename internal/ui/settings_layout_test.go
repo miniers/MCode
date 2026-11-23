@@ -19,10 +19,10 @@ func newSettingsDetailOnlyTester(t *testing.T, page string, width, height int) *
 	return tt
 }
 
-// TestSettingsLayout_DetailColumnWidth 校验详情列宽度上限 720：宽窗口下不跟着变宽，
+// TestSettingsLayout_DetailColumnWidth 校验详情列宽度上限 680：宽窗口下不跟着变宽，
 // 左右留白对称；窄窗口下自适应收窄。
 func TestSettingsLayout_DetailColumnWidth(t *testing.T) {
-	const maxWidth float32 = 720
+	const maxWidth float32 = 680
 
 	for _, width := range []int{1600, 1200} {
 		tt := newSettingsDetailOnlyTester(t, "general", width, 1000)
@@ -42,7 +42,7 @@ func TestSettingsLayout_DetailColumnWidth(t *testing.T) {
 		}
 	}
 
-	// 窄于上限时按窗口自适应，不留出 720 的固定宽度。
+	// 窄于上限时按窗口自适应，不留出 680 的固定宽度。
 	tt := newSettingsDetailOnlyTester(t, "general", 700, 1000)
 	column, ok := tt.Find("设置详情列")
 	if !ok {

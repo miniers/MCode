@@ -47,5 +47,5 @@ func settingRowContent(c *ui.Context, key, title string, control func()) {
 }
 
 func settingRowRight(c *ui.Context, key string, control func()) {
-	ui.Row(c.Key(key)).MinWidth(0).Shrink(1).AlignItems(ui.Center).Gap(Space3).Children(control)
+	ui.Row(c.Key(key)).MinWidth(0).Shrink(1).Wrap().Justify(ui.End).AlignItems(ui.Center).Gap(Space3).Children(control)
 }

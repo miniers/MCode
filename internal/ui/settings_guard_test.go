@@ -213,7 +213,7 @@ func TestSettingsGuard_NoNumericSpacing(t *testing.T) {
 		"settings_page_skills.go":           3,
 		"settings_pi_magpie.go":             2,
 		"settings_sheet_skills.go":          4,
-		"settings_tree.go":                  7,
+		"settings_tree.go":                  6,
 	}
 	checkSettingsGuardBaseline(t, "NumericSpacing", settingsGuardCounts(t, countSettingsNumericSpacing), allowed)
 }

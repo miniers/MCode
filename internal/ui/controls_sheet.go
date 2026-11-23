@@ -6,6 +6,15 @@ type SheetProps struct {
 	Key, PanelKey, PanelLabel, CardKey, Label string
 	Open                                      *bool
 	Width, Height                             float32
+	Transition                                *ui.ElementTransition
+}
+
+func settingsSheetTransition(c *ui.Context) ui.ElementTransition {
+	return motionTransition(c, ui.ElementTransition{
+		Duration: DurSheet, Ease: EaseSnap, ExitDuration: DurSnap, ExitEase: EaseOut, Colors: true,
+		Enter: &ui.Motion{Y: Space3, Opacity: 0, Scale: 0.985},
+		Exit:  &ui.Motion{Y: Space3, Opacity: 0, Scale: 0.99},
+	})
 }
 
 func Sheet(c *ui.Context, p SheetProps, body func()) ui.Element {
@@ -31,7 +40,11 @@ func Sheet(c *ui.Context, p SheetProps, body func()) ui.Element {
 		if p.CardKey != "" {
 			ctx = c.Key(p.CardKey)
 		}
-		card = ui.Column(ctx).Radius(RadiusLG).Background(ThemeWindowBg(c)).Border(Hairline, ThemeHairline(c)).MaxWidth(maxW).MaxHeight(maxH).Transition(motionDialog(c))
+		transition := motionDialog(c)
+		if p.Transition != nil {
+			transition = *p.Transition
+		}
+		card = ui.Column(ctx).Radius(RadiusLG).Background(ThemeWindowBg(c)).Border(Hairline, ThemeHairline(c)).MaxWidth(maxW).MaxHeight(maxH).Transition(transition)
 		if p.Label != "" {
 			card.Label(p.Label)
 		}

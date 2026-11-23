@@ -245,47 +245,13 @@ func deriveSettingsTreeItems(pages []settingsPage, sheets []settingsSheet) []set
 // renderSettingsTreePage 遍历页面树画出整页。
 func renderSettingsTreePage(c *ui.Context, st *SettingsState, p settingsPage) {
 	ui.Column(c.Key("settings-tree-page-" + p.ID)).Gap(settingsSectionGap).Children(func() {
-		seenVisible := false
-		prevModule := ""
 		for _, section := range p.Sections {
 			section := section
 			rows := visibleSettingsRows(st, section, false)
 			if len(rows) == 0 {
 				continue
 			}
-			moduleChanged := section.Module != "" && section.Module != prevModule
-			showRule := seenVisible && section.Module != prevModule && (section.Module != "" || prevModule != "")
-			showHeading := moduleChanged && (seenVisible || section.Module != p.Title)
-			title := section.Title
-			if showHeading && title == section.Module {
-				title = ""
-			}
-			if showRule || showHeading {
-				ui.Column(c.Key("settings-module-lead-" + section.ID)).FillWidth().Children(func() {
-					if showRule {
-						ui.Box(c.Key("settings-module-gap-" + section.ID)).Height(Space2)
-						ui.Box(c.Key("settings-module-rule-" + section.ID)).Label("模块分隔 " + section.Module).Height(Hairline).Background(ThemeDivider(c))
-						ui.Box(c.Key("settings-module-after-rule-" + section.ID)).Height(Space4)
-					}
-					if showHeading {
-						ui.Text(c.Key("settings-module-title-"+section.ID), section.Module).
-							FontSize(uiFont(TypeHeading)).
-							FontWeight(600).
-							TextColor(ThemePrimaryText(c)).
-							SingleLine()
-						afterTitleGap := Space4
-						if title == "" {
-							afterTitleGap = settingsSectionTitleGap
-						}
-						ui.Box(c.Key("settings-module-after-title-" + section.ID)).Height(afterTitleGap)
-					}
-					renderSettingsTreeSectionRows(c, st, section, title, rows)
-				})
-			} else {
-				renderSettingsTreeSectionRows(c, st, section, title, rows)
-			}
-			seenVisible = true
-			prevModule = section.Module
+			renderSettingsTreeSectionRows(c, st, section, section.Title, rows)
 		}
 	})
 }
@@ -329,11 +295,13 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 	}
 	var headHeight, contentHeight, footerHeight float32
 
-	Sheet(c, SheetProps{Key: key, CardKey: "settings-sheet-card-" + sh.ID, Label: "设置面板 " + sh.Title, Open: &open, Width: width, Height: height}, func() {
+	tr := settingsSheetTransition(c)
+	Sheet(c, SheetProps{Key: key, CardKey: "settings-sheet-card-" + sh.ID, Label: "设置面板 " + sh.Title, Open: &open, Width: width, Height: height, Transition: &tr}, func() {
 		head := modalDragHandle(c, key, ui.Row(c.Key("settings-sheet-head-"+sh.ID)).
-			Padding(Space5, Space5).
+			Padding(Space4, Space5).
 			AlignItems(ui.Center).
-			Gap(Space4))
+			Gap(Space4).
+			Shrink(0))
 		head.Children(func() {
 			if sh.Header != nil {
 				sh.Header(c, st)
@@ -348,9 +316,13 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 			IconButton(c, IconButtonProps{
 				Key: "settings-sheet-close-" + sh.ID, Icon: IconX(), Label: "关闭" + sh.Title,
 				Size: ControlSM, Variant: ButtonGhost, OnClick: func() { requestCloseSettingsSheet(st) },
-			}).Shrink(0)
+			}).Shrink(0).Cursor(ui.CursorPointer)
 		})
-		headHeight = head.Bounds().H
+		ui.Box(c.Key("settings-sheet-head-rule-" + sh.ID)).
+			Height(Hairline).
+			Background(ThemeHairline(c)).
+			Shrink(0)
+		headHeight = head.Bounds().H + Hairline
 		ui.Column(c.Key("settings-sheet-body-" + sh.ID)).
 			Grow(1).
 			Clip().
@@ -364,7 +336,7 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 				ui.Scroll(c.Key("settings-sheet-scroll-" + sh.ID)).
 					Fill().
 					Children(func() {
-						content := ui.Column(c.Key("settings-sheet-content-"+sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(0, Space5, Space5, Space5)
+						content := ui.Column(c.Key("settings-sheet-content-"+sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(Space5)
 						content.Children(func() {
 							if sh.Body != nil {
 								sh.Body(c, st)
@@ -422,7 +394,10 @@ func renderSettingsSection(c *ui.Context, key string, title string, content func
 	ui.Column(c.Key(key)).Gap(settingsSectionTitleGap).Children(func() {
 		if title != "" {
 			SectionHeading(c, nil, title).
-				Margin(0, 0, 0, settingsRowPadX)
+				FontSize(uiFont(TypeFootnote)).
+				FontWeight(600).
+				TextColor(ThemeSecondaryText(c)).
+				Margin(0, 0, 0, Space3)
 		}
 		SectionCard(c, key+"-card", "", content).Label("设置卡片 " + key)
 	})
@@ -526,22 +501,35 @@ func applySettingsRowFocus(c *ui.Context, row ui.Element, key string) ui.Element
 	return row
 }
 
-// renderSettingRow 渲染卡片内的标题与控件：树渲染器与统一控件共用的私有原语，不带说明句。
-func renderSettingRow(c *ui.Context, key, title string, control func()) {
-	if settingsRowFocus.jumpID == "" && settingsRowFocus.highlightID == "" {
-		SettingRow(c, key, title, control)
+// renderSettingRowState 渲染卡片内的标题与控件，支持禁用整行半透明。
+func renderSettingRowState(c *ui.Context, key, title string, stacked, disabled bool, control func()) {
+	if !disabled && settingsRowFocus.jumpID == "" && settingsRowFocus.highlightID == "" {
+		if stacked {
+			StackedSettingRow(c, key, title, control)
+		} else {
+			SettingRow(c, key, title, control)
+		}
 		return
 	}
-	settingRow(c, key, title, false, func(row ui.Element) ui.Element { return applySettingsRowFocus(c, row, key) }, control)
+	settingRow(c, key, title, stacked, func(row ui.Element) ui.Element {
+		if settingsRowFocus.jumpID != "" || settingsRowFocus.highlightID != "" {
+			row = applySettingsRowFocus(c, row, key)
+		}
+		if disabled {
+			row = row.Opacity(settingsRowDisabledOpacity)
+		}
+		return row
+	}, control)
+}
+
+// renderSettingRow 渲染卡片内的标题与控件：树渲染器与统一控件共用的私有原语，不带说明句。
+func renderSettingRow(c *ui.Context, key, title string, control func()) {
+	renderSettingRowState(c, key, title, false, false, control)
 }
 
 // renderStackedSettingRow 渲染标题和控件上下堆叠的设置行。
 func renderStackedSettingRow(c *ui.Context, key, title string, control func()) {
-	if settingsRowFocus.jumpID == "" && settingsRowFocus.highlightID == "" {
-		StackedSettingRow(c, key, title, control)
-		return
-	}
-	settingRow(c, key, title, true, func(row ui.Element) ui.Element { return applySettingsRowFocus(c, row, key) }, control)
+	renderSettingRowState(c, key, title, true, false, control)
 }
 
 func renderSettingsTreeSectionRows(c *ui.Context, st *SettingsState, section settingsSection, title string, rows []setting) {
@@ -586,10 +574,10 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 
 	locked := settingRowLocked(st, s)
 	disabled := locked || (s.Enabled != nil && !s.Enabled(st))
-	renderRow := renderSettingRow
+	isStacked := false
 	switch s.Control.(type) {
 	case textControl, textFuncControl:
-		renderRow = renderStackedSettingRow
+		isStacked = true
 	}
 	link, isLink := s.Control.(linkControl)
 	var linkVal string
@@ -597,7 +585,11 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 		linkVal = link.value(st)
 	}
 	control := func() {
-		ui.Row(c.Key(s.ID + "-control")).AlignItems(ui.Center).Gap(Space3).Children(func() {
+		ctlRow := ui.Row(c.Key(s.ID + "-control")).AlignItems(ui.Center).Gap(Space3)
+		if !isStacked && !isLink {
+			ctlRow.MinWidth(0).Shrink(1).Wrap().Justify(ui.End)
+		}
+		ctlRow.Children(func() {
 			if isLink {
 				link.renderValue(c, s, linkVal)
 			} else if d, ok := s.Control.(settingDisableable); ok {
@@ -613,8 +605,13 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 	if isLink {
 		button := ui.ButtonBase(c.Key(s.ID+"-link")).Label(s.Title+" "+linkVal).FillWidth().
 			Padding(settingsRowPadY, settingsRowPadX).MinHeight(settingsRowMinHeight).Disabled(disabled)
-		if !disabled && button.Hovered() {
-			button.Background(ThemeHover(c))
+		if !disabled {
+			button.Cursor(ui.CursorPointer)
+			if button.Hovered() {
+				button.Background(ThemeHover(c))
+			}
+		} else {
+			button.Opacity(settingsRowDisabledOpacity)
 		}
 		focusRing(c, button)
 		if !disabled && button.Clicked() {
@@ -626,7 +623,7 @@ func renderSettingsTreeSetting(c *ui.Context, st *SettingsState, s setting) {
 			})
 		})
 	} else {
-		renderRow(c, s.ID, s.Title, control)
+		renderSettingRowState(c, s.ID, s.Title, isStacked, disabled, control)
 	}
 
 	if s.Status == nil {

@@ -353,14 +353,14 @@ func TestSettingsLayout_Tokens(t *testing.T) {
 		name      string
 		got, want float32
 	}{
-		{"detail", settingsContentMaxWidth, 720},
-		{"sheet", settingsSheetWidth, 520},
+		{"detail", settingsContentMaxWidth, 680},
+		{"sheet", settingsSheetWidth, 600},
 		{"wide sheet", settingsSheetWideWidth, 720},
 		{"section", settingsSectionGap, 24},
-		{"title", settingsSectionTitleGap, 8},
+		{"title", settingsSectionTitleGap, 6},
 		{"row x", settingsRowPadX, 16},
-		{"row y", settingsRowPadY, 12},
-		{"row height", settingsRowMinHeight, 36},
+		{"row y", settingsRowPadY, 6},
+		{"row height", settingsRowMinHeight, 44},
 		{"divider", Hairline, 1},
 		{"divider inset", settingsDividerInset, 16},
 	} {

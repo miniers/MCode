@@ -31,8 +31,9 @@ func TestMagpiePersonaFormLayout(t *testing.T) {
 			t.Errorf("%s 输入框不在卡片内: %+v, 卡片 %+v", name, r, card)
 		}
 	}
-	// 输入框居中于设置行，中心距减去外框高度和上下内边距得到行间隙。
-	gap := (key.Y + key.H/2) - (address.Y + address.H/2) - ControlMD - 2*settingsRowPadY
+	// 输入框居中于设置行，中心距减去行高（最小行高与控件加内边距取大）得到行间隙。
+	rowH := max(settingsRowMinHeight, ControlMD+2*settingsRowPadY)
+	gap := (key.Y + key.H/2) - (address.Y + address.H/2) - rowH
 	if gap > Hairline+1 || gap < 0 {
 		t.Errorf("地址和密钥行间隙 = %v", gap)
 	}

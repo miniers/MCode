@@ -40,19 +40,22 @@ const (
 )
 
 const (
-	settingsBadgePadY       float32 = 3
-	settingsPillPadX        float32 = 5
-	settingsCompactPadX     float32 = 10
-	settingsCardPad         float32 = 14
-	settingsContentMaxWidth float32 = 720
-	settingsSheetWidth      float32 = 520
-	settingsSheetWideWidth  float32 = 720
-	settingsRowMinHeight    float32 = 36
-	settingsRowPadX                 = Space5
-	settingsRowPadY                 = Space4
-	settingsSectionGap              = Space7
-	settingsSectionTitleGap         = Space3
-	settingsDividerInset            = settingsRowPadX
+	settingsBadgePadY          float32 = 3
+	settingsPillPadX           float32 = 5
+	settingsCompactPadX        float32 = 10
+	settingsCardPad            float32 = 14
+	settingsNavWidth           float32 = 220
+	settingsContentMaxWidth    float32 = 680
+	settingsSheetWidth         float32 = 600
+	settingsSheetNarrowWidth   float32 = 440
+	settingsSheetWideWidth     float32 = 720
+	settingsRowMinHeight       float32 = 44
+	settingsRowPadX                    = Space5
+	settingsRowPadY                    = Space2
+	settingsSectionGap                 = Space7
+	settingsSectionTitleGap            = Space2
+	settingsDividerInset               = settingsRowPadX
+	settingsRowDisabledOpacity float32 = 0.5
 )
 
 // 供应商面板尺寸（DIP）：卡片最小宽度 720。

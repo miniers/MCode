@@ -99,8 +99,8 @@ func assertUIReview25DetailBounds(t *testing.T, tt *ui.Tester, winW float32, car
 	if !ok {
 		t.Fatalf("找不到设置详情列: %v", tt.Texts())
 	}
-	// 设置详情列左右各有 Space6 内边距，卡片宽度应不超过 detail 减去左右 Space6。
-	limit := min(winW, detail.X+detail.W-Space6)
+	// 水平内边距由外层容器承担，卡片宽度不超过设置详情列自身右边界。
+	limit := min(winW, detail.X+detail.W)
 	if cardLabel != "" {
 		card, ok := tt.Find(cardLabel)
 		if !ok {

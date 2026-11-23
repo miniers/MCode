@@ -41,7 +41,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		// Magpie 入口显示 Magpie 或连接 Magpie，已连接时显示圆点，
+		// Magpie 入口始终显示 Magpie，已连接时显示圆点，
 		// 导航行本身按 Label("Magpie") 定位。
 		if _, ok := tt.Find("Magpie"); !ok {
 			return false
@@ -80,7 +80,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	for _, title := range expectedTitles {
 		idx := -1
 		for i, txt := range texts {
-			if txt == title || (title == "Magpie" && txt == "连接 Magpie") {
+			if txt == title {
 				idx = i
 				break
 			}

@@ -14,7 +14,7 @@ func TestSettingsNav_MagpieEntry(t *testing.T) {
 		connected bool
 		status    string
 	}{
-		{"未连接", false, "连接 Magpie"},
+		{"未连接", false, "Magpie"},
 		{"已连接", true, "Magpie"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

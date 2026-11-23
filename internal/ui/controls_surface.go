@@ -9,7 +9,7 @@ func SectionCard(c *ui.Context, key any, title string, body func()) ui.Element {
 		ctx = c.Key(key)
 	}
 	return ui.Column(ctx).FillWidth().Radius(RadiusLG).Background(ThemeSurfaceCard(c)).
-		Border(Space1/4, ThemeBorder(c)).Children(func() {
+		Border(Hairline, ThemeHairline(c)).Children(func() {
 		if title != "" {
 			ui.Text(c, title).FontSize(uiFont(TypeFootnote)).FontWeight(600).
 				TextColor(ThemeSecondaryText(c)).Margin(Space4, Space4, 0, Space4)

@@ -42,8 +42,9 @@ func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
 		st.open = true
 		tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 900, 1400)
 		waitMagpie(t, tt, func() bool {
-			_, ok := tt.Find("连接 Magpie")
-			return ok
+			_, known := magpieConnected(st)
+			_, ok := tt.Find("Magpie")
+			return known && ok
 		})
 		if _, ok := tt.Find("已连接"); ok {
 			t.Fatal("未连接时不应显示连接圆点")

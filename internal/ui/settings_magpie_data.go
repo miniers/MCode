@@ -89,7 +89,7 @@ func magpieNavStatus(st *SettingsState) (string, bool) {
 	if connected {
 		return "Magpie", true
 	}
-	return "连接 Magpie", false
+	return "Magpie", false
 }
 
 func magpieModelSource(st *SettingsState, agent, modelID string) (endpointID string, ok bool) {

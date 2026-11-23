@@ -28,7 +28,7 @@ func TestSettingsP2Slim_NinePagesAndThreeGroups(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 320, 1000)
 	tt.Frame()
 
-	for _, want := range []string{"基础", "通用", "外观", "远程控制", "模型与代理", "模型与供应商", "连接 Magpie", "会话", "编排", "总管", "能力与工作区", "扩展", "工作台", "版本与存储", "关于"} {
+	for _, want := range []string{"基础", "通用", "外观", "远程控制", "模型与代理", "模型与供应商", "Magpie", "会话", "编排", "总管", "能力与工作区", "扩展", "工作台", "版本与存储", "关于"} {
 		if !tt.HasText(want) {
 			t.Fatalf("设置导航缺少 %q: %v", want, tt.Texts())
 		}
@@ -331,15 +331,15 @@ func TestSettingsModuleDividers_MergedPages(t *testing.T) {
 			pageID: "models",
 			modules: []moduleExpect{
 				{module: "收藏模型", wantRule: false, wantTitle: true, exactCount: 1},
-				{module: "供应商", wantRule: true, wantTitle: true, prevCard: "设置卡片 sec-models-pinned", firstCard: "设置卡片 sec-providers", exactCount: 1},
+				{module: "供应商", wantRule: false, wantTitle: true, exactCount: 1},
 			},
 		},
 		{
 			pageID: "extensions",
 			modules: []moduleExpect{
 				{module: "技能", wantRule: false, wantTitle: true, exactCount: 1},
-				{module: "MCP 服务", wantRule: true, wantTitle: true, prevCard: "设置卡片 skills.list", firstCard: "设置卡片 mcp.custom", exactCount: 1},
-				{module: "记忆", wantRule: true, wantTitle: true, prevCard: "设置卡片 mcp.custom", firstCard: "设置卡片 nowledge.memory", exactCount: 1},
+				{module: "MCP 服务", wantRule: false, wantTitle: true, exactCount: 1},
+				{module: "记忆", wantRule: false, wantTitle: true, exactCount: 1},
 			},
 		},
 	}
@@ -449,16 +449,13 @@ func TestSettingsModuleDividers_HiddenModuleNoOrphanRule(t *testing.T) {
 			t.Fatalf("隐藏模块不应渲染分隔线或标题: %v", tt.Texts())
 		}
 		if _, ok := tt.Find("模块分隔 模块甲"); ok || countExactText(tt.Texts(), "模块甲") != 0 {
-			t.Fatalf("首模块与页标题相同时不应渲染顶部分隔线或标题: %v", tt.Texts())
+			t.Fatalf("不应渲染模块分隔线或模块标题: %v", tt.Texts())
 		}
-		ruleC, okRule := tt.Find("模块分隔 模块丙")
-		if !okRule || countExactText(tt.Texts(), "模块丙") != 1 {
-			t.Fatalf("可见的相邻不同模块应渲染分隔线和标题: okRule=%v texts=%v", okRule, tt.Texts())
+		if _, ok := tt.Find("模块分隔 模块丙"); ok || tt.HasText("模块丙") {
+			t.Fatalf("分节统一只显示自身标题，不应渲染模块分隔线或模块名: %v", tt.Texts())
 		}
-		cardA, _ := tt.Find("设置卡片 sec-a")
-		cardC, _ := tt.Find("设置卡片 sec-c")
-		if ruleC.Y < cardA.Y+cardA.H-0.5 || ruleC.Y+ruleC.H > cardC.Y+0.5 {
-			t.Fatalf("模块丙分隔线位置异常: cardA=%+v ruleC=%+v cardC=%+v", cardA, ruleC, cardC)
+		if !tt.HasText("甲一") || !tt.HasText("丙一") {
+			t.Fatalf("可见分节应显示自身分节标题: %v", tt.Texts())
 		}
 	})
 
