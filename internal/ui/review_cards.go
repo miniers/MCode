@@ -316,9 +316,9 @@ type reviewGit struct {
 	pending            string
 }
 
-// reviewGitFor 只在「未提交」范围且客户端支持 Git 写操作时返回；同时让 Git 状态保持刷新与监听。
+// reviewGitFor 只在「全部」范围且客户端支持 Git 写操作时返回；同时让 Git 状态保持刷新与监听。
 func reviewGitFor(s *chatState, scope string) *reviewGit {
-	if scope != "uncommitted" {
+	if scope != "all" {
 		return nil
 	}
 	client, ok := s.client.(gitChangesClient)
@@ -460,17 +460,17 @@ func (g *reviewGit) renderFileAction(c *ui.Context, s *chatState, dp *diffPanelS
 	}
 }
 
-// openReviewUncommitted 打开改动面板的「未提交」范围；path 非空时直接进入该文件的逐行暂存或冲突解决。
+// openReviewUncommitted 打开 Git Tab 的「全部」范围；path 非空时直接进入该文件的逐行暂存或冲突解决。
 func openReviewUncommitted(s *chatState, path string) {
 	dp := getDiffPanelState(s)
 	if dp == nil {
 		return
 	}
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	diffPanelMu.Lock()
 	dp.gitDetail = path
 	diffPanelMu.Unlock()
-	s.selectReviewScope(dp, "uncommitted")
+	s.selectReviewScope(dp, "all")
 }
 
 // renderReviewHeaderMenu 是标题栏「⋯」：并排显示、全部展开或收起、轮次与「未提交」的批量操作。

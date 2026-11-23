@@ -72,10 +72,19 @@ func getReview(ctx context.Context, client reviewClient, threadID, scope, turnID
 	return getReviewAt(ctx, client, threadID, scope, turnID, number, "", path)
 }
 
+// reviewBackendScope 将 UI 审阅范围映射回后端/远程协议范围名（"all" 对应后端的 "uncommitted"）。
+func reviewBackendScope(scope string) string {
+	if scope == "all" {
+		return "uncommitted"
+	}
+	return scope
+}
+
 // getReviewAt 的 head 非空时固定读取列表时的快照，用于卡片正文。
 func getReviewAt(ctx context.Context, client reviewClient, threadID, scope, turnID string, number int, head, path string) (ReviewSnapshot, error) {
+	backendScope := reviewBackendScope(scope)
 	if at, ok := client.(reviewAtClient); ok && head != "" && path != "" && scope != "pr" {
-		return at.ReviewGetAt(ctx, threadID, scope, turnID, head, path)
+		return at.ReviewGetAt(ctx, threadID, backendScope, turnID, head, path)
 	}
 	if scope == "pr" {
 		if pr, ok := client.(reviewPRClient); ok {
@@ -83,7 +92,7 @@ func getReviewAt(ctx context.Context, client reviewClient, threadID, scope, turn
 		}
 		return ReviewSnapshot{Scope: scope, Number: number, Unavailable: "PR 审阅不可用"}, nil
 	}
-	return client.ReviewGet(ctx, threadID, scope, turnID, path)
+	return client.ReviewGet(ctx, threadID, backendScope, turnID, path)
 }
 
 type ReviewRevertHunkParams struct {

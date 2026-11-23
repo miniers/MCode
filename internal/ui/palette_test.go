@@ -327,7 +327,7 @@ func TestPaletteAvailableInSettings(t *testing.T) {
 	if p := getPaletteState(state); p == nil || !p.open {
 		t.Fatalf("Cmd+K did not open palette in settings: %v", tt.Texts())
 	}
-	if !tt.HasText("显示/隐藏改动") || !st.IsOpen() {
+	if !tt.HasText("Git：本轮改动") || !st.IsOpen() {
 		t.Fatalf("palette or settings is not on screen: %v", tt.Texts())
 	}
 	tt.Key(ui.Cmd, ui.KeyK)
@@ -353,7 +353,7 @@ func TestPaletteAvailableInSettings(t *testing.T) {
 	if selected != "t2" {
 		t.Fatalf("selecting thread in settings selected %q, want t2", selected)
 	}
-	if tt.HasText("显示/隐藏改动") {
+	if tt.HasText("Git：本轮改动") {
 		t.Fatalf("palette stayed on screen: %v", tt.Texts())
 	}
 }

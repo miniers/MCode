@@ -56,7 +56,7 @@ func TestUIReview12ReviewDetailShowsUndo(t *testing.T) {
 	ps.entries = base.entries
 	ps.mu.Unlock()
 	dp := getDiffPanelState(s)
-	dp.scope = "uncommitted"
+	dp.scope = "all"
 	dp.gitDetail = "a.go"
 
 	tt := ui.NewTester(func(c *ui.Context) { renderReviewPanel(c, s, dp) }, 900, 600)
@@ -95,7 +95,7 @@ func TestUIReview12ReviewDetailShowsForceConfirm(t *testing.T) {
 	ps.forceBranch = "main"
 	ps.mu.Unlock()
 	dp := getDiffPanelState(s)
-	dp.scope = "uncommitted"
+	dp.scope = "all"
 	dp.gitDetail = "a.go"
 
 	tt := ui.NewTester(func(c *ui.Context) { renderReviewPanel(c, s, dp) }, 900, 600)

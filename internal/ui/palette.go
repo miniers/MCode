@@ -415,6 +415,13 @@ func buildPaletteItems(s *chatState) []paletteItem {
 
 	// 右侧分栏面板（改动、文件管理、网页预览）的开关项由 side_pane.go 的注册表生成。
 	items = append(items, sidePanePaletteItems()...)
+	items = append(items, paletteItem{
+		id:         "cmd-toggle-diff",
+		shortcutID: "toggle-diff",
+		kind:       "command",
+		title:      "Git：本轮改动",
+		run:        func(cs *chatState) { cs.toggleDiffPanel() },
+	})
 
 	s.mu.Lock()
 	selectedTID := s.selectedThreadID

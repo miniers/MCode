@@ -324,7 +324,7 @@ func TestReviewPRPreferenceStaysLocal(t *testing.T) {
 
 func TestReviewPRIdentityAndReopen(t *testing.T) {
 	s, _, dp := reviewPRSetup(t)
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	openReviewPR(s, 7)
 	waitReviewComments(t, func() bool {
 		diffPanelMu.Lock()
@@ -358,7 +358,7 @@ func TestReviewPRIdentityAndReopen(t *testing.T) {
 	}
 	s.selectReviewScope(dp, "pr")
 	inspectorClose(s)
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	diffPanelMu.Lock()
 	scope := dp.scope
 	diffPanelMu.Unlock()

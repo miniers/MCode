@@ -12,7 +12,6 @@ import (
 const (
 	sidePaneFileID    = "file"
 	sidePanePreviewID = "preview"
-	sidePaneDiffID    = "diff"
 	sidePaneGitID     = "git"
 )
 
@@ -55,21 +54,6 @@ func init() {
 			paletteTitle: "显示/隐藏文件面板",
 		},
 		{
-			id:       sidePaneDiffID,
-			title:    "改动",
-			splitKey: "chat-inspector-split",
-			render:   renderDiffPanel,
-
-			actionID: "toggle-diff",
-			toggle: func(s *chatState) {
-				s.toggleDiffPanel()
-			},
-			menuLabel:    "显示/隐藏改动",
-			menuAccel:    "CmdOrCtrl+D",
-			paletteID:    "cmd-toggle-diff",
-			paletteTitle: "显示/隐藏改动",
-		},
-		{
 			id: sidePaneGitID, title: "Git", splitKey: "chat-inspector-split",
 			render: renderGitPane, actionID: "toggle-git-pane", toggle: toggleGitPane,
 			menuLabel: "显示/隐藏 Git", menuAccel: "Shift+CmdOrCtrl+G",
@@ -107,14 +91,13 @@ func previewPaneOpen(s *chatState) bool {
 	return inspectorPaneOpen(s, sidePanePreviewID)
 }
 
-// previewPaneWidth 返回网页预览面板的宽度字段指针；状态不存在时返回 nil。调用方持 previewMu。
+// diffPaneOpen 返回 Git 面板当前是否展开（改动面板已合并进 Git Tab）。
 func diffPaneOpen(s *chatState) bool {
-	return inspectorPaneOpen(s, sidePaneDiffID)
+	return inspectorPaneOpen(s, sidePaneGitID)
 }
 
-// diffPaneWidth 返回改动面板的宽度字段指针；状态不存在时返回 nil。调用方持 diffPanelMu。
 func closeDiffPanelPane(s *chatState) {
-	if inspectorPaneOpen(s, sidePaneDiffID) {
+	if inspectorPaneOpen(s, sidePaneGitID) {
 		inspectorClose(s)
 	}
 }

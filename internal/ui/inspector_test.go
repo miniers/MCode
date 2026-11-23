@@ -50,7 +50,7 @@ func TestInspectorTabSwitchPreservesState(t *testing.T) {
 	review.collapsed["src/main.go"] = true
 	page := inspectorAttachPage(s)
 	openPreviewURL(s, "http://localhost:3000")
-	for _, id := range []string{sidePaneFileID, sidePanePreviewID, sidePaneDiffID, sidePanePreviewID} {
+	for _, id := range []string{sidePaneFileID, sidePanePreviewID, sidePaneGitID, sidePanePreviewID} {
 		inspectorSelect(s, id, false)
 		if activeSidePane(s).id != id {
 			t.Fatalf("未选择目的 %s", id)
@@ -265,7 +265,7 @@ func TestInspectorThreadPreferenceRestore(t *testing.T) {
 	inspectorSelect(s, sidePanePreviewID, false)
 	inspectorSession(s).Width = 640
 	s.selectThread("t2")
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	inspectorSession(s).Width = 370
 	inspectorClose(s)
 	s.selectThread("t1")
@@ -286,7 +286,7 @@ func TestInspectorThreadPreferenceRestore(t *testing.T) {
 	}
 	other.selectThread("t2")
 	b := inspectorSession(other)
-	if b.Open || b.Active != sidePaneDiffID || b.Width != 370 {
+	if b.Open || b.Active != sidePaneGitID || b.Width != 370 {
 		t.Fatalf("重启后会话 B 偏好未恢复: %+v", b)
 	}
 	other.forgetDeletedThread("t1")
@@ -325,7 +325,7 @@ func TestInspectorPrunePreferences(t *testing.T) {
 	WithUIStatePersistence()(s)
 	prefs := map[string]InspectorPreference{
 		"t1":      {Open: true, Active: sidePaneFileID, Width: 500},
-		"deleted": {Open: true, Active: sidePaneDiffID, Width: 600},
+		"deleted": {Open: true, Active: sidePaneGitID, Width: 600},
 	}
 	if err := saveUIState(UIState{InspectorSessions: prefs}); err != nil {
 		t.Fatal(err)

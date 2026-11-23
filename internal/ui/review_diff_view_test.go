@@ -237,7 +237,7 @@ func TestReviewScopeSwitchKeepsOldUntilReady(t *testing.T) {
 	if !tt.HasText("a.go") {
 		t.Fatal("新批次就绪前不应清空旧内容")
 	}
-	s.selectReviewScope(dp, "uncommitted")
+	s.selectReviewScope(dp, "all")
 	waitFor(t, tt, func() bool { return tt.HasText("work.go") })
 	close(release)
 	select {
@@ -324,17 +324,15 @@ func TestReviewScopeMenuAndTurnIsolation(t *testing.T) {
 	fake.SetReviewSnapshot("t1", "session", "", "", ReviewSnapshot{HeadRevision: "session-head", Files: []ReviewFile{{Path: "session.go"}}})
 	fake.SetReviewSnapshot("t1", "uncommitted", "", "", ReviewSnapshot{HeadRevision: "working-head", Files: []ReviewFile{{Path: "working.go"}}})
 	s, tt, dp := newReviewTester(t, fake)
-	clickText(t, tt, "本轮")
-	tt.Advance(DurBase + 50*time.Millisecond)
-	if !tt.HasText("整个会话") || !tt.HasText("未提交") {
-		t.Fatal("作用域菜单不完整")
+	if !tt.HasText("全部") || !tt.HasText("本轮") || !tt.HasText("会话") {
+		t.Fatal("作用域分段控件不完整")
 	}
-	clickText(t, tt, "整个会话")
+	clickText(t, tt, "会话")
 	waitFor(t, tt, func() bool { return tt.HasText("session.go") })
 	diffPanelMu.Lock()
 	dp.turnID = "old-turn"
 	diffPanelMu.Unlock()
-	s.selectReviewScope(dp, "uncommitted")
+	s.selectReviewScope(dp, "all")
 	waitFor(t, tt, func() bool { return tt.HasText("working.go") })
 	for _, call := range fake.ReviewGetCalls() {
 		if call.Scope != "turn" && call.TurnID != "" {
@@ -351,8 +349,38 @@ func TestReviewScopeMenuAndTurnIsolation(t *testing.T) {
 	s.mu.Lock()
 	s.selectedThreadID = "t1"
 	s.mu.Unlock()
-	if getDiffPanelState(s) != dp || dp.scope != "uncommitted" {
+	if getDiffPanelState(s) != dp || dp.scope != "all" {
 		t.Fatal("返回会话未恢复作用域")
+	}
+}
+
+func TestReviewScopeLegacyUncommitted(t *testing.T) {
+	if got := reviewScope("uncommitted"); got != "all" {
+		t.Fatalf("reviewScope(uncommitted) = %q, want all", got)
+	}
+	if got := reviewScope("all"); got != "all" {
+		t.Fatalf("reviewScope(all) = %q, want all", got)
+	}
+	if got := reviewScopeTitle("uncommitted"); got != "全部" {
+		t.Fatalf("reviewScopeTitle(uncommitted) = %q, want 全部", got)
+	}
+	if got := reviewScopeTitle("all"); got != "全部" {
+		t.Fatalf("reviewScopeTitle(all) = %q, want 全部", got)
+	}
+	if got := reviewScopeTitle("session"); got != "会话" {
+		t.Fatalf("reviewScopeTitle(session) = %q, want 会话", got)
+	}
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	dp := getDiffPanelState(s)
+	diffPanelMu.Lock()
+	dp.scope = "uncommitted"
+	diffPanelMu.Unlock()
+	tt := ui.NewTester(func(c *ui.Context) { renderReviewScope(c, s, dp) }, 400, 60)
+	for _, want := range []string{"全部", "本轮", "会话"} {
+		if !tt.HasText(want) {
+			t.Fatalf("renderReviewScope 缺少 %q, texts=%v", want, tt.Texts())
+		}
 	}
 }
 
@@ -426,8 +454,8 @@ func TestTimelineReviewOpensInspectorPath(t *testing.T) {
 		defer diffPanelMu.Unlock()
 		return !dp.loading && dp.selectedPath == "a.go"
 	})
-	if !inspectorPaneOpen(s, sidePaneDiffID) {
-		t.Fatal("未打开右栏改动标签")
+	if !inspectorPaneOpen(s, sidePaneGitID) {
+		t.Fatal("未打开右栏 Git 标签")
 	}
 	for key, view := range dp.views {
 		if key.head != "head" || view.state.New.String() != full.File.NewText {

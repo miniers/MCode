@@ -226,7 +226,7 @@ func TestInspectorPreferencesRoundTrip(t *testing.T) {
 	t.Setenv("MCODE_DATA", t.TempDir())
 	t.Cleanup(waitUIStateWrites)
 	want := map[string]InspectorPreference{
-		"t1": {Open: true, Active: sidePaneDiffID, Width: 620},
+		"t1": {Open: true, Active: sidePaneGitID, Width: 620},
 		"t2": {Active: sidePanePreviewID, Width: 400},
 	}
 	if err := saveUIState(UIState{InspectorSessions: want}); err != nil {
@@ -285,7 +285,7 @@ func TestInspectorPreferenceMergePreservesOtherFields(t *testing.T) {
 	t.Cleanup(waitUIStateWrites)
 	initial := uiStateFile{
 		UIState: UIState{SidebarWidth: 330, TerminalDockHeight: 280, InspectorSessions: map[string]InspectorPreference{
-			"t2": {Open: true, Active: sidePaneDiffID, Width: 500},
+			"t2": {Open: true, Active: sidePaneGitID, Width: 500},
 		}},
 		ProjectOrder: []string{"p2", "p1"},
 		LastModel:    ModelSelection{Provider: "test", Model: "model"},
@@ -350,6 +350,43 @@ func TestInspectorPreferenceInvalidValues(t *testing.T) {
 	}
 }
 
+// TestUIStateLegacyDiffPane 验证旧版 ui-state.json 里保存的 "diff" 面板 ID 读取后映射为 "git"，并保留右栏展开状态与宽度。
+func TestUIStateLegacyDiffPane(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+
+	raw := `{
+		"side_pane_widths": {"diff": 410},
+		"inspector_sessions": {
+			"t1": {"open": true, "active": "diff", "width": 520},
+			"t2": {"open": false, "active": "diff", "width": 480}
+		}
+	}`
+	if err := os.WriteFile(uiStatePath(), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadUIState()
+	if got := loaded.InspectorSessions["t1"]; !got.Open || got.Active != sidePaneGitID || got.Width != 520 {
+		t.Fatalf("t1 旧偏好映射错误: %+v", got)
+	}
+	if got := loaded.InspectorSessions["t2"]; got.Open || got.Active != sidePaneGitID || got.Width != 480 {
+		t.Fatalf("t2 旧偏好映射错误: %+v", got)
+	}
+
+	s := newChatState(NewFakeClient())
+	defer s.close()
+	applyUIState(s, loaded)
+	s.selectedThreadID = "t1"
+	st1 := inspectorSession(s)
+	if !st1.Open || st1.Active != sidePaneGitID || st1.Width != 520 {
+		t.Fatalf("恢复 t1 后未落在打开的 Git Tab: %+v", st1)
+	}
+	s.selectedThreadID = "t3"
+	if st3 := inspectorSession(s); st3.Width != 410 {
+		t.Fatalf("旧 side_pane_widths[diff] 未迁移到初始宽度: got %v, want 410", st3.Width)
+	}
+}
+
 func TestInspectorPreferenceChangesDuringWrite(t *testing.T) {
 	for _, deleting := range []bool{false, true} {
 		name := "update"
@@ -362,7 +399,7 @@ func TestInspectorPreferenceChangesDuringWrite(t *testing.T) {
 				waitUIStateWrites()
 				uiStateBeforeWriteHook = nil
 			})
-			late := InspectorPreference{Open: true, Active: sidePaneDiffID, Width: 700}
+			late := InspectorPreference{Open: true, Active: sidePaneGitID, Width: 700}
 			var once sync.Once
 			uiStateBeforeWriteHook = func() {
 				once.Do(func() {

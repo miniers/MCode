@@ -12,13 +12,13 @@ import (
 func TestInspectorToggleRestoresLastTab(t *testing.T) {
 	s := sidePaneTestState(t)
 	defer s.close()
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	toggleInspector(s)
-	if st := inspectorSession(s); st.Open || st.Active != sidePaneDiffID {
+	if st := inspectorSession(s); st.Open || st.Active != sidePaneGitID {
 		t.Fatalf("关闭后状态错误：%+v", st)
 	}
 	toggleInspector(s)
-	if st := inspectorSession(s); !st.Open || st.Active != sidePaneDiffID {
+	if st := inspectorSession(s); !st.Open || st.Active != sidePaneGitID {
 		t.Fatalf("恢复后状态错误：%+v", st)
 	}
 }
@@ -161,16 +161,11 @@ func TestInspectorHeaderAccessibleTabs(t *testing.T) {
 	}
 	tt.Key(0, ui.KeyRight)
 	tt.Advance(0)
-	if st := inspectorSession(s); st.Active != sidePaneDiffID {
-		t.Fatalf("右方向键后标签：%s", st.Active)
-	}
-	if node, ok := tt.AccessByRole(ui.RoleTab, "改动"); !ok || !node.Selected {
-		t.Fatalf("改动标签的无障碍状态：%+v %v", node, ok)
-	}
-	tt.Key(0, ui.KeyRight)
-	tt.Advance(0)
 	if st := inspectorSession(s); st.Active != sidePaneGitID {
 		t.Fatalf("右方向键后标签：%s", st.Active)
+	}
+	if node, ok := tt.AccessByRole(ui.RoleTab, "Git"); !ok || !node.Selected {
+		t.Fatalf("Git 标签的无障碍状态：%+v %v", node, ok)
 	}
 	tt.Key(0, ui.KeyRight)
 	tt.Advance(0)

@@ -95,9 +95,14 @@ type InspectorPreference struct {
 	FileAnchor   string   `json:"file_anchor,omitempty"`
 }
 
+// legacySidePaneDiffID 是合并进 Git Tab 前旧版「改动」面板的持久化 ID，只在读盘兼容时映射为 sidePaneGitID。
+const legacySidePaneDiffID = "diff"
+
 func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference {
 	switch pref.Active {
-	case sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID:
+	case sidePaneFileID, sidePaneGitID, sidePanePreviewID:
+	case legacySidePaneDiffID:
+		pref.Active = sidePaneGitID
 	default:
 		pref.Active = sidePaneFileID
 	}

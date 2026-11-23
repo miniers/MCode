@@ -287,6 +287,14 @@ func renderReviewBody(c *ui.Context, s *chatState, dp *diffPanelState, host ui.E
 }
 
 func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
+	renderReviewPanelWithHeader(c, s, dp, true)
+}
+
+func renderReviewPanelBody(c *ui.Context, s *chatState, dp *diffPanelState) {
+	renderReviewPanelWithHeader(c, s, dp, false)
+}
+
+func renderReviewPanelWithHeader(c *ui.Context, s *chatState, dp *diffPanelState, showHeader bool) {
 	s.mu.Lock()
 	tid := s.selectedThreadID
 	s.mu.Unlock()
@@ -311,7 +319,9 @@ func renderReviewPanel(c *ui.Context, s *chatState, dp *diffPanelState) {
 		}
 	})
 	panel.Children(func() {
-		renderDiffHeader(c, s, dp, tid, turn, reviewTurns(s), loading)
+		if showHeader {
+			renderDiffHeader(c, s, dp, tid, turn, reviewTurns(s), loading)
+		}
 		if scope == "pr" {
 			renderReviewPRAction(c, s, dp, tid)
 		}

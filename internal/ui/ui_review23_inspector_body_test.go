@@ -12,7 +12,7 @@ func TestUIReview23ConcurrentInspectorBodyReadWrite(t *testing.T) {
 	s := sidePaneTestState(t)
 	defer s.close()
 	stubSidePanePanelRender(t, sidePaneFileID)
-	stubSidePanePanelRender(t, sidePaneDiffID)
+	stubSidePanePanelRender(t, sidePaneGitID)
 	inspectorSelect(s, sidePaneFileID, false)
 
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -34,7 +34,7 @@ func TestUIReview23ConcurrentInspectorBodyReadWrite(t *testing.T) {
 			case 0:
 				inspectorSelect(s, sidePaneFileID, false)
 			case 1:
-				inspectorSelect(s, sidePaneDiffID, false)
+				inspectorSelect(s, sidePaneGitID, false)
 			case 2:
 				inspectorClose(s)
 			}

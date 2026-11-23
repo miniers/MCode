@@ -979,8 +979,8 @@ func TestGitPRCheckout(t *testing.T) {
 	diffPanelMu.Lock()
 	scope, number := dp.scope, dp.prNumber
 	diffPanelMu.Unlock()
-	if scope == "pr" || number != 0 || inspectorPaneOpen(s, sidePaneDiffID) {
-		t.Fatalf("检出不应打开 PR 改动视图：open=%v scope=%q number=%d", inspectorPaneOpen(s, sidePaneDiffID), scope, number)
+	if scope == "pr" || number != 0 || inspectorPaneOpen(s, sidePaneGitID) {
+		t.Fatalf("检出不应打开 PR 改动视图：open=%v scope=%q number=%d", inspectorPaneOpen(s, sidePaneGitID), scope, number)
 	}
 }
 
@@ -1580,7 +1580,7 @@ func TestGitPRDialogChangesTab(t *testing.T) {
 	if _, ok := tt.Access("总评"); !ok {
 		t.Fatal("弹窗未渲染「总评」输入框")
 	}
-	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneDiffID) {
+	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneGitID) {
 		t.Fatal("切到弹窗改动 Tab 不应改变侧栏选中项")
 	}
 
@@ -1627,7 +1627,7 @@ func TestGitPRDialogChangesTab(t *testing.T) {
 	if !open || tab != "changes" {
 		t.Fatalf("点击开始评审后状态 open=%v tab=%q，期望 open=true tab=changes", open, tab)
 	}
-	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneDiffID) {
+	if !inspectorPaneOpen(s, sidePaneFileID) || inspectorPaneOpen(s, sidePaneGitID) {
 		t.Fatal("点击开始评审不应改变侧栏选中项")
 	}
 	if tt.FramePending() {

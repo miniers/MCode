@@ -211,12 +211,14 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				scID, scIdx, ok = state.popPendingAction()
 			}
 			if ok {
-				// 右侧分栏面板（文件、网页预览、改动）的开关由 side_pane.go 的注册表统一派发，
-				// 下面的 switch 不再为这三项单独写 case（命中时 switch 自然什么也不做）。
+				// 右侧分栏面板（文件、Git、浏览器）的开关由 side_pane.go 的注册表统一派发，
+				// toggle-diff 作为 Git Tab 本轮改动快捷入口单独派发。
 				if p := sidePaneByAction(scID); p != nil {
 					p.toggle(state)
 				}
 				switch scID {
+				case "toggle-diff":
+					state.toggleDiffPanel()
 				case "toggle-inspector":
 					toggleInspector(state)
 				case "new-thread":

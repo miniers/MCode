@@ -10,8 +10,10 @@ import (
 
 func reviewScope(scope string) string {
 	switch scope {
-	case "session", "uncommitted", "pr":
+	case "all", "session", "pr":
 		return scope
+	case "uncommitted":
+		return "all"
 	default:
 		return "turn"
 	}
@@ -22,9 +24,9 @@ func reviewScopeTitle(scope string) string {
 	case "pr":
 		return "PR"
 	case "session":
-		return "整个会话"
-	case "uncommitted":
-		return "未提交"
+		return "会话"
+	case "all":
+		return "全部"
 	default:
 		return "本轮"
 	}
@@ -115,12 +117,12 @@ func (s *chatState) selectReviewScope(dp *diffPanelState, scope string) {
 	s.loadDiff(threadID, "")
 }
 
-// renderReviewScope 用分段控件切换范围：本轮、整个会话、未提交，有 PR 时追加 PR。
+// renderReviewScope 用分段控件切换范围：全部、本轮、会话，有 PR 时追加 PR。
 func renderReviewScope(c *ui.Context, s *chatState, dp *diffPanelState) {
 	diffPanelMu.Lock()
 	scope, number := reviewScope(dp.scope), dp.prNumber
 	diffPanelMu.Unlock()
-	values := []string{"turn", "session", "uncommitted"}
+	values := []string{"all", "turn", "session"}
 	if _, ok := s.client.(reviewPRClient); ok && number > 0 {
 		values = append(values, "pr")
 	}

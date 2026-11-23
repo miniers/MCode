@@ -129,16 +129,37 @@ func getDiffPanelState(s *chatState) *diffPanelState {
 	return slot.Review
 }
 
-// IsOpen 返回改动面板当前是否展开。
+// IsOpen 返回改动视图（已合并入 Git Tab）当前是否展开。
 func (st *diffPanelState) IsOpen() bool {
 	if st == nil {
 		return false
 	}
-	return inspectorPaneOpen(st.owner, sidePaneDiffID)
+	return inspectorPaneOpen(st.owner, sidePaneGitID)
 }
 
-// toggleDiffPanel 切换改动面板的展开与折叠状态。
+func gitPaneCurrentScopeLocked(dp *diffPanelState) string {
+	if dp == nil || dp.scope == "" {
+		return "all"
+	}
+	return reviewScope(dp.scope)
+}
+
+func gitPaneCurrentScope(dp *diffPanelState) string {
+	if dp == nil {
+		return "all"
+	}
+	diffPanelMu.Lock()
+	scope := gitPaneCurrentScopeLocked(dp)
+	diffPanelMu.Unlock()
+	return scope
+}
+
+// toggleDiffPanel 切换 Git Tab 到「本轮」范围；已在 Git Tab 且范围为本轮时关闭右栏。
 func (s *chatState) toggleDiffPanel() {
+	s.toggleGitTabScope("turn")
+}
+
+func (s *chatState) toggleGitTabScope(targetScope string) {
 	if s == nil {
 		return
 	}
@@ -146,13 +167,22 @@ func (s *chatState) toggleDiffPanel() {
 	if dp == nil {
 		return
 	}
-
-	if inspectorSelect(s, sidePaneDiffID, true) {
+	targetScope = reviewScope(targetScope)
+	if inspectorPaneOpen(s, sidePaneGitID) && gitPaneCurrentScope(dp) == targetScope {
+		inspectorClose(s)
+		s.invalidate()
+		return
+	}
+	diffPanelMu.Lock()
+	scopeChanged := gitPaneCurrentScopeLocked(dp) != targetScope
+	dp.scope = targetScope
+	diffPanelMu.Unlock()
+	if inspectorSelect(s, sidePaneGitID, false) {
 		s.mu.Lock()
 		tid := s.selectedThreadID
 		s.mu.Unlock()
 		diffPanelMu.Lock()
-		needLoad := dp.threadID != tid || dp.requestGen == 0
+		needLoad := scopeChanged || dp.threadID != tid || dp.requestGen == 0
 		diffPanelMu.Unlock()
 		if needLoad {
 			s.loadDiff(tid, "")
@@ -273,6 +303,15 @@ func diffWorktreeReloadNeeded(loadedWorktree string, resolved bool, current stri
 
 // renderDiffPanel 渲染右侧代码改动面板。
 func renderDiffPanel(c *ui.Context, s *chatState) {
+	renderDiffPanelWithHeader(c, s, true)
+}
+
+// renderDiffPanelBody 渲染供 Git Tab 复用的改动正文（modern 客户端不含外层范围选择器，由 Git Tab 过滤条承载）。
+func renderDiffPanelBody(c *ui.Context, s *chatState) {
+	renderDiffPanelWithHeader(c, s, false)
+}
+
+func renderDiffPanelWithHeader(c *ui.Context, s *chatState, showHeader bool) {
 	if s == nil {
 		return
 	}
@@ -281,7 +320,11 @@ func renderDiffPanel(c *ui.Context, s *chatState) {
 		return
 	}
 	if _, ok := s.client.(reviewClient); ok {
-		inspectorFollowSurface(c, s, fileManagerThreadID(s), "review-follow-surface").Children(func() { renderReviewPanel(c, s, dp) })
+		if showHeader {
+			inspectorFollowSurface(c, s, fileManagerThreadID(s), "review-follow-surface").Children(func() { renderReviewPanel(c, s, dp) })
+			return
+		}
+		renderReviewPanelBody(c, s, dp)
 		return
 	}
 
@@ -485,38 +528,42 @@ func renderDiffHeader(c *ui.Context, s *chatState, dp *diffPanelState, threadID,
 				renderDiffTurnSelector(c, s, dp, data, turnID)
 			}
 			ui.Spacer(c)
-			if modern {
-				renderReviewCommentsAction(c, s, dp, threadID)
-			}
-			refresh := ui.ButtonBase(c.Key("diff-refresh-btn")).
-				Label("刷新").
-				Tooltip("刷新改动").
-				Disabled(loading).
-				Size(ControlSM, ControlSM).
-				Radius(RadiusSM).
-				Justify(ui.Center).
-				AlignItems(ui.Center)
-			scale := motionPressScale(c, refresh, "button-press-scale", !loading && refresh.Pressed())
-			refresh.Scale(scale, scale)
-			if refresh.Hovered() {
-				refresh.Background(ThemeHover(c))
-			}
-			if refresh.Clicked() {
-				s.loadDiff(threadID, turnID)
-			}
-			refresh.Children(func() {
-				if loading {
-					renderGitSyncSpin(c)
-					return
-				}
-				ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-			})
-			if modern {
-				IconButton(c, IconButtonProps{Key: "diff-more-btn", Icon: IconMoreHorizontal(), Label: "改动更多操作", Variant: ButtonGhost, Size: ControlSM}).Menu(func(m *ui.Menu) {
-					renderReviewHeaderMenu(m, s, dp, threadID, data, turnID)
-				})
-			}
+			renderDiffHeaderActions(c, s, dp, threadID, turnID, data, loading, modern)
 		})
+}
+
+func renderDiffHeaderActions(c *ui.Context, s *chatState, dp *diffPanelState, threadID, turnID string, data ThreadDiff, loading, modern bool) {
+	if modern {
+		renderReviewCommentsAction(c, s, dp, threadID)
+	}
+	refresh := ui.ButtonBase(c.Key("diff-refresh-btn")).
+		Label("刷新").
+		Tooltip("刷新改动").
+		Disabled(loading).
+		Size(ControlSM, ControlSM).
+		Radius(RadiusSM).
+		Justify(ui.Center).
+		AlignItems(ui.Center)
+	scale := motionPressScale(c, refresh, "button-press-scale", !loading && refresh.Pressed())
+	refresh.Scale(scale, scale)
+	if refresh.Hovered() {
+		refresh.Background(ThemeHover(c))
+	}
+	if refresh.Clicked() {
+		s.loadDiff(threadID, turnID)
+	}
+	refresh.Children(func() {
+		if loading {
+			renderGitSyncSpin(c)
+			return
+		}
+		ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+	})
+	if modern {
+		IconButton(c, IconButtonProps{Key: "diff-more-btn", Icon: IconMoreHorizontal(), Label: "改动更多操作", Variant: ButtonGhost, Size: ControlSM}).Menu(func(m *ui.Menu) {
+			renderReviewHeaderMenu(m, s, dp, threadID, data, turnID)
+		})
+	}
 }
 
 // renderDiffWorktreeNotice 在会话的 AI 在自建 worktree 里干活时，指明改动取自哪个目录。

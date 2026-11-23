@@ -87,7 +87,7 @@ var shortcutDefaultsOnce = sync.OnceValue(func() []appShortcut {
 		{id: "show-shortcuts", title: "显示快捷键", group: "窗口", keys: "⌘/", mods: ui.Cmd, key: ui.KeySlash, bound: true, customizable: true, registered: true},
 		{id: "open-settings", title: "打开设置", group: "窗口", keys: "⌘,", mods: ui.Cmd, key: ui.KeyComma, bound: true, customizable: true, registered: true},
 		{id: "close-settings", title: "关闭设置", group: "窗口", keys: "Esc"},
-		{id: "toggle-diff", title: "显示/隐藏改动", group: "窗口", keys: "⌘D", mods: ui.Cmd, key: ui.KeyD, bound: true, customizable: true, registered: true},
+		{id: "toggle-diff", title: "Git：本轮改动", group: "窗口", keys: "⌘D", mods: ui.Cmd, key: ui.KeyD, bound: true, customizable: true, registered: true},
 		{id: "toggle-git-pane", title: "显示/隐藏 Git", group: "窗口", keys: "⇧⌘G", mods: ui.Cmd | ui.Shift, key: ui.KeyG, bound: true, customizable: true, registered: true},
 		{id: "toggle-inspector", title: "显示/隐藏右栏", group: "窗口", keys: "⌥⌘B", mods: ui.Cmd | ui.Alt, key: ui.KeyB, bound: true, customizable: true, registered: true},
 		{id: "toggle-context", title: "项目文档", group: "窗口", keys: "⇧⌘K", mods: ui.Cmd | ui.Shift, key: ui.KeyK, bound: true, registered: true},

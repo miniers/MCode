@@ -74,7 +74,7 @@ func paneOpenFlags(s *chatState) (file, preview, diff bool) {
 	return file, preview, diff
 }
 
-// 打开任意一个面板都应关掉另外两个，包括改动与预览之间（旧实现里这两个可以同时为真）。
+// 打开任意一个面板都应关掉另外两个。
 func TestSidePaneMutualExclusion(t *testing.T) {
 	cases := []struct {
 		name string
@@ -83,7 +83,6 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 	}{
 		{"file", toggleFileManager, sidePaneFileID},
 		{"preview", togglePreview, sidePanePreviewID},
-		{"diff", func(s *chatState) { s.toggleDiffPanel() }, sidePaneDiffID},
 		{"git", toggleGitPane, sidePaneGitID},
 	}
 	// 每个用例都从“另一个面板已打开”开始，覆盖所有有向组合。
@@ -98,8 +97,8 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 				from.open(s)
 				to.open(s)
 
-				file, preview, diff := paneOpenFlags(s)
-				got := map[string]bool{sidePaneFileID: file, sidePanePreviewID: preview, sidePaneDiffID: diff, sidePaneGitID: inspectorPaneOpen(s, sidePaneGitID)}
+				file, preview, git := paneOpenFlags(s)
+				got := map[string]bool{sidePaneFileID: file, sidePanePreviewID: preview, sidePaneGitID: git}
 				if !got[to.want] {
 					t.Fatalf("打开 %s 后它应为打开状态, got %+v", to.want, got)
 				}
@@ -109,6 +108,16 @@ func TestSidePaneMutualExclusion(t *testing.T) {
 			})
 		}
 	}
+	// ⌘D (toggleDiffPanel) 打开 Git Tab 时同样关掉其它面板。
+	t.Run("file->diff", func(t *testing.T) {
+		s := sidePaneTestState(t)
+		defer s.close()
+		toggleFileManager(s)
+		s.toggleDiffPanel()
+		if fileManagerPaneOpen(s) || !inspectorPaneOpen(s, sidePaneGitID) {
+			t.Fatal("toggleDiffPanel 应关闭文件面板并打开 Git Tab")
+		}
+	})
 }
 
 // Active 独立于注册顺序；只有选中的目的会显示。
@@ -120,7 +129,7 @@ func TestActiveSidePanePriority(t *testing.T) {
 		t.Fatalf("没有面板打开时应返回 nil, got %q", p.id)
 	}
 
-	for _, id := range []string{sidePaneDiffID, sidePaneGitID, sidePanePreviewID, sidePaneFileID} {
+	for _, id := range []string{sidePaneGitID, sidePanePreviewID, sidePaneFileID} {
 		inspectorSelect(s, id, false)
 		if p := activeSidePane(s); p == nil || p.id != id {
 			t.Fatalf("Active=%s, got %+v", id, p)
@@ -221,7 +230,7 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	}
 
 	// JSON 往返：字段名固定为 side_pane_widths。
-	data, err := json.Marshal(UIState{SidePaneWidths: map[string]float32{sidePaneDiffID: 360}})
+	data, err := json.Marshal(UIState{SidePaneWidths: map[string]float32{sidePaneGitID: 360}})
 	if err != nil {
 		t.Fatalf("marshal failed: %v", err)
 	}
@@ -229,7 +238,7 @@ func TestSidePaneWidthPreferenceRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatalf("unmarshal failed: %v", err)
 	}
-	if back.SidePaneWidths[sidePaneDiffID] != 360 {
+	if back.SidePaneWidths[sidePaneGitID] != 360 {
 		t.Fatalf("side_pane_widths 往返丢失: %s", string(data))
 	}
 
@@ -311,7 +320,7 @@ func TestSidePaneWidthPersistSkippedWithoutPersistence(t *testing.T) {
 
 // 保证注册表覆盖三个面板且顺序即优先级。
 func TestSidePanesRegistryOrder(t *testing.T) {
-	want := []string{sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID}
+	want := []string{sidePaneFileID, sidePaneGitID, sidePanePreviewID}
 	if len(sidePanes) != len(want) {
 		t.Fatalf("注册表应包含 %d 个面板, got %d", len(want), len(sidePanes))
 	}
@@ -364,7 +373,6 @@ func TestSidePaneByAction(t *testing.T) {
 	cases := map[string]string{
 		"toggle-file-manager": sidePaneFileID,
 		"toggle-preview":      sidePanePreviewID,
-		"toggle-diff":         sidePaneDiffID,
 		"toggle-git-pane":     sidePaneGitID,
 	}
 	for actionID, wantID := range cases {
@@ -536,7 +544,7 @@ func TestInspectorTopInsetByPlatform(t *testing.T) {
 					t.Fatalf("分栏手柄顶部 = %+v，存在=%v，期望 %v", handle, ok, chat.Y+tc.inset)
 				}
 			}
-			if err := tt.Click("改动"); err != nil || inspectorSession(s).Active != sidePaneDiffID {
+			if err := tt.Click("Git"); err != nil || inspectorSession(s).Active != sidePaneGitID {
 				t.Fatalf("标签点击失败: %v", err)
 			}
 			if err := tt.Click("关闭右栏"); err != nil || inspectorSession(s).Open {

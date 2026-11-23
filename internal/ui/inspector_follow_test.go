@@ -151,12 +151,12 @@ func TestInspectorFollowDoesNotOpenHiddenPane(t *testing.T) {
 	if inspectorSession(s).Open || len(fileManagerTabPaths(s)) != 0 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 1 {
 		t.Fatal("agent 打开了收起的右栏或遗漏了徽标")
 	}
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	tt.Advance(DurSheet + 50*time.Millisecond)
 	inspectorFollowUpdate(s, "t1", "read-2", "read", `{"path":"sub/b.go"}`, "completed")
 	time.Sleep(inspectorFollowInterval + 10*time.Millisecond)
 	tt.Frame()
-	if inspectorSession(s).Active != sidePaneDiffID || len(fileManagerTabPaths(s)) != 0 {
+	if inspectorSession(s).Active != sidePaneGitID || len(fileManagerTabPaths(s)) != 0 {
 		t.Fatal("读取事件切换了右栏目的")
 	}
 }
@@ -233,7 +233,7 @@ func TestInspectorFollowIgnoresUnrevealableTargets(t *testing.T) {
 	_, s, _ := inspectorFollowTestState(t)
 	inspectorFollowUpdate(s, "t1", "outside", "read", fmt.Sprintf(`{"path":%q}`, filepath.ToSlash(filepath.Join(t.TempDir(), "elsewhere", "a.txt"))), "completed")
 	inspectorFollowUpdate(s, "t1", "failed", "read", `{"path":"a.txt"}`, "failed")
-	for _, id := range []string{sidePaneFileID, sidePaneDiffID} {
+	for _, id := range []string{sidePaneFileID, sidePaneGitID} {
 		if got := inspectorFollowBadge(s, "t1", id); got != 0 {
 			t.Fatalf("不可定位事件产生徽标 %s: %d", id, got)
 		}
@@ -241,7 +241,7 @@ func TestInspectorFollowIgnoresUnrevealableTargets(t *testing.T) {
 	inspectorFollowPause(s, "t1")
 	inspectorFollowUpdate(s, "t1", "write", "write", `{"path":"a.txt"}`, "running")
 	inspectorFollowUpdate(s, "t1", "write", "write", `{"path":"a.txt"}`, "completed")
-	for _, id := range []string{sidePaneFileID, sidePaneDiffID} {
+	for _, id := range []string{sidePaneFileID, sidePaneGitID} {
 		if got := inspectorFollowBadge(s, "t1", id); got != 1 {
 			t.Fatalf("写入事件徽标错误 %s: %d", id, got)
 		}
@@ -279,7 +279,7 @@ func TestInspectorFollowWriteRefreshesReviewWithoutChangingPurpose(t *testing.T)
 		defer diffPanelMu.Unlock()
 		return dp.selectedPath == "a.go" && !dp.loading
 	})
-	if inspectorFollowPaused(s) || inspectorSession(s).Active != sidePaneDiffID || inspectorFollowBadge(s, "t1", sidePaneDiffID) != 0 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 1 {
+	if inspectorFollowPaused(s) || inspectorSession(s).Active != sidePaneGitID || inspectorFollowBadge(s, "t1", sidePaneGitID) != 0 || inspectorFollowBadge(s, "t1", sidePaneFileID) != 1 {
 		t.Fatal("写入事件未定位改动，或改变了目的/跟随状态")
 	}
 }

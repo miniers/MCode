@@ -121,7 +121,7 @@ func TestUIReview15_ShortcutsResetAllConfirmDialog(t *testing.T) {
 	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil)), 1000, 3000)
 
 	openShortcutsSettingsPage(t, tt)
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Alt+Cmd+D")
 	waitFor(t, tt, func() bool {
 		id, _, ok := matchShortcut(ui.Cmd|ui.Alt, ui.KeyD)

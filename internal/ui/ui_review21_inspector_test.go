@@ -163,7 +163,7 @@ func TestUIReview21FollowNonTextClearsReveal(t *testing.T) {
 
 func TestUIReview21ArrowKeyResumesFollow(t *testing.T) {
 	_, s, tt := inspectorFollowTestState(t)
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	tt.Frame()
 
 	inspectorFollowPause(s, "t1")
@@ -173,7 +173,7 @@ func TestUIReview21ArrowKeyResumesFollow(t *testing.T) {
 		t.Fatalf("期望文件角标为 1，得到 %d", got)
 	}
 
-	clickText(t, tt, "改动")
+	clickText(t, tt, "Git")
 	tt.Key(0, ui.KeyLeft)
 	tt.Advance(0)
 
@@ -196,7 +196,7 @@ func TestUIReview21NarrowHeaderCloseButtonBounds(t *testing.T) {
 	s.mu.Lock()
 	st := inspectorExistingSessionLocked(s, "t1")
 	f := inspectorFollowLocked(st)
-	for _, id := range []string{sidePaneFileID, sidePaneDiffID, sidePaneGitID, sidePanePreviewID} {
+	for _, id := range []string{sidePaneFileID, sidePaneGitID, sidePanePreviewID} {
 		f.badges[id] = 12
 	}
 	s.mu.Unlock()

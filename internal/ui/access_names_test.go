@@ -88,9 +88,9 @@ func TestMainWindowButtonsHaveNames(t *testing.T) {
 		settleAccessFrames(tt)
 	})
 
-	t.Run("diff_panel", func(t *testing.T) {
-		inspectorSelect(state, sidePaneDiffID, false)
-		waitFor(t, tt, func() bool { return inspectorPaneOpen(state, sidePaneDiffID) })
+	t.Run("git_turn_scope", func(t *testing.T) {
+		state.toggleDiffPanel()
+		waitFor(t, tt, func() bool { return inspectorPaneOpen(state, sidePaneGitID) })
 		settleAccessFrames(tt)
 		assertButtonsHaveNames(t, tt)
 		inspectorClose(state)

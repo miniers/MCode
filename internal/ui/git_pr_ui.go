@@ -1875,7 +1875,7 @@ func openReviewPR(s *chatState, number int) {
 		return
 	}
 	s.closeGitPRDialog()
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	inspectorFollowPause(s, s.gitPRThreadID())
 	preparePRReview(s, number)
 }

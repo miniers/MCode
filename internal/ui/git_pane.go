@@ -119,9 +119,7 @@ func getGitPaneState(s *chatState) *gitPaneState {
 }
 
 func toggleGitPane(s *chatState) {
-	if getGitPaneState(s) != nil {
-		inspectorSelect(s, sidePaneGitID, true)
-	}
+	s.toggleGitTabScope("all")
 }
 
 func gitPaneAgentBusy(s *chatState, threadID string) bool {
@@ -626,28 +624,96 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		renderGitPaneEmpty(c, "未选中会话", IconGitBranch())
 		return
 	}
-	if _, ok := s.client.(gitPaneClient); !ok {
+	dp := getDiffPanelState(s)
+	if dp == nil {
+		return
+	}
+	diffPanelMu.Lock()
+	if dp.scope == "" {
+		dp.scope = "all"
+	}
+	scope := reviewScope(dp.scope)
+	turnID := dp.turnID
+	diffLoading := dp.loading
+	hasLoadedReview := dp.requestGen > 0
+	diffPanelMu.Unlock()
+
+	_, hasGit := s.client.(gitPaneClient)
+	_, modern := s.client.(reviewClient)
+	if !hasGit && scope == "all" && !(modern && hasLoadedReview) {
 		renderGitPaneEmpty(c, "Git", IconGitBranch())
 		return
 	}
-	ps.setVisible(true)
-	ps.mu.Lock()
-	state, syncing, progress, loading := ps.state, ps.syncing, ps.progress, ps.loading
-	ps.mu.Unlock()
+	if hasGit {
+		ps.setVisible(true)
+	}
+	var state GitState
+	var syncing, loading bool
+	var progress git.Progress
+	if hasGit {
+		ps.mu.Lock()
+		state, syncing, progress, loading = ps.state, ps.syncing, ps.progress, ps.loading
+		ps.mu.Unlock()
+	}
 	pane := ui.Column(c.Key("git-pane")).Fill().MinWidth(0)
+	pane.Draw(func(_ *ui.Painter, r ui.Rect) {
+		if updateReviewPanelWidth(dp, r.W) {
+			c.Invalidate()
+		}
+	})
 	width := pane.Bounds().W
 	if width <= 0 {
 		width = inspectorSession(s).Width
 	}
 	pane.Children(func() {
-		renderGitPaneToolbar(c, s, ps, state, width)
-		if syncing && progress.Percent >= 0 {
-			ProgressBar(c, ProgressBarProps{Key: "git-pane-progress", Label: "Git 同步进度", Ratio: float32(progress.Percent) / 100, Height: Space0, Fill: ThemeAccent(c), Track: ThemeBorder(c)})
+		if hasGit {
+			renderGitPaneToolbar(c, s, ps, state, width)
+			if syncing && progress.Percent >= 0 {
+				ProgressBar(c, ProgressBarProps{Key: "git-pane-progress", Label: "Git 同步进度", Ratio: float32(progress.Percent) / 100, Height: Space0, Fill: ThemeAccent(c), Track: ThemeBorder(c)})
+			}
+			renderGitPaneOpBanner(c, s, ps)
+			renderGitPaneFailure(c, ps)
+			renderGitPaneSwitchStash(c, ps)
 		}
-		renderGitPaneOpBanner(c, s, ps)
-		renderGitPaneFailure(c, ps)
-		renderGitPaneSwitchStash(c, ps)
-		ui.Column(c.Key("git-pane-content")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+		if modern {
+			ui.Row(c.Key("git-pane-filter-bar")).
+				FillWidth().
+				Height(diffHeaderHeight).
+				Shrink(0).
+				Padding(0, Space2, 0, Space3).
+				BorderWidth(0, 0, Hairline, 0).
+				BorderColor(ThemeBorder(c)).
+				AlignItems(ui.Center).
+				Gap(Space1).
+				Children(func() {
+					renderReviewScope(c, s, dp)
+					ui.Spacer(c)
+					renderDiffHeaderActions(c, s, dp, ps.threadID, turnID, reviewTurns(s), diffLoading, true)
+				})
+		}
+		content := ui.Column(c.Key("git-pane-content")).Grow(1).MinHeight(0).FillWidth()
+		contentH := content.Bounds().H
+		if contentH <= 0 {
+			_, winH := c.Size()
+			contentH = max(0, winH-HeaderHeight-diffHeaderHeight*2)
+		}
+		content.Children(func() {
+			if scope != "all" {
+				if modern {
+					inspectorFollowSurface(c, s, ps.threadID, "review-follow-surface").Children(func() {
+						renderDiffPanelBody(c, s)
+					})
+				} else {
+					renderDiffPanelBody(c, s)
+				}
+				return
+			}
+			if !hasGit {
+				inspectorFollowSurface(c, s, ps.threadID, "review-follow-surface").Children(func() {
+					renderReviewPanelBody(c, s, dp)
+				})
+				return
+			}
 			if loading && state.WorkDir == "" {
 				LoadingIndicator(c, "git-pane-loading", "", IconMD)
 				return
@@ -656,18 +722,86 @@ func renderGitPane(c *ui.Context, s *chatState) {
 				renderGitPaneEmpty(c, "不是 Git 仓库", IconGitBranch())
 				return
 			}
-			renderGitPaneHistory(c, s, ps.threadID, ps)
+			renderGitPaneAllScope(c, s, ps, dp, pane, contentH, modern)
 		})
-		renderGitPaneUndo(c, ps)
+		if hasGit {
+			renderGitPaneUndo(c, ps)
+		}
 	})
-	renderGitPaneForceConfirm(c, ps)
-	if ps.stash != nil {
-		renderGitStashDialog(c, ps.stash)
+	if hasGit {
+		renderGitPaneForceConfirm(c, ps)
+		if ps.stash != nil {
+			renderGitStashDialog(c, ps.stash)
+		}
+		renderGitPRCreateDialog(c, ps.prCreate)
+		if gitPaneRemotesDialog != nil && ps.remotesOpen {
+			gitPaneRemotesDialog(c, s, ps.threadID, &ps.remotesOpen)
+		}
 	}
-	renderGitPRCreateDialog(c, ps.prCreate)
-	if gitPaneRemotesDialog != nil && ps.remotesOpen {
-		gitPaneRemotesDialog(c, s, ps.threadID, &ps.remotesOpen)
+}
+
+func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *diffPanelState, host ui.Element, contentH float32, modern bool) {
+	tid := ps.threadID
+	var g *reviewGit
+	var detail string
+	var hasReviewUpper bool
+	if modern {
+		diffPanelMu.Lock()
+		needLoad := dp.threadID != tid || dp.requestGen == 0
+		diffPanelMu.Unlock()
+		if needLoad {
+			s.loadDiff(tid, "")
+		}
+		diffPanelMu.Lock()
+		diffLoading := dp.loading
+		detail = dp.gitDetail
+		hasReviewUpper = len(dp.snapshot.Files) > 0 || dp.err != "" || dp.snapshot.Unavailable != ""
+		diffPanelMu.Unlock()
+		g = reviewGitFor(s, "all")
+		if g != nil {
+			reviewGitSyncPaths(s, dp, g, tid, diffLoading)
+		}
 	}
+	inspectorFollowSurface(c, s, tid, "review-follow-surface").Children(func() {
+		if g != nil && detail != "" && gitPaneDiffView != nil {
+			gitPaneDiffView(c, s, tid, g.ps, detail, false, func() {
+				diffPanelMu.Lock()
+				dp.gitDetail = ""
+				diffPanelMu.Unlock()
+				s.loadDiff(tid, "")
+			})
+			return
+		}
+		ps.mu.Lock()
+		hasEntries := len(ps.entries) > 0
+		ps.mu.Unlock()
+		showComposer := false
+		if g != nil {
+			g.st.mu.Lock()
+			showComposer = hasEntries || g.st.amend || time.Now().Before(g.st.successUntil)
+			g.st.mu.Unlock()
+		}
+		if hasReviewUpper || showComposer {
+			upperMax := max(float32(200), contentH*0.6)
+			ui.Column(c.Key("git-pane-uncommitted")).
+				FillWidth().
+				MaxHeight(upperMax).
+				Shrink(0).
+				BorderWidth(0, 0, Hairline, 0).
+				BorderColor(ThemeBorder(c)).
+				Children(func() {
+					if hasReviewUpper {
+						renderReviewBody(c, s, dp, host, tid, reviewHost{})
+					}
+					if showComposer {
+						renderGitCommitComposer(c, s, tid, g.ps, host)
+					}
+				})
+		}
+		ui.Column(c.Key("git-pane-history-wrap")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+			renderGitPaneHistory(c, s, tid, ps)
+		})
+	})
 }
 
 func renderGitSyncSpin(c *ui.Context) {

@@ -990,8 +990,8 @@ func TestGitPaneConflictOpensFirstFile(t *testing.T) {
 	diffPanelMu.Lock()
 	scope, detail := dp.scope, dp.gitDetail
 	diffPanelMu.Unlock()
-	if !inspectorPaneOpen(s, sidePaneDiffID) || scope != "uncommitted" || detail != "first.go" {
-		t.Fatalf("冲突跳转：open=%v scope=%q detail=%q", inspectorPaneOpen(s, sidePaneDiffID), scope, detail)
+	if !inspectorPaneOpen(s, sidePaneGitID) || scope != "all" || detail != "first.go" {
+		t.Fatalf("冲突跳转：open=%v scope=%q detail=%q", inspectorPaneOpen(s, sidePaneGitID), scope, detail)
 	}
 }
 

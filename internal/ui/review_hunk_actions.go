@@ -128,7 +128,7 @@ func configureReviewHunkActions(c *ui.Context, s *chatState, dp *diffPanelState,
 				go func() {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
-					_, callErr := client.ReviewRevertHunk(ctx, ReviewRevertHunkParams{ThreadID: tid, Scope: snapshot.Scope, TurnID: snapshot.TurnID, Path: file.Path, BaseRevision: snapshot.BaseRevision, HeadRevision: snapshot.HeadRevision, StartLine: start, LineCount: count, HunkHash: hash, ExpectedFileHash: reviewContentHash(content.NewText)})
+					_, callErr := client.ReviewRevertHunk(ctx, ReviewRevertHunkParams{ThreadID: tid, Scope: reviewBackendScope(snapshot.Scope), TurnID: snapshot.TurnID, Path: file.Path, BaseRevision: snapshot.BaseRevision, HeadRevision: snapshot.HeadRevision, StartLine: start, LineCount: count, HunkHash: hash, ExpectedFileHash: reviewContentHash(content.NewText)})
 					state.mu.Lock()
 					if callErr != nil {
 						state.err = callErr.Error()

@@ -89,7 +89,7 @@ func inspectorSessionLocked(s *chatState, threadID string) *inspectorSessionStat
 func inspectorInitialWidth(s *chatState) float32 {
 	sidePanePrefsMu.Lock()
 	defer sidePanePrefsMu.Unlock()
-	for _, id := range []string{sidePanePreviewID, sidePaneFileID, sidePaneDiffID, sidePaneGitID} {
+	for _, id := range []string{sidePanePreviewID, sidePaneFileID, sidePaneGitID, legacySidePaneDiffID} {
 		if w := sidePanePrefs[s][id]; w > 0 && !math.IsNaN(float64(w)) && !math.IsInf(float64(w), 0) {
 			return max(w, inspectorMinWidth)
 		}
@@ -130,7 +130,7 @@ func inspectorSelect(s *chatState, id string, toggle bool) bool {
 	}
 	open := st.Open
 	s.mu.Unlock()
-	if open && id == sidePaneDiffID && (!wasOpen || wasActive != id) {
+	if open && id == sidePaneGitID && (!wasOpen || wasActive != id) {
 		diffPanelMu.Lock()
 		if dp := st.Review; dp.scope == "pr" {
 			dp.scope, dp.threadID = "turn", ""
@@ -193,10 +193,7 @@ func inspectorSyncVisibility(st *inspectorSessionState) {
 	fileManagerMu.Unlock()
 	fileTreeWatchSetVisible(files, open && active == sidePaneFileID)
 	if gitPane != nil {
-		diffPanelMu.Lock()
-		uncommitted := st.Review != nil && reviewScope(st.Review.scope) == "uncommitted"
-		diffPanelMu.Unlock()
-		gitPane.setVisible(open && (active == sidePaneGitID || active == sidePaneDiffID && uncommitted))
+		gitPane.setVisible(open && active == sidePaneGitID)
 	}
 }
 

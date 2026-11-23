@@ -182,7 +182,7 @@ func reviewUncommittedTester(t *testing.T) (*chatState, *gitChangesFakeClient, *
 	ps.state, ps.entries = GitState{WorkDir: root}, entries
 	client.SetReviewSnapshot("git-test", "uncommitted", "", "", ReviewSnapshot{Scope: "uncommitted", HeadRevision: "head", Files: []ReviewFile{{Path: "a.go", Status: "M", Additions: 1, Deletions: 1}}})
 	dp := getDiffPanelState(s)
-	dp.scope = "uncommitted"
+	dp.scope = "all"
 	tt := ui.NewTester(func(c *ui.Context) { renderReviewPanel(c, s, dp) }, 800, 600)
 	waitFor(t, tt, func() bool { return tt.HasText("提交信息") })
 	return s, client, dp, tt
@@ -233,14 +233,22 @@ func TestReviewShortcutsDoNotStealCommitInput(t *testing.T) {
 func TestGitPaneShowsHistoryOnly(t *testing.T) {
 	s, ps, client := gitPaneTestState(t)
 	client.state = GitState{WorkDir: t.TempDir()}
-	client.entries = []git.StatusEntry{{Path: "a.go", Worktree: 'M'}}
 	s.client = &gitChangesFakeClient{gitPaneFakeClient: client}
 	ps.mu.Lock()
+	ps.state = client.state
 	ps.visible = true
 	ps.mu.Unlock()
 	tt := ui.NewTester(func(c *ui.Context) { renderGitPane(c, s) }, 480, 400)
 	tt.Frame()
-	if tt.HasText("变更") || tt.HasText("提交信息") {
-		t.Fatal("Git 标签仍显示变更列表或提交框")
+	if tt.HasText("提交信息") {
+		t.Fatal("工作区干净时 Git 标签不应显示提交框")
+	}
+	client.entries = []git.StatusEntry{{Path: "a.go", Worktree: 'M'}}
+	ps.mu.Lock()
+	ps.entries = client.entries
+	ps.mu.Unlock()
+	tt.Frame()
+	if !tt.HasText("提交信息") {
+		t.Fatal("工作区有改动时全部范围应显示提交框")
 	}
 }

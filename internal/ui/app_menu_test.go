@@ -81,7 +81,7 @@ func TestBuildAppMenu(t *testing.T) {
 	requireMenuItem(t, viewMenu, "命令面板…", "CmdOrCtrl+K")
 	requireMenuItem(t, viewMenu, "显示快捷键…", "CmdOrCtrl+/")
 	requireMenuItem(t, viewMenu, "显示/隐藏终端", "CmdOrCtrl+J")
-	requireMenuItem(t, viewMenu, "显示/隐藏改动", "CmdOrCtrl+D")
+	requireMenuItem(t, viewMenu, "Git：本轮改动", "CmdOrCtrl+D")
 	requireMenuItem(t, viewMenu, "显示/隐藏 Git", "Shift+CmdOrCtrl+G")
 	requireMenuItem(t, viewMenu, "显示/隐藏浏览器", "Shift+CmdOrCtrl+B")
 	requireMenuItem(t, viewMenu, "显示/隐藏文件", "Shift+CmdOrCtrl+F")
@@ -127,7 +127,7 @@ func TestBuildAppMenuFollowsShortcutOverrides(t *testing.T) {
 
 	items := BuildAppMenu().Items()
 	requireMenuItem(t, items[0].Submenu, "打开设置…", "Shift+CmdOrCtrl+,")
-	requireMenuItem(t, items[3].Submenu, "显示/隐藏改动", "Alt+CmdOrCtrl+D")
+	requireMenuItem(t, items[3].Submenu, "Git：本轮改动", "Alt+CmdOrCtrl+D")
 	requireMenuItem(t, items[4].Submenu, "归档会话", "Shift+CmdOrCtrl+Y")
 
 	// 未改键的菜单项保持默认键位。

@@ -219,7 +219,7 @@ func inspectorFollowObserve(s *chatState, update ThreadUpdate) {
 			target.workspace = workspace
 			purposes := []string{sidePaneFileID}
 			if target.write {
-				purposes = append(purposes, sidePaneDiffID)
+				purposes = append(purposes, sidePaneGitID)
 			}
 			for _, id := range purposes {
 				f.badges[id]++
@@ -328,7 +328,7 @@ func inspectorFollowReveal(s *chatState, tid, id string, target inspectorFollowT
 	switch id {
 	case sidePaneFileID:
 		s.openFileManagerFileFollowing(tid, target.path, target.first, target.last, target.write)
-	case sidePaneDiffID:
+	case sidePaneGitID:
 		if !target.write {
 			return false
 		}

@@ -402,13 +402,13 @@ func TestSettingsExtra_ShortcutsCustomizeAndReset(t *testing.T) {
 	}
 
 	// 输入框使用操作标题作为无障碍名称，不暴露内部键。
-	waitFor(t, tt, func() bool { _, ok := tt.Find("快捷键 显示/隐藏改动"); return ok })
+	waitFor(t, tt, func() bool { _, ok := tt.Find("快捷键 Git：本轮改动"); return ok })
 	if _, ok := tt.Find("input-shortcut-toggle-diff"); ok {
 		t.Fatal("快捷键输入框不应暴露内部键")
 	}
 
-	// 修改「显示/隐藏改动」为 ⌥⌘D（⇧⌘D 已归「转发到新会话」，改用空闲的 Alt+Cmd+D）
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	// 修改「Git：本轮改动」为 ⌥⌘D（⇧⌘D 已归「转发到新会话」，改用空闲的 Alt+Cmd+D）
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Alt+Cmd+D")
 	waitFor(t, tt, func() bool {
 		id, _, ok := matchShortcut(ui.Cmd|ui.Alt, ui.KeyD)
@@ -421,8 +421,8 @@ func TestSettingsExtra_ShortcutsCustomizeAndReset(t *testing.T) {
 	})
 
 	// 行内「重置」清空该条覆盖，旧键恢复
-	waitFor(t, tt, func() bool { return tt.HasText("重置 显示/隐藏改动") })
-	clickShortcutControl(t, tt, "重置 显示/隐藏改动")
+	waitFor(t, tt, func() bool { return tt.HasText("重置 Git：本轮改动") })
+	clickShortcutControl(t, tt, "重置 Git：本轮改动")
 	waitFor(t, tt, func() bool {
 		id, _, ok := matchShortcut(ui.Cmd, ui.KeyD)
 		return ok && id == "toggle-diff"
@@ -433,7 +433,7 @@ func TestSettingsExtra_ShortcutsCustomizeAndReset(t *testing.T) {
 	})
 
 	// 再设一条覆盖后「全部恢复默认」
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Alt+Cmd+D")
 	waitFor(t, tt, func() bool {
 		id, _, ok := matchShortcut(ui.Cmd|ui.Alt, ui.KeyD)
@@ -465,7 +465,7 @@ func TestSettingsExtra_ShortcutInvalidOverride(t *testing.T) {
 
 	openShortcutsSettingsPage(t, tt)
 
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Cmd+Foo")
 	waitFor(t, tt, func() bool { return tt.HasText("无法解析") })
 
@@ -481,7 +481,7 @@ func TestSettingsExtra_ShortcutInvalidOverride(t *testing.T) {
 	}
 }
 
-// TestSettingsExtra_ShortcutConflictWarning 覆盖：把「显示/隐藏改动」改成 ⌘B 时显示冲突提示。
+// TestSettingsExtra_ShortcutConflictWarning 覆盖：把「Git：本轮改动」改成 ⌘B 时显示冲突提示。
 func TestSettingsExtra_ShortcutConflictWarning(t *testing.T) {
 	t.Cleanup(func() { setShortcutOverrides(nil) })
 	fake := NewFakeClient()
@@ -490,7 +490,7 @@ func TestSettingsExtra_ShortcutConflictWarning(t *testing.T) {
 
 	openShortcutsSettingsPage(t, tt)
 
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Cmd+B")
 	waitFor(t, tt, func() bool { return tt.HasText("与「显示/隐藏侧边栏」冲突") })
 }
@@ -504,7 +504,7 @@ func TestSettingsExtra_ShortcutReservedOverride(t *testing.T) {
 
 	openShortcutsSettingsPage(t, tt)
 
-	clickShortcutControl(t, tt, "快捷键 显示/隐藏改动")
+	clickShortcutControl(t, tt, "快捷键 Git：本轮改动")
 	tt.Type("Cmd+Q")
 	waitFor(t, tt, func() bool { return tt.HasText(shortcutReservedMessage) })
 

@@ -905,7 +905,7 @@ func renderTimelineReview(c *ui.Context, s *chatState, m Message) {
 }
 
 func openReviewPath(s *chatState, turn, path string) {
-	inspectorSelect(s, sidePaneDiffID, false)
+	inspectorSelect(s, sidePaneGitID, false)
 	dp := getDiffPanelState(s)
 	if dp == nil {
 		return

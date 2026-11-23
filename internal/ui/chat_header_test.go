@@ -1533,14 +1533,14 @@ func TestChatHeaderCommitOpensUncommittedReview(t *testing.T) {
 	}
 
 	tt.Key(ui.Cmd, ui.KeyD)
-	waitFor(t, tt, func() bool { return inspectorPaneOpen(s, sidePaneDiffID) })
+	waitFor(t, tt, func() bool { return inspectorPaneOpen(s, sidePaneGitID) })
 	openReviewUncommitted(s, "")
 	dp := getDiffPanelState(s)
 	diffPanelMu.Lock()
 	scope := dp.scope
 	diffPanelMu.Unlock()
-	if !inspectorPaneOpen(s, sidePaneDiffID) || scope != "uncommitted" {
-		t.Fatalf("应打开改动面板的未提交范围：open=%v scope=%q", inspectorPaneOpen(s, sidePaneDiffID), scope)
+	if !inspectorPaneOpen(s, sidePaneGitID) || scope != "all" {
+		t.Fatalf("应打开 Git Tab 的全部范围：open=%v scope=%q", inspectorPaneOpen(s, sidePaneGitID), scope)
 	}
 }
 

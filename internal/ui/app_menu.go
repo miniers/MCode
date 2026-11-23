@@ -397,6 +397,13 @@ func buildViewMenuItems() []*mygo.MenuItem {
 		},
 	}
 	items = append(items, sidePaneMenuItems()...)
+	items = append(items, &mygo.MenuItem{
+		Label:       "Git：本轮改动",
+		Accelerator: menuAccelerator("toggle-diff", "CmdOrCtrl+D"),
+		Click: func(*mygo.MenuItem, *mygo.Window) {
+			DispatchMenuAction("toggle-diff", 0)
+		},
+	})
 	items = append(items,
 		&mygo.MenuItem{Label: "显示/隐藏右栏", Accelerator: menuAccelerator("toggle-inspector", "Alt+CmdOrCtrl+B"), Click: func(*mygo.MenuItem, *mygo.Window) {
 			DispatchMenuAction("toggle-inspector", 0)
