@@ -19,7 +19,7 @@ func TestSwarmCapsuleFlyout(t *testing.T) {
 		swarmFloatMu.Unlock()
 	})
 
-	report := strings.Repeat("长汇报正文，用于确认内容按自然高度展开。\n", 100) + "自然高度末尾标记"
+	report := strings.Repeat("长汇报正文，用于确认内容按自然高度展开。\n", 100) + "\n自然高度末尾标记"
 	host := ui.NewTester(func(c *ui.Context) {
 		entry.services = c.Services()
 		renderSwarmTimelineCapsules(c, &chatState{}, swarmCapsuleRowID, leadID, []SwarmBee{{
@@ -44,8 +44,11 @@ func TestSwarmCapsuleFlyout(t *testing.T) {
 	if !menu.HasText("自然高度末尾标记") {
 		t.Fatal("长汇报正文未完整渲染")
 	}
-	if bounds, ok := menu.Find("打开浮窗"); !ok || bounds.Y <= 520 {
+	if bounds, ok := menu.Find("自然高度末尾标记"); !ok || bounds.Y <= 520 {
 		t.Fatalf("长汇报未按自然高度展开: %+v, found=%v", bounds, ok)
+	}
+	if bounds, ok := menu.Find("打开浮窗"); !ok || bounds.Y >= 120 {
+		t.Fatalf("打开浮窗按钮未位于浮窗顶部表头: %+v, found=%v", bounds, ok)
 	}
 
 	capture.closed[0]()

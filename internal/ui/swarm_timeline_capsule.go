@@ -572,7 +572,16 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 			Padding(Space4, Space5, Space4, Space5).
 			Gap(Space4).
 			Children(func() {
-				renderSwarmCapsuleHeader(fc, s, h, key)
+				renderSwarmCapsuleHeader(fc, s, h, key, func() {
+					renderSwarmCapsuleOpenFloatButton(fc, s, leadID, h, key, func() {
+						closeRequested = true
+						swarmFloatMu.Lock()
+						swarmCapsuleOpen[key] = false
+						swarmFloatMu.Unlock()
+						closeAppFlyoutPopover(host, "swarm-capsule-popover-"+key)
+						host.Invalidate()
+					})
+				})
 				if task := strings.TrimSpace(h.Task); task != "" {
 					ui.Column(fc.Key("swarm-capsule-task-"+key)).
 						FillWidth().
@@ -608,14 +617,6 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 						FontSize(scaledFont(TypeCaption)).
 						TextColor(ThemeDanger(fc))
 				}
-				renderSwarmCapsuleOpenFloatButton(fc, s, leadID, h, key, func() {
-					closeRequested = true
-					swarmFloatMu.Lock()
-					swarmCapsuleOpen[key] = false
-					swarmFloatMu.Unlock()
-					closeAppFlyoutPopover(host, "swarm-capsule-popover-"+key)
-					host.Invalidate()
-				})
 			})
 	})
 	if closeRequested {
@@ -627,16 +628,17 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 	swarmFloatMu.Unlock()
 }
 
-// renderSwarmCapsuleHeader 渲染浮窗头部：头像、名字与档位徽章，以及状态与耗时。
-func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key string) {
+// renderSwarmCapsuleHeader 渲染浮窗头部：头像、名字与档位徽章，以及状态与耗时，右侧可挂载操作按钮。
+func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key string, actions func()) {
 	ui.Row(c.Key("swarm-capsule-header-" + key)).
 		FillWidth().
-		AlignItems(ui.Center).
+		AlignItems(ui.Start).
 		Gap(Space3).
 		Children(func() {
 			renderSwarmGlyph(c, "capsule-pop-"+key, h, 22)
 			ui.Column(c.Key("swarm-capsule-meta-" + key)).
 				Grow(1).
+				MinWidth(0).
 				Gap(2).
 				Children(func() {
 					name := strings.TrimSpace(h.Name)
@@ -667,18 +669,20 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 						TextColor(swarmStatusColor(c, beeStatus)).
 						SingleLine()
 				})
+			if actions != nil {
+				actions()
+			}
 		})
 }
 
-// renderSwarmCapsuleOpenFloatButton 渲染浮窗底部的「打开浮窗」与「查看会话」按钮：
+// renderSwarmCapsuleOpenFloatButton 渲染浮窗表头右侧的「打开浮窗」与「查看会话」按钮：
 // 点击「打开浮窗」解除浮窗关闭记录并选中该子线程；点击「查看会话」跳转至子线程完整会话。
 func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID string, h SwarmBee, key string, onOpened func()) {
 	beeThreadID := strings.TrimSpace(h.ThreadID)
 	ui.Row(c.Key("swarm-capsule-actions-" + key)).
-		FillWidth().
-		Wrap().
 		AlignItems(ui.Center).
-		Gap(Space2).
+		Gap(Space1).
+		Shrink(0).
 		Children(func() {
 			Button(c, ButtonOpts{
 				Key:     "swarm-capsule-open-float-" + key,
@@ -686,7 +690,7 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 				Label:   "打开浮窗",
 				Tooltip: "打开子代理浮窗",
 				Variant: ButtonSecondary,
-				Size:    ControlSM,
+				Size:    ControlXS,
 				OnClick: func() {
 					if leadID == "" {
 						return
@@ -709,7 +713,7 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 					Label:   "查看会话",
 					Tooltip: "查看子代理完整会话",
 					Variant: ButtonGhost,
-					Size:    ControlSM,
+					Size:    ControlXS,
 					OnClick: func() {
 						if onOpened != nil {
 							onOpened()
