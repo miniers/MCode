@@ -58,19 +58,10 @@ func quotaStatusColor(c *ui.Context, tone quotaStatusTone) ui.Color {
 	}
 }
 
-// quotaGroupListBoundsHook 仅在测试中收集关键布局节点的矩形边界。
-var quotaGroupListBoundsHook func(key string, rect ui.Rect)
-
-func recordQuotaGroupBounds(key string, el ui.Element) {
-	if quotaGroupListBoundsHook != nil {
-		quotaGroupListBoundsHook(key, el.Bounds())
-	}
-}
-
 // renderQuotaPercent 按指定水平对齐方式渲染等宽数字百分比，供表格列与单账号行共用。
 func renderQuotaPercent(c *ui.Context, winKey string, usedPercent float64, justify ui.Align) {
 	pct := int(math.Round(usedPercent))
-	row := ui.Row(c.Key(winKey + "-percent")).
+	ui.Row(c.Key(winKey + "-percent")).
 		Label(fmt.Sprintf("%d%%", pct)).
 		MinWidth(quotaPercentWidth(c)).
 		Shrink(0).
@@ -81,11 +72,9 @@ func renderQuotaPercent(c *ui.Context, winKey string, usedPercent float64, justi
 		FontFeatures("tnum").
 		TextColor(quotaPercentColor(c, usedPercent)).
 		Children(func() {
-			num := rollingNumber(c, winKey+"-number", pct)
-			recordQuotaGroupBounds(winKey+"-number", num)
+			rollingNumber(c, winKey+"-number", pct)
 			ui.Text(c, "%")
 		})
-	recordQuotaGroupBounds(winKey+"-percent", row)
 }
 
 // renderQuotaGroupError 渲染分组报错文字，使用危险色并在悬停时提示完整报错。
@@ -325,11 +314,10 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 	statusColW := quotaStatusColWidth(c)
 	const colGap = Space3
 
-	listCol := ui.Column(c.Key(keyPrefix+"list")).
+	ui.Column(c.Key(keyPrefix+"list")).
 		FillWidth().
-		Gap(Space3)
-	recordQuotaGroupBounds(keyPrefix+"list", listCol)
-	listCol.Children(func() {
+		Gap(Space3).
+		Children(func() {
 			for gIdx, g := range groups {
 				groupKey := fmt.Sprintf("%sg-%d", keyPrefix, gIdx)
 				if gIdx > 0 {
@@ -469,7 +457,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								Grow(1).
 								Width(0).
 								MinWidth(24)
-							recordQuotaGroupBounds(winKey+"-bar", bar)
 							if !win.hasElapsed {
 								if reduceMotion(c) {
 									bar.Jump("ratio", ratio)
@@ -505,7 +492,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 						}
 
 						renderStatusText := func(key, text string, tone quotaStatusTone) {
-							stRow := ui.Row(c.Key(key)).
+							ui.Row(c.Key(key)).
 								Width(statusColW).
 								Shrink(0).
 								Justify(ui.End).
@@ -523,7 +510,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										st.FontWeight(500)
 									}
 								})
-							recordQuotaGroupBounds(key, stRow)
 						}
 
 						tableMode := selectable || g.MultiAccount
@@ -641,8 +627,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											SingleLine()
 
 										for ci, col := range cols {
-											colKey := fmt.Sprintf("%s-col-%d", groupKey, ci)
-											colHead := ui.Row(c.Key(colKey)).
+											ui.Row(c.Key(fmt.Sprintf("%s-col-%d", groupKey, ci))).
 												Width(winColW).
 												Shrink(0).
 												AlignItems(ui.Center).
@@ -653,12 +638,10 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 														TextColor(ThemeTertiaryText(c)).
 														SingleLine()
 												})
-											recordQuotaGroupBounds(colKey, colHead)
 										}
 
 										if hasAnyStatus || len(cols) > 0 {
-											statusHeadKey := groupKey + "-col-status"
-											statusHeadRow := ui.Row(c.Key(statusHeadKey)).
+											ui.Row(c.Key(groupKey+"-col-status")).
 												Width(statusColW).
 												Shrink(0).
 												Justify(ui.End).
@@ -670,7 +653,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 														TextColor(ThemeTertiaryText(c)).
 														SingleLine()
 												})
-											recordQuotaGroupBounds(statusHeadKey, statusHeadRow)
 										}
 									})
 							}
@@ -703,10 +685,8 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 
 								var rowEl ui.Element
 								var rowActive bool
-								var rowBoundsKey string
 								if selectable {
-									rowBoundsKey = accKey + "-btn"
-									btn := ui.ButtonBase(c.Key(rowBoundsKey)).
+									btn := ui.ButtonBase(c.Key(accKey+"-btn")).
 										Label(curAcc.DisplayName).
 										Height(RowHeight).
 										Margin(0, Space2).
@@ -736,8 +716,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									}
 									rowEl = btn
 								} else {
-									rowBoundsKey = accKey + "-row"
-									row := ui.Row(c.Key(rowBoundsKey)).
+									row := ui.Row(c.Key(accKey+"-row")).
 										Height(RowHeight).
 										Margin(0, Space2).
 										Padding(0, Space2).
@@ -790,7 +769,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									for ci := range cols {
 										cellKey := fmt.Sprintf("%s-c-%d", accKey, ci)
 										cell := cells[ci]
-										cellRow := ui.Row(c.Key(cellKey)).
+										ui.Row(c.Key(cellKey)).
 											Width(winColW).
 											Shrink(0).
 											AlignItems(ui.Center).
@@ -818,14 +797,12 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 												renderBar(*cell.win, cellKey, rowActive, barFallbackW)
 												renderQuotaPercent(c, cellKey, cell.win.UsedPercent, ui.Start)
 											})
-										recordQuotaGroupBounds(cellKey, cellRow)
 									}
 
 									if hasAnyStatus || len(cols) > 0 {
 										renderStatusText(accKey+"-status", curAcc.CompactStatus, curAcc.statusTone)
 									}
 								})
-								recordQuotaGroupBounds(rowBoundsKey, rowEl)
 
 								if rowActive && (curAcc.HoverDetail != "" || curAcc.hoverLeft != "") {
 									renderQuotaRowHoverTip(c, accKey+"-tip", rowEl, curAcc.hoverLeft, curAcc.hoverRight, curAcc.HoverDetail, curAcc.hoverTone)

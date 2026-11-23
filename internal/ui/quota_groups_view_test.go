@@ -636,85 +636,95 @@ func TestQuotaGroupList_TableColumnsAlign(t *testing.T) {
 		Windows: []ProviderQuotaWindow{
 			{Account: "work", Label: "5h", Period: "5h", UsedPercent: 2, ResetsAt: now.Add(4*time.Hour + 54*time.Minute), Active: true},
 			{Account: "work", Label: "Weekly", Period: "7d", UsedPercent: 53, ResetsAt: now.Add(4 * 24 * time.Hour), Active: true},
-			{Account: "lkliuss@gmail.com", Label: "5h", Period: "5h", UsedPercent: 0, ResetsAt: now.Add(4*time.Hour + 54*time.Minute)},
-			{Account: "lkliuss@gmail.com", Label: "Weekly", Period: "7d", UsedPercent: 0, ResetsAt: now.Add(5 * 24 * time.Hour)},
+			{Account: "lkliuss@gmail.com", Label: "5h", Period: "5h", UsedPercent: 14, ResetsAt: now.Add(3 * time.Hour)},
+			{Account: "lkliuss@gmail.com", Label: "Weekly", Period: "7d", UsedPercent: 9, ResetsAt: now.Add(5 * 24 * time.Hour)},
 		},
 	}}, now, now, false)
 
 	if len(model.Groups) != 1 || len(model.Groups[0].Accounts) != 2 {
 		t.Fatalf("期望 1 组 2 账号，实际 %+v", model.Groups)
 	}
-	if model.Groups[0].Accounts[0].statusTone != quotaStatusWarn {
-		t.Fatalf("在用账号应带 warn 状态，实际 (%q, %v)", model.Groups[0].Accounts[0].CompactStatus, model.Groups[0].Accounts[0].statusTone)
+	acc0, acc1 := model.Groups[0].Accounts[0], model.Groups[0].Accounts[1]
+	if acc0.statusTone != quotaStatusWarn {
+		t.Fatalf("账号 0 应带提前用尽 warn 状态，实际 (%q, %v)", acc0.CompactStatus, acc0.statusTone)
+	}
+	if acc1.statusTone != quotaStatusNormal || acc1.CompactStatus == "" {
+		t.Fatalf("账号 1 应带正常重置时长状态，实际 (%q, %v)", acc1.CompactStatus, acc1.statusTone)
 	}
 
-	const keyPrefix = "align-"
 	opts := quotaGroupListOptions{
 		HideSingleGroupTitle: true,
 		OnSelectAccount:      func(string) {},
 	}
-	bounds := make(map[string]ui.Rect)
-	quotaGroupListBoundsHook = func(key string, rect ui.Rect) {
-		bounds[key] = rect
-	}
-	t.Cleanup(func() { quotaGroupListBoundsHook = nil })
-
 	tt := ui.NewTesterWith(func(c *ui.Context) {
-		ui.Scroll(c.Key("scroll")).Width(442).MaxHeight(260).Children(func() {
-			renderQuotaGroupList(c, keyPrefix, model.Groups, opts)
+		ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+			renderQuotaGroupList(c, "align-", model.Groups, opts)
 		})
-	}, 442, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	}, 480, 320, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	tt.Frame()
 	tt.Frame()
 
-	if !tt.HasText("在用") || !tt.HasText("lkliuss@gmail.com") || !tt.HasText("4h54m 重置") {
-		t.Fatalf("缺少预期账号或状态文案: %v", tt.Texts())
-	}
-
-	mustBounds := func(key string) ui.Rect {
-		r, ok := bounds[key]
-		if !ok || r.W <= 0 || r.H <= 0 {
-			t.Fatalf("未记录有效边界 %q: %+v", key, r)
+	mustFind := func(text string) ui.Rect {
+		r, ok := tt.Find(text)
+		if !ok {
+			t.Fatalf("缺少文字 %q: %v", text, tt.Texts())
 		}
 		return r
 	}
 
-	listRect := mustBounds(keyPrefix + "list")
-	colStatusRect := mustBounds(keyPrefix + "g-0-col-status")
-	colStatusRight := colStatusRect.X + colStatusRect.W
-
-	for ci := 0; ci < 2; ci++ {
-		colRect := mustBounds(fmt.Sprintf("%sg-0-col-%d", keyPrefix, ci))
-		for aIdx := 0; aIdx < 2; aIdx++ {
-			cellKey := fmt.Sprintf("%sg-0-a-%d-c-%d", keyPrefix, aIdx, ci)
-			cellRect := mustBounds(cellKey)
-			if diff := math.Abs(float64(colRect.X - cellRect.X)); diff > 1 {
-				t.Errorf("列 %d 表头与账号 %d 单元格 X 未对齐: col=%+v cell=%+v (diff=%.2f)", ci, aIdx, colRect, cellRect, diff)
-			}
-
-			barRect := mustBounds(cellKey + "-bar")
-			pctRect := mustBounds(cellKey + "-percent")
-			numRect := mustBounds(cellKey + "-number")
-			barRight := barRect.X + barRect.W
-			if gap := pctRect.X - barRight; gap < 0 || gap > Space1+1 {
-				t.Errorf("账号 %d 列 %d -percent 左缘与 -bar 右缘距离异常: gap=%.2f bar=%+v pct=%+v", aIdx, ci, gap, barRect, pctRect)
-			}
-			if gap := numRect.X - barRight; gap < 0 || gap > Space1+1 {
-				t.Errorf("账号 %d 列 %d 百分比数字左缘与 -bar 右缘距离异常: gap=%.2f bar=%+v num=%+v", aIdx, ci, gap, barRect, numRect)
-			}
+	// (a) 表头「状态」右缘与各行状态文字右缘相差 ≤ 1。
+	statusHead := mustFind("状态")
+	statusHeadRight := statusHead.X + statusHead.W
+	for i, acc := range model.Groups[0].Accounts {
+		stRect := mustFind(acc.CompactStatus)
+		stRight := stRect.X + stRect.W
+		if diff := math.Abs(float64(statusHeadRight - stRight)); diff > 1 {
+			t.Errorf("表头「状态」与账号 %d 状态文字右缘未对齐: head=%+v row=%+v (diff=%.2f)", i, statusHead, stRect, diff)
 		}
 	}
 
-	for aIdx := 0; aIdx < 2; aIdx++ {
-		statusRect := mustBounds(fmt.Sprintf("%sg-0-a-%d-status", keyPrefix, aIdx))
-		statusRight := statusRect.X + statusRect.W
-		if diff := math.Abs(float64(colStatusRight - statusRight)); diff > 1 {
-			t.Errorf("表头 -col-status 与账号 %d 状态格右缘未对齐: head=%+v row=%+v (diff=%.2f)", aIdx, colStatusRect, statusRect, diff)
-		}
+	// (b) 同一列各行百分比文字左缘对齐（相差 ≤ 1，且数字位于百分比容器左缘）。
+	p5h0Num, p5h1Num := mustFind("2"), mustFind("14")
+	p5h0Wrap, p5h1Wrap := mustFind("2%"), mustFind("14%")
+	if diff := math.Abs(float64(p5h0Num.X - p5h1Num.X)); diff > 1 {
+		t.Errorf("5h 列各行百分比数字左缘未对齐: row0=%+v row1=%+v (diff=%.2f)", p5h0Num, p5h1Num, diff)
+	}
+	if diff := math.Abs(float64(p5h0Num.X - p5h0Wrap.X)); diff > 1 {
+		t.Errorf("5h 列第一行百分比未左对齐: num=%+v wrap=%+v (diff=%.2f)", p5h0Num, p5h0Wrap, diff)
+	}
+	if diff := math.Abs(float64(p5h1Num.X - p5h1Wrap.X)); diff > 1 {
+		t.Errorf("5h 列第二行百分比未左对齐: num=%+v wrap=%+v (diff=%.2f)", p5h1Num, p5h1Wrap, diff)
+	}
 
-		btnRect := mustBounds(fmt.Sprintf("%sg-0-a-%d-btn", keyPrefix, aIdx))
-		if btnRect.X+btnRect.W > listRect.X+listRect.W+0.5 {
-			t.Errorf("账号行 %d -btn 右缘超出列表容器: btn=%+v list=%+v", aIdx, btnRect, listRect)
+	pWk0Num, pWk1Num := mustFind("53"), mustFind("9")
+	pWk0Wrap, pWk1Wrap := mustFind("53%"), mustFind("9%")
+	if diff := math.Abs(float64(pWk0Num.X - pWk1Num.X)); diff > 1 {
+		t.Errorf("周列各行百分比数字左缘未对齐: row0=%+v row1=%+v (diff=%.2f)", pWk0Num, pWk1Num, diff)
+	}
+	if diff := math.Abs(float64(pWk0Num.X - pWk0Wrap.X)); diff > 1 {
+		t.Errorf("周列第一行百分比未左对齐: num=%+v wrap=%+v (diff=%.2f)", pWk0Num, pWk0Wrap, diff)
+	}
+	if diff := math.Abs(float64(pWk1Num.X - pWk1Wrap.X)); diff > 1 {
+		t.Errorf("周列第二行百分比未左对齐: num=%+v wrap=%+v (diff=%.2f)", pWk1Num, pWk1Wrap, diff)
+	}
+
+	// (c) 第一列百分比文字右缘到第二列表头文字左缘的距离 ≥ Space3。
+	weekHead := mustFind("周")
+	for i, wrap := range []ui.Rect{p5h0Wrap, p5h1Wrap} {
+		if gap := weekHead.X - (wrap.X + wrap.W); gap < Space3-0.5 {
+			t.Errorf("账号 %d 第一列百分比右缘到第二列表头「周」左缘距离不足 Space3: gap=%.2f pct=%+v week=%+v", i, gap, wrap, weekHead)
+		}
+	}
+
+	// (d) 每个账号行外框右缘不超过表头状态文字右缘 + Space2 + 1。
+	maxRight := statusHeadRight + Space2 + 1
+	for i, acc := range model.Groups[0].Accounts {
+		btn, ok := tt.AccessByRole(ui.RoleButton, acc.DisplayName)
+		if !ok {
+			t.Fatalf("未找到账号 %d 行按钮 %q: %v", i, acc.DisplayName, tt.Texts())
+		}
+		if btnRight := btn.Bounds.X + btn.Bounds.W; btnRight > maxRight {
+			t.Errorf("账号 %d 行按钮右缘超出面板内容区: btn=%+v maxRight=%.2f", i, btn.Bounds, maxRight)
 		}
 	}
 }
