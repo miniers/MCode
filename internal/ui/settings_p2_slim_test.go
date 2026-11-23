@@ -12,8 +12,8 @@ import (
 
 func TestSettingsP2Slim_NinePagesAndThreeGroups(t *testing.T) {
 	pages := settingsPages()
-	wantIDs := []string{"magpie", "general", "remote", "models", "conversation", "swarm", "extensions", "workbench", "about"}
-	wantGroups := []string{"", "应用", "应用", "代理", "代理", "代理", "代理", "工作区", ""}
+	wantIDs := []string{"general", "appearance", "remote", "models", "magpie", "conversation", "swarm", "steward", "extensions", "workbench", "sourceControl", "about"}
+	wantGroups := []string{"基础", "基础", "基础", "模型与代理", "模型与代理", "模型与代理", "模型与代理", "模型与代理", "能力与工作区", "能力与工作区", "能力与工作区", ""}
 	if len(pages) != len(wantIDs) {
 		t.Fatalf("一级设置页数量 = %d，期望 %d", len(pages), len(wantIDs))
 	}
@@ -28,13 +28,17 @@ func TestSettingsP2Slim_NinePagesAndThreeGroups(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 320, 1000)
 	tt.Frame()
 
-	for _, want := range []string{"连接 Magpie", "应用", "通用", "远程控制", "代理", "模型与供应商", "会话", "编排", "扩展", "工作区", "工作台", "关于"} {
+	for _, want := range []string{"基础", "通用", "外观", "远程控制", "模型与代理", "模型与供应商", "连接 Magpie", "会话", "编排", "总管", "能力与工作区", "扩展", "工作台", "版本与存储", "关于"} {
 		if !tt.HasText(want) {
 			t.Fatalf("设置导航缺少 %q: %v", want, tt.Texts())
 		}
 	}
-	for _, removed := range []string{"外观", "总管", "记忆", "版本控制", "存储"} {
-		if tt.HasText(removed) {
+	rendered := make(map[string]bool)
+	for _, txt := range tt.Texts() {
+		rendered[txt] = true
+	}
+	for _, removed := range []string{"记忆", "版本控制", "存储"} {
+		if rendered[removed] {
 			t.Fatalf("精简后的导航不应再显示独立页 %q: %v", removed, tt.Texts())
 		}
 	}
@@ -46,11 +50,11 @@ func TestSettingsP2Slim_LegacyPageDeepLinksAndJump(t *testing.T) {
 		wantPage string
 		wantJump string
 	}{
-		{"appearance", "general", "row-theme"},
-		{"steward", "swarm", "row-steward-enabled"},
+		{"appearance", "appearance", ""},
+		{"steward", "steward", ""},
 		{"nowledge", "extensions", "row-memory-backend"},
-		{"sourceControl", "workbench", "row-sc-generate-commit-msg"},
-		{"storage", "workbench", "row-storage-cleanup"},
+		{"sourceControl", "sourceControl", ""},
+		{"storage", "sourceControl", "row-storage-cleanup"},
 	}
 
 	for _, tc := range cases {
@@ -324,27 +328,10 @@ func TestSettingsModuleDividers_MergedPages(t *testing.T) {
 		modules       []moduleExpect
 	}{
 		{
-			pageID:        "general",
-			omittedTitles: []string{"通用"},
-			modules: []moduleExpect{
-				{module: "通用", wantRule: false, wantTitle: false},
-				{module: "外观", wantRule: true, wantTitle: true, prevCard: "设置卡片 general.shortcuts", firstCard: "设置卡片 appearance.theme", exactCount: 1},
-			},
-		},
-		{
 			pageID: "models",
 			modules: []moduleExpect{
 				{module: "收藏模型", wantRule: false, wantTitle: true, exactCount: 1},
 				{module: "供应商", wantRule: true, wantTitle: true, prevCard: "设置卡片 sec-models-pinned", firstCard: "设置卡片 sec-providers", exactCount: 1},
-			},
-		},
-		{
-			pageID:        "swarm",
-			omittedTitles: []string{"编排"},
-			modules: []moduleExpect{
-				{module: "编排", wantRule: false, wantTitle: false},
-				{module: "总管", wantRule: true, wantTitle: true, prevCard: "设置卡片 swarm.done", firstCard: "设置卡片 sec-steward-main", exactCount: 1},
-				{module: "高级", wantRule: true, wantTitle: true, prevCard: "设置卡片 sec-steward-advanced", firstCard: "设置卡片 advanced.orchestration", exactCount: 1},
 			},
 		},
 		{
@@ -353,16 +340,6 @@ func TestSettingsModuleDividers_MergedPages(t *testing.T) {
 				{module: "技能", wantRule: false, wantTitle: true, exactCount: 1},
 				{module: "MCP 服务", wantRule: true, wantTitle: true, prevCard: "设置卡片 skills.list", firstCard: "设置卡片 mcp.custom", exactCount: 1},
 				{module: "记忆", wantRule: true, wantTitle: true, prevCard: "设置卡片 mcp.custom", firstCard: "设置卡片 nowledge.memory", exactCount: 1},
-			},
-		},
-		{
-			pageID:        "workbench",
-			omittedTitles: []string{"工作台"},
-			modules: []moduleExpect{
-				{module: "工作台", wantRule: false, wantTitle: false},
-				{module: "版本控制", wantRule: true, wantTitle: true, prevCard: "设置卡片 workbench.openIn", firstCard: "设置卡片 sourceControl.commit", exactCount: 1},
-				{module: "存储清理", wantRule: true, wantTitle: true, prevCard: "设置卡片 advanced.sourceControl", firstCard: "设置卡片 storage.cleanup", exactCount: 1},
-				{module: "高级", wantRule: true, wantTitle: true, prevCard: "设置卡片 storage.cleanup", firstCard: "设置卡片 advanced.workbench", exactCount: 1},
 			},
 		},
 	}

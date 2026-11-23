@@ -17,7 +17,7 @@ func TestOpenSettingsAt(t *testing.T) {
 	st.mu.Lock()
 	page, highlight, jump := st.currentPage, st.highlightItemID, st.jumpToItemID
 	st.mu.Unlock()
-	if !st.IsOpen() || page != "swarm" || highlight != "row-steward-enabled" || jump != "row-steward-enabled" {
+	if !st.IsOpen() || page != "steward" || highlight != "row-steward-enabled" || jump != "row-steward-enabled" {
 		t.Fatalf("设置项定位错误：打开 %v，页面 %q，高亮 %q，跳转 %q", st.IsOpen(), page, highlight, jump)
 	}
 
@@ -25,7 +25,7 @@ func TestOpenSettingsAt(t *testing.T) {
 	st.mu.Lock()
 	page, highlight = st.currentPage, st.highlightItemID
 	st.mu.Unlock()
-	if page != "general" || highlight != "" {
+	if page != "appearance" || highlight != "" {
 		t.Fatalf("页面回退错误：页面 %q，高亮 %q", page, highlight)
 	}
 }

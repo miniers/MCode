@@ -180,7 +180,7 @@ var appearanceFontsSection = settingsSection{
 	},
 }
 
-// pageAppearance 是原「外观」页定义，现已并入「通用」页；保留变量供过渡期调用。
+// pageAppearance 是「外观」页：主题、排版与代码字体。
 var pageAppearance = settingsPage{
 	ID:       "appearance",
 	Title:    "外观",
@@ -189,7 +189,11 @@ var pageAppearance = settingsPage{
 	Sections: []settingsSection{appearanceThemeSection, appearanceFontsSection},
 }
 
-// renderPageAppearance 渲染外观相关分节；主题与字体已并入通用页，保留此入口给既有调用方。
+func init() {
+	settingsTreePageDefs = append(settingsTreePageDefs, pageAppearance)
+}
+
+// renderPageAppearance 渲染外观页；渲染器只认页面树，保留这个入口给既有调用方。
 func renderPageAppearance(c *ui.Context, st *SettingsState) {
 	syncAppearanceTheme(st)
 	renderSettingsTreePage(c, st, pageAppearance)

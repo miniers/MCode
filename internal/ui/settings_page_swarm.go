@@ -671,7 +671,6 @@ func truncateReviewCheckCommand(s string) string {
 
 var pageSwarm = settingsPage{
 	ID: "swarm", Title: "编排", Icon: IconSwarm(),
-	Keywords: []string{"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up", "默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰"},
 	Sections: []settingsSection{
 		{ID: "swarm.main", Title: "", Rows: []setting{
 			{
@@ -836,15 +835,6 @@ func swarmForwardQuestionSetting() setting {
 }
 
 func init() {
-	// 并入总管全部 4 个分节，保持 advancedOrchestration 位于页面末尾。
-	base := withSettingsModule("编排", pageSwarm.Sections[:len(pageSwarm.Sections)-1]...)
-	steward := withSettingsModule("总管", stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection)
-	last := withSettingsModule("高级", pageSwarm.Sections[len(pageSwarm.Sections)-1])
-	merged := make([]settingsSection, 0, len(base)+len(steward)+len(last))
-	merged = append(merged, base...)
-	merged = append(merged, steward...)
-	merged = append(merged, last...)
-	pageSwarm.Sections = merged
 	settingsTreePageDefs = append(settingsTreePageDefs, pageSwarm)
 }
 

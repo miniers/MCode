@@ -41,7 +41,7 @@ func TestSettingsNavigationSectionHeadings(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.open = true
 	tester := ui.NewTester(func(c *ui.Context) { renderSettingsNav(c, st) }, 400, 1600)
-	for _, heading := range []string{"应用", "代理", "工作区"} {
+	for _, heading := range []string{"基础", "模型与代理", "能力与工作区"} {
 		if !tester.HasText(heading) {
 			t.Errorf("设置导航缺少分组标题 %q", heading)
 		}

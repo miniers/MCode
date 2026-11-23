@@ -28,7 +28,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 
 	expectedTitles := []string{
-		"Magpie", "通用", "远程控制", "模型与供应商", "会话", "编排", "扩展", "工作台", "关于",
+		"通用", "外观", "远程控制", "模型与供应商", "Magpie", "会话", "编排", "总管", "扩展", "工作台", "版本与存储", "关于",
 	}
 	pages := settingsPages()
 	if len(pages) != len(expectedTitles) {
@@ -46,7 +46,10 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 		if _, ok := tt.Find("Magpie"); !ok {
 			return false
 		}
-		for _, title := range expectedTitles[1:] {
+		for _, title := range expectedTitles {
+			if title == "Magpie" {
+				continue
+			}
 			if !tt.HasText(title) {
 				return false
 			}
@@ -54,16 +57,16 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 		return true
 	})
 
-	magpieRect, ok := tt.Find("Magpie")
-	if !ok {
-		t.Fatal("missing nav item Magpie")
-	}
 	generalRect, ok := tt.Find("通用")
 	if !ok {
 		t.Fatal("missing nav item 通用")
 	}
-	if magpieRect.Y >= generalRect.Y {
-		t.Fatalf("nav item Magpie (y %.1f) should appear before 通用 (y %.1f)", magpieRect.Y, generalRect.Y)
+	magpieRect, ok := tt.Find("Magpie")
+	if !ok {
+		t.Fatal("missing nav item Magpie")
+	}
+	if generalRect.Y >= magpieRect.Y {
+		t.Fatalf("nav item 通用 (y %.1f) should appear before Magpie (y %.1f)", generalRect.Y, magpieRect.Y)
 	}
 
 	texts := tt.Texts()
@@ -74,10 +77,10 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 		}
 	}
 	var foundIndices []int
-	for _, title := range expectedTitles[1:] {
+	for _, title := range expectedTitles {
 		idx := -1
 		for i, txt := range texts {
-			if txt == title {
+			if txt == title || (title == "Magpie" && txt == "连接 Magpie") {
 				idx = i
 				break
 			}
@@ -89,7 +92,7 @@ func TestSettings_EnterAndPageList(t *testing.T) {
 	}
 	for i := 1; i < len(foundIndices); i++ {
 		if foundIndices[i] <= foundIndices[i-1] {
-			t.Fatalf("nav item %q (idx %d) appears before %q (idx %d)", expectedTitles[i+1], foundIndices[i], expectedTitles[i], foundIndices[i-1])
+			t.Fatalf("nav item %q (idx %d) appears before %q (idx %d)", expectedTitles[i], foundIndices[i], expectedTitles[i-1], foundIndices[i-1])
 		}
 	}
 }
@@ -494,8 +497,8 @@ func TestSettings_TextEditDebouncedSave(t *testing.T) {
 
 // TestSettingsPages_NewStructure 验证导航顺序。
 func TestSettingsPages_NewStructure(t *testing.T) {
-	expected := []string{"magpie", "general", "remote", "models", "conversation", "swarm", "extensions", "workbench", "about"}
-	groups := []string{"", "应用", "应用", "代理", "代理", "代理", "代理", "工作区", ""}
+	expected := []string{"general", "appearance", "remote", "models", "magpie", "conversation", "swarm", "steward", "extensions", "workbench", "sourceControl", "about"}
+	groups := []string{"基础", "基础", "基础", "模型与代理", "模型与代理", "模型与代理", "模型与代理", "模型与代理", "能力与工作区", "能力与工作区", "能力与工作区", ""}
 	pages := settingsPages()
 	if len(pages) != len(expected) {
 		t.Fatalf("导航应为 %d 页，实际 %d 页", len(expected), len(pages))
@@ -527,12 +530,15 @@ func TestSettingsPages_Keywords(t *testing.T) {
 		absent  []string
 		present []string
 	}{
-		{"general", []string{"token", "tokens", "activity", "usage", "panel", "limits", "credits", "heatmap", "daily", "weekly", "cumulative", "emoji", "symbol", "symbols", "project mark"}, []string{"permissions", "notifications", "sound", "keyboard", "theme", "dark", "light", "font", "sidebar"}},
+		{"general", []string{"token", "tokens", "activity", "usage", "panel", "limits", "credits", "heatmap", "daily", "weekly", "cumulative", "emoji", "symbol", "symbols", "project mark", "theme", "dark", "light", "font", "sidebar"}, []string{"permissions", "notifications", "sound", "keyboard"}},
+		{"appearance", nil, []string{"theme", "dark", "light", "font", "sidebar"}},
 		{"models", []string{"预算", "温度"}, []string{"model", "provider", "api key"}},
 		{"extensions", []string{"notion", "linear", "figma", "supabase", "stripe", "resend", "email", "sentry", "netlify", "deploy", "hosting"}, []string{"skills", "mcp", "playwright", "nowledge", "memory", "记忆"}},
-		{"workbench", []string{"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语", "sign in", "token", "connect", "account", "font", "size"}, []string{"kanban", "editor", "browser", "文件树", "git", "commit", "clone", "版本控制", "storage", "worktree", "清理"}},
+		{"workbench", []string{"quick", "reply", "replies", "canned", "snippet", "template", "快捷回复", "常用语", "短语", "sign in", "token", "connect", "account", "font", "size", "git", "commit", "版本控制", "storage", "worktree"}, []string{"kanban", "editor", "browser", "文件树"}},
+		{"sourceControl", nil, []string{"git", "commit", "clone", "版本控制", "storage", "worktree", "清理"}},
 		{"conversation", nil, []string{"quick", "reply", "快捷回复"}},
-		{"swarm", nil, []string{"steward", "总管", "默默"}},
+		{"swarm", []string{"steward", "总管", "默默"}, []string{"swarm", "orchestrator", "编排"}},
+		{"steward", nil, []string{"steward", "总管", "默默"}},
 	}
 	pages := settingsPages()
 	for _, tc := range cases {
@@ -571,7 +577,7 @@ func TestSettingsNav_SearchPageKeywords(t *testing.T) {
 	}{
 		{"快捷回复", "会话", "工作台"},
 		{"reply", "会话", "工作台"},
-		{"commit", "工作台", "会话"},
+		{"commit", "版本与存储", "工作台"},
 		{"nmem", "扩展", "工作台"},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
@@ -593,11 +599,11 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	for _, tc := range []struct{ old, page string }{
 		{"advanced", "general"},
-		{"appearance", "general"},
-		{"steward", "swarm"},
+		{"appearance", "appearance"},
+		{"steward", "steward"},
 		{"nowledge", "extensions"},
-		{"sourceControl", "workbench"},
-		{"storage", "workbench"},
+		{"sourceControl", "sourceControl"},
+		{"storage", "sourceControl"},
 	} {
 		st.OpenPage(tc.old)
 		if st.currentPage != tc.page {
@@ -612,10 +618,10 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 		{"row-swarm-bee-timeout", "swarm", ""},
 		{"row-swarm-request-timeout", "swarm", ""},
 		{"row-swarm-review-max-lines", "swarm", ""},
-		{"row-steward-home-dir", "swarm", ""},
-		{"row-steward-model", "swarm", ""},
-		{"row-steward-task-model", "swarm", ""},
-		{"row-steward-enabled", "swarm", ""},
+		{"row-steward-home-dir", "steward", ""},
+		{"row-steward-model", "steward", ""},
+		{"row-steward-task-model", "steward", ""},
+		{"row-steward-enabled", "steward", ""},
 		{"row-context-inject-budget", "workbench", ""},
 		{"row-terminal-scrollback-lines", "workbench", ""},
 		{"row-browser-quick-ports", "workbench", ""},
@@ -624,9 +630,9 @@ func TestSettingsLegacyPageAndRowLinks(t *testing.T) {
 		{"row-nowledge-working-memory-budget", "extensions", ""},
 		{"row-nowledge-sync-helper-threads", "extensions", ""},
 		{"row-nowledge-sync-automation-threads", "extensions", ""},
-		{"row-sc-init-submodules", "workbench", ""},
-		{"row-sc-clone-ignored", "workbench", ""},
-		{"row-sc-clone-ignored-patterns", "workbench", ""},
+		{"row-sc-init-submodules", "sourceControl", ""},
+		{"row-sc-clone-ignored", "sourceControl", ""},
+		{"row-sc-clone-ignored-patterns", "sourceControl", ""},
 	}
 	st.cfg.Orchestration.Steward.Enabled = true
 	st.cfg.Orchestration.ReviewMode = config.ReviewModeAI
@@ -940,12 +946,12 @@ func TestSettings_NavSearchFieldHeight(t *testing.T) {
 	}
 }
 
-// TestSettings_AppearanceSectionsUseCards 验证外观合并进通用页后对应分节仍包进卡片：
+// TestSettings_AppearanceSectionsUseCards 验证外观页对应分节包进卡片：
 // 分节标题留在卡片外，卡片本身按「设置卡片 」Label 统计。
 func TestSettings_AppearanceSectionsUseCards(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.open = true
-	st.currentPage = "general"
+	st.currentPage = "appearance"
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsDetail(c, st)

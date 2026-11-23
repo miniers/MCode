@@ -922,22 +922,22 @@ type settingsNavDef struct {
 func settingsPages() []settingsNavDef {
 	return []settingsNavDef{
 		{
-			id:    "magpie",
-			title: "Magpie",
-			icon:  pageMagpie.Icon,
-			keywords: []string{
-				"magpie", "gateway", "网关", "persona", "人设", "route", "路由", "inject", "注入", "经 Magpie", "直连",
-			},
-		},
-		{
 			id:    "general",
 			title: "通用",
-			group: "应用",
+			group: "基础",
 			icon:  IconSettings(),
 			keywords: []string{
 				"permissions", "notifications", "startup", "tray", "quit",
 				"sound", "chime", "icon", "icons", "权限", "通知", "提示音", "托盘", "启动", "退出",
 				"keyboard", "keys", "快捷键", "按键",
+			},
+		},
+		{
+			id:    "appearance",
+			title: "外观",
+			group: "基础",
+			icon:  pageAppearance.Icon,
+			keywords: []string{
 				"appearance", "theme", "dark", "light", "text", "size", "font", "zoom", "sidebar",
 				"主题", "深色", "浅色", "文字大小", "字号", "字体", "缩放", "间距", "宽度", "侧边栏",
 			},
@@ -945,7 +945,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "remote",
 			title: "远程控制",
-			group: "应用",
+			group: "基础",
 			icon:  IconSmartphone(),
 			keywords: []string{
 				"remote", "mobile", "phone", "kanban", "pair", "qr", "qrcode", "lan",
@@ -958,7 +958,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "models",
 			title: "模型与供应商",
-			group: "代理",
+			group: "模型与代理",
 			icon:  IconSlidersHorizontal(),
 			keywords: []string{
 				"model", "effort", "reasoning", "fast", "slider", "picker", "providers", "provider",
@@ -971,9 +971,18 @@ func settingsPages() []settingsNavDef {
 			},
 		},
 		{
+			id:    "magpie",
+			title: "Magpie",
+			group: "模型与代理",
+			icon:  pageMagpie.Icon,
+			keywords: []string{
+				"magpie", "gateway", "网关", "persona", "人设", "route", "路由", "inject", "注入", "经 Magpie", "直连",
+			},
+		},
+		{
 			id:    "conversation",
 			title: "会话",
-			group: "代理",
+			group: "模型与代理",
 			icon:  IconMessageSquarePlus(),
 			keywords: []string{
 				"conversation", "session", "chat", "thread", "reasoning", "thinking",
@@ -987,13 +996,21 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "swarm",
 			title: "编排",
-			group: "代理",
+			group: "模型与代理",
 			icon:  IconSwarm(),
 			keywords: []string{
 				"swarm", "hydra", "bees", "heads", "subagents", "sub-agents", "agents", "team",
 				"orchestrator", "worker", "pair", "pairs", "parallel", "delegate", "queue",
 				"stalled", "pending",
 				"规划", "并行", "编排", "主代理", "子代理",
+			},
+		},
+		{
+			id:    "steward",
+			title: "总管",
+			group: "模型与代理",
+			icon:  pageSteward.Icon,
+			keywords: []string{
 				"steward", "watchdog", "triage", "escalate", "dispatcher", "follow-up",
 				"默默", "总管", "昵称", "跟进者", "总调度", "待处理", "分诊", "值守", "moco", "看门狗", "安静时段", "免打扰",
 			},
@@ -1001,7 +1018,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "extensions",
 			title: "扩展",
-			group: "代理",
+			group: "能力与工作区",
 			icon:  IconSparkles(),
 			keywords: []string{
 				"skills", "skill.md", "prompts", "rules", "instructions", "custom skills", "workflows", "技能",
@@ -1013,7 +1030,7 @@ func settingsPages() []settingsNavDef {
 		{
 			id:    "workbench",
 			title: "工作台",
-			group: "工作区",
+			group: "能力与工作区",
 			icon:  IconLayoutDashboard(),
 			keywords: []string{
 				"workbench", "kanban", "board", "task", "tasks", "editor", "browser",
@@ -1022,6 +1039,14 @@ func settingsPages() []settingsNavDef {
 				"open in", "editors", "apps", "applications", "finder", "vscode",
 				"cursor", "zed", "xcode", "iterm", "terminal", "shell", "qspace", "打开方式", "编辑器", "应用",
 				"文件树",
+			},
+		},
+		{
+			id:    "sourceControl",
+			title: "版本与存储",
+			group: "能力与工作区",
+			icon:  pageSourceControl.Icon,
+			keywords: []string{
 				"git", "commit", "titles", "text generation", "clone",
 				"repository", "repositories", "repo", "版本控制", "仓库", "分支", "worktree", "工作树",
 				"存储", "清理", "空间", "storage", "cleanup", "trash", "废纸篓", "日志", "补丁", "会话残留",
@@ -1036,16 +1061,16 @@ func normalizeSettingsPageID(id string) string {
 	switch id {
 	case "providers":
 		return "models"
-	case "openIn", "sourceControl", "storage":
+	case "openIn":
 		return "workbench"
+	case "storage":
+		return "sourceControl"
 	case "quickReplies", "archive":
 		return "conversation"
-	case "shortcuts", "advanced", "appearance":
+	case "shortcuts", "advanced":
 		return "general"
 	case "skills", "mcp", "nowledge":
 		return "extensions"
-	case "steward":
-		return "swarm"
 	}
 	return id
 }
@@ -1055,14 +1080,8 @@ func settingsLegacyPageJumpRow(id string) string {
 		return ""
 	}
 	switch id {
-	case "appearance":
-		return "row-theme"
-	case "steward":
-		return "row-steward-enabled"
 	case "nowledge":
 		return "row-memory-backend"
-	case "sourceControl":
-		return "row-sc-generate-commit-msg"
 	case "storage":
 		return "row-storage-cleanup"
 	}
@@ -1153,7 +1172,7 @@ func (s *SettingsState) selectSettingsPage(id string) {
 		disposeEditor()
 	}
 	s.loadSettingsPageData(loadProviders)
-	if target == "workbench" {
+	if target == "sourceControl" {
 		ensureStorageScan(s)
 	}
 	s.invalidate()
@@ -1183,7 +1202,7 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 	if s.currentPage != target && target == "magpie" {
 		loadProviders = true
 	}
-	if s.currentPage != target && target == "workbench" {
+	if s.currentPage != target && target == "sourceControl" {
 		resetStoragePageForEntryLocked(s)
 	}
 	if s.currentPage != target {

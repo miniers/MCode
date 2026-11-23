@@ -216,7 +216,7 @@ func TestUIReview15_NavItemsTabFocusableAndActivatable(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.currentPage == "general" && st.highlightItemID == "row-edit-themes"
+		return st.currentPage == "appearance" && st.highlightItemID == "row-edit-themes"
 	})
 }
 

@@ -28,8 +28,8 @@ func TestStewardOpenDisabledGoesToSettings(t *testing.T) {
 			t.Cleanup(state.close)
 			page := recordStewardSettingsPage(t, state)
 			state.openStewardThread()
-			if *page != "swarm" || fake.openCalls() != 0 {
-				t.Fatalf("未启用时应打开编排/总管设置且不创建会话：页面 %q，创建 %d 次", *page, fake.openCalls())
+			if *page != "steward" || fake.openCalls() != 0 {
+				t.Fatalf("未启用时应打开总管设置且不创建会话：页面 %q，创建 %d 次", *page, fake.openCalls())
 			}
 		})
 	}
@@ -60,19 +60,19 @@ func TestStewardPaletteSettingsEntry(t *testing.T) {
 		if item.id == "cmd-steward-settings" {
 			t.Fatal("不应存在重复的总管设置命令")
 		}
-		if item.id == "cmd-settings-swarm" {
+		if item.id == "cmd-settings-steward" {
 			if item.kind != "command" || item.run == nil {
-				t.Fatalf("编排设置命令不正确：%+v", item)
+				t.Fatalf("总管设置命令不正确：%+v", item)
 			}
 			item.run(state)
-			if *page != "swarm" {
-				t.Fatalf("应打开编排设置，实际页面 %q", *page)
+			if *page != "steward" {
+				t.Fatalf("应打开总管设置，实际页面 %q", *page)
 			}
 			continue
 		}
 	}
-	if *page != "swarm" {
-		t.Fatal("缺少编排设置命令")
+	if *page != "steward" {
+		t.Fatal("缺少总管设置命令")
 	}
 }
 
@@ -93,7 +93,7 @@ func TestStewardHeaderSettingsEntry(t *testing.T) {
 	if err := tt.Click("阿默设置"); err != nil {
 		t.Fatalf("点击总管设置失败：%v", err)
 	}
-	if *page != "swarm" {
-		t.Fatalf("应打开编排/总管设置，实际页面 %q", *page)
+	if *page != "steward" {
+		t.Fatalf("应打开总管设置，实际页面 %q", *page)
 	}
 }

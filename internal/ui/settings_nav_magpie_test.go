@@ -29,14 +29,18 @@ func TestSettingsNav_MagpieEntry(t *testing.T) {
 			st.open = true
 			st.currentPage = "general"
 			tt := ui.NewTester(func(c *ui.Context) { renderSettingsWindow(c, st) }, 1000, 4000)
-			waitMagpie(t, tt, func() bool { return tt.HasText(tc.status) && tt.HasText("通用") })
-			general, ok := tt.Find("通用")
+			waitMagpie(t, tt, func() bool { return tt.HasText(tc.status) && tt.HasText("模型与供应商") && tt.HasText("会话") })
+			models, ok := tt.Find("模型与供应商")
 			if !ok {
-				t.Fatal("未找到通用导航项")
+				t.Fatal("未找到模型与供应商导航项")
+			}
+			session, ok := tt.Find("会话")
+			if !ok {
+				t.Fatal("未找到会话导航项")
 			}
 			magpie, ok := tt.Find("Magpie")
-			if !ok || magpie.Y >= general.Y || magpie.X >= 500 {
-				t.Fatalf("Magpie 导航项应位于通用之前：general=%+v magpie=%+v", general, magpie)
+			if !ok || magpie.Y <= models.Y || magpie.Y >= session.Y || magpie.X >= 500 {
+				t.Fatalf("Magpie 导航项应位于模型与供应商和会话之间：models=%+v magpie=%+v session=%+v", models, magpie, session)
 			}
 			tt.ClickAt(magpie.X+magpie.W/2, magpie.Y+magpie.H/2)
 			waitMagpie(t, tt, func() bool {

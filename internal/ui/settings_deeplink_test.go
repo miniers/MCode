@@ -7,11 +7,11 @@ import (
 
 func TestNormalizeSettingsPageID(t *testing.T) {
 	cases := map[string]string{
-		"providers": "models", "steward": "swarm", "openIn": "workbench",
-		"quickReplies": "conversation", "sourceControl": "workbench", "storage": "workbench", "archive": "conversation",
+		"providers": "models", "steward": "steward", "openIn": "workbench",
+		"quickReplies": "conversation", "sourceControl": "sourceControl", "storage": "sourceControl", "archive": "conversation",
 		"shortcuts": "general", "about": "about", "skills": "extensions",
 		"mcp": "extensions", "nowledge": "extensions",
-		"general": "general", "appearance": "general", "conversation": "conversation",
+		"general": "general", "appearance": "appearance", "conversation": "conversation",
 		"models": "models", "swarm": "swarm", "extensions": "extensions",
 		"workbench": "workbench", "remote": "remote", "advanced": "general", "": "",
 	}
@@ -26,11 +26,11 @@ func TestSettingsLegacyPageDeepLinks(t *testing.T) {
 	for _, tc := range []struct{ id, page, sheet, jump string }{
 		{"shortcuts", "general", "shortcuts", ""},
 		{"quickReplies", "conversation", "quick-replies", ""},
-		{"appearance", "general", "", "row-theme"},
-		{"steward", "swarm", "", "row-steward-enabled"},
+		{"appearance", "appearance", "", ""},
+		{"steward", "steward", "", ""},
 		{"nowledge", "extensions", "", "row-memory-backend"},
-		{"sourceControl", "workbench", "", "row-sc-generate-commit-msg"},
-		{"storage", "workbench", "", "row-storage-cleanup"},
+		{"sourceControl", "sourceControl", "", ""},
+		{"storage", "sourceControl", "", "row-storage-cleanup"},
 		{"archive", "conversation", "archive", ""},
 		{"openIn", "workbench", "open-in", ""},
 	} {

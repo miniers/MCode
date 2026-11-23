@@ -6,7 +6,7 @@ import (
 	"mcode/internal/git"
 )
 
-// advancedSourceControl 是版本控制的高级设置（已并入工作台页）。
+// advancedSourceControl 是版本控制的高级设置。
 var advancedSourceControl = settingsSection{
 	ID:    "advanced.sourceControl",
 	Title: "版本控制高级",
@@ -51,12 +51,13 @@ var advancedSourceControl = settingsSection{
 
 var pageSourceControl = settingsPage{
 	ID:    "sourceControl",
-	Title: "版本控制",
+	Title: "版本与存储",
 	Icon:  IconGitBranch(),
 	Keywords: []string{
 		"git", "commit", "titles", "text generation", "clone",
 		"repository", "repositories", "repo",
-		"版本控制", "仓库", "分支",
+		"版本控制", "仓库", "分支", "worktree", "工作树",
+		"存储", "清理", "空间", "storage", "cleanup", "trash", "废纸篓", "日志", "补丁", "会话残留",
 	},
 	Sections: []settingsSection{
 		{
@@ -176,6 +177,11 @@ var pageSourceControl = settingsPage{
 		},
 		advancedSourceControl,
 	},
+}
+
+func init() {
+	pageSourceControl.Sections = append(pageSourceControl.Sections, storageCleanupSection)
+	settingsTreePageDefs = append(settingsTreePageDefs, pageSourceControl)
 }
 
 func renderPageSourceControl(c *ui.Context, st *SettingsState) {

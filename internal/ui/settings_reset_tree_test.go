@@ -13,7 +13,7 @@ import (
 func TestSettingsResetTree_ThemeApplied(t *testing.T) {
 	resetRuntimeTheme(t)
 	tt, st := newSettingsAdvancedTester(t)
-	openSettingsAdvancedPage(t, tt, st, "general")
+	openSettingsAdvancedPage(t, tt, st, "appearance")
 	def := config.Defaults()
 
 	st.cfg.Appearance.Theme = config.ThemeDark
@@ -31,7 +31,7 @@ func TestSettingsResetTree_ThemeApplied(t *testing.T) {
 		appearanceThemeApplied = prevApplied
 	})
 
-	applySettingsPageReset(st, "general")
+	applySettingsPageReset(st, "appearance")
 
 	if st.cfg.Appearance.Theme != def.Appearance.Theme {
 		t.Fatalf("主题应恢复默认 %q，实际 %q", def.Appearance.Theme, st.cfg.Appearance.Theme)

@@ -76,8 +76,8 @@ func TestSettingsLayout_Dialog(t *testing.T) {
 			t.Fatalf("设置窗口内容未铺满：%+v", card)
 		}
 		if size.width == 1600 {
-			first, firstOK := tt.Find("Magpie")
-			second, secondOK := tt.Find("通用")
+			first, firstOK := tt.Find("通用")
+			second, secondOK := tt.Find("外观")
 			if !firstOK || !secondOK || first.Y >= second.Y {
 				t.Fatalf("导航应纵向排列：%+v %+v", first, second)
 			}

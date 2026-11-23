@@ -4,6 +4,17 @@ section about.app 关于 MCode
 row row-about-app 
 section about.changelog 更新日志
 row row-about-changelog 
+page appearance
+section appearance.theme 主题与排版
+row row-theme 主题
+row row-edit-themes 编辑主题
+row row-conversation-density 界面密度
+row row-content-width 内容宽度
+row row-content-width-percent 比例宽度
+row row-sidebar-compact 紧凑侧边栏
+row row-motion 动效
+section appearance.fonts 字体
+row row-code-font 代码字体
 page conversation
 section conversation.reply 回复与思考
 row row-show-reasoning 显示思考过程
@@ -66,16 +77,6 @@ row row-general-restore 恢复
 section general.shortcuts 快捷键
 row row-global-shortcut 全局快捷键
 row row-shortcuts-all 全部快捷键
-section appearance.theme 主题与排版
-row row-theme 主题
-row row-edit-themes 编辑主题
-row row-conversation-density 界面密度
-row row-content-width 内容宽度
-row row-content-width-percent 比例宽度
-row row-sidebar-compact 紧凑侧边栏
-row row-motion 动效
-section appearance.fonts 字体
-row row-code-font 代码字体
 page magpie
 section sec-magpie-gateways 网关
 row row-magpie-gateways 
@@ -125,6 +126,40 @@ row row-remote-tls-actions 证书操作
 section remote.push 手机推送
 row row-remote-push-enabled 手机离线时推送
 row row-remote-push-subscriptions 已订阅设备
+page sourceControl
+section sourceControl.commit 提交信息生成
+row row-sc-generate-commit-msg 自动生成提交信息
+row row-sc-commit-instructions 提交信息附加说明
+row row-sc-commit-model 生成提交信息与会话标题的模型
+section sourceControl.worktrees 工作区与工作树
+row row-sc-default-workspace-mode 默认工作区模式
+row row-sc-worktree-location 工作树位置
+row row-sc-auto-cleanup-delete 删除会话时自动清理工作树
+row row-sc-auto-cleanup-merged 自动清理已合并的工作树
+row row-sc-worktree-cleanup Worktree 清理
+section sourceControl.toolbar 工具栏
+row row-sc-show-change-badge 显示改动数角标
+section advanced.sourceControl 版本控制高级
+row row-sc-init-submodules 新建工作树时初始化子模块
+row row-sc-clone-ignored 新建工作树时克隆依赖目录
+row row-sc-clone-ignored-patterns 复制的目录名单
+section storage.cleanup 存储清理
+row row-storage-cleanup 
+page steward
+section sec-steward-main 总管
+row row-steward-enabled 启用总管
+row row-steward-name 昵称
+row row-steward-avatar 头像
+row row-steward-cli-fallback 没有 API Key 时用本机 CLI
+section sec-steward-model 模型
+row row-steward-model 前台模型
+row row-steward-task-model 任务模型
+section sec-steward-quiet 安静时段
+row row-steward-no-progress 无进展提醒
+row row-steward-quiet-enabled 启用安静时段
+row row-steward-quiet-range 时间范围
+section sec-steward-advanced 总管高级
+row row-steward-home-dir 主目录
 page swarm
 section swarm.main 
 row row-swarm-enabled 启用编排
@@ -151,20 +186,6 @@ section swarm.done 子代理完成时
 row block-swarm-review 
 row row-swarm-auto-merge 自动合并
 row row-swarm-auto-push 自动推送
-section sec-steward-main 总管
-row row-steward-enabled 启用总管
-row row-steward-name 昵称
-row row-steward-avatar 头像
-row row-steward-cli-fallback 没有 API Key 时用本机 CLI
-section sec-steward-model 模型
-row row-steward-model 前台模型
-row row-steward-task-model 任务模型
-section sec-steward-quiet 安静时段
-row row-steward-no-progress 无进展提醒
-row row-steward-quiet-enabled 启用安静时段
-row row-steward-quiet-range 时间范围
-section sec-steward-advanced 总管高级
-row row-steward-home-dir 主目录
 section advanced.orchestration 高级
 row row-swarm-max-bees 并发上限
 row row-swarm-max-rounds 最多派发轮次
@@ -197,24 +218,6 @@ section workbench.preview Web 预览
 row row-browser-console-capture 捕获控制台输出
 section workbench.openIn 
 row row-workbench-open-in 打开方式
-section sourceControl.commit 提交信息生成
-row row-sc-generate-commit-msg 自动生成提交信息
-row row-sc-commit-instructions 提交信息附加说明
-row row-sc-commit-model 生成提交信息与会话标题的模型
-section sourceControl.worktrees 工作区与工作树
-row row-sc-default-workspace-mode 默认工作区模式
-row row-sc-worktree-location 工作树位置
-row row-sc-auto-cleanup-delete 删除会话时自动清理工作树
-row row-sc-auto-cleanup-merged 自动清理已合并的工作树
-row row-sc-worktree-cleanup Worktree 清理
-section sourceControl.toolbar 工具栏
-row row-sc-show-change-badge 显示改动数角标
-section advanced.sourceControl 版本控制高级
-row row-sc-init-submodules 新建工作树时初始化子模块
-row row-sc-clone-ignored 新建工作树时克隆依赖目录
-row row-sc-clone-ignored-patterns 复制的目录名单
-section storage.cleanup 存储清理
-row row-storage-cleanup 
 section advanced.workbench 高级
 row row-context-inject-budget 注入字符上限
 row row-terminal-scrollback-lines 回滚行数

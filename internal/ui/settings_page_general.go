@@ -38,13 +38,13 @@ func trayIconTitle(goos string) string {
 	return "菜单栏图标"
 }
 
-// pageGeneral 是「通用」页：系统级配置与外观设置。会话相关的开关在「会话」页，
+// pageGeneral 是「通用」页：系统级配置。会话相关的开关在「会话」页，
 // 终端与文件树在工作台页，全局快捷键的完整分组表在「快捷键」面板。
 var pageGeneral = settingsPage{
 	ID:       "general",
 	Title:    "通用",
 	Icon:     IconSettings(),
-	Keywords: []string{"权限", "通知", "提示音", "启动", "托盘", "快捷键", "唤醒", "主题", "深色", "浅色", "文字大小", "字号", "字体", "缩放", "间距", "宽度", "侧边栏"},
+	Keywords: []string{"权限", "通知", "提示音", "启动", "托盘", "快捷键", "唤醒"},
 	Sections: []settingsSection{
 		{
 			ID:    "general.permissions",
@@ -225,11 +225,6 @@ var pageGeneral = settingsPage{
 
 // 注册到页面树放在 init 里：包级变量不能引用页面的初始值，否则会和渲染链形成初始化循环。
 func init() {
-	// 将原外观页的主题与字体分节并入通用页末尾（保持原有 5 节的索引与位置不变）。
-	pageGeneral.Sections = append(
-		withSettingsModule("通用", pageGeneral.Sections...),
-		withSettingsModule("外观", appearanceThemeSection, appearanceFontsSection)...,
-	)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageGeneral)
 }
 

@@ -34,7 +34,7 @@ func renderSidebarStewardSection(c *ui.Context, s *chatState) {
 }
 
 // settingsPageSteward 是总管设置所在的页 ID。
-const settingsPageSteward = "swarm"
+const settingsPageSteward = "steward"
 
 // renderSidebarStewardDisabledRow 渲染总管未启用时的置灰行：头像与标签，
 // 点行不建会话，直接打开设置面板并定位到「启用总管」那一行。

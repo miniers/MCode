@@ -60,6 +60,10 @@ var pageSteward = settingsPage{
 	Sections: []settingsSection{stewardMainSection(), stewardModelSection, stewardQuietSection, stewardAdvancedSection},
 }
 
+func init() {
+	settingsTreePageDefs = append(settingsTreePageDefs, pageSteward)
+}
+
 // stewardMainSection 是第一个分节：总开关、昵称、头像与 CLI 降级。
 func stewardMainSection() settingsSection {
 	sec := settingsSection{ID: "sec-steward-main", Title: "总管", Rows: []setting{
@@ -327,7 +331,7 @@ func renderStewardQuietRange(c *ui.Context, st *SettingsState) {
 		})
 }
 
-// renderPageSteward 渲染总管相关分节；总管设置已并入编排页，保留此入口给既有调用方。
+// renderPageSteward 渲染总管页；渲染器只认页面树，保留此入口给既有调用方。
 func renderPageSteward(c *ui.Context, st *SettingsState) {
 	renderSettingsTreePage(c, st, pageSteward)
 }

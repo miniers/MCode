@@ -128,7 +128,7 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 		"验收后自动合并工作树", "完成后自动送审", "在独立工作树中执行",
 		"注册看板 MCP 工具", "普通会话可用看板", "创建后自动启动", "卡死任务自动救援", "无活动中断",
 		"终端", "默认终端", "Web 预览", "捕获控制台输出",
-		"打开方式", "提交信息生成", "工作区与工作树", "Worktree 清理", "存储清理", "高级", "注入字符上限", "回滚行数", "快捷端口",
+		"打开方式", "高级", "注入字符上限", "回滚行数", "快捷端口",
 	} {
 		if !texts[want] {
 			t.Fatalf("工作台页缺少 %q: %v", want, tt.Texts())
@@ -579,16 +579,23 @@ func TestSettingsWorkbench_WorktreeSheetAndSourceControl(t *testing.T) {
 	globalArchiveWorktreeState.mu.Unlock()
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderPageWorkbench(c, st)
+		renderPageSourceControl(c, st)
 		if id, _ := settingsTreeSheetState(st); id != "" {
 			if sh, ok := settingsTreeSheetOf(id); ok {
 				renderSettingsTreeSheet(c, st, sh)
 			}
 		}
 	}, 1000, 5000)
-	page, ok := settingsTreePageOf("workbench")
+	wbPage, ok := settingsTreePageOf("workbench")
 	if !ok {
 		t.Fatal("工作台页未注册")
+	}
+	if len(wbPage.Sections) == 0 || wbPage.Sections[len(wbPage.Sections)-1].ID != "advanced.workbench" {
+		t.Fatal("工作台页末尾应为高级设置")
+	}
+	page, ok := settingsTreePageOf("sourceControl")
+	if !ok {
+		t.Fatal("版本与存储页未注册")
 	}
 	rows := make(map[string]bool)
 	var advSCSection *settingsSection
@@ -599,7 +606,7 @@ func TestSettingsWorkbench_WorktreeSheetAndSourceControl(t *testing.T) {
 		}
 		for _, row := range section.Rows {
 			if rows[row.ID] {
-				t.Fatalf("工作台页行 ID 重复: %q", row.ID)
+				t.Fatalf("版本与存储页行 ID 重复: %q", row.ID)
 			}
 			rows[row.ID] = true
 		}
@@ -607,17 +614,17 @@ func TestSettingsWorkbench_WorktreeSheetAndSourceControl(t *testing.T) {
 	for _, id := range []string{
 		"row-sc-generate-commit-msg", "row-sc-commit-instructions", "row-sc-commit-model",
 		"row-sc-default-workspace-mode", "row-sc-auto-cleanup-delete", "row-sc-auto-cleanup-merged",
-		"row-sc-worktree-cleanup",
+		"row-sc-worktree-cleanup", "row-storage-cleanup",
 	} {
 		if !rows[id] {
-			t.Fatalf("工作台页缺少版本控制行: %q", id)
+			t.Fatalf("版本与存储页缺少行: %q", id)
 		}
 	}
 	if advSCSection == nil {
-		t.Fatal("工作台页缺少版本控制高级设置分节")
+		t.Fatal("版本与存储页缺少版本控制高级设置分节")
 	}
-	if len(page.Sections) == 0 || page.Sections[len(page.Sections)-1].ID != "advanced.workbench" {
-		t.Fatal("工作台页末尾应为高级设置")
+	if len(page.Sections) == 0 || page.Sections[len(page.Sections)-1].ID != "storage.cleanup" {
+		t.Fatal("版本与存储页末尾应为存储清理")
 	}
 	advancedRows := make(map[string]bool)
 	for _, row := range advSCSection.Rows {

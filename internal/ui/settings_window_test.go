@@ -44,8 +44,8 @@ func TestSettingsWindowHeadlessOpenDoesNotBlock(t *testing.T) {
 	st.mu.Lock()
 	page := st.currentPage
 	st.mu.Unlock()
-	if page != "general" {
-		t.Fatalf("设置页 = %q，期望 general", page)
+	if page != "appearance" {
+		t.Fatalf("设置页 = %q，期望 appearance", page)
 	}
 }
 

@@ -160,7 +160,7 @@ func assertUIReview25SheetBounds(t *testing.T, tt *ui.Tester, winW, winH float32
 }
 
 func TestUIReview25_SettingsNarrow640_SourceControl(t *testing.T) {
-	tt, _ := newUIReview25SettingsTester(t, "workbench", 640, 700, nil)
+	tt, _ := newUIReview25SettingsTester(t, "sourceControl", 640, 700, nil)
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 sourceControl.commit")
 	area := uiReview25AccessOnScreen(t, tt, ui.RoleTextField, "提交信息附加说明")
 	if area.Bounds.W < 100 {
@@ -196,15 +196,15 @@ func TestUIReview25_SettingsNarrow640_GeneralAndAppearanceAndThemesSlider(t *tes
 		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 general.permissions")
 	})
 
-	t.Run("通用页主题分节", func(t *testing.T) {
-		tt, _ := newUIReview25SettingsTester(t, "general", 640, 700, nil)
+	t.Run("外观页主题分节", func(t *testing.T) {
+		tt, _ := newUIReview25SettingsTester(t, "appearance", 640, 700, nil)
 		assertUIReview25DetailBounds(t, tt, 640, "设置卡片 appearance.theme")
 	})
 
 	t.Run("主题面板滑块", func(t *testing.T) {
 		modalDragReset("settings-sheet-themes")
 		t.Cleanup(func() { modalDragReset("settings-sheet-themes") })
-		tt, st := newUIReview25SettingsTester(t, "general", 640, 700, func(_ *FakeClient, _ *chatState, st *SettingsState) {
+		tt, st := newUIReview25SettingsTester(t, "appearance", 640, 700, func(_ *FakeClient, _ *chatState, st *SettingsState) {
 			openSettingsSheet(st, "themes", "")
 		})
 		t.Cleanup(func() { closeSettingsSheet(st) })

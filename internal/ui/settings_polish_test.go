@@ -23,7 +23,7 @@ func TestSettingsNavGroupHeadersAndMagpieDot(t *testing.T) {
 		_, ok := tt.Find("已连接")
 		return ok
 	})
-	for _, group := range []string{"应用", "代理", "工作区"} {
+	for _, group := range []string{"基础", "模型与代理", "能力与工作区"} {
 		if _, ok := tt.Find(group); !ok {
 			t.Fatalf("未找到导航分组 %s", group)
 		}

@@ -196,7 +196,7 @@ func TestSettingsStoragePage_CleanConfirmAndWorktreeNav(t *testing.T) {
 	st.mu.Lock()
 	page, sheet := st.currentPage, st.openSheet
 	st.mu.Unlock()
-	if page != "workbench" || sheet != "worktree" {
-		t.Fatalf("跳转目标错误: page=%q sheet=%q, want workbench/worktree", page, sheet)
+	if page != "sourceControl" || sheet != "worktree" {
+		t.Fatalf("跳转目标错误: page=%q sheet=%q, want sourceControl/worktree", page, sheet)
 	}
 }

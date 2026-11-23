@@ -179,7 +179,7 @@ func applySettingsPageReset(st *SettingsState, page string) {
 	}
 	resetSettingsTreePage(st, p)
 
-	if page == "general" {
+	if page == "appearance" {
 		st.mu.Lock()
 		syncAppearanceTheme(st)
 		st.mu.Unlock()

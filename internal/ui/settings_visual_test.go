@@ -71,7 +71,7 @@ func TestSettingsVisual_RowHeightsUniform(t *testing.T) {
 	t.Cleanup(func() { setActiveTheme(config.AppearanceConfig{}) })
 
 	tt, st := newSettingsAdvancedTester(t)
-	openSettingsAdvancedPage(t, tt, st, "general")
+	openSettingsAdvancedPage(t, tt, st, "appearance")
 
 	rects := make(map[string]ui.Rect)
 	for _, title := range []string{"主题", "界面密度", "内容宽度", "紧凑侧边栏", "代码字体"} {

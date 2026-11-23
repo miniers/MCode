@@ -109,7 +109,7 @@ func confirmSettingsReset(t *testing.T, tt *ui.Tester, st *SettingsState) {
 // TestSettingsReset_SupportedPages 断言有可重置普通行的页面渲染按钮、其余页不渲染。
 func TestSettingsReset_SupportedPages(t *testing.T) {
 	tt, st := newSettingsAdvancedTester(t)
-	for _, page := range []string{"conversation", "general", "workbench", "swarm", "extensions", "remote"} {
+	for _, page := range []string{"conversation", "general", "appearance", "workbench", "sourceControl", "swarm", "steward", "extensions", "remote"} {
 		openSettingsAdvancedPage(t, tt, st, page)
 		if !tt.HasText("恢复本页默认") {
 			t.Fatalf("%s 页底部应有「恢复本页默认」按钮", page)
