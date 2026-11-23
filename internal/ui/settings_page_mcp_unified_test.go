@@ -33,7 +33,7 @@ func TestMCP_UnifiedListAndDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("只读 · 外部配置") && tt.HasText("shared-tool") })
-	for _, label := range []string{"切换启用 shared-service", "切换shared-service", "登录", "删除", "编辑", "全部禁用"} {
+	for _, label := range []string{"切换启用 shared-service", "切换shared-service", "登录", "删除服务", "编辑", "全部工具可用"} {
 		if _, ok := tt.Find(label); ok {
 			t.Fatalf("只读服务不应显示 %q", label)
 		}

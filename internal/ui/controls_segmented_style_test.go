@@ -19,7 +19,7 @@ func TestSegmentedHorizontalPadding(t *testing.T) {
 		ui.Column(c).Children(func() {
 			for _, segment := range segments {
 				ui.Row(c).AlignItems(ui.Start).Children(func() {
-					ui.Text(c, segment.Label).FontSize(TypeBody).SingleLine()
+					ui.Text(c, segment.Label).FontSize(uiFont(TypeFootnote)).SingleLine()
 				})
 			}
 		})

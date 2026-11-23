@@ -239,8 +239,23 @@ var mcpSections = []settingsSection{
 
 func init() {
 	settingsTreeSheetDefs = append(settingsTreeSheetDefs,
-		settingsSheet{ID: "mcp-detail", Title: "MCP 服务", Width: settingsSheetWideWidth, Body: renderMCPDetailSheet},
-		settingsSheet{ID: "mcp-add", Title: "添加服务", Width: settingsSheetWideWidth, Body: renderMCPAddSheet},
+		settingsSheet{
+			ID:            "mcp-detail",
+			Title:         "MCP 服务",
+			Width:         settingsSheetWideWidth,
+			Header:        renderMCPDetailHeader,
+			Body:          renderMCPDetailSheet,
+			Footer:        renderMCPDetailFooter,
+			FooterVisible: mcpDetailFooterVisible,
+		},
+		settingsSheet{
+			ID:            "mcp-add",
+			Title:         "添加服务",
+			Width:         settingsSheetWideWidth,
+			Body:          renderMCPAddSheet,
+			Footer:        renderMCPAddFooter,
+			FooterVisible: mcpAddFooterVisible,
+		},
 	)
 }
 
@@ -454,7 +469,8 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 				addBtn := ui.ButtonBase(c.Key("btn-mcp-add-server")).
 					Radius(RadiusSM).
 					Padding(Space1, Space4).
-					Background(ThemeOverlay(c, 0.08))
+					Background(ThemeOverlay(c, 0.08)).
+					Cursor(ui.CursorPointer)
 				{
 					scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
 					addBtn.Scale(scale, scale)
@@ -462,6 +478,7 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 				if addBtn.Hovered() {
 					addBtn.Background(ThemeHover(c))
 				}
+				focusRing(c, addBtn)
 				if addBtn.Clicked() {
 					uiSt.mu.Lock()
 					uiSt.isFormOpen = true
@@ -490,20 +507,26 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 
 		if len(customServers) == 0 && !isFormOpen {
 			renderSettingsDivider(c, "div-mcp-custom-empty-sep")
-			ui.Row(c.Key("mcp-custom-empty")).
-				Padding(settingsRowPadY, settingsRowPadX).
-				Children(func() {
-					ui.Text(c, "暂无自定义服务").
-						FontSize(uiFont(TypeBody)).
-						TextColor(ThemeSecondaryText(c))
-				})
+			EmptyState(c, EmptyStateProps{
+				Key:     "mcp-custom-empty",
+				Title:   "暂无自定义服务",
+				Compact: true,
+			}).FillWidth().Padding(settingsRowPadY, settingsRowPadX)
 			return
 		}
 
 		for i, srv := range customServers {
 			renderSettingsDivider(c, "div-mcp-custom-"+strconv.Itoa(i))
 			key := mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name)
-			row := ui.ButtonBase(c.Key("mcp-list-"+key)).Label("打开 MCP 服务 "+key).FillWidth().Padding(settingsRowPadY, settingsRowPadX)
+			row := ui.ButtonBase(c.Key("mcp-list-"+key)).
+				Label("打开 MCP 服务 "+key).
+				FillWidth().
+				Padding(settingsRowPadY, settingsRowPadX).
+				Cursor(ui.CursorPointer)
+			if row.Hovered() {
+				row.Background(ThemeHover(c))
+			}
+			focusRing(c, row)
 			if row.Clicked() {
 				uiSt.mu.Lock()
 				uiSt.selectedServer = key
@@ -526,11 +549,119 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 	}()
 }
 
+func mcpSelectedServer(st *SettingsState) (agentconf.MCPServer, bool) {
+	if st == nil {
+		return agentconf.MCPServer{}, false
+	}
+	uiSt := getMCPUIState(st)
+	uiSt.mu.Lock()
+	selected := uiSt.selectedServer
+	uiSt.mu.Unlock()
+	if selected == "" {
+		return agentconf.MCPServer{}, false
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, srv := range st.mcpServers {
+		if mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name) == selected {
+			return srv, true
+		}
+	}
+	return agentconf.MCPServer{}, false
+}
+
+func mcpCanDeleteServer(st *SettingsState, srv agentconf.MCPServer) bool {
+	if srv.ReadOnly {
+		return false
+	}
+	if strings.EqualFold(srv.Agent, "custom") || strings.EqualFold(srv.Agent, "mcode") {
+		return true
+	}
+	return agentconf.CanDeleteExternalMCPServer(st.agentConfWriteOptions(), srv)
+}
+
+func mcpDetailSheetTitle(st *SettingsState) string {
+	if srv, ok := mcpSelectedServer(st); ok && strings.TrimSpace(srv.Name) != "" {
+		return srv.Name
+	}
+	return "MCP 服务"
+}
+
+func renderMCPDetailHeader(c *ui.Context, st *SettingsState) {
+	ui.Text(c, mcpDetailSheetTitle(st)).
+		FontSize(uiFont(TypeTitle)).
+		FontWeight(600).
+		TextColor(ThemePrimaryText(c)).
+		Grow(1).
+		SingleLine()
+}
+
+func mcpDetailFooterVisible(st *SettingsState) bool {
+	srv, ok := mcpSelectedServer(st)
+	return ok && mcpCanDeleteServer(st, srv)
+}
+
+func renderMCPDetailFooter(c *ui.Context, st *SettingsState) {
+	srv, ok := mcpSelectedServer(st)
+	if !ok || !mcpCanDeleteServer(st, srv) {
+		return
+	}
+	uiSt := getMCPUIState(st)
+	delBtn := ui.ButtonBase(c.Key("btn-mcp-detail-delete")).
+		Label("删除服务").
+		Height(ControlMD).
+		PaddingX(Space4).
+		Radius(RadiusSM).
+		Border(Hairline, ThemeBorder(c)).
+		Cursor(ui.CursorPointer)
+	bg := ThemeSurfaceMain(c)
+	if delBtn.Pressed() {
+		bg = ThemeOverlayPressed(c).Over(bg)
+	} else if delBtn.Hovered() {
+		bg = ThemeDanger(c).Alpha(dangerHoverAlpha).Over(bg)
+	}
+	delBtn.Background(bg)
+	focusRing(c, delBtn)
+	{
+		scale := motionPressScale(c, delBtn, "button-press-scale", delBtn.Pressed())
+		delBtn.Scale(scale, scale)
+	}
+	if delBtn.Clicked() {
+		deleteOpts := st.agentConfWriteOptions()
+		uiSt.mu.Lock()
+		uiSt.deleteConfirmTarget = srv
+		uiSt.deleteConfirmOptions = deleteOpts
+		uiSt.mu.Unlock()
+		st.invalidate()
+	}
+	delBtn.Children(func() {
+		ui.Text(c, "删除服务").
+			FontSize(uiFont(TypeFootnote)).
+			FontWeight(500).
+			TextColor(ThemeDanger(c))
+	})
+}
+
+func mcpAddFooterVisible(st *SettingsState) bool {
+	uiSt := getMCPUIState(st)
+	uiSt.mu.Lock()
+	tab := uiSt.addTab
+	uiSt.mu.Unlock()
+	return tab == 1
+}
+
+func renderMCPAddFooter(c *ui.Context, st *SettingsState) {
+	uiSt := getMCPUIState(st)
+	ui.Spacer(c)
+	renderMCPFormActions(c, st, uiSt, "")
+}
+
 func renderMCPDetailSheet(c *ui.Context, st *SettingsState) {
 	snap := mcpPageSnapshot(st)
 	snap.uiSt.mu.Lock()
 	selected := snap.uiSt.selectedServer
 	formOpen := snap.uiSt.isFormOpen
+	isExpanded := snap.uiSt.expandedServers[selected]
 	snap.uiSt.mu.Unlock()
 	for i, srv := range snap.servers {
 		if mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name) != selected {
@@ -546,13 +677,14 @@ func renderMCPDetailSheet(c *ui.Context, st *SettingsState) {
 			}
 			row.Children(func() {
 				renderMCPServerRow(c, st, snap.uiSt, srv, i, snap.client, snap.authBusy, snap.authErr, snap.staticAuth, strings.EqualFold(srv.Agent, "custom") || strings.EqualFold(srv.Agent, "mcode"))
+				if !srv.ReadOnly && formOpen {
+					renderSettingsDivider(c, "div-mcp-detail-edit")
+					renderMCPCustomForm(c, st, snap.uiSt)
+				}
 			})
 		})
-		if !srv.ReadOnly {
-			renderSettingsSection(c, "sec-mcp-newthread", "", func() { renderMCPNewThreadDefaultsBody(c, st) })
-			if formOpen {
-				renderSettingsSection(c, "sec-mcp-edit", "", func() { renderMCPCustomForm(c, st, snap.uiSt) })
-			}
+		if isExpanded {
+			renderMCPServerToolsSection(c, st, snap.uiSt, srv, i)
 		}
 		// 确认框只在详情中渲染一次，避免重复叠加。
 		renderMCPServerDeleteModal(c, st, snap.uiSt)

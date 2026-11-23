@@ -128,298 +128,318 @@ func renderMCPCustomForm(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState)
 	uiSt.mu.Unlock()
 
 	ui.Column(c.Key("mcp-form-container")).
-		Gap(Space3).
 		Children(func() {
-			formTitle := "添加 MCP 服务"
 			if editingName != "" {
-				formTitle = fmt.Sprintf("编辑 MCP 服务: %s", editingName)
+				ui.Text(c, fmt.Sprintf("编辑 MCP 服务: %s", editingName)).
+					Padding(settingsRowPadY, settingsRowPadX).
+					FontSize(uiFont(TypeProse)).
+					FontWeight(600).
+					TextColor(ThemePrimaryText(c))
+				renderSettingsDivider(c, "div-form-title")
 			}
-			ui.Text(c, formTitle).
-				Margin(0, settingsRowPadX).
-				FontSize(uiFont(TypeProse)).
-				FontWeight(600).
-				TextColor(ThemePrimaryText(c))
 
 			if formErr != "" {
 				ui.Text(c, formErr).
-					Margin(0, settingsRowPadX).
+					Padding(Space2, settingsRowPadX).
 					FontSize(uiFont(TypeFootnote)).
 					TextColor(ThemeDanger(c))
+				renderSettingsDivider(c, "div-form-err")
 			}
 
 			// 1. 服务名称
-			nameRowKey := "row-form-name"
-			renderStackedSettingRow(c, nameRowKey, "服务名称", func() {
+			SettingRow(c, "row-form-name", "服务名称", func() {
 				get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.nameInput })
-				textFunc(get, set, "例如: sqlite-server").render(c, st, setting{ID: nameRowKey, Title: "服务名称"})
+				textFunc(get, set, "例如: sqlite-server").render(c, st, setting{ID: "row-form-name", Title: "服务名称"})
 			})
+			renderSettingsDivider(c, "div-form-transport")
 
 			// 2. 传输方式（本地命令 stdio vs 远程地址 http）
-			ui.Row(c.Key("row-form-transport")).
-				Padding(0, settingsRowPadX).
-				AlignItems(ui.Center).
-				Gap(Space4).
-				Children(func() {
-					ui.Text(c, "传输方式:").
-						FontSize(uiFont(TypeBody)).
-						TextColor(ThemeSecondaryText(c)).
-						Width(80).
-						Tooltip(settingHint("row-form-transport"))
-
-					transIdx := 0
-					if strings.EqualFold(trans, "http") || strings.EqualFold(trans, "sse") {
-						transIdx = 1
+			SettingRow(c, "row-form-transport", "传输方式", func() {
+				transIdx := 0
+				if strings.EqualFold(trans, "http") || strings.EqualFold(trans, "sse") {
+					transIdx = 1
+				}
+				Segmented(c, "btn-form-trans", &transIdx, []Segment{
+					{Label: "stdio"},
+					{Label: "http"},
+				}, func(idx int) {
+					uiSt.mu.Lock()
+					if idx == 1 {
+						uiSt.transportInput = "http"
+					} else {
+						uiSt.transportInput = "stdio"
 					}
-					Segmented(c, "btn-form-trans", &transIdx, []Segment{
-						{Label: "本地命令 (stdio)"},
-						{Label: "远程地址 (http/sse)"},
-					}, func(idx int) {
-						uiSt.mu.Lock()
-						if idx == 1 {
-							uiSt.transportInput = "http"
-						} else {
-							uiSt.transportInput = "stdio"
-						}
-						uiSt.mu.Unlock()
-						st.invalidate()
-					}).Label("传输方式")
-				})
+					uiSt.mu.Unlock()
+					st.invalidate()
+				}).Label("传输方式")
+			})
 
 			// 3. 模式对应输入项
 			if strings.EqualFold(trans, "http") || strings.EqualFold(trans, "sse") {
-				urlRowKey := "row-form-url"
-				renderStackedSettingRow(c, urlRowKey, "服务地址", func() {
+				renderSettingsDivider(c, "div-form-url")
+				SettingRow(c, "row-form-url", "服务地址", func() {
 					get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.urlInput })
-					textFunc(get, set, "例如: https://mcp.example.com/sse").render(c, st, setting{ID: urlRowKey, Title: "服务地址"})
+					textFunc(get, set, "例如: https://mcp.example.com/sse").render(c, st, setting{ID: "row-form-url", Title: "服务地址"})
 				})
 
-				headersRowKey := "row-form-headers"
-				renderStackedSettingRow(c, headersRowKey, "请求头", func() {
+				renderSettingsDivider(c, "div-form-headers")
+				SettingRow(c, "row-form-headers", "请求头", func() {
 					get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.headersInput })
 					textFunc(get, set, "每行一个 KEY: VALUE，Authorization 等密钥自动加密存凭据库").
 						withSecret().
-						render(c, st, setting{ID: headersRowKey, Title: "请求头"})
+						render(c, st, setting{ID: "row-form-headers", Title: "请求头"})
 				})
 			} else {
-				commandRowKey := "row-form-command"
-				renderStackedSettingRow(c, commandRowKey, "执行命令", func() {
+				renderSettingsDivider(c, "div-form-command")
+				SettingRow(c, "row-form-command", "执行命令", func() {
 					get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.commandInput })
-					textFunc(get, set, "例如: npx 或 /usr/local/bin/server").render(c, st, setting{ID: commandRowKey, Title: "执行命令"})
+					textFunc(get, set, "例如: npx 或 /usr/local/bin/server").render(c, st, setting{ID: "row-form-command", Title: "执行命令"})
 				})
 
-				argsRowKey := "row-form-args"
-				renderStackedSettingRow(c, argsRowKey, "运行参数", func() {
+				renderSettingsDivider(c, "div-form-args")
+				SettingRow(c, "row-form-args", "运行参数", func() {
 					get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.argsInput })
-					textFunc(get, set, "空格分隔，例如: -y @modelcontextprotocol/server-everything").render(c, st, setting{ID: argsRowKey, Title: "运行参数"})
+					textFunc(get, set, "空格分隔，例如: -y @modelcontextprotocol/server-everything").render(c, st, setting{ID: "row-form-args", Title: "运行参数"})
 				})
 
-				envRowKey := "row-form-env"
-				renderStackedSettingRow(c, envRowKey, "环境变量", func() {
+				renderSettingsDivider(c, "div-form-env")
+				SettingRow(c, "row-form-env", "环境变量", func() {
 					get, set := mcpFormTextField(func(s *mcpPageUIState) *string { return &s.envInput })
 					textFunc(get, set, "逗号或换行分隔 KEY=VALUE，含 TOKEN/KEY/SECRET 自动加密存凭据库").
 						withSecret().
-						render(c, st, setting{ID: envRowKey, Title: "环境变量"})
+						render(c, st, setting{ID: "row-form-env", Title: "环境变量"})
 				})
 			}
 
-			// 底部操作按钮
-			ui.Row(c.Key("row-form-actions")).
-				Padding(0, settingsRowPadX).
-				AlignItems(ui.Center).
-				Gap(Space4).
-				Margin(Space2, 0, 0, 0).
-				Children(func() {
-					saveBtn := ui.ButtonBase(c.Key("btn-mcp-form-save")).
-						Radius(RadiusSM).
-						Padding(Space1, Space4).
-						Background(ThemeAccent(c))
-					{
-						scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
-						saveBtn.Scale(scale, scale)
-					}
-					if saveBtn.Clicked() {
-						uiSt.mu.Lock()
-						trimmedName := strings.TrimSpace(uiSt.nameInput)
-						cmdVal := uiSt.commandInput
-						rawURLVal := uiSt.urlInput
-						transVal := uiSt.transportInput
-						envStrVal := uiSt.envInput
-						headersStrVal := uiSt.headersInput
-						argsVal := uiSt.argsInput
-						editingNameVal := uiSt.editingServer
-						editingScopeVal := uiSt.editingScope
-						uiSt.mu.Unlock()
-
-						if trimmedName == "" {
-							uiSt.mu.Lock()
-							uiSt.formError = "服务名称不能为空"
-							uiSt.mu.Unlock()
-							st.invalidate()
-							return
-						}
-						isStdio := !strings.EqualFold(transVal, "http") && !strings.EqualFold(transVal, "sse")
-						if isStdio && strings.TrimSpace(cmdVal) == "" {
-							uiSt.mu.Lock()
-							uiSt.formError = "执行命令不能为空"
-							uiSt.mu.Unlock()
-							st.invalidate()
-							return
-						}
-						if !isStdio && strings.TrimSpace(rawURLVal) == "" {
-							uiSt.mu.Lock()
-							uiSt.formError = "服务地址不能为空"
-							uiSt.mu.Unlock()
-							st.invalidate()
-							return
-						}
-
-						envMap := make(map[string]string)
-						var envKeys []string
-						tokens := strings.FieldsFunc(envStrVal, func(r rune) bool {
-							return r == ',' || r == '\n' || r == ';'
-						})
-						for _, t := range tokens {
-							t = strings.TrimSpace(t)
-							if t == "" {
-								continue
-							}
-							parts := strings.SplitN(t, "=", 2)
-							k := strings.TrimSpace(parts[0])
-							v := ""
-							if len(parts) == 2 {
-								v = strings.TrimSpace(parts[1])
-							}
-							if k != "" {
-								envMap[k] = v
-								envKeys = append(envKeys, k)
-							}
-						}
-
-						var argList []string
-						if strings.TrimSpace(argsVal) != "" {
-							argList = strings.Fields(argsVal)
-						}
-
-						// 编辑态沿用原服务的作用域，避免把项目级服务写成全局记录；新建服务仍落全局配置。
-						saveScope := "global"
-						if editingNameVal != "" && strings.TrimSpace(editingScopeVal) != "" {
-							saveScope = editingScopeVal
-						}
-
-						srv := agentconf.MCPServer{
-							Agent:     "custom",
-							Scope:     saveScope,
-							Name:      trimmedName,
-							Transport: transVal,
-							Command:   cmdVal,
-							Args:      argList,
-							URL:       rawURLVal,
-							Env:       envMap,
-							EnvKeys:   envKeys,
-							Headers:   parseMCPHeaderLines(headersStrVal),
-						}
-
-						// 写盘目标与列表扫描同源：切项目后表单也不会把记录写进另一个项目的 .mcode 配置（J-07）。
-						opts := st.agentConfWriteOptions()
-
-						if err := agentconf.SaveMCPServer(opts, srv); err != nil {
-							uiSt.mu.Lock()
-							uiSt.formError = err.Error()
-							uiSt.mu.Unlock()
-							st.invalidate()
-							return
-						}
-
-						// 编辑时改了名字：新记录已保存，再把旧名的凭据迁到新名并删掉旧记录。
-						// 敏感字段回填为空时新记录里没有对应凭据键，所以不能直接按名字删旧记录。
-						if editingNameVal != "" && editingNameVal != trimmedName {
-							if err := agentconf.RenameMCPServer(opts, saveScope, editingNameVal, trimmedName); err != nil {
-								uiSt.mu.Lock()
-								uiSt.formError = fmt.Sprintf("新记录已保存，但迁移原名「%s」失败：%v", editingNameVal, err)
-								uiSt.mu.Unlock()
-								st.loadAgentConf(st.agentConfWriteOptions().ProjectDir)
-								st.invalidate()
-								return
-							}
-						}
-
-						uiSt.mu.Lock()
-						uiSt.isFormOpen = false
-						uiSt.formError = ""
-						uiSt.editingServer = ""
-						uiSt.editingScope = ""
-						uiSt.nameInput = ""
-						uiSt.transportInput = ""
-						uiSt.commandInput = ""
-						uiSt.argsInput = ""
-						uiSt.urlInput = ""
-						uiSt.envInput = ""
-						uiSt.headersInput = ""
-						uiSt.editBaseName = ""
-						uiSt.editBaseTransport = ""
-						uiSt.editBaseCommand = ""
-						uiSt.editBaseArgs = ""
-						uiSt.editBaseURL = ""
-						uiSt.editBaseEnv = ""
-						uiSt.editBaseHeaders = ""
-						uiSt.mu.Unlock()
-						st.markSaved()
-						if editingNameVal == "" {
-							closeSettingsSheet(st)
-						}
-						st.loadAgentConf(st.agentConfWriteOptions().ProjectDir)
-					}
-					saveBtn.Children(func() {
-						ui.Text(c, "保存").
-							FontSize(uiFont(TypeFootnote)).
-							FontWeight(500).
-							TextColor(ThemeOnAccent(c))
+			if editingName != "" {
+				renderSettingsDivider(c, "div-form-actions")
+				ui.Row(c.Key("row-form-actions")).
+					Padding(settingsRowPadY, settingsRowPadX).
+					AlignItems(ui.Center).
+					Gap(Space4).
+					Children(func() {
+						renderMCPFormActions(c, st, uiSt, editingName)
 					})
-
-					cancelBtn := ui.ButtonBase(c.Key("btn-mcp-form-cancel")).
-						Radius(RadiusSM).
-						Padding(Space1, Space4).
-						Background(ThemeOverlay(c, 0.06))
-					{
-						scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
-						cancelBtn.Scale(scale, scale)
-					}
-					if cancelBtn.Clicked() {
-						uiSt.mu.Lock()
-						uiSt.isFormOpen = false
-						uiSt.formError = ""
-						uiSt.editingServer = ""
-						uiSt.editingScope = ""
-						uiSt.nameInput = ""
-						uiSt.transportInput = ""
-						uiSt.commandInput = ""
-						uiSt.argsInput = ""
-						uiSt.urlInput = ""
-						uiSt.envInput = ""
-						uiSt.headersInput = ""
-						uiSt.editBaseName = ""
-						uiSt.editBaseTransport = ""
-						uiSt.editBaseCommand = ""
-						uiSt.editBaseArgs = ""
-						uiSt.editBaseURL = ""
-						uiSt.editBaseEnv = ""
-						uiSt.editBaseHeaders = ""
-						uiSt.mu.Unlock()
-						if editingName == "" {
-							closeSettingsSheet(st)
-						}
-						st.invalidate()
-					}
-					cancelBtn.Children(func() {
-						ui.Text(c, "取消").
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeSecondaryText(c))
-					})
-				})
+			}
 		})
 }
 
-// renderMCPServerRow 渲染单条 MCP 服务详情行，包含状态徽标、启用开关、工具列表展开、编辑与删除。
+func renderMCPFormActions(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState, editingName string) {
+	cancelBtn := ui.ButtonBase(c.Key("btn-mcp-form-cancel")).
+		Label("取消").
+		Height(ControlMD).
+		PaddingX(Space4).
+		Radius(RadiusSM).
+		Border(Hairline, ThemeBorder(c)).
+		Cursor(ui.CursorPointer)
+	cancelBg := ThemeSurfaceMain(c)
+	if cancelBtn.Pressed() {
+		cancelBg = ThemeOverlayPressed(c).Over(cancelBg)
+	} else if cancelBtn.Hovered() {
+		cancelBg = ThemeOverlayHover(c).Over(cancelBg)
+	}
+	cancelBtn.Background(cancelBg)
+	focusRing(c, cancelBtn)
+	{
+		scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+		cancelBtn.Scale(scale, scale)
+	}
+	if cancelBtn.Clicked() {
+		uiSt.mu.Lock()
+		uiSt.isFormOpen = false
+		uiSt.formError = ""
+		uiSt.editingServer = ""
+		uiSt.editingScope = ""
+		uiSt.nameInput = ""
+		uiSt.transportInput = ""
+		uiSt.commandInput = ""
+		uiSt.argsInput = ""
+		uiSt.urlInput = ""
+		uiSt.envInput = ""
+		uiSt.headersInput = ""
+		uiSt.editBaseName = ""
+		uiSt.editBaseTransport = ""
+		uiSt.editBaseCommand = ""
+		uiSt.editBaseArgs = ""
+		uiSt.editBaseURL = ""
+		uiSt.editBaseEnv = ""
+		uiSt.editBaseHeaders = ""
+		uiSt.mu.Unlock()
+		if editingName == "" {
+			closeSettingsSheet(st)
+		}
+		st.invalidate()
+	}
+	cancelBtn.Children(func() {
+		ui.Text(c, "取消").
+			FontSize(uiFont(TypeFootnote)).
+			FontWeight(500).
+			TextColor(ThemePrimaryText(c))
+	})
+
+	saveBtn := ui.ButtonBase(c.Key("btn-mcp-form-save")).
+		Label("保存").
+		Height(ControlMD).
+		PaddingX(Space4).
+		Radius(RadiusSM).
+		Cursor(ui.CursorPointer)
+	saveBg := ThemeAccent(c)
+	if saveBtn.Pressed() {
+		saveBg = ThemeAccentPressed(c)
+	} else if saveBtn.Hovered() {
+		saveBg = ThemeAccentHover(c)
+	}
+	saveBtn.Background(saveBg)
+	focusRing(c, saveBtn)
+	{
+		scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
+		saveBtn.Scale(scale, scale)
+	}
+	if saveBtn.Clicked() {
+		saveMCPCustomForm(st, uiSt)
+	}
+	saveBtn.Children(func() {
+		ui.Text(c, "保存").
+			FontSize(uiFont(TypeFootnote)).
+			FontWeight(500).
+			TextColor(ThemeOnAccent(c))
+	})
+}
+
+func saveMCPCustomForm(st *SettingsState, uiSt *mcpPageUIState) {
+	uiSt.mu.Lock()
+	trimmedName := strings.TrimSpace(uiSt.nameInput)
+	cmdVal := uiSt.commandInput
+	rawURLVal := uiSt.urlInput
+	transVal := uiSt.transportInput
+	envStrVal := uiSt.envInput
+	headersStrVal := uiSt.headersInput
+	argsVal := uiSt.argsInput
+	editingNameVal := uiSt.editingServer
+	editingScopeVal := uiSt.editingScope
+	uiSt.mu.Unlock()
+
+	if trimmedName == "" {
+		uiSt.mu.Lock()
+		uiSt.formError = "服务名称不能为空"
+		uiSt.mu.Unlock()
+		st.invalidate()
+		return
+	}
+	isStdio := !strings.EqualFold(transVal, "http") && !strings.EqualFold(transVal, "sse")
+	if isStdio && strings.TrimSpace(cmdVal) == "" {
+		uiSt.mu.Lock()
+		uiSt.formError = "执行命令不能为空"
+		uiSt.mu.Unlock()
+		st.invalidate()
+		return
+	}
+	if !isStdio && strings.TrimSpace(rawURLVal) == "" {
+		uiSt.mu.Lock()
+		uiSt.formError = "服务地址不能为空"
+		uiSt.mu.Unlock()
+		st.invalidate()
+		return
+	}
+
+	envMap := make(map[string]string)
+	var envKeys []string
+	tokens := strings.FieldsFunc(envStrVal, func(r rune) bool {
+		return r == ',' || r == '\n' || r == ';'
+	})
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		parts := strings.SplitN(t, "=", 2)
+		k := strings.TrimSpace(parts[0])
+		v := ""
+		if len(parts) == 2 {
+			v = strings.TrimSpace(parts[1])
+		}
+		if k != "" {
+			envMap[k] = v
+			envKeys = append(envKeys, k)
+		}
+	}
+
+	var argList []string
+	if strings.TrimSpace(argsVal) != "" {
+		argList = strings.Fields(argsVal)
+	}
+
+	// 编辑态沿用原服务的作用域，避免把项目级服务写成全局记录；新建服务仍落全局配置。
+	saveScope := "global"
+	if editingNameVal != "" && strings.TrimSpace(editingScopeVal) != "" {
+		saveScope = editingScopeVal
+	}
+
+	srv := agentconf.MCPServer{
+		Agent:     "custom",
+		Scope:     saveScope,
+		Name:      trimmedName,
+		Transport: transVal,
+		Command:   cmdVal,
+		Args:      argList,
+		URL:       rawURLVal,
+		Env:       envMap,
+		EnvKeys:   envKeys,
+		Headers:   parseMCPHeaderLines(headersStrVal),
+	}
+
+	// 写盘目标与列表扫描同源：切项目后表单也不会把记录写进另一个项目的 .mcode 配置（J-07）。
+	opts := st.agentConfWriteOptions()
+
+	if err := agentconf.SaveMCPServer(opts, srv); err != nil {
+		uiSt.mu.Lock()
+		uiSt.formError = err.Error()
+		uiSt.mu.Unlock()
+		st.invalidate()
+		return
+	}
+
+	// 编辑时改了名字：新记录已保存，再把旧名的凭据迁到新名并删掉旧记录。
+	// 敏感字段回填为空时新记录里没有对应凭据键，所以不能直接按名字删旧记录。
+	if editingNameVal != "" && editingNameVal != trimmedName {
+		if err := agentconf.RenameMCPServer(opts, saveScope, editingNameVal, trimmedName); err != nil {
+			uiSt.mu.Lock()
+			uiSt.formError = fmt.Sprintf("新记录已保存，但迁移原名「%s」失败：%v", editingNameVal, err)
+			uiSt.mu.Unlock()
+			st.loadAgentConf(st.agentConfWriteOptions().ProjectDir)
+			st.invalidate()
+			return
+		}
+	}
+
+	uiSt.mu.Lock()
+	uiSt.isFormOpen = false
+	uiSt.formError = ""
+	uiSt.editingServer = ""
+	uiSt.editingScope = ""
+	uiSt.nameInput = ""
+	uiSt.transportInput = ""
+	uiSt.commandInput = ""
+	uiSt.argsInput = ""
+	uiSt.urlInput = ""
+	uiSt.envInput = ""
+	uiSt.headersInput = ""
+	uiSt.editBaseName = ""
+	uiSt.editBaseTransport = ""
+	uiSt.editBaseCommand = ""
+	uiSt.editBaseArgs = ""
+	uiSt.editBaseURL = ""
+	uiSt.editBaseEnv = ""
+	uiSt.editBaseHeaders = ""
+	uiSt.mu.Unlock()
+	st.markSaved()
+	if editingNameVal == "" {
+		closeSettingsSheet(st)
+	}
+	st.loadAgentConf(st.agentConfWriteOptions().ProjectDir)
+}
+
+// renderMCPServerRow 渲染单条 MCP 服务详情卡片内容：顶部三个总开关、新会话默认启用、状态徽标与操作。
 func renderMCPServerRow(
 	c *ui.Context,
 	st *SettingsState,
@@ -439,10 +459,92 @@ func renderMCPServerRow(
 	uiSt.mu.Lock()
 	serverKey := mcp.EndpointKey(srvVal.Agent, srvVal.Scope, srvVal.Name)
 	isExpanded := uiSt.expandedServers[serverKey]
-	tools, toolsProbed := uiSt.toolsCache[serverKey]
-	isLoadingTools := uiSt.toolsLoading[serverKey]
-	toolsErr := uiSt.toolsErr[serverKey]
+	tools := uiSt.toolsCache[serverKey]
+	disabledFlags := uiSt.disabledTools[srvVal.Name]
+	autoApproveFlags := uiSt.autoApproveTools[srvVal.Name]
 	uiSt.mu.Unlock()
+
+	if !srvVal.ReadOnly {
+		allToolsAvailable := len(tools) > 0
+		allApprove := len(tools) > 0
+		toolNames := make([]string, 0, len(tools))
+		for _, t := range tools {
+			toolNames = append(toolNames, t.Name)
+			if disabledFlags[t.Name] {
+				allToolsAvailable = false
+			}
+			if !autoApproveFlags[t.Name] {
+				allApprove = false
+			}
+		}
+
+		SettingRow(c, mcpKey+"-row-enabled", "启用", func() {
+			enabled := !srvVal.Disabled
+			toggleFunc(
+				func(*SettingsState) (bool, bool) { return enabled, false },
+				func(st *SettingsState, newEnabled bool) {
+					// 启停写盘与列表扫描同源，避免切项目后改到另一个项目（J-07）。
+					opts := st.agentConfWriteOptions()
+					// 写盘失败时保持内存里的旧状态：先乐观改内存会让界面谎报成功，
+					// 而开关下次重建又弹回去，用户看不出到底存了什么。
+					if err := agentconf.SetMCPServerEnabledFor(opts, srvVal, newEnabled); err != nil {
+						st.mu.Lock()
+						st.errorMessage = fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srvVal.Name, err)
+						st.mu.Unlock()
+						st.invalidate()
+						return
+					}
+					st.mu.Lock()
+					st.errorMessage = ""
+					for idx := range st.mcpServers {
+						item := &st.mcpServers[idx]
+						if item.Name != srvVal.Name {
+							continue
+						}
+						if newEnabled && item.Agent == srvVal.Agent && item.Source == srvVal.Source {
+							// 启用即视为信任这一条仓库内命令，清掉未信任标记与探测错误。
+							item.Untrusted = false
+						}
+						// 其它来源的同名仓库服务没有被信任，仍保持禁用。
+						item.Disabled = !newEnabled || item.Untrusted
+					}
+					st.mu.Unlock()
+					if newEnabled {
+						resetMCPToolProbe(uiSt, serverKey)
+					}
+					st.invalidate()
+				},
+			).render(c, st, setting{ID: mcpKey + "-sw", Title: "启用 " + srvVal.Name})
+		})
+		renderSettingsDivider(c, mcpKey+"-div-enabled")
+
+		SettingRow(c, mcpKey+"-row-tools-available", "全部工具可用", func() {
+			toggleFunc(
+				func(*SettingsState) (bool, bool) { return allToolsAvailable, false },
+				func(st *SettingsState, on bool) {
+					setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, !on)
+					st.invalidate()
+				},
+			).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
+				render(c, st, setting{ID: mcpKey + "-batch-available", Title: "全部工具可用"})
+		})
+		renderSettingsDivider(c, mcpKey+"-div-tools-available")
+
+		SettingRow(c, mcpKey+"-row-tools-approve", "全部免审批", func() {
+			toggleFunc(
+				func(*SettingsState) (bool, bool) { return allApprove, false },
+				func(st *SettingsState, on bool) {
+					setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
+					st.invalidate()
+				},
+			).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
+				render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
+		})
+		renderSettingsDivider(c, mcpKey+"-div-tools-approve")
+
+		renderMCPNewThreadDefaultsBody(c, st)
+		renderSettingsDivider(c, mcpKey+"-div-newthread")
+	}
 
 	// 授权 ID 与登录状态都从缓存读取：AuthID 需要 sha256，登录状态需要访问钥匙串，
 	// 两者都不允许直接出现在逐帧渲染路径上。
@@ -478,17 +580,11 @@ func renderMCPServerRow(
 				userCode, verifyURI, hasDevice = authInspector.MCPDeviceCode(serverID)
 			}
 
-			// 首行：名称 + 作用域徽标 + 传输方式徽标 + 授权状态/按钮 + 工具展开 + 操作 + 启停开关
+			// 徽标与操作行：作用域徽标 + 传输方式徽标 + 授权状态/按钮 + 工具展开 + 编辑
 			ui.Row(c.Key(mcpKey + "-header")).
 				AlignItems(ui.Center).
 				Gap(Space3).
 				Children(func() {
-					ui.Text(c, srvVal.Name).
-						FontSize(uiFont(TypeProse)).
-						FontWeight(500).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine()
-
 					scopeLabel := "全局"
 					if strings.EqualFold(srvVal.Scope, "project") {
 						scopeLabel = "项目"
@@ -552,7 +648,8 @@ func renderMCPServerRow(
 									if authInspector != nil {
 										cancelBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-auth-cancel")).
 											Radius(RadiusSM).
-											Padding(Space1, Space3)
+											Padding(Space1, Space3).
+											Cursor(ui.CursorPointer)
 										{
 											scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
 											cancelBtn.Scale(scale, scale)
@@ -560,6 +657,7 @@ func renderMCPServerRow(
 										if cancelBtn.Hovered() {
 											cancelBtn.Background(ThemeHover(c))
 										}
+										focusRing(c, cancelBtn)
 										if cancelBtn.Clicked() {
 											authInspector.MCPCancelSignIn(serverID)
 											st.invalidate()
@@ -573,7 +671,8 @@ func renderMCPServerRow(
 								} else if !signedIn {
 									btn := ui.ButtonBase(c.Key(mcpKey+"-btn-signin")).
 										Radius(RadiusSM).
-										Padding(Space1, Space3)
+										Padding(Space1, Space3).
+										Cursor(ui.CursorPointer)
 									{
 										scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 										btn.Scale(scale, scale)
@@ -581,6 +680,7 @@ func renderMCPServerRow(
 									if btn.Hovered() {
 										btn.Background(ThemeHover(c))
 									}
+									focusRing(c, btn)
 									if btn.Clicked() {
 										st.startMCPAuth(serverID, func() error {
 											return client.MCPSignInWithAuth(context.Background(), serverID, srvVal.URL, srvVal.Auth)
@@ -594,7 +694,8 @@ func renderMCPServerRow(
 								} else {
 									reauthBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-reauth")).
 										Radius(RadiusSM).
-										Padding(Space1, Space3)
+										Padding(Space1, Space3).
+										Cursor(ui.CursorPointer)
 									{
 										scale := motionPressScale(c, reauthBtn, "button-press-scale", reauthBtn.Pressed())
 										reauthBtn.Scale(scale, scale)
@@ -602,6 +703,7 @@ func renderMCPServerRow(
 									if reauthBtn.Hovered() {
 										reauthBtn.Background(ThemeHover(c))
 									}
+									focusRing(c, reauthBtn)
 									if reauthBtn.Clicked() {
 										st.startMCPAuth(serverID, func() error {
 											return client.MCPSignInWithAuth(context.Background(), serverID, srvVal.URL, srvVal.Auth)
@@ -615,7 +717,8 @@ func renderMCPServerRow(
 
 									signoutBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-signout")).
 										Radius(RadiusSM).
-										Padding(Space1, Space3)
+										Padding(Space1, Space3).
+										Cursor(ui.CursorPointer)
 									{
 										scale := motionPressScale(c, signoutBtn, "button-press-scale", signoutBtn.Pressed())
 										signoutBtn.Scale(scale, scale)
@@ -623,6 +726,7 @@ func renderMCPServerRow(
 									if signoutBtn.Hovered() {
 										signoutBtn.Background(ThemeHover(c))
 									}
+									focusRing(c, signoutBtn)
 									if signoutBtn.Clicked() {
 										st.startMCPAuth(serverID, func() error {
 											return client.MCPSignOut(serverID)
@@ -644,7 +748,8 @@ func renderMCPServerRow(
 					// 工具列表展开/折叠按钮
 					toolsToggleBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-tools")).
 						Radius(RadiusSM).
-						Padding(Space1, Space3)
+						Padding(Space1, Space3).
+						Cursor(ui.CursorPointer)
 					{
 						scale := motionPressScale(c, toolsToggleBtn, "button-press-scale", toolsToggleBtn.Pressed())
 						toolsToggleBtn.Scale(scale, scale)
@@ -652,6 +757,7 @@ func renderMCPServerRow(
 					if toolsToggleBtn.Hovered() {
 						toolsToggleBtn.Background(ThemeHover(c))
 					}
+					focusRing(c, toolsToggleBtn)
 					if toolsToggleBtn.Clicked() {
 						uiSt.mu.Lock()
 						newExp := !uiSt.expandedServers[serverKey]
@@ -677,7 +783,8 @@ func renderMCPServerRow(
 					if isCustom && !srvVal.ReadOnly {
 						editBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-edit")).
 							Radius(RadiusSM).
-							Padding(Space1, Space3)
+							Padding(Space1, Space3).
+							Cursor(ui.CursorPointer)
 						{
 							scale := motionPressScale(c, editBtn, "button-press-scale", editBtn.Pressed())
 							editBtn.Scale(scale, scale)
@@ -685,6 +792,7 @@ func renderMCPServerRow(
 						if editBtn.Hovered() {
 							editBtn.Background(ThemeHover(c))
 						}
+						focusRing(c, editBtn)
 						if editBtn.Clicked() {
 							// 列表扫描不带凭据，编辑前按 Agent/Scope/Name 重新读一次带凭据的完整配置，
 							// 否则敏感环境变量与 Authorization 头回填为空，保存时会把凭据库里的值覆盖掉。
@@ -744,73 +852,6 @@ func renderMCPServerRow(
 								TextColor(ThemeSecondaryText(c))
 						})
 					}
-					if isCustom && !srvVal.ReadOnly || agentconf.CanDeleteExternalMCPServer(st.agentConfWriteOptions(), srvVal) {
-						delBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-delete")).
-							Radius(RadiusSM).
-							Padding(Space1, Space3)
-						{
-							scale := motionPressScale(c, delBtn, "button-press-scale", delBtn.Pressed())
-							delBtn.Scale(scale, scale)
-						}
-						if delBtn.Hovered() {
-							delBtn.Background(ThemeHover(c))
-						}
-						if delBtn.Clicked() {
-							// 删除会改写来源配置，先保存完整目标并弹确认框。
-							deleteOpts := st.agentConfWriteOptions()
-							uiSt.mu.Lock()
-							uiSt.deleteConfirmTarget = srvVal
-							uiSt.deleteConfirmOptions = deleteOpts
-							uiSt.mu.Unlock()
-							st.invalidate()
-						}
-						delBtn.Children(func() {
-							ui.Text(c, "删除").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeDanger(c))
-						})
-					}
-
-					// 启用/停用开关；只读来源不可停用，不渲染开关（开关是本行最后一个控件，直接返回）。
-					if srvVal.ReadOnly {
-						return
-					}
-					enabled := !srvVal.Disabled
-					toggleFunc(
-						func(*SettingsState) (bool, bool) { return enabled, false },
-						func(st *SettingsState, newEnabled bool) {
-							// 启停写盘与列表扫描同源，避免切项目后改到另一个项目（J-07）。
-							opts := st.agentConfWriteOptions()
-							// 写盘失败时保持内存里的旧状态：先乐观改内存会让界面谎报成功，
-							// 而开关下次重建又弹回去，用户看不出到底存了什么。
-							if err := agentconf.SetMCPServerEnabledFor(opts, srvVal, newEnabled); err != nil {
-								st.mu.Lock()
-								st.errorMessage = fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srvVal.Name, err)
-								st.mu.Unlock()
-								st.invalidate()
-								return
-							}
-							st.mu.Lock()
-							st.errorMessage = ""
-							for idx := range st.mcpServers {
-								item := &st.mcpServers[idx]
-								if item.Name != srvVal.Name {
-									continue
-								}
-								if newEnabled && item.Agent == srvVal.Agent && item.Source == srvVal.Source {
-									// 启用即视为信任这一条仓库内命令，清掉未信任标记与探测错误。
-									item.Untrusted = false
-								}
-								// 其它来源的同名仓库服务没有被信任，仍保持禁用。
-								item.Disabled = !newEnabled || item.Untrusted
-							}
-							st.mu.Unlock()
-							if newEnabled {
-								resetMCPToolProbe(uiSt, serverKey)
-							}
-							st.invalidate()
-						},
-					).render(c, st, setting{ID: mcpKey + "-sw", Title: "启用 " + srvVal.Name})
 				})
 
 			// 详情展示（stdio 命令参数或远程 URL）
@@ -915,191 +956,149 @@ func renderMCPServerRow(
 						TextColor(ThemeDanger(c))
 				}
 			}
-
-			// 展开的工具列表面板
-			if isExpanded {
-				ui.Column(c.Key(mcpKey+"-tools-panel")).
-					Padding(settingsRowPadY, settingsRowPadX).
-					Margin(Space1, 0, 0, 0).
-					Radius(RadiusSM).
-					Gap(Space1).
-					Background(ThemeOverlay(c, 0.04)).
-					Children(func() {
-						if isLoadingTools {
-							ui.Text(c, "正在探测工具列表…").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
-						} else if len(tools) > 0 {
-							// 工具开关状态一次性取出，避免每个工具每帧加两次锁；
-							// 批量开关的初始值也要据此推导，所以提前到标题行之前。
-							uiSt.mu.Lock()
-							disabledFlags := uiSt.disabledTools[srvVal.Name]
-							autoApproveFlags := uiSt.autoApproveTools[srvVal.Name]
-							uiSt.mu.Unlock()
-
-							// 批量开关的初值由当前状态推导：全部工具都已开关才显示为开。
-							allDisabled := true
-							allApprove := true
-							toolNames := make([]string, 0, len(tools))
-							for _, t := range tools {
-								toolNames = append(toolNames, t.Name)
-								if !disabledFlags[t.Name] {
-									allDisabled = false
-								}
-								if !autoApproveFlags[t.Name] {
-									allApprove = false
-								}
-							}
-
-							ui.Row(c.Key(mcpKey + "-tools-header-row")).
-								FillWidth().
-								Gap(Space3).
-								AlignItems(ui.Center).
-								Children(func() {
-									ui.Text(c, fmt.Sprintf("支持的工具 (%d):", len(tools))).
-										FontSize(uiFont(TypeFootnote)).
-										FontWeight(500).
-										TextColor(ThemePrimaryText(c))
-									ui.Spacer(c)
-
-									if srvVal.ReadOnly {
-										return
-									}
-									mcpToolColumn(c, mcpKey+"-col-disable", func() {
-										ui.Text(c, "禁用").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c)).
-											Tooltip(settingHint("mcp-tool-disable"))
-									})
-									mcpToolColumn(c, mcpKey+"-col-approve", func() {
-										ui.Text(c, "免审批").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c)).
-											Tooltip(settingHint("mcp-tool-approve"))
-									})
-								})
-
-							if !srvVal.ReadOnly {
-								ui.Row(c.Key(mcpKey + "-tools-batch-row")).
-									FillWidth().
-									Gap(Space3).
-									AlignItems(ui.Center).
-									Children(func() {
-										ui.Text(c, "全部").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeSecondaryText(c))
-										ui.Spacer(c)
-
-										mcpToolColumn(c, mcpKey+"-batch-disable-col", func() {
-											toggleFunc(
-												func(*SettingsState) (bool, bool) { return allDisabled, false },
-												func(st *SettingsState, on bool) {
-													setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, on)
-													st.invalidate()
-												},
-											).render(c, st, setting{ID: mcpKey + "-batch-disable", Title: "全部禁用"})
-										}).Tooltip(settingHint("mcp-tools-disable-all"))
-
-										mcpToolColumn(c, mcpKey+"-batch-approve-col", func() {
-											toggleFunc(
-												func(*SettingsState) (bool, bool) { return allApprove, false },
-												func(st *SettingsState, on bool) {
-													setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
-													st.invalidate()
-												},
-											).render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
-										}).Tooltip(settingHint("mcp-tools-approve-all"))
-									})
-							}
-
-							for tIdx, t := range tools {
-								toolKey := mcpKey + "-tool-" + strconv.Itoa(tIdx)
-								toolDisabled := disabledFlags[t.Name]
-								toolAutoApprove := autoApproveFlags[t.Name]
-								ui.Row(c.Key(toolKey)).
-									FillWidth().
-									Gap(Space3).
-									AlignItems(ui.Center).
-									Children(func() {
-										ui.Text(c, "• "+t.Name).
-											FontSize(uiFont(TypeFootnote)).
-											FontWeight(500).
-											TextColor(ThemePrimaryText(c))
-										if t.Description != "" {
-											ui.Text(c, "- "+t.Description).
-												FontSize(uiFont(TypeFootnote)).
-												TextColor(ThemeSecondaryText(c)).
-												SingleLine()
-										}
-
-										ui.Spacer(c)
-
-										if srvVal.ReadOnly {
-											return
-										}
-										mcpToolColumn(c, toolKey+"-disable-col", func() {
-											toggleFunc(
-												func(*SettingsState) (bool, bool) { return toolDisabled, false },
-												func(st *SettingsState, on bool) {
-													setMCPToolFlag(uiSt, uiSt.disabledTools, srvVal.Name, t.Name, on)
-													st.invalidate()
-												},
-											).render(c, st, setting{ID: toolKey + "-disable", Title: "禁用 " + t.Name})
-										})
-
-										mcpToolColumn(c, toolKey+"-approve-col", func() {
-											toggleFunc(
-												func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
-												func(st *SettingsState, on bool) {
-													setMCPToolFlag(uiSt, uiSt.autoApproveTools, srvVal.Name, t.Name, on)
-													st.invalidate()
-												},
-											).render(c, st, setting{ID: toolKey + "-approve", Title: "免审批 " + t.Name})
-										})
-									})
-							}
-						} else if toolsErr != "" {
-							// 探测失败（含认证失败、命令跑不起来）不再笼统写成「连接后可见」，
-							// 否则用户不知道是自己没登录还是服务本身坏了。
-							ui.Text(c, "探测失败："+toolsErr).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeDanger(c))
-							ui.Row(c.Key(mcpKey + "-tools-retry-row")).
-								Children(func() {
-									retryBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-tools-retry")).
-										Label("重新检测").
-										Radius(RadiusSM).
-										Padding(Space1, Space3)
-									{
-										scale := motionPressScale(c, retryBtn, "button-press-scale", retryBtn.Pressed())
-										retryBtn.Scale(scale, scale)
-									}
-									if retryBtn.Hovered() {
-										retryBtn.Background(ThemeHover(c))
-									}
-									if retryBtn.Clicked() {
-										resetMCPToolProbe(uiSt, serverKey)
-										startMCPToolProbe(st, uiSt, srvVal)
-										st.invalidate()
-									}
-									retryBtn.Children(func() {
-										ui.Text(c, "重新检测").
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemeAccent(c))
-									})
-								})
-						} else if toolsProbed {
-							ui.Text(c, "无可用工具").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
-						} else {
-							ui.Text(c, "连接后可见").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
-						}
-					})
-			}
 		})
+}
+
+// renderMCPServerToolsSection 在详情卡片下方渲染工具明细列表。
+func renderMCPServerToolsSection(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState, srv agentconf.MCPServer, index int) {
+	srvVal := srv
+	mcpKey := "mcp-" + srvVal.Agent + "-" + srvVal.Scope + "-" + srvVal.Name + "-" + strconv.Itoa(index)
+
+	uiSt.mu.Lock()
+	serverKey := mcp.EndpointKey(srvVal.Agent, srvVal.Scope, srvVal.Name)
+	tools, toolsProbed := uiSt.toolsCache[serverKey]
+	isLoadingTools := uiSt.toolsLoading[serverKey]
+	toolsErr := uiSt.toolsErr[serverKey]
+	uiSt.mu.Unlock()
+
+	renderSettingsSection(c, "sec-mcp-tools", "", func() {
+		ui.Column(c.Key(mcpKey+"-tools-panel")).
+			Padding(settingsRowPadY, settingsRowPadX).
+			Gap(Space1).
+			Children(func() {
+				if isLoadingTools {
+					LoadingIndicator(c, mcpKey+"-tools-loading", "正在探测工具列表…", IconSM)
+				} else if len(tools) > 0 {
+					uiSt.mu.Lock()
+					disabledFlags := uiSt.disabledTools[srvVal.Name]
+					autoApproveFlags := uiSt.autoApproveTools[srvVal.Name]
+					uiSt.mu.Unlock()
+
+					ui.Row(c.Key(mcpKey + "-tools-header-row")).
+						FillWidth().
+						Gap(Space3).
+						AlignItems(ui.Center).
+						Children(func() {
+							ui.Text(c, fmt.Sprintf("支持的工具 (%d):", len(tools))).
+								FontSize(uiFont(TypeFootnote)).
+								FontWeight(500).
+								TextColor(ThemePrimaryText(c))
+							ui.Spacer(c)
+
+							if srvVal.ReadOnly {
+								return
+							}
+							mcpToolColumn(c, mcpKey+"-col-disable", func() {
+								ui.Text(c, "禁用").
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemeSecondaryText(c)).
+									Tooltip(settingHint("mcp-tool-disable"))
+							})
+							mcpToolColumn(c, mcpKey+"-col-approve", func() {
+								ui.Text(c, "免审批").
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemeSecondaryText(c)).
+									Tooltip(settingHint("mcp-tool-approve"))
+							})
+						})
+
+					for tIdx, t := range tools {
+						toolKey := mcpKey + "-tool-" + strconv.Itoa(tIdx)
+						toolDisabled := disabledFlags[t.Name]
+						toolAutoApprove := autoApproveFlags[t.Name]
+						ui.Row(c.Key(toolKey)).
+							FillWidth().
+							Gap(Space3).
+							AlignItems(ui.Center).
+							Children(func() {
+								ui.Text(c, "• "+t.Name).
+									FontSize(uiFont(TypeFootnote)).
+									FontWeight(500).
+									TextColor(ThemePrimaryText(c))
+								if t.Description != "" {
+									ui.Text(c, "- "+t.Description).
+										FontSize(uiFont(TypeFootnote)).
+										TextColor(ThemeSecondaryText(c)).
+										SingleLine()
+								}
+
+								ui.Spacer(c)
+
+								if srvVal.ReadOnly {
+									return
+								}
+								mcpToolColumn(c, toolKey+"-disable-col", func() {
+									toggleFunc(
+										func(*SettingsState) (bool, bool) { return toolDisabled, false },
+										func(st *SettingsState, on bool) {
+											setMCPToolFlag(uiSt, uiSt.disabledTools, srvVal.Name, t.Name, on)
+											st.invalidate()
+										},
+									).render(c, st, setting{ID: toolKey + "-disable", Title: "禁用 " + t.Name})
+								})
+
+								mcpToolColumn(c, toolKey+"-approve-col", func() {
+									toggleFunc(
+										func(*SettingsState) (bool, bool) { return toolAutoApprove, false },
+										func(st *SettingsState, on bool) {
+											setMCPToolFlag(uiSt, uiSt.autoApproveTools, srvVal.Name, t.Name, on)
+											st.invalidate()
+										},
+									).render(c, st, setting{ID: toolKey + "-approve", Title: "免审批 " + t.Name})
+								})
+							})
+					}
+				} else if toolsErr != "" {
+					ui.Text(c, "探测失败："+toolsErr).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeDanger(c))
+					ui.Row(c.Key(mcpKey + "-tools-retry-row")).
+						Children(func() {
+							retryBtn := ui.ButtonBase(c.Key(mcpKey+"-btn-tools-retry")).
+								Label("重新检测").
+								Radius(RadiusSM).
+								Padding(Space1, Space3).
+								Cursor(ui.CursorPointer)
+							{
+								scale := motionPressScale(c, retryBtn, "button-press-scale", retryBtn.Pressed())
+								retryBtn.Scale(scale, scale)
+							}
+							if retryBtn.Hovered() {
+								retryBtn.Background(ThemeHover(c))
+							}
+							focusRing(c, retryBtn)
+							if retryBtn.Clicked() {
+								resetMCPToolProbe(uiSt, serverKey)
+								startMCPToolProbe(st, uiSt, srvVal)
+								st.invalidate()
+							}
+							retryBtn.Children(func() {
+								ui.Text(c, "重新检测").
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemeAccent(c))
+							})
+						})
+				} else if toolsProbed {
+					ui.Text(c, "无可用工具").
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c))
+				} else {
+					ui.Text(c, "连接后可见").
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c))
+				}
+			})
+	})
 }
 
 const mcpToolColWidth = float32(52)

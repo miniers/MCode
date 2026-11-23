@@ -59,7 +59,7 @@ func TestSettings_MCPAddAndDelete(t *testing.T) {
 	}
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("添加 MCP 服务") && tt.HasText("保存")
+		return tt.HasText("服务名称") && tt.HasText("保存")
 	})
 
 	// 2. 填写表单
@@ -81,12 +81,12 @@ func TestSettings_MCPAddAndDelete(t *testing.T) {
 	// 4. 服务出现在列表后打开详情，工具默认展开。
 	openMCPDetail(t, tt, "my-test-mcp")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("删除") && (tt.HasText("连接后可见") || tt.HasText("收起工具") || tt.HasText("探测失败"))
+		return tt.HasText("删除服务") && (tt.HasText("连接后可见") || tt.HasText("收起工具") || tt.HasText("探测失败"))
 	})
 
 	// 6. 点击删除：删除会连凭据一起清掉，必须先出现二次确认框
-	if err := tt.Click("删除"); err != nil {
-		t.Fatalf("click '删除' failed: %v", err)
+	if err := tt.Click("删除服务"); err != nil {
+		t.Fatalf("click '删除服务' failed: %v", err)
 	}
 
 	waitFor(t, tt, func() bool {
@@ -137,10 +137,10 @@ func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
 		t.Fatalf("click '扩展' failed: %v", err)
 	}
 	openMCPDetail(t, tt, "confirm-mcp")
-	waitFor(t, tt, func() bool { return tt.HasText("删除") })
+	waitFor(t, tt, func() bool { return tt.HasText("删除服务") })
 
-	if err := tt.Click("删除"); err != nil {
-		t.Fatalf("click '删除' failed: %v", err)
+	if err := tt.Click("删除服务"); err != nil {
+		t.Fatalf("click '删除服务' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		return tt.HasText("将删除 confirm-mcp（全局）的配置与已保存的凭据")
@@ -155,8 +155,8 @@ func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
 	})
 
 	// 再点一次删除并确认，服务消失。
-	if err := tt.Click("删除"); err != nil {
-		t.Fatalf("click '删除' failed: %v", err)
+	if err := tt.Click("删除服务"); err != nil {
+		t.Fatalf("click '删除服务' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("确认删除 MCP 服务") })
 	if err := tt.Click("确认删除 MCP 服务"); err != nil {
@@ -177,9 +177,9 @@ func TestMCPServerDeleteModalRenderedOnce(t *testing.T) {
 
 	tt := newThreadDefaultsTestTester(t, dataDir)
 	openMCPDetail(t, tt, "single-modal-mcp")
-	waitFor(t, tt, func() bool { return tt.HasText("删除") })
-	if err := tt.Click("删除"); err != nil {
-		t.Fatalf("click '删除' failed: %v", err)
+	waitFor(t, tt, func() bool { return tt.HasText("删除服务") })
+	if err := tt.Click("删除服务"); err != nil {
+		t.Fatalf("click '删除服务' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("取消删除 MCP 服务") })
 	count := 0
@@ -374,7 +374,7 @@ func TestMCPServerRowReadOnly(t *testing.T) {
 	if _, ok := tt.Find("编辑"); ok {
 		t.Fatal("只读服务不应渲染编辑按钮")
 	}
-	if _, ok := tt.Find("删除"); ok {
+	if _, ok := tt.Find("删除服务"); ok {
 		t.Fatal("只读服务不应渲染删除按钮")
 	}
 }
@@ -536,7 +536,7 @@ func TestMCPToolBatchSwitchWritesPolicy(t *testing.T) {
 	tt := ui.NewTester(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1000, 4000)
 	openMCPPage(t, tt)
 	openMCPDetail(t, tt, "batch-mcp")
-	waitFor(t, tt, func() bool { return tt.HasText("支持的工具 (2):") && tt.HasText("切换全部禁用") })
+	waitFor(t, tt, func() bool { return tt.HasText("支持的工具 (2):") && tt.HasText("切换全部工具可用") })
 
 	policyPath := agentconf.MCPToolPolicyPath(dataDir)
 	// 单个工具：只禁用 tool-a。
@@ -548,22 +548,22 @@ func TestMCPToolBatchSwitchWritesPolicy(t *testing.T) {
 		return err == nil && policy.IsDisabled("batch-mcp", "tool-a") && !policy.IsDisabled("batch-mcp", "tool-b")
 	})
 
-	// 批量禁用：两个工具都写盘。
-	if err := tt.Click("切换全部禁用"); err != nil {
-		t.Fatalf("click '切换全部禁用' failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		policy, err := agentconf.LoadMCPToolPolicy(policyPath)
-		return err == nil && policy.IsDisabled("batch-mcp", "tool-a") && policy.IsDisabled("batch-mcp", "tool-b")
-	})
-
-	// 再点一次批量开关：禁用记录全部清除。
-	if err := tt.Click("切换全部禁用"); err != nil {
-		t.Fatalf("click '切换全部禁用' failed: %v", err)
+	// 批量启用（全部工具可用）：两个工具都清除禁用记录。
+	if err := tt.Click("切换全部工具可用"); err != nil {
+		t.Fatalf("click '切换全部工具可用' failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		policy, err := agentconf.LoadMCPToolPolicy(policyPath)
 		return err == nil && !policy.IsDisabled("batch-mcp", "tool-a") && !policy.IsDisabled("batch-mcp", "tool-b")
+	})
+
+	// 再点一次批量开关：全部工具都禁用。
+	if err := tt.Click("切换全部工具可用"); err != nil {
+		t.Fatalf("click '切换全部工具可用' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		policy, err := agentconf.LoadMCPToolPolicy(policyPath)
+		return err == nil && policy.IsDisabled("batch-mcp", "tool-a") && policy.IsDisabled("batch-mcp", "tool-b")
 	})
 }
 
@@ -577,11 +577,11 @@ func TestMCPExternalServerDeleteUI(t *testing.T) {
 	}
 	tt := newThreadDefaultsTestTester(t, dataDir)
 	openMCPDetail(t, tt, "claude-delete")
-	waitFor(t, tt, func() bool { _, ok := tt.Find("删除"); return ok })
+	waitFor(t, tt, func() bool { _, ok := tt.Find("删除服务"); return ok })
 	if _, ok := tt.Find("编辑"); ok {
 		t.Fatal("Claude 来源不应显示编辑")
 	}
-	if err := tt.Click("删除"); err != nil {
+	if err := tt.Click("删除服务"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
@@ -622,7 +622,7 @@ func TestMCPPluginServerCannotDeleteUI(t *testing.T) {
 	tt := newThreadDefaultsTestTester(t, dataDir)
 	openMCPDetail(t, tt, "plugin_p_remote")
 	waitFor(t, tt, func() bool { return tt.HasText("plugin_p_remote") && tt.HasText("收起工具") })
-	if _, ok := tt.Find("删除"); ok {
+	if _, ok := tt.Find("删除服务"); ok {
 		t.Fatal("插件来源不应显示删除按钮")
 	}
 }

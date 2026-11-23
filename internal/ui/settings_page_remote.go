@@ -376,6 +376,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 			Padding(Space1, Space4).
 			Background(ThemeAccent(c).Alpha(0.12))
 		stylePairingButton(c, btn, busy)
+		focusRing(c, btn)
 		if btn.Clicked() && !busy {
 			loadRemotePairing(st, false, false)
 		}
@@ -467,7 +468,13 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 								}
 								if opt.URL == "" {
 									btn.Disabled(true)
+								} else {
+									btn.Cursor(ui.CursorPointer)
+									if !selected && btn.Hovered() {
+										btn.Background(ThemeSelected(c))
+									}
 								}
+								focusRing(c, btn)
 								if btn.Clicked() && opt.URL != "" && !selected {
 									setRemotePairingTarget(st, pairing, opt.Value)
 								}
@@ -507,6 +514,7 @@ func renderRemotePairingBlock(c *ui.Context, st *SettingsState) {
 							Radius(RadiusSM).
 							Background(ThemeHover(c))
 						stylePairingButton(c, btnRefresh, busy)
+						focusRing(c, btnRefresh)
 						if btnRefresh.Clicked() && !busy {
 							st.mu.Lock()
 							st.remote.pairingConfirm = true
@@ -576,9 +584,7 @@ func renderRemoteDevicesBlock(c *ui.Context, st *SettingsState) {
 		ui.Row(c.Key("row-remote-devices-loading")).
 			Padding(settingsRowPadY, settingsRowPadX).
 			Children(func() {
-				ui.Text(c, "正在加载设备…").
-					FontSize(uiFont(TypeBody)).
-					TextColor(ThemeSecondaryText(c))
+				LoadingIndicator(c, "remote-devices-loading-indicator", "正在加载设备…", IconSM)
 			})
 		return
 	}

@@ -96,6 +96,7 @@ func g(c *ui.Context) ui.Color { return ThemeDanger(c) }
 // 注意：popoverCardShadow(...) 是统一的外阴影辅助函数，不是 Shadow 方法调用，不计入本表。
 var shadowBaseline = map[string]int{
 	"controls_button.go":        2, // 焦点环：零模糊 spread 描边，不是投影
+	"controls_toggle.go":        1, // 选中分段控件的微弱投影
 	"elevation.go":              1, // 阴影令牌定义文件，applyElevation 逐层调用
 	"popover.go":                1,
 	"settings_page_swarm.go":    1,

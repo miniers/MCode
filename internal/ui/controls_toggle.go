@@ -53,17 +53,18 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 	if unselected {
 		*selected = -1
 	}
-	track := parts.Track.Padding(Space0).Gap(Space0).Radius(RadiusMD).
-		Background(ThemeOverlay(c, OverlaySubtle))
+	track := parts.Track.Padding(Space0).Gap(Space0).Radius(RadiusSM).
+		Background(ThemeOverlayHover(c))
 	track.Children(func() {
 		for i, segment := range segments {
-			item := parts.Segment(i).Label(segment.Label).Padding(Space1, settingsCompactPadX).Radius(RadiusSM).Disabled(segment.Disabled).Transition(motionFeedback(c))
+			item := parts.Segment(i).Label(segment.Label).Height(ControlSM).Padding(0, settingsCompactPadX).Radius(RadiusXS).Disabled(segment.Disabled).Transition(motionFeedback(c))
 			if fill {
 				item = item.Grow(1)
 			}
 			color := ThemeSecondaryText(c)
-			if i == *selected {
-				item.Background(ThemeSurface(c))
+			selectedItem := i == *selected
+			if selectedItem {
+				item.Background(ThemeSurface(c)).Shadow(0, 1, 2, 0, ui.Color{}.Alpha(0.08))
 				color = ThemePrimaryText(c)
 			} else if item.Hovered() && !segment.Disabled {
 				item.Background(ThemeOverlay(c, OverlayFaint))
@@ -72,11 +73,12 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 			if segment.Disabled {
 				color = ThemeTertiaryText(c)
 			}
-			if item.FocusVisible() {
-				item.Border(1, ThemeAccent(c))
-			}
+			focusRing(c, item)
 			item.Children(func() {
-				ui.Text(c, segment.Label).FontSize(uiFont(TypeBody)).TextColor(color).SingleLine()
+				label := ui.Text(c, segment.Label).FontSize(uiFont(TypeFootnote)).TextColor(color).SingleLine()
+				if selectedItem {
+					label.FontWeight(500)
+				}
 				if segment.Count > 0 {
 					ui.Text(c, strconv.Itoa(segment.Count)).FontSize(uiFont(TypeCaption)).TextColor(color).SingleLine().Transition(motionFeedback(c))
 				}
@@ -105,6 +107,7 @@ func Switch(c *ui.Context, key any, on *bool, label string, onChange func(bool))
 	if active := windowActiveFor(c); !active {
 		switcher = switcher.Background(switchTrackColor(c, active, *on))
 	}
+	focusRing(c, switcher)
 	if switcher.Changed() && onChange != nil {
 		onChange(*on)
 	}

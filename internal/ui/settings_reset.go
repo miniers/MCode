@@ -121,14 +121,34 @@ func renderSettingsResetArea(c *ui.Context, st *SettingsState, page string) {
 		AlignItems(ui.Center).
 		Gap(Space4).
 		Children(func() {
-			Button(c.Key("btn-settings-reset-"+page), ButtonOpts{
-				Text:    "恢复本页默认",
-				Variant: ButtonSecondary,
-				Size:    ControlMD,
-				OnClick: func() {
-					st.resetPendingPage = page
-					st.invalidate()
-				},
+			btn := ui.ButtonBase(c.Key("btn-settings-reset-"+page)).
+				Label("恢复本页默认").
+				Height(ControlMD).
+				PaddingX(Space4).
+				Radius(RadiusSM).
+				Border(Hairline, ThemeBorder(c)).
+				Cursor(ui.CursorPointer)
+			bg := ThemeSurfaceMain(c)
+			if btn.Pressed() {
+				bg = ThemeOverlayPressed(c).Over(bg)
+			} else if btn.Hovered() {
+				bg = ThemeOverlayHover(c).Over(bg)
+			}
+			btn.Background(bg)
+			focusRing(c, btn)
+			{
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+			}
+			if btn.Clicked() {
+				st.resetPendingPage = page
+				st.invalidate()
+			}
+			btn.Children(func() {
+				ui.Text(c, "恢复本页默认").
+					FontSize(uiFont(TypeFootnote)).
+					FontWeight(500).
+					TextColor(ThemePrimaryText(c))
 			})
 		})
 

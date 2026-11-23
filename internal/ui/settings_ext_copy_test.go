@@ -34,6 +34,7 @@ func TestMCPToolRowsNoRepeatedLabels(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(900).Children(func() {
 			renderMCPServerRow(c, st, uiSt, srv, 0, nil, nil, nil, nil, true)
+			renderMCPServerToolsSection(c, st, uiSt, srv, 0)
 		})
 	}, 1000, 1000)
 
@@ -86,6 +87,7 @@ func TestMCPProbedNoToolsShowsEmpty(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Width(900).Children(func() {
 			renderMCPServerRow(c, st, uiSt, srv, 0, nil, nil, nil, nil, true)
+			renderMCPServerToolsSection(c, st, uiSt, srv, 0)
 		})
 	}, 1000, 800)
 
