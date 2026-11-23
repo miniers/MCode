@@ -817,6 +817,52 @@ func swarmFloatPrefs(s *chatState) (autoPops bool, prefW, prefH float32) {
 	return false, 0, 0
 }
 
+// appendKeptOpenClearedBees 把已被 AutoClearFinished 清理、但用户手动打开过的子代理补回浮窗列表。
+func appendKeptOpenClearedBees(s *chatState, leadID string, active []SwarmBee) []SwarmBee {
+	swarmFloatMu.Lock()
+	kept := swarmBeeKeptOpen[leadID]
+	if len(kept) == 0 {
+		swarmFloatMu.Unlock()
+		return active
+	}
+	var missingIDs []string
+	for id, on := range kept {
+		if !on || id == "" {
+			continue
+		}
+		found := false
+		for _, h := range active {
+			if strings.TrimSpace(h.ThreadID) == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingIDs = append(missingIDs, id)
+		}
+	}
+	swarmFloatMu.Unlock()
+	if len(missingIDs) == 0 {
+		return active
+	}
+	if len(missingIDs) > 1 {
+		slices.Sort(missingIDs)
+	}
+	var extra []SwarmBee
+	for _, id := range missingIDs {
+		if bee, ok := findBeeForWindow(s, id); ok {
+			extra = append(extra, bee)
+		}
+	}
+	if len(extra) == 0 {
+		return active
+	}
+	merged := make([]SwarmBee, 0, len(active)+len(extra))
+	merged = append(merged, active...)
+	merged = append(merged, extra...)
+	return merged
+}
+
 // swarmFloatFrameFor 由窗口尺寸、侧边栏与右侧分栏状态、面板状态算出本帧的面板场景；
 // 主区宽度与聊天区共用 chatAreaWidth 的口径（左右分栏都扣掉），
 // 主聊天区与面板渲染各调用一次，结果只取决于这些输入，两处自然一致。
@@ -844,7 +890,7 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 	}
 	// 已经自动收起的子线程不再出现在浮窗里；全部收起时按“没有子代理”处理，浮窗随之隐藏。
 	// 子线程列表直接读派生视图，不再每帧拷贝整份 SwarmState 再重新过滤一遍。
-	bees := swarmVisibleBees(leadID, view.active)
+	bees := swarmVisibleBees(leadID, appendKeptOpenClearedBees(s, leadID, view.active))
 	forced := settleSwarmFloatForced(leadID, len(bees))
 	pending := settleSwarmFloatPending(s, leadID, len(bees))
 	if len(bees) == 0 && !forced && !pending {

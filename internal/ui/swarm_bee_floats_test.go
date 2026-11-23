@@ -1472,3 +1472,69 @@ func TestSwarmPanelStripMergedSwitcher(t *testing.T) {
 		t.Fatal("ReduceMotion 开启时状态切换不应继续请求下一帧")
 	}
 }
+
+// TestSwarmFloatShowsClearedKeptOpenBee 验证已被清理出 Bees 但通过 openSwarmFloatForBee 打开的子代理能在浮窗显示。
+func TestSwarmFloatShowsClearedKeptOpenBee(t *testing.T) {
+	const leadID = "lead-cleared-kept-open"
+	now := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+
+	s := newChatState(NewFakeClient())
+	s.mu.Lock()
+	s.selectedThreadID = leadID
+	s.threads = []Thread{
+		{ID: leadID, Title: "Lead"},
+		{ID: "bee-cleared", ParentThreadID: leadID, Title: "Dune", IsHelper: true, UpdatedAt: now},
+	}
+	s.mu.Unlock()
+
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.loadedFor = leadID
+	hp.setStateLocked(SwarmState{
+		LeadThreadID: leadID,
+		Available:    true,
+		Enabled:      true,
+		Bees:         nil,
+	})
+	swarmPanelMu.Unlock()
+
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		s.close()
+		swarmFloatMu.Lock()
+		delete(swarmFloatPanelDismissed, leadID)
+		delete(swarmFloatDismissedBees, leadID)
+		delete(swarmFloatForced, leadID)
+		delete(swarmFloatForcedHadBees, leadID)
+		delete(swarmSelectedBeeID, leadID)
+		delete(swarmBeeKeptOpen, leadID)
+		delete(swarmBeeDoneSince, leadID)
+		delete(swarmBeeAutoHideHandled, leadID)
+		delete(swarmBeeSeenActive, leadID)
+		delete(swarmPulseTime, leadID+"|bee-cleared")
+		swarmFloatMu.Unlock()
+	})
+
+	openSwarmFloatForBee(leadID, "bee-cleared")
+
+	var frame swarmFloatFrame
+	tt := ui.NewTester(func(c *ui.Context) {
+		frame = swarmFloatFrameFor(c, s)
+		renderSwarmBeeFloats(c, s)
+	}, 1600, 900)
+	tt.Frame()
+
+	found := false
+	for _, b := range frame.bees {
+		if b.ThreadID == "bee-cleared" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("浮窗帧应包含已清理但手动打开的子代理 bee-cleared，got=%+v", frame.bees)
+	}
+	if !tt.HasText("Dune") {
+		t.Fatalf("浮窗渲染应显示子线程名 Dune，texts=%v", tt.Texts())
+	}
+}

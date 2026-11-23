@@ -3386,23 +3386,6 @@ func matchSwarmReportBee(s *chatState, hp *swarmPanelState, e swarmReportEntry) 
 	return nil
 }
 
-func swarmBeeInActiveState(hp *swarmPanelState, selectedID, beeThreadID string) bool {
-	if hp == nil || beeThreadID == "" {
-		return false
-	}
-	swarmPanelMu.Lock()
-	defer swarmPanelMu.Unlock()
-	if hp.loadedFor != selectedID {
-		return false
-	}
-	for _, h := range hp.state.Bees {
-		if strings.TrimSpace(h.ThreadID) == beeThreadID {
-			return true
-		}
-	}
-	return false
-}
-
 const (
 	swarmReportPopoverAvatarSize   = ControlMD
 	swarmReportPopoverHeaderIndent = swarmReportPopoverAvatarSize + Space3
@@ -3739,29 +3722,20 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 		}
 		renderActions = func() {
 			if beeThreadID != "" {
-				inBees := swarmBeeInActiveState(hp, selectedID, beeThreadID)
-				floatTooltip := "打开子代理浮窗"
-				if !inBees {
-					floatTooltip = "在独立窗口中打开"
-				}
 				Button(c, ButtonOpts{
 					Key:     cardKey + "-open-float-btn",
 					Icon:    IconPanelLeft(),
 					Text:    "打开浮窗",
 					Label:   "打开浮窗",
-					Tooltip: floatTooltip,
+					Tooltip: "打开子代理浮窗",
 					Variant: ButtonSecondary,
 					Size:    ControlSM,
 					OnClick: func() {
 						closeReportPopover()
-						if inBees {
-							undismissSwarmFloatPanel(leadID)
-							openSwarmFloatForBee(leadID, beeThreadID)
-							if s != nil {
-								s.invalidate()
-							}
-						} else {
-							openBeeWindow(s, beeThreadID)
+						undismissSwarmFloatPanel(leadID)
+						openSwarmFloatForBee(leadID, beeThreadID)
+						if s != nil {
+							s.invalidate()
 						}
 					},
 				})

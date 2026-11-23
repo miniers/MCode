@@ -23,6 +23,7 @@ func TestSwarmReportCapsuleReopen(t *testing.T) {
 		delete(swarmBeeAutoHideHandled, leadID)
 		delete(swarmBeeKeptOpen, leadID)
 		delete(swarmPulseTime, leadID+"|bee-active")
+		delete(swarmPulseTime, leadID+"|bee-cleared")
 		for k := range swarmCapsuleOpen {
 			delete(swarmCapsuleOpen, k)
 		}
@@ -89,7 +90,7 @@ func TestSwarmReportCapsuleReopen(t *testing.T) {
 		}
 	})
 
-	t.Run("汇报卡片打开独立窗口与查看会话（已清理出Bees）", func(t *testing.T) {
+	t.Run("汇报卡片打开浮窗与查看会话（已清理出Bees）", func(t *testing.T) {
 		fake := NewFakeClient()
 		s := newChatState(fake)
 		t.Cleanup(s.close)
@@ -135,8 +136,14 @@ func TestSwarmReportCapsuleReopen(t *testing.T) {
 		if err := tt.Click("打开浮窗"); err != nil {
 			t.Fatalf("点击打开浮窗失败: %v", err)
 		}
-		if openedWinID != "bee-cleared" {
-			t.Fatalf("已清理出 Bees 时应打开独立窗口，got=%q want=bee-cleared", openedWinID)
+		if openedWinID != "" {
+			t.Fatalf("已清理出 Bees 时不应打开独立窗口，got=%q", openedWinID)
+		}
+		swarmFloatMu.Lock()
+		selBee := swarmSelectedBeeID[leadID]
+		swarmFloatMu.Unlock()
+		if selBee != "bee-cleared" {
+			t.Fatalf("点击打开浮窗后应选中 bee-cleared，got=%q", selBee)
 		}
 
 		if err := tt.Click("查看会话"); err != nil {
