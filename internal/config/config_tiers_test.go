@@ -694,3 +694,36 @@ func TestUpgradeAllBuiltinTierTextsFromBriefEra(t *testing.T) {
 		}
 	}
 }
+
+func TestDesignTierLegacySystemPromptUpgraded(t *testing.T) {
+	const legacyPrompt = "你负责 UI 设计稿，按 design-mockup 技能做。先读项目的设计 token 和相关界面代码。出稿前把需要用户拍板的细节用提问工具给 2 到 4 个选项让用户选，推荐项放第一个；用户没有思路时先给几个设计方向让用户挑。设计稿写成可交互的 HTML，放在 .mcode/design/<主题>.html，只用项目真实的 token，不画 ASCII 线稿，不引用外链和远程字体。写完调用 preview_open 打开。用户在预览里标注或写意见后会发消息给你：有拿不准的先问清楚再改，改完再次调用 preview_open 刷新。只写 .mcode/design/ 下的文件，不改业务代码、配置和测试，不执行 git 命令。汇报时给出设计稿路径，以及需要主代理落地时注意的取舍。"
+
+	cfg := Defaults()
+	cfg.Orchestration.Tiers = DefaultSwarmTiers()
+	found := false
+	for i := range cfg.Orchestration.Tiers {
+		if cfg.Orchestration.Tiers[i].ID == "design" {
+			cfg.Orchestration.Tiers[i].SystemPrompt = legacyPrompt
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("DefaultSwarmTiers 应包含 design 档位")
+	}
+
+	norm := Normalize(cfg)
+	var upgraded string
+	for _, tier := range norm.Orchestration.Tiers {
+		if tier.ID == "design" {
+			upgraded = tier.SystemPrompt
+			break
+		}
+	}
+	if upgraded != designTierSystemPrompt {
+		t.Errorf("design 档旧提示词未升级：got=%q want=%q", upgraded, designTierSystemPrompt)
+	}
+	if !strings.Contains(designTierSystemPrompt, "大白话") {
+		t.Errorf("designTierSystemPrompt 应包含「大白话」，got=%q", designTierSystemPrompt)
+	}
+}
