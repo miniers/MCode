@@ -1910,7 +1910,7 @@ func renderSidebarFocusZone(c *ui.Context, s *chatState, o sidebarFocusZoneOptio
 
 	ui.Column(c.Key("sidebar-focus-zone")).
 		FillWidth().
-		Padding(2, 0, Space2, 0).
+		Padding(Space0, 0, Space2, 0).
 		Transition(motionCollapse(c)).
 		Children(func() {
 			if stewardVisible {

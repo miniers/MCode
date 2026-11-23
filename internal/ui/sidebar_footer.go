@@ -74,9 +74,8 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	ui.Row(c.Key("sidebar-bottom-bar")).
 		FillWidth().
 		MinWidth(0).
-		Height(ControlSM+Space2*2).
 		Shrink(0).
-		Padding(0, ListInset).
+		Padding(Space2, ListInset).
 		BorderWidth(Hairline, 0, 0, 0).
 		BorderColor(ThemeHairline(c)).
 		Gap(Space2).
@@ -135,7 +134,7 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 									Attach(ui.AnchorTopRight, ui.AnchorCenter).
 									Children(func() {
 										rollingNumber(c, fmt.Sprintf("sidebar-kanban-count-%p", s), count).
-											FontSize(uiFont(TypeMicro)).
+											FontSize(sidebarFont(TypeMicro)).
 											FontWeight(600).
 											TextColor(ThemeOnAccent(c))
 									})

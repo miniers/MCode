@@ -30,8 +30,12 @@ func TestNarrowLayoutP1SidebarFooter240(t *testing.T) {
 			t.Fatalf("240px 侧栏底栏缺少按钮 %q，texts=%q", label, tt.Texts())
 		}
 		r := info.Bounds
-		if r.W != ControlSM || r.H != ControlSM {
-			t.Fatalf("240px 紧凑底栏按钮 %q 应为 ControlSM(%v) 图标按钮: %+v", label, ControlSM, r)
+		if label == "添加项目" {
+			if r.W <= ControlSM || r.H != ControlSM {
+				t.Fatalf("240px 侧栏底栏按钮 %q 应为高度 ControlSM(%v) 的带文字按钮: %+v", label, ControlSM, r)
+			}
+		} else if r.W != ControlSM || r.H != ControlSM {
+			t.Fatalf("240px 侧栏底栏按钮 %q 应为 ControlSM(%v) 图标按钮: %+v", label, ControlSM, r)
 		}
 		if r.X < -0.5 || r.X+r.W > SidebarMinWidth+0.5 {
 			t.Fatalf("按钮 %q 越出 240px 边界: %+v", label, r)
