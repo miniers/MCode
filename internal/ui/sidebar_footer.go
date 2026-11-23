@@ -111,7 +111,6 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	}
 
 	ui.Row(c.Key("sidebar-bottom-bar")).
-		FillWidth().
 		MinWidth(0).
 		Height(HeightBottomBar).
 		Margin(Space1, ListInset, Space3, ListInset).
