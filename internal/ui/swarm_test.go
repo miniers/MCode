@@ -1846,6 +1846,56 @@ func TestSwarmHeaderToggleHitArea(t *testing.T) {
 	}
 }
 
+// TestSwarmHeaderButtonRainbowRing 验证编排开启时标题栏按钮外圈绘制名册色渐变环，关闭时保持 Ghost 透明底不出现彩色。
+func TestSwarmHeaderButtonRainbowRing(t *testing.T) {
+	testenv.TempHome(t)
+
+	renderRingSample := func(enabled bool) (ringPx, winBgRGB [3]int) {
+		s := newChatState(NewFakeClient())
+		t.Cleanup(s.close)
+		s.selectedThreadID = "t1"
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.loadedFor = "t1"
+		hp.setStateLocked(SwarmState{LeadThreadID: "t1", Available: true, Enabled: enabled})
+		swarmPanelMu.Unlock()
+
+		var winBg ui.Color
+		tt := ui.NewTester(func(c *ui.Context) {
+			winBg = ThemeWindowBg(c)
+			ui.Box(c.Key("swarm-ring-test-root")).Fill().Background(winBg).Padding(16).Children(func() {
+				renderSwarmHeaderButton(c, s)
+			})
+		}, 200, 120)
+		tt.Frame()
+
+		rect, ok := tt.Find("编排")
+		if !ok {
+			t.Fatalf("enabled=%v 时未找到「编排」按钮", enabled)
+		}
+		img := tt.Image()
+		x := int(rect.X + rect.W/2)
+		y := int(rect.Y + 1)
+		i := img.PixOffset(x, y)
+		ringPx = [3]int{int(img.Pix[i]), int(img.Pix[i+1]), int(img.Pix[i+2])}
+		winBgRGB = [3]int{int(winBg.R), int(winBg.G), int(winBg.B)}
+		return ringPx, winBgRGB
+	}
+
+	onPx, onBg := renderRingSample(true)
+	if colorNear(onPx, onBg, 15) {
+		t.Fatalf("编排开启时按钮外圈颜色 %v 与窗口底色 %v 过于接近，未画出彩色环", onPx, onBg)
+	}
+	if onPx[0] == onPx[1] && onPx[1] == onPx[2] {
+		t.Fatalf("编排开启时按钮外圈像素 %v 为灰色，期望彩色渐变环", onPx)
+	}
+
+	offPx, offBg := renderRingSample(false)
+	if !colorNear(offPx, offBg, 2) {
+		t.Fatalf("编排关闭时按钮外圈像素 %v 应与窗口底色 %v 一致，不应出现彩色或实底", offPx, offBg)
+	}
+}
+
 // TestSwarmHeaderWaitingBadge 验证编排按钮的「等你回答」角标：有子线程等回答时显示等待数量。
 func TestSwarmHeaderWaitingBadge(t *testing.T) {
 	testenv.TempHome(t)

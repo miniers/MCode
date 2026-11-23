@@ -872,6 +872,51 @@ func swarmHaloStyle(enabled bool, runningBees int, performanceMode bool) swarmHa
 	return swarmHaloSpec{Width: 2, Alpha: alpha, Glow: true}
 }
 
+// 编排开关环内 accent 微光的不透明度：平时 0.16（与模型选择面板一致），
+// 浮窗展开时加深到 0.30，保留原有“面板已打开”的反馈。
+const (
+	swarmToggleGlow     float32 = 0.16
+	swarmToggleGlowOpen float32 = 0.30
+)
+
+// swarmTogglePaint 描述「编排」开关按钮的底，对应模型选择面板里的编排开关
+// （effort_slider.go 的 renderProviderRainbowAvatar）的同一套外观。
+type swarmTogglePaint struct {
+	On      bool     // 开关态：开启时画名册色角向渐变环
+	Hovered bool     // 悬停：关闭态底色从 6% 加深到 10%
+	RingW   float32  // 环宽，也是镂空环内侧的内缩量；<=0 时按 2 处理
+	Glow    float32  // 镂空环内侧 accent 微光的不透明度，0 表示不叠
+	InnerBg ui.Color // 镂空环内侧的底色（用调用方所在视图的底，环心才能透出本视图底色）
+}
+
+// paintSwarmToggle 按统一外观绘制编排开关按钮的底：关闭时白 6%（悬停 10%）圆底；
+// 开启时先用名册色角向渐变铺满圆，再用视图底色盖出镂空的环，最后叠一层 accent 微光。
+func paintSwarmToggle(c *ui.Context, painter *ui.Painter, r ui.Rect, p swarmTogglePaint) {
+	if !p.On {
+		bg := ThemeOverlay(c, 0.06)
+		if p.Hovered {
+			bg = ThemeOverlay(c, 0.10)
+		}
+		painter.Fill(r, bg, r.W/2)
+		return
+	}
+	ringW := p.RingW
+	if ringW <= 0 {
+		ringW = 2
+	}
+	stops := make([]ui.GradientStop, 0, len(swarmRosterColors)+1)
+	for i, col := range swarmRosterColors {
+		stops = append(stops, ui.GradientStop{Color: col, At: float32(i) / float32(len(swarmRosterColors))})
+	}
+	stops = append(stops, ui.GradientStop{Color: swarmRosterColors[0], At: 1})
+	painter.FillConicGradient(r, ui.ConicGradient{Stops: stops}, r.W/2)
+	inner := ui.Rect{X: r.X + ringW, Y: r.Y + ringW, W: r.W - 2*ringW, H: r.H - 2*ringW}
+	painter.Fill(inner, p.InnerBg, inner.W/2)
+	if p.Glow > 0 {
+		painter.Fill(inner, ThemeAccent(c).Alpha(p.Glow), inner.W/2)
+	}
+}
+
 // clampSwarmPanelPos 把浮动面板的左上角限制在容器内，四周至少留 swarmPanelMargin 边距。
 func clampSwarmPanelPos(x, y, panelW, panelH, containerW, containerH float32) (float32, float32) {
 	maxX := containerW - panelW - swarmPanelMargin
@@ -1067,8 +1112,8 @@ func mergeSwarmFailedSeenMemory(records map[string]map[string]string) {
 	}
 }
 
-// renderSwarmHeaderButton 渲染会话头部的 Swarm 按钮：与标题栏其它 Ghost 图标按钮统一，
-// 右键弹出会话专属工作模式菜单。
+// renderSwarmHeaderButton 渲染会话头部的 Swarm 按钮：开启时外圈绘制名册色角向渐变环，
+// 关闭时与标题栏其它 Ghost 图标按钮统一，右键弹出会话专属工作模式菜单。
 func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -1115,7 +1160,8 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 		tooltip = fmt.Sprintf("编排：%d 个子任务（右键切换工作模式）", len(activeBees))
 	}
 
-	on := enabled
+	haloSpec := swarmHaloStyle(enabled, runningCount, false)
+	on := haloSpec.Width > 0
 
 	ui.Box(c.Key("chat-header-swarm-btn-wrap")).
 		Shrink(0).
@@ -1125,24 +1171,41 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 				Value(map[bool]string{true: "开启", false: "关闭"}[on]).
 				Tooltip(tooltip).
 				Size(ControlMD, ControlMD).
-				Radius(RadiusMD).
+				Radius(ControlMD / 2).
 				Center()
 
-			hoverTarget, pressTarget := float32(0), float32(0)
-			if btn.Hovered() {
-				hoverTarget = 1
+			if on {
+				glow := swarmToggleGlow
+				if floatShown {
+					glow = swarmToggleGlowOpen
+				}
+				hovered := btn.Hovered()
+				btn.Draw(func(painter *ui.Painter, r ui.Rect) {
+					paintSwarmToggle(c, painter, r, swarmTogglePaint{
+						On:      true,
+						Hovered: hovered,
+						RingW:   haloSpec.Width,
+						Glow:    glow,
+						InnerBg: ThemeWindowBg(c),
+					})
+				})
+			} else {
+				hoverTarget, pressTarget := float32(0), float32(0)
+				if btn.Hovered() {
+					hoverTarget = 1
+				}
+				if btn.Pressed() {
+					pressTarget = 1
+				}
+				hover := btn.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
+				press := btn.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+				bg := buttonBackground(ButtonGhost, false, windowActiveFor(c), hover, press, buttonColors{
+					accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
+					tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
+					overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
+				})
+				btn.Background(bg)
 			}
-			if btn.Pressed() {
-				pressTarget = 1
-			}
-			hover := btn.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
-			press := btn.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
-			bg := buttonBackground(ButtonGhost, on, windowActiveFor(c), hover, press, buttonColors{
-				accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
-				tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
-				overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
-			})
-			btn.Background(bg)
 			focusRing(c, btn)
 			scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 			btn.Scale(scale, scale)
