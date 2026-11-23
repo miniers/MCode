@@ -687,3 +687,64 @@ func TestGitHistoryMoveAnimationSettlesAndRespectsReduceMotion(t *testing.T) {
 		}
 	})
 }
+
+func TestGitHistoryBackBarLeftAligned(t *testing.T) {
+	const barW float32 = 500
+	assertBackBar := func(t *testing.T, tt *ui.Tester, title string) {
+		t.Helper()
+		btn, ok := tt.Find("返回")
+		if !ok {
+			t.Fatal("缺少返回按钮")
+		}
+		if btn.W <= 0 || btn.W >= barW/2 {
+			t.Fatalf("返回按钮宽度=%v，工具栏宽度=%v，应小于工具栏一半", btn.W, barW)
+		}
+		if btn.X < 0 || btn.X > Space3+1 {
+			t.Fatalf("返回按钮未左对齐：btn.X=%v", btn.X)
+		}
+		if title != "" {
+			titleRect, ok := tt.Find(title)
+			if !ok {
+				t.Fatalf("缺少标题 %q", title)
+			}
+			if !(btn.Y < titleRect.Y+titleRect.H && titleRect.Y < btn.Y+btn.H) {
+				t.Fatalf("标题与返回按钮不在同一行：btn=%+v title=%+v", btn, titleRect)
+			}
+			if titleRect.X < btn.X+btn.W {
+				t.Fatalf("标题应在返回按钮右侧：btn=%+v title=%+v", btn, titleRect)
+			}
+			if titleRect.X+titleRect.W > barW {
+				t.Fatalf("标题超出工具栏宽度：title=%+v barW=%v", titleRect, barW)
+			}
+		}
+	}
+
+	t.Run("narrowCommitDetail", func(t *testing.T) {
+		s, ps, h, _ := gitHistoryTestState(t)
+		openGitCommitDetail(ps, "abcdef0")
+		tt := ui.NewTester(func(c *ui.Context) { renderGitPaneHistory(c, s, ps.threadID, ps) }, int(barW), 420)
+		gitPaneWait(t, func() bool { h.mu.Lock(); defer h.mu.Unlock(); return !h.detailLoading && h.detail.SHA == "abcdef0" })
+		tt.Frame()
+		tt.Advance(DurSlow)
+		assertBackBar(t, tt, "")
+	})
+
+	t.Run("commitDiff", func(t *testing.T) {
+		s, ps, h, client := gitHistoryTestState(t)
+		openGitCommitDetail(ps, "abcdef0")
+		h.openDiff(ps, client, "src/file.go")
+		tt := ui.NewTester(func(c *ui.Context) { renderGitPaneHistory(c, s, ps.threadID, ps) }, int(barW), 420)
+		gitPaneWait(t, func() bool { h.mu.Lock(); defer h.mu.Unlock(); return !h.diffLoading })
+		tt.Frame()
+		tt.Advance(DurSlow)
+		assertBackBar(t, tt, "src/file.go")
+	})
+
+	t.Run("blame", func(t *testing.T) {
+		s, ps, _, _ := gitHistoryTestState(t)
+		openGitBlame(ps, "src/file.go")
+		tt := ui.NewTester(func(c *ui.Context) { renderGitPaneHistory(c, s, ps.threadID, ps) }, int(barW), 420)
+		tt.Frame()
+		assertBackBar(t, tt, "file.go")
+	})
+}

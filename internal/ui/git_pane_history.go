@@ -461,8 +461,7 @@ func syncGitHistoryState(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHi
 }
 
 func renderGitHistoryBlamePane(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, h *gitHistoryState, blamePath string) {
-	gitHistoryBackButton(c, "git-history-blame-back", func() { h.back(ps) })
-	ui.Text(c, filepath.Base(blamePath)).FontSize(uiFont(TypeFootnote)).SingleLine()
+	gitHistoryBackBar(c, "git-history-blame-back", filepath.Base(blamePath), func() { h.back(ps) })
 	if gitPaneBlameView != nil {
 		gitPaneBlameView(c, s, threadID, ps, blamePath, func(sha string) { openGitCommitDetail(ps, sha) })
 	} else {
@@ -476,7 +475,7 @@ func renderGitHistoryNarrowCommitPane(c *ui.Context, s *chatState, ps *gitPaneSt
 		diffActive := h.diffPath != ""
 		h.mu.Unlock()
 		if !diffActive {
-			gitHistoryBackButton(c, "git-history-detail-back", func() { h.back(ps) })
+			gitHistoryBackBar(c, "git-history-detail-back", "", func() { h.back(ps) })
 		}
 		renderGitHistoryDetail(c, s, ps, h, client)
 	})
@@ -515,8 +514,13 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 	renderGitHistoryDialog(c, s, ps, h, client)
 }
 
-func gitHistoryBackButton(c *ui.Context, key string, back func()) {
-	Button(c, ButtonOpts{Key: key, Text: "‹ 返回", Variant: ButtonGhost, Size: ControlMD, OnClick: back})
+func gitHistoryBackBar(c *ui.Context, key string, title string, back func()) {
+	ui.Row(c.Key(key + "-bar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Shrink(0).Children(func() {
+		IconButton(c, IconButtonProps{Key: key, Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: back})
+		if title != "" {
+			ui.Text(c, title).FontSize(uiFont(TypeFootnote)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+		}
+	})
 }
 
 func (h *gitHistoryState) back(ps *gitPaneState) {
@@ -712,8 +716,7 @@ func renderGitHistoryDetail(c *ui.Context, s *chatState, ps *gitPaneState, h *gi
 	diffPath, files, diffLoading, diffIndicator, diffSeq := h.diffPath, h.diff, h.diffLoading, h.diffIndicator, h.diffSeq
 	h.mu.Unlock()
 	if diffPath != "" {
-		gitHistoryBackButton(c, "git-history-diff-back", func() { h.back(ps) })
-		ui.Text(c, diffPath).FontSize(uiFont(TypeFootnote)).SingleLine()
+		gitHistoryBackBar(c, "git-history-diff-back", diffPath, func() { h.back(ps) })
 		if diffLoading {
 			if diffIndicator {
 				LoadingIndicator(c, "git-history-diff-loading", "", IconSM)
