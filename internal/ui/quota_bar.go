@@ -88,6 +88,14 @@ func renderQuotaBar(c *ui.Context, keyPrefix string, used, elapsed float64, pace
 	animUsed := float64(firstBox.AnimateTo("used", usedTarget, anim))
 	animElapsed := float64(firstBox.AnimateTo("elapsed", elapsedTarget, anim))
 	animGhost := float64(firstBox.AnimateTo("ghost", ghostTarget, anim))
+	markerAlphaTarget := float32(0.72)
+	if projected {
+		markerAlphaTarget = 1
+	}
+	if reduceMotion(c) {
+		firstBox.Jump("marker-alpha", markerAlphaTarget)
+	}
+	markerAlpha := firstBox.AnimateTo("marker-alpha", markerAlphaTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: ui.EaseOut})
 
 	segs := quotaBarSegmentsTo(animUsed, animElapsed, animGhost, paceKnown)
 	for i, slot := range quotaBarSlots(keyPrefix, segs) {
@@ -96,7 +104,7 @@ func renderQuotaBar(c *ui.Context, keyPrefix string, used, elapsed float64, pace
 				Label(markerLabel).
 				Width(quotaMarkerWidth).
 				FillHeight().
-				Background(ThemePrimaryText(c))
+				Background(ThemePrimaryText(c).Alpha(markerAlpha))
 			continue
 		}
 		box := firstBox

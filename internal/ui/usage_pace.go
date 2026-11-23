@@ -3,7 +3,17 @@ package mcodeui
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
+)
+
+// quotaStatusTone 表示紧凑状态词与悬停详情的语义色调。
+type quotaStatusTone uint8
+
+const (
+	quotaStatusNormal quotaStatusTone = iota
+	quotaStatusWarn
+	quotaStatusDanger
 )
 
 // paceState 是额度用量节奏的判定结果。
@@ -298,4 +308,288 @@ func quotaPaceRunOutText(now, runOutAt, resetsAt time.Time, state paceState, isW
 		}
 	}
 	return paceRunOutText(now, runOutAt, state)
+}
+
+// isUnknownQuotaDisplay 判断展示文字是否代表无有效读数（如 "Unknown"、"N/A"、"--"）。
+func isUnknownQuotaDisplay(display string) bool {
+	switch strings.ToLower(strings.TrimSpace(display)) {
+	case "unknown", "n/a", "na", "--", "-", "未知", "无读数", "none", "null":
+		return true
+	default:
+		return false
+	}
+}
+
+// quotaWindowHasNoReading 判断额度窗口是否属于无有效读数的次要项（如 Image generation: Unknown）。
+func quotaWindowHasNoReading(w ProviderQuotaWindow) bool {
+	if w.Text {
+		d := strings.TrimSpace(w.Display)
+		return d == "" || isUnknownQuotaDisplay(d)
+	}
+	if w.Unlimited || w.Balance != nil {
+		return false
+	}
+	if d := strings.TrimSpace(w.Display); isUnknownQuotaDisplay(d) && w.UsedPercent <= 0 {
+		return true
+	}
+	return false
+}
+
+// formatCompactDuration 把时长格式化成紧凑的英文缩写，例如 4h59m、1h12m、45m、1m、2h。
+func formatCompactDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d < time.Minute {
+		return "1m"
+	}
+	totalMinutes := int(d / time.Minute)
+	hours := totalMinutes / 60
+	mins := totalMinutes % 60
+	if hours == 0 {
+		return fmt.Sprintf("%dm", mins)
+	}
+	if mins == 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dh%dm", hours, mins)
+}
+
+// formatCompactReset 生成右列紧凑重置文案：24h 内用「4h59m 重置」，7 天内用「周五重置」，更远用「12/18 重置」。
+func formatCompactReset(now, resetsAt time.Time) string {
+	if resetsAt.IsZero() {
+		return ""
+	}
+	if !resetsAt.After(now) {
+		return "即将重置"
+	}
+	diff := resetsAt.Sub(now)
+	if diff < 24*time.Hour {
+		if dur := formatCompactDuration(diff); dur != "" {
+			return dur + " 重置"
+		}
+		return "即将重置"
+	}
+	day := quotaResetDayLabel(now, resetsAt)
+	if day == "" {
+		return ""
+	}
+	if strings.Contains(day, "/") {
+		return day + " 重置"
+	}
+	return day + "重置"
+}
+
+// quotaWindowCompactStatus 生成单个窗口的右列紧凑状态词、语义色调与优先级。
+// 优先级：已用尽(4) > 接近上限 ≥80%(3) > 预计提前用尽(2) > 正常重置时间(1) > 无(0)。
+func quotaWindowCompactStatus(now time.Time, w ProviderQuotaWindow, shortLabel string, sortMinutes int) (text string, tone quotaStatusTone, priority int) {
+	if w.Text || w.Unlimited || (w.Balance != nil && w.UsedPercent == 0) {
+		if !w.ResetsAt.IsZero() {
+			return formatCompactReset(now, w.ResetsAt), quotaStatusNormal, 1
+		}
+		return "", quotaStatusNormal, 0
+	}
+
+	clamped := math.Max(0, math.Min(100, w.UsedPercent))
+	pct := int(math.Round(clamped))
+	label := strings.TrimSpace(shortLabel)
+	isWeek := sortMinutes == quotaWeekMinutes
+	state, runOutAt := quotaPace(now, w)
+
+	if pct >= 100 {
+		if !w.ResetsAt.IsZero() {
+			return formatCompactReset(now, w.ResetsAt), quotaStatusDanger, 4
+		}
+		return "已用尽", quotaStatusDanger, 4
+	}
+
+	if clamped >= 80 {
+		tone = quotaStatusWarn
+		if clamped >= 95 {
+			tone = quotaStatusDanger
+		}
+		if label != "" {
+			return fmt.Sprintf("%s %d%%", label, pct), tone, 3
+		}
+		return fmt.Sprintf("%d%%", pct), tone, 3
+	}
+
+	if state == paceStateEarly {
+		if !runOutAt.IsZero() && runOutAt.After(now) {
+			diff := runOutAt.Sub(now)
+			if diff >= 24*time.Hour {
+				day := quotaResetDayLabel(now, runOutAt)
+				if day != "" {
+					if strings.Contains(day, "/") {
+						return day + " 用尽", quotaStatusWarn, 2
+					}
+					return day + "用尽", quotaStatusWarn, 2
+				}
+			}
+			if dur := formatCompactDuration(diff); dur != "" {
+				return dur + " 用尽", quotaStatusWarn, 2
+			}
+		}
+		if isWeek {
+			if day := quotaResetDayLabel(now, w.ResetsAt); day != "" {
+				return day + "前用尽", quotaStatusWarn, 2
+			}
+		}
+		return "将用尽", quotaStatusWarn, 2
+	}
+
+	if !w.ResetsAt.IsZero() {
+		return formatCompactReset(now, w.ResetsAt), quotaStatusNormal, 1
+	}
+	return "", quotaStatusNormal, 0
+}
+
+// quotaWindowHoverDetail 生成单个窗口的悬停详情左右段文本与语义色调。
+func quotaWindowHoverDetail(now time.Time, w ProviderQuotaWindow, shortLabel string, sortMinutes int) (left, right string, tone quotaStatusTone) {
+	label := strings.TrimSpace(shortLabel)
+	resetFull := formatLimitReset(now, w.ResetsAt)
+
+	if w.Text || w.Unlimited || (w.Balance != nil && w.UsedPercent == 0) {
+		var val string
+		switch {
+		case w.Text:
+			val = strings.TrimSpace(w.Display)
+		case w.Balance != nil:
+			val = formatTrayQuotaBalance(*w.Balance, w.Unit)
+		case w.Unlimited:
+			val = "不限量"
+		}
+		if label != "" && val != "" {
+			left = label + " · " + val
+		} else if val != "" {
+			left = val
+		} else {
+			left = label
+		}
+		return left, resetFull, quotaStatusNormal
+	}
+
+	clamped := math.Max(0, math.Min(100, w.UsedPercent))
+	pct := int(math.Round(clamped))
+	isWeek := sortMinutes == quotaWeekMinutes
+	state, runOutAt := quotaPace(now, w)
+
+	var pctPart string
+	if pct >= 100 {
+		pctPart = "已用尽"
+	} else {
+		pctPart = fmt.Sprintf("%d%%", pct)
+	}
+	if label != "" {
+		left = label + " " + pctPart
+	} else {
+		left = pctPart
+	}
+
+	switch {
+	case pct >= 100:
+		tone = quotaStatusDanger
+		right = resetFull
+	case clamped >= 95:
+		tone = quotaStatusDanger
+		if pace := quotaPaceRunOutText(now, runOutAt, w.ResetsAt, state, isWeek); pace != "" {
+			right = pace
+		} else {
+			right = resetFull
+		}
+	case clamped >= 80:
+		tone = quotaStatusWarn
+		if pace := quotaPaceRunOutText(now, runOutAt, w.ResetsAt, state, isWeek); pace != "" {
+			right = pace
+		} else {
+			right = resetFull
+		}
+	case state == paceStateEarly:
+		tone = quotaStatusWarn
+		pace := quotaPaceRunOutText(now, runOutAt, w.ResetsAt, state, isWeek)
+		if !isWeek && resetFull != "" && pace != "" {
+			right = pace + " · " + resetFull
+		} else if pace != "" {
+			right = pace
+		} else {
+			right = resetFull
+		}
+	default:
+		tone = quotaStatusNormal
+		right = resetFull
+	}
+
+	return left, right, tone
+}
+
+// quotaAccountCompactAndDetail 汇总账号下所有窗口的右列紧凑状态词与悬停完整详情。
+func quotaAccountCompactAndDetail(now time.Time, windows []trayQuotaWindowModel, noReadings []trayQuotaNoReadingItem) (compact string, tone quotaStatusTone, detailLeft, detailRight, detailFull string, detailTone quotaStatusTone) {
+	bestPriority := -1
+	bestUsed := -1.0
+	var bestReset time.Time
+	for _, win := range windows {
+		if win.CompactStatus == "" {
+			continue
+		}
+		winFutureReset := !win.resetsAt.IsZero() && win.resetsAt.After(now)
+		bestFutureReset := !bestReset.IsZero() && bestReset.After(now)
+		better := false
+		switch {
+		case win.statusPriority > bestPriority:
+			better = true
+		case win.statusPriority == bestPriority:
+			if win.statusPriority >= 3 && win.UsedPercent != bestUsed {
+				better = win.UsedPercent > bestUsed
+			} else if winFutureReset && (!bestFutureReset || win.resetsAt.Before(bestReset)) {
+				better = true
+			} else if !bestFutureReset && bestReset.IsZero() && !win.resetsAt.IsZero() {
+				better = true
+			}
+		}
+		if better {
+			bestPriority = win.statusPriority
+			bestUsed = win.UsedPercent
+			bestReset = win.resetsAt
+			compact = win.CompactStatus
+			tone = win.statusTone
+		}
+	}
+
+	var parts []string
+	var rightParts []string
+	for i, win := range windows {
+		part := win.HoverDetail
+		if part == "" {
+			continue
+		}
+		parts = append(parts, part)
+		if i == 0 {
+			detailLeft = part
+		} else {
+			rightParts = append(rightParts, part)
+		}
+		if win.hoverTone > detailTone {
+			detailTone = win.hoverTone
+		}
+	}
+	if len(noReadings) > 0 {
+		for _, nr := range noReadings {
+			note := nr.Label
+			if nr.Value != "" {
+				note += ": " + nr.Value
+			}
+			if note != "" {
+				parts = append(parts, note)
+				rightParts = append(rightParts, note)
+			}
+		}
+	}
+	if len(rightParts) > 0 {
+		detailRight = strings.Join(rightParts, " · ")
+	} else if len(windows) == 1 {
+		detailLeft = windows[0].hoverLeft
+		detailRight = windows[0].hoverRight
+	}
+	detailFull = strings.Join(parts, " · ")
+	return compact, tone, detailLeft, detailRight, detailFull, detailTone
 }

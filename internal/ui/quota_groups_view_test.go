@@ -336,3 +336,258 @@ func TestQuotaBarHoverSettles(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaRedesign_MultiAccountWindowLabelsOnce(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "claude",
+		Title:    "Claude",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "5h", Period: "5h", UsedPercent: 20, ResetsAt: now.Add(2 * time.Hour), Active: true},
+			{Account: "a@example.com", Label: "Weekly", Period: "7d", UsedPercent: 80, ResetsAt: now.Add(4 * 24 * time.Hour)},
+			{Account: "b@example.com", Label: "5h", Period: "5h", UsedPercent: 0, ResetsAt: now.Add(2 * time.Hour)},
+			{Account: "b@example.com", Label: "Weekly", Period: "7d", UsedPercent: 5, ResetsAt: now.Add(5 * 24 * time.Hour)},
+		},
+	}}, now, now, false)
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderQuotaGroupList(c, "redesign-once-", model.Groups, quotaGroupListOptions{})
+	}, 456, 300)
+	tt.Frame()
+
+	countOf := func(target string) int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == target {
+				n++
+			}
+		}
+		return n
+	}
+	if got := countOf("5h"); got != 1 {
+		t.Fatalf("5h 列头应只渲染一次，实际 %d 次: %v", got, tt.Texts())
+	}
+	if got := countOf("周"); got != 1 {
+		t.Fatalf("周 列头应只渲染一次，实际 %d 次: %v", got, tt.Texts())
+	}
+
+	// 混合窗口（账号 1 只有月，账号 2 有 5h 和周）：表头为 5h / 周，账号 1 在 5h 列内联标「月」并在周列占位「—」。
+	codexModel := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "codex",
+		Title:    "Codex",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "Monthly", Period: "30d", UsedPercent: 10, ResetsAt: now.Add(20 * 24 * time.Hour), Plan: "free"},
+			{Account: "b@example.com", Label: "5h", Period: "5h", UsedPercent: 0, ResetsAt: now.Add(3 * time.Hour), Plan: "plus"},
+			{Account: "b@example.com", Label: "Weekly", Period: "7d", UsedPercent: 0, ResetsAt: now.Add(5 * 24 * time.Hour), Plan: "plus"},
+		},
+	}}, now, now, false)
+
+	ttMix := ui.NewTester(func(c *ui.Context) {
+		renderQuotaGroupList(c, "redesign-mix-", codexModel.Groups, quotaGroupListOptions{})
+	}, 456, 300)
+	ttMix.Frame()
+	if !ttMix.HasText("月") || !ttMix.HasText("—") {
+		t.Fatalf("混合窗口缺月或占位符: %v", ttMix.Texts())
+	}
+}
+
+func TestQuotaRedesign_NoReadingDisclosure(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "codex",
+		Title:    "Codex",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "5h", Period: "5h", UsedPercent: 10, ResetsAt: now.Add(3 * time.Hour)},
+			{Account: "a@example.com", Label: "Image generation", Text: true, Display: "Unknown"},
+			{Account: "b@example.com", Label: "5h", Period: "5h", UsedPercent: 20, ResetsAt: now.Add(3 * time.Hour)},
+			{Account: "b@example.com", Label: "Image generation", Text: true, Display: "Unknown"},
+		},
+	}}, now, now, false)
+
+	if len(model.Groups) != 1 || len(model.Groups[0].NoReadings) != 2 {
+		t.Fatalf("期望 2 项无读数，实际 %+v", model.Groups)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderQuotaGroupList(c, "redesign-nr-", model.Groups, quotaGroupListOptions{})
+	}, 456, 360)
+	tt.Frame()
+
+	if !tt.HasText("2 项无读数") {
+		t.Fatalf("应显示折叠摘要 '2 项无读数': %v", tt.Texts())
+	}
+	if tt.HasText("Image generation") || tt.HasText("Unknown") {
+		t.Fatalf("折叠状态下不应直接展示无读数明细: %v", tt.Texts())
+	}
+
+	if err := tt.Click("2 项无读数"); err != nil {
+		t.Fatalf("点击展开无读数失败: %v", err)
+	}
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("展开无读数动画完成后不应继续请求帧")
+	}
+	if !tt.HasText("Image generation") || !tt.HasText("Unknown") {
+		t.Fatalf("展开后应展示无读数明细: %v", tt.Texts())
+	}
+
+	if err := tt.Click("2 项无读数"); err != nil {
+		t.Fatalf("点击收起无读数失败: %v", err)
+	}
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("收起无读数动画完成后不应继续请求帧")
+	}
+	if tt.HasText("Image generation") {
+		t.Fatalf("收起后不应继续展示无读数明细: %v", tt.Texts())
+	}
+}
+
+func TestQuotaRedesign_SelectableAccountsAndActiveBadge(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "agy",
+		Title:    "Antigravity",
+		Windows: []ProviderQuotaWindow{
+			{Account: "系统账号", Label: "Gemini 3.1 Pro", Period: "5h", UsedPercent: 100, ResetsAt: now.Add(time.Hour), Active: true},
+			{Account: "系统账号", Label: "Gemini 3.1 Pro 7d", Period: "7d", UsedPercent: 60, ResetsAt: now.Add(4 * 24 * time.Hour), Active: true},
+			{Account: "work@example.com", Label: "Gemini 3.1 Pro", Period: "5h", UsedPercent: 14, ResetsAt: now.Add(4 * time.Hour)},
+			{Account: "work@example.com", Label: "Gemini 3.1 Pro 7d", Period: "7d", UsedPercent: 21, ResetsAt: now.Add(5 * 24 * time.Hour)},
+		},
+	}}, now, now, false)
+
+	selected := ""
+	var picked []string
+	opts := quotaGroupListOptions{
+		HideSingleGroupTitle: true,
+		SelectedAccount:      selected,
+		OnSelectAccount: func(account string) {
+			picked = append(picked, account)
+			selected = account
+		},
+		AccountDisabled: func(account string) bool {
+			return account == "系统账号"
+		},
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		opts.SelectedAccount = selected
+		renderQuotaGroupList(c, "redesign-sel-", model.Groups, opts)
+	}, 456, 300)
+	tt.Frame()
+
+	// 自动选号（SelectedAccount == ""）：单选圈都不选中，IsActive 账号显示「在用」微标，禁用行不可点。
+	if !tt.HasText("在用") {
+		t.Fatalf("自动选号模式下 IsActive 账号应显示「在用」微标: %v", tt.Texts())
+	}
+	sysBtn, ok := tt.AccessByRole(ui.RoleButton, "系统账号")
+	if !ok || !sysBtn.Disabled || sysBtn.Checked {
+		t.Fatalf("系统账号应禁用且未选中: ok=%v node=%+v", ok, sysBtn)
+	}
+	workBtn, ok := tt.AccessByRole(ui.RoleButton, "work@example.com")
+	if !ok || workBtn.Disabled || workBtn.Checked {
+		t.Fatalf("自动选号模式下 work@example.com 应可用且未选中: ok=%v node=%+v", ok, workBtn)
+	}
+
+	if err := tt.Click("系统账号"); err != nil {
+		t.Fatalf("点击禁用行失败: %v", err)
+	}
+	if len(picked) != 0 {
+		t.Fatalf("禁用行不应触发选择回调，picked=%v", picked)
+	}
+
+	// 指定账号后：SelectedAccount 对应的单选圈选中，不再显示「在用」微标。
+	if err := tt.Click("work@example.com"); err != nil {
+		t.Fatalf("点击可用账号失败: %v", err)
+	}
+	if len(picked) != 1 || picked[0] != "work@example.com" {
+		t.Fatalf("应触发 OnSelectAccount('work@example.com')，实际 %v", picked)
+	}
+	tt.Advance(DurFast + time.Second)
+	tt.Frame()
+	if tt.HasText("在用") {
+		t.Fatalf("指定账号后不应再显示「在用」微标: %v", tt.Texts())
+	}
+	workBtn, ok = tt.AccessByRole(ui.RoleButton, "work@example.com")
+	if !ok || !workBtn.Checked {
+		t.Fatalf("指定账号后 work@example.com 应为 Checked: ok=%v node=%+v", ok, workBtn)
+	}
+	sysBtn, ok = tt.AccessByRole(ui.RoleButton, "系统账号")
+	if !ok || sysBtn.Checked {
+		t.Fatalf("未指定账号不应为 Checked: ok=%v node=%+v", ok, sysBtn)
+	}
+}
+
+func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "claude",
+		Title:    "Claude",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "5h", Period: "5h", UsedPercent: 20, ResetsAt: now.Add(2 * time.Hour), Active: true},
+			{Account: "a@example.com", Label: "Weekly", Period: "7d", UsedPercent: 60, ResetsAt: now.Add(4 * 24 * time.Hour)},
+			{Account: "b@example.com", Label: "5h", Period: "5h", UsedPercent: 5, ResetsAt: now.Add(2 * time.Hour)},
+			{Account: "b@example.com", Label: "Weekly", Period: "7d", UsedPercent: 10, ResetsAt: now.Add(5 * 24 * time.Hour)},
+			{Account: "b@example.com", Label: "Image generation", Text: true, Display: "Unknown"},
+		},
+	}}, now, now, false)
+
+	for _, reduced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduced=%v", reduced), func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				ui.Scroll(c.Key("scroll")).FillWidth().MaxHeight(260).Children(func() {
+					renderQuotaGroupList(c, "redesign-motion-", model.Groups, quotaGroupListOptions{})
+				})
+			}, 456, 320, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("初始静止时不应请求下一帧")
+			}
+
+			rowRect, ok := tt.Find("a@example.com")
+			if !ok {
+				t.Fatalf("找不到账号行: %v", tt.Texts())
+			}
+			tt.Move(rowRect.X+rowRect.W/2, rowRect.Y+rowRect.H/2)
+			tt.Frame()
+
+			detail := model.Groups[0].Accounts[0].hoverLeft
+			if detail == "" {
+				detail = model.Groups[0].Accounts[0].HoverDetail
+			}
+			if !tt.HasText(detail) {
+				t.Fatalf("悬停后应浮出完整详情 %q: %v", detail, tt.Texts())
+			}
+
+			tt.Advance(DurBase + time.Second)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("悬停详情与虚影动效完成后不应继续请求下一帧")
+			}
+
+			// 移开指针后浮条退出并停止请求帧。
+			tt.Move(0, 0)
+			tt.Advance(DurBase + time.Second)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("离开悬停动效完成后不应继续请求下一帧")
+			}
+			if tt.HasText(detail) {
+				t.Fatalf("离开悬停后浮条应消失: %v", tt.Texts())
+			}
+
+			// 展开无读数折叠项后动画结束不再请求下一帧。
+			if err := tt.Click("1 项无读数"); err != nil {
+				t.Fatalf("点击展开失败: %v", err)
+			}
+			tt.Advance(DurBase + time.Second)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("展开动画完成后不应继续请求下一帧")
+			}
+		})
+	}
+}

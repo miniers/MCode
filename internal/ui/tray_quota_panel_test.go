@@ -1069,10 +1069,10 @@ func TestTrayQuotaPanel_AccountRowLayout(t *testing.T) {
 
 	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
 	panel.groups = groups
-	tt := ui.NewTester(panel.renderView, 400, 480)
+	tt := ui.NewTester(panel.renderView, trayQuotaPanelWidth, 480)
 	tt.Frame()
 
-	// ui.Tester.Find 只能按文字标签精确查找，这里按文字位置断言布局
+	// ui.Tester.Find 只能按文字标签精确查找，这里按文字位置断言表头 + 紧凑单行布局
 	mustFind := func(label string) ui.Rect {
 		r, ok := tt.Find(label)
 		if !ok {
@@ -1081,50 +1081,52 @@ func TestTrayQuotaPanel_AccountRowLayout(t *testing.T) {
 		return r
 	}
 	right := func(r ui.Rect) float32 { return r.X + r.W }
+	centerY := func(r ui.Rect) float32 { return r.Y + r.H/2 }
 
-	title := mustFind("Codex")
+	_ = mustFind("Codex")
+	label5h := mustFind("5h")
+	labelWeek := mustFind("周")
 	name1 := mustFind("a@x.com")
 	name2 := mustFind("b@y.com")
 	p20 := mustFind("20%")
 	p40 := mustFind("40%")
 	p60 := mustFind("60%")
 
-	// a) 同一账号相邻的两个画条窗口并排一行，落单的画条窗口独占左半格：百分比按半格成列
-	if d := p40.Y - p20.Y; d > 1 || d < -1 {
-		t.Errorf("账号 1 的两个额度窗口应在同一行：p20.Y=%v, p40.Y=%v, texts: %q", p20.Y, p40.Y, tt.Texts())
+	// a) 窗口标签仅在表头出现一次，位于账号行之上
+	if !(label5h.Y < name1.Y && labelWeek.Y < name1.Y) {
+		t.Errorf("表头窗口标签应在账号行之上：label5h.Y=%v, labelWeek.Y=%v, name1.Y=%v", label5h.Y, labelWeek.Y, name1.Y)
 	}
-	if !(p60.Y > p40.Y) {
-		t.Errorf("账号 2 的额度行应在账号 1 之后：p40.Y=%v, p60.Y=%v, texts: %q", p40.Y, p60.Y, tt.Texts())
+	if label5h.X >= labelWeek.X {
+		t.Errorf("5h 表头列应在周表头列左侧：5h.X=%v, 周.X=%v", label5h.X, labelWeek.X)
 	}
+
+	// b) 同一账号的账号名与各窗口在同一行；账号 2 排在账号 1 之后
+	if d := centerY(name1) - centerY(p20); d > 2 || d < -2 {
+		t.Errorf("账号 1 名字应与 20%% 同行：name1.Y=%v, p20.Y=%v", name1.Y, p20.Y)
+	}
+	if d := centerY(p40) - centerY(p20); d > 2 || d < -2 {
+		t.Errorf("账号 1 的两个窗口应在同一行：p20.Y=%v, p40.Y=%v", p20.Y, p40.Y)
+	}
+	if !(centerY(name2) > centerY(name1)+1 && centerY(p60) > centerY(p20)+1) {
+		t.Errorf("账号 2 应在账号 1 之后：name1.Y=%v, name2.Y=%v, p20.Y=%v, p60.Y=%v", name1.Y, name2.Y, p20.Y, p60.Y)
+	}
+	if d := centerY(name2) - centerY(p60); d > 2 || d < -2 {
+		t.Errorf("账号 2 名字应与 60%% 同行：name2.Y=%v, p60.Y=%v", name2.Y, p60.Y)
+	}
+
+	// c) 多账号表格按列对齐：40% 在 20% 右侧，账号 2 的 60%（5h 列）与账号 1 的 20% 右边缘对齐
 	if right(p40) <= right(p20) {
-		t.Errorf("右半格百分比应在左半格右侧：p20.right=%v, p40.right=%v, texts: %q", right(p20), right(p40), tt.Texts())
+		t.Errorf("周列百分比应在 5h 列右侧：p20.right=%v, p40.right=%v", right(p20), right(p40))
 	}
 	if d := right(p60) - right(p20); d > 1 || d < -1 {
-		t.Errorf("落单窗口未与上一行左半格对齐：p20.right=%v, p60.right=%v, texts: %q", right(p20), right(p60), tt.Texts())
-	}
-
-	// b) 账号名在各自额度行之上，账号 2 排在账号 1 的额度行之后
-	if !(name1.Y < p20.Y && name1.Y < p40.Y) {
-		t.Errorf("账号 1 的名字应在自己的额度行之上：name.Y=%v, p20.Y=%v, p40.Y=%v, texts: %q", name1.Y, p20.Y, p40.Y, tt.Texts())
-	}
-	if !(name2.Y > p40.Y && name2.Y < p60.Y) {
-		t.Errorf("账号 2 的名字应在账号 1 的额度行之后、自己的额度行之前：name2.Y=%v, p40.Y=%v, p60.Y=%v, texts: %q", name2.Y, p40.Y, p60.Y, tt.Texts())
-	}
-
-	// c) 左半格窗口标签的左缩进与供应商名对齐（右半格从行中间开始）
-	label5h := mustFind("5h")
-	if d := label5h.X - title.X; d > 2 || d < -2 {
-		t.Errorf("窗口标签未与供应商名对齐：label.X=%v, title.X=%v, texts: %q", label5h.X, title.X, tt.Texts())
+		t.Errorf("账号 2 的 5h 列未与账号 1 对齐：p20.right=%v, p60.right=%v", right(p20), right(p60))
 	}
 
 	if tt.HasText("○") || tt.HasText("●") {
 		t.Errorf("面板不应再出现 ○/● 文字，texts: %q", tt.Texts())
 	}
-	if !tt.HasText("a@x.com") {
-		t.Errorf("应出现去掉前缀的账号名 'a@x.com'，texts: %q", tt.Texts())
-	}
-	if !tt.HasText("b@y.com") {
-		t.Errorf("应出现去掉前缀的账号名 'b@y.com'，texts: %q", tt.Texts())
+	if !tt.HasText("a@x.com") || !tt.HasText("b@y.com") {
+		t.Errorf("应出现去掉前缀的账号名，texts: %q", tt.Texts())
 	}
 	if tt.HasText("codex · a@x.com") {
 		t.Errorf("账号名不应再带 'codex · ' 前缀，texts: %q", tt.Texts())
@@ -1132,7 +1134,7 @@ func TestTrayQuotaPanel_AccountRowLayout(t *testing.T) {
 }
 
 func TestTrayQuotaPanel_MultiAccountCountdownOncePerAccount(t *testing.T) {
-	// 账号内两个窗口重置时间相同，账号之间不同：倒计时应各只在账号名行出现一次。
+	// 账号内两个窗口重置时间相同，账号之间不同：右列紧凑状态词应各只出现一次。
 	base := time.Now()
 	t1 := base.Add(2 * time.Hour).Truncate(time.Minute)
 	t2 := base.Add(5 * time.Hour).Truncate(time.Minute)
@@ -1154,27 +1156,27 @@ func TestTrayQuotaPanel_MultiAccountCountdownOncePerAccount(t *testing.T) {
 	if !g.MultiAccount || len(g.Accounts) != 2 {
 		t.Fatalf("unexpected model structure")
 	}
-	heads := []string{g.Accounts[0].HeadText, g.Accounts[1].HeadText}
-	for _, head := range heads {
-		if head == "" {
-			t.Fatalf("每个账号都应有倒计时文案")
+	statuses := []string{g.Accounts[0].CompactStatus, g.Accounts[1].CompactStatus}
+	for _, st := range statuses {
+		if st == "" {
+			t.Fatalf("每个账号都应有紧凑状态文案")
 		}
 	}
 
 	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
 	panel.groups = groups
-	tt := ui.NewTester(panel.renderView, 400, 480)
+	tt := ui.NewTester(panel.renderView, trayQuotaPanelWidth, 480)
 	tt.Frame()
 
-	for _, head := range heads {
+	for _, st := range statuses {
 		count := 0
 		for _, text := range tt.Texts() {
-			if text == head {
+			if text == st {
 				count++
 			}
 		}
 		if count != 1 {
-			t.Errorf("倒计时 %q 应只出现一次，实际 %d 次，texts: %q", head, count, tt.Texts())
+			t.Errorf("紧凑状态 %q 应只出现一次，实际 %d 次，texts: %q", st, count, tt.Texts())
 		}
 	}
 }
@@ -1466,7 +1468,7 @@ func TestTrayQuotaPanel_WindowRows(t *testing.T) {
 
 	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
 	panel.groups = groups
-	tt := ui.NewTester(panel.renderView, 400, 480)
+	tt := ui.NewTester(panel.renderView, trayQuotaPanelWidth, 480)
 	tt.Frame()
 
 	mustFind := func(label string) ui.Rect {
@@ -1478,31 +1480,25 @@ func TestTrayQuotaPanel_WindowRows(t *testing.T) {
 	}
 	centerY := func(r ui.Rect) float32 { return r.Y + r.H/2 }
 
-	title := mustFind("Claude")
+	_ = mustFind("Claude")
 	label5h := mustFind("5h")
 	labelWeekly := mustFind("周")
 	p20 := mustFind("20%")
 	p40 := mustFind("40%")
 
-	// 两个画条窗口并排在同一行：左半是 5h，右半是周
-	if d := centerY(p20) - centerY(p40); d > 1 || d < -1 {
-		t.Errorf("两个额度窗口应在同一行：p20.Y=%v, p40.Y=%v, texts: %q", p20.Y, p40.Y, tt.Texts())
+	// 单账号分组每个窗口占一行，按顺序自上而下排布，百分比右对齐成列
+	if !(centerY(p40) > centerY(p20)+1) {
+		t.Errorf("单账号第二个窗口应在第一行之下：p20.Y=%v, p40.Y=%v, texts: %q", p20.Y, p40.Y, tt.Texts())
 	}
-	if !(label5h.X < labelWeekly.X) {
-		t.Errorf("5h 标签应在周标签左侧：label5h.X=%v, labelWeekly.X=%v, texts: %q", label5h.X, labelWeekly.X, tt.Texts())
+	if d := label5h.X - labelWeekly.X; d > 2 || d < -2 {
+		t.Errorf("两个窗口标签左边缘应对齐：label5h.X=%v, labelWeekly.X=%v", label5h.X, labelWeekly.X)
 	}
-	if !(p40.X > p20.X) {
-		t.Errorf("40%% 应在 20%% 右侧：p20.X=%v, p40.X=%v, texts: %q", p20.X, p40.X, tt.Texts())
-	}
-
-	// 左半格窗口名左边缘与供应商名对齐
-	if d := label5h.X - title.X; d > 2 || d < -2 {
-		t.Errorf("窗口名未与供应商名对齐：label.X=%v, title.X=%v, texts: %q", label5h.X, title.X, tt.Texts())
+	if d := (p20.X + p20.W) - (p40.X + p40.W); d > 1 || d < -1 {
+		t.Errorf("百分比右边缘未对齐：p20.right=%v, p40.right=%v", p20.X+p20.W, p40.X+p40.W)
 	}
 }
 
-// TestTrayQuotaPanel_WindowPairAlignment 验证奇数个画条窗口时最后一个独占左半格，
-// 右侧留空占位，使它的百分比与上一行左半格按列对齐。
+// TestTrayQuotaPanel_WindowPairAlignment 验证单账号多个画条窗口逐行展示且百分比右对齐成列。
 func TestTrayQuotaPanel_WindowPairAlignment(t *testing.T) {
 	groups := []TrayQuotaGroup{
 		{
@@ -1519,7 +1515,7 @@ func TestTrayQuotaPanel_WindowPairAlignment(t *testing.T) {
 
 	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
 	panel.groups = groups
-	tt := ui.NewTester(panel.renderView, 400, 480)
+	tt := ui.NewTester(panel.renderView, trayQuotaPanelWidth, 480)
 	tt.Frame()
 
 	mustFind := func(label string) ui.Rect {
@@ -1535,14 +1531,11 @@ func TestTrayQuotaPanel_WindowPairAlignment(t *testing.T) {
 	p40 := mustFind("40%")
 	p60 := mustFind("60%")
 
-	if d := centerY(p20) - centerY(p40); d > 1 || d < -1 {
-		t.Errorf("前两个画条窗口应在同一行：p20.Y=%v, p40.Y=%v, texts: %q", p20.Y, p40.Y, tt.Texts())
-	}
-	if !(centerY(p60) > centerY(p40)+1) {
-		t.Errorf("第三个画条窗口应在下一行：p40.Y=%v, p60.Y=%v, texts: %q", p40.Y, p60.Y, tt.Texts())
+	if !(centerY(p40) > centerY(p20)+1 && centerY(p60) > centerY(p40)+1) {
+		t.Errorf("三个窗口应依次逐行排布：p20.Y=%v, p40.Y=%v, p60.Y=%v", p20.Y, p40.Y, p60.Y)
 	}
 	if d := p60.X + p60.W - (p20.X + p20.W); d > 1 || d < -1 {
-		t.Errorf("落单的半格未与上一行左半格对齐：p20.right=%v, p60.right=%v, texts: %q", p20.X+p20.W, p60.X+p60.W, tt.Texts())
+		t.Errorf("第三行百分比未与第一行右对齐：p20.right=%v, p60.right=%v", p20.X+p20.W, p60.X+p60.W)
 	}
 }
 
@@ -1643,5 +1636,142 @@ func TestUIReview26_TrayQuotaPanelButtons(t *testing.T) {
 	tt.Frame()
 	if tt.FramePending() {
 		t.Fatal("托盘面板静止时不应有动画继续请求下一帧")
+	}
+}
+
+func TestQuotaRedesign_CompactStatusAndHoverDetail(t *testing.T) {
+	cst := time.FixedZone("CST", 8*3600)
+	// 2026-11-22 12:00:00 +08:00（周日）
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, cst)
+
+	cases := []struct {
+		name     string
+		win      ProviderQuotaWindow
+		wantText string
+		wantTone quotaStatusTone
+	}{
+		{
+			name:     "已用尽带重置倒计时",
+			win:      ProviderQuotaWindow{Label: "5h", Period: "5h", UsedPercent: 100, ResetsAt: now.Add(time.Hour + 12*time.Minute)},
+			wantText: "1h12m 重置",
+			wantTone: quotaStatusDanger,
+		},
+		{
+			name:     "已用尽无重置时间",
+			win:      ProviderQuotaWindow{Label: "5h", Period: "5h", UsedPercent: 100},
+			wantText: "已用尽",
+			wantTone: quotaStatusDanger,
+		},
+		{
+			name:     "接近上限 80%",
+			win:      ProviderQuotaWindow{Label: "Weekly", Period: "7d", UsedPercent: 80, ResetsAt: now.Add(4 * 24 * time.Hour)},
+			wantText: "周 80%",
+			wantTone: quotaStatusWarn,
+		},
+		{
+			name:     "预计周四提前用尽",
+			win:      ProviderQuotaWindow{Label: "Weekly", Period: "7d", UsedPercent: 20, ResetsAt: now.Add(6 * 24 * time.Hour)},
+			wantText: "周四用尽",
+			wantTone: quotaStatusWarn,
+		},
+		{
+			name:     "N小时后重置",
+			win:      ProviderQuotaWindow{Label: "5h", Period: "5h", UsedPercent: 8, ResetsAt: now.Add(4*time.Hour + 59*time.Minute)},
+			wantText: "4h59m 重置",
+			wantTone: quotaStatusNormal,
+		},
+		{
+			name:     "日期重置",
+			win:      ProviderQuotaWindow{Label: "Monthly", Period: "30d", UsedPercent: 0, ResetsAt: time.Date(2026, 12, 18, 12, 0, 0, 0, cst)},
+			wantText: "12/18 重置",
+			wantTone: quotaStatusNormal,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildTrayQuotaModel([]TrayQuotaGroup{{
+				Provider: "claude",
+				Title:    "Claude",
+				Windows:  []ProviderQuotaWindow{tc.win},
+			}}, now, now, false)
+			if len(m.Groups) != 1 || len(m.Groups[0].Accounts) != 1 || len(m.Groups[0].Accounts[0].Windows) != 1 {
+				t.Fatalf("模型结构异常: %+v", m.Groups)
+			}
+			acc := m.Groups[0].Accounts[0]
+			win := acc.Windows[0]
+			if win.CompactStatus != tc.wantText || win.statusTone != tc.wantTone {
+				t.Errorf("win CompactStatus=(%q, %v), want (%q, %v)", win.CompactStatus, win.statusTone, tc.wantText, tc.wantTone)
+			}
+			if acc.CompactStatus != tc.wantText || acc.statusTone != tc.wantTone {
+				t.Errorf("acc CompactStatus=(%q, %v), want (%q, %v)", acc.CompactStatus, acc.statusTone, tc.wantText, tc.wantTone)
+			}
+			if win.HoverDetail == "" || acc.HoverDetail == "" {
+				t.Errorf("悬停完整详情不应为空: win=%q acc=%q", win.HoverDetail, acc.HoverDetail)
+			}
+		})
+	}
+}
+
+func TestQuotaRedesign_TrayPanelWidthAndIconRefresh(t *testing.T) {
+	if trayQuotaPanelWidth != 456 {
+		t.Fatalf("trayQuotaPanelWidth = %d, want 456", trayQuotaPanelWidth)
+	}
+
+	panel := NewTrayQuotaPanel(TrayQuotaPanelOptions{})
+	panel.groups = []TrayQuotaGroup{
+		{
+			Provider: "codex",
+			Title:    "Codex",
+			Windows: []ProviderQuotaWindow{
+				{Account: "user@example.com", Label: "5h", Period: "5h", UsedPercent: 18, Plan: "plus"},
+				{Account: "user@example.com", Label: "Weekly", Period: "7d", UsedPercent: 54, Plan: "plus"},
+			},
+		},
+	}
+
+	setAppReduceMotion(t, true)
+	tt := ui.NewTesterWith(panel.renderView, trayQuotaPanelWidth, 480, ui.TesterOptions{
+		Preferences: ui.Preferences{ReduceMotion: true},
+	})
+	tt.Frame()
+
+	// 刷新按钮为纯图标按钮：Texts() 里仅出现 1 次（ButtonBase.Label），没有额外文字子元素。
+	refreshCount := 0
+	for _, txt := range tt.Texts() {
+		if txt == "刷新" {
+			refreshCount++
+		}
+	}
+	if refreshCount != 1 {
+		t.Fatalf("刷新按钮应为纯图标（仅 Label 出现 1 次），实际 %d 次: %v", refreshCount, tt.Texts())
+	}
+
+	// 单账号分组省略账号名，套餐移到分组标题行。
+	if tt.HasText("user@example.com") {
+		t.Fatalf("单账号分组不应显示冗余账号行: %v", tt.Texts())
+	}
+	if !tt.HasText("Codex") || !tt.HasText("· plus") {
+		t.Fatalf("单账号分组标题应包含 Codex 与 · plus: %v", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("静止态下托盘面板不应请求下一帧")
+	}
+
+	// 加载中状态：挂载刷新图标，减少动效下静止，正常模式仅加载中重绘、结束后停止。
+	panel.mu.Lock()
+	panel.loading = true
+	panel.mu.Unlock()
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("减少动效下加载图标不应请求下一帧")
+	}
+
+	panel.mu.Lock()
+	panel.loading = false
+	panel.mu.Unlock()
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("加载结束后不应继续请求下一帧")
 	}
 }

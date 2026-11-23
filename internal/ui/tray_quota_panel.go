@@ -121,7 +121,7 @@ func (p *TrayQuotaPanel) Toggle() {
 			Tray:      p.opts.Tray,
 			Placement: mygo.PlacementBottom,
 			Gap:       4,
-			Width:     400,
+			Width:     trayQuotaPanelWidth,
 			Height:    480,
 			MaxHeight: 480,
 			Focusable: true,
@@ -239,7 +239,10 @@ func (p *TrayQuotaPanel) Refresh(force bool) {
 	}()
 }
 
-const trayQuotaFallbackSortMinutes = 100 * quotaMonthMinutes
+const (
+	trayQuotaPanelWidth          = 456
+	trayQuotaFallbackSortMinutes = 100 * quotaMonthMinutes
+)
 
 // mergeTrayQuotaFetch 合并一次拉取结果：拿到空数据而手里已有旧数据时，保留旧数据与刷新时间，
 // 记下「显示的是上次数据」；否则接受新数据与时间并清掉提示。调用方须持有 p.mu。
@@ -353,6 +356,17 @@ type trayQuotaPanelModel struct {
 	StaleNote string
 }
 
+type trayQuotaColumn struct {
+	ShortLabel  string
+	sortMinutes int
+}
+
+type trayQuotaNoReadingItem struct {
+	Account string
+	Label   string
+	Value   string
+}
+
 type trayQuotaGroupModel struct {
 	Provider string
 	IconID   string
@@ -365,6 +379,8 @@ type trayQuotaGroupModel struct {
 	HasErr       bool
 	ErrText      string
 	ErrFull      string
+	Columns      []trayQuotaColumn
+	NoReadings   []trayQuotaNoReadingItem
 	Accounts     []trayQuotaAccountModel
 }
 
@@ -381,7 +397,15 @@ type trayQuotaAccountModel struct {
 	HeadText string
 	// HeadWarn 表示 HeadText 是提前用尽提示（需要警示色）。
 	HeadWarn bool
-	Windows  []trayQuotaWindowModel
+	// CompactStatus 是紧凑表格右侧状态列词（如「周四用尽」「周 80%」「4h59m 重置」）。
+	CompactStatus string
+	// HoverDetail 是悬停或聚焦该账号行时展示的完整重置/用尽详情文案。
+	HoverDetail string
+	statusTone  quotaStatusTone
+	hoverLeft   string
+	hoverRight  string
+	hoverTone   quotaStatusTone
+	Windows     []trayQuotaWindowModel
 }
 
 // trayQuotaAccountDisplayName 去掉账号名里与提供方重名的前缀，例如 "codex · a@b.c" 只保留 "a@b.c"。
@@ -404,15 +428,22 @@ func trayQuotaAccountDisplayName(name, provider, iconID, title string) string {
 }
 
 type trayQuotaWindowModel struct {
-	ShortLabel    string
-	UsedPercent   float64
-	RightText     string
-	ResetDayText  string
-	IsEarlyRunOut bool
-	Wide          bool
-	Tooltip       string
-	resetsAt      time.Time
-	sortMinutes   int
+	ShortLabel     string
+	UsedPercent    float64
+	RightText      string
+	ResetDayText   string
+	CompactStatus  string
+	HoverDetail    string
+	IsEarlyRunOut  bool
+	Wide           bool
+	Tooltip        string
+	resetsAt       time.Time
+	sortMinutes    int
+	statusTone     quotaStatusTone
+	statusPriority int
+	hoverLeft      string
+	hoverRight     string
+	hoverTone      quotaStatusTone
 	// elapsedRatio/hasElapsed 是时间已过比例及其是否可信；paceKnown 表示配速可判定。
 	elapsedRatio float64
 	hasElapsed   bool
@@ -423,6 +454,59 @@ type trayQuotaWindowModel struct {
 	Unlimited   bool
 	BalanceText string
 	Display     string
+}
+
+// deriveTrayQuotaColumns 从组内各账号的画条窗口提取表头列集合（最多保留 2 列，按出现频次与周期短优先排序，最终按周期从短到长排列）。
+func deriveTrayQuotaColumns(accounts []trayQuotaAccountModel) []trayQuotaColumn {
+	type colStat struct {
+		label       string
+		sortMinutes int
+		count       int
+	}
+	byLabel := make(map[string]*colStat)
+	for _, acc := range accounts {
+		seenInAcc := make(map[string]bool)
+		for _, win := range acc.Windows {
+			if win.NoBar || win.ShortLabel == "" {
+				continue
+			}
+			st, ok := byLabel[win.ShortLabel]
+			if !ok {
+				st = &colStat{label: win.ShortLabel, sortMinutes: win.sortMinutes}
+				byLabel[win.ShortLabel] = st
+			} else if win.sortMinutes < st.sortMinutes {
+				st.sortMinutes = win.sortMinutes
+			}
+			if !seenInAcc[win.ShortLabel] {
+				seenInAcc[win.ShortLabel] = true
+				st.count++
+			}
+		}
+	}
+	if len(byLabel) == 0 {
+		return nil
+	}
+	stats := make([]*colStat, 0, len(byLabel))
+	for _, st := range byLabel {
+		stats = append(stats, st)
+	}
+	slices.SortStableFunc(stats, func(a, b *colStat) int {
+		if a.count != b.count {
+			return b.count - a.count
+		}
+		return a.sortMinutes - b.sortMinutes
+	})
+	if len(stats) > 2 {
+		stats = stats[:2]
+	}
+	slices.SortStableFunc(stats, func(a, b *colStat) int {
+		return a.sortMinutes - b.sortMinutes
+	})
+	cols := make([]trayQuotaColumn, len(stats))
+	for i, st := range stats {
+		cols[i] = trayQuotaColumn{ShortLabel: st.label, sortMinutes: st.sortMinutes}
+	}
+	return cols
 }
 
 // trayQuotaLabeledText 为文案添加非空窗口标签。
@@ -496,9 +580,10 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 			if acc.disabled {
 				continue
 			}
+			cleanDisplayName := trayQuotaAccountDisplayName(acc.account, g.Provider, iconID, g.Title)
 			am := trayQuotaAccountModel{
 				Account:     acc.account,
-				DisplayName: trayQuotaAccountDisplayName(acc.account, g.Provider, iconID, g.Title),
+				DisplayName: cleanDisplayName,
 				Plan:        quotaGroupPlan(acc.windows),
 			}
 			if acc.active && !quotaWindowsFromMagpie(acc.windows) {
@@ -517,19 +602,36 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 				am.DisplayName += " · 最近使用"
 			}
 
+			var accNoReadings []trayQuotaNoReadingItem
 			isAgy := strings.EqualFold(g.Provider, "agy")
 			for _, w := range acc.windows {
 				if quotaWindowIsAuxiliary(w) {
+					continue
+				}
+				if isAgy {
+					if _, ok := agyQuotaStripWindowKey(w.Label); !ok {
+						continue
+					}
+				}
+				if quotaWindowHasNoReading(w) {
+					val := strings.TrimSpace(w.Display)
+					if val == "" {
+						val = "Unknown"
+					}
+					nr := trayQuotaNoReadingItem{
+						Account: cleanDisplayName,
+						Label:   strings.TrimSpace(w.Label),
+						Value:   val,
+					}
+					accNoReadings = append(accNoReadings, nr)
+					gm.NoReadings = append(gm.NoReadings, nr)
 					continue
 				}
 
 				var shortLabel string
 				var sortMinutes int
 				if isAgy {
-					key, ok := agyQuotaStripWindowKey(w.Label)
-					if !ok {
-						continue
-					}
+					key, _ := agyQuotaStripWindowKey(w.Label)
 					shortLabel = key
 					switch key {
 					case "5h":
@@ -563,17 +665,33 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 					resetDayText = quotaResetDayLabel(now, w.ResetsAt)
 				}
 
+				compactStatus, statusTone, statusPriority := quotaWindowCompactStatus(now, w, shortLabel, sortMinutes)
+				hoverLeft, hoverRight, hoverTone := quotaWindowHoverDetail(now, w, shortLabel, sortMinutes)
+				hoverDetail := hoverLeft
+				if hoverLeft != "" && hoverRight != "" {
+					hoverDetail = hoverLeft + " · " + hoverRight
+				} else if hoverRight != "" {
+					hoverDetail = hoverRight
+				}
+
 				winModel := trayQuotaWindowModel{
-					ShortLabel:    shortLabel,
-					UsedPercent:   w.UsedPercent,
-					RightText:     rightText,
-					ResetDayText:  resetDayText,
-					IsEarlyRunOut: isEarly,
-					resetsAt:      w.ResetsAt,
-					sortMinutes:   sortMinutes,
-					elapsedRatio:  elapsedRatio,
-					hasElapsed:    hasElapsed,
-					paceKnown:     state != paceStateUnknown,
+					ShortLabel:     shortLabel,
+					UsedPercent:    w.UsedPercent,
+					RightText:      rightText,
+					ResetDayText:   resetDayText,
+					CompactStatus:  compactStatus,
+					HoverDetail:    hoverDetail,
+					IsEarlyRunOut:  isEarly,
+					resetsAt:       w.ResetsAt,
+					sortMinutes:    sortMinutes,
+					statusTone:     statusTone,
+					statusPriority: statusPriority,
+					hoverLeft:      hoverLeft,
+					hoverRight:     hoverRight,
+					hoverTone:      hoverTone,
+					elapsedRatio:   elapsedRatio,
+					hasElapsed:     hasElapsed,
+					paceKnown:      state != paceStateUnknown,
 				}
 				switch {
 				case w.Text:
@@ -614,6 +732,7 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 			})
 
 			am.HeadText, am.HeadWarn = trayQuotaHead(am.Windows, now)
+			am.CompactStatus, am.statusTone, am.hoverLeft, am.hoverRight, am.HoverDetail, am.hoverTone = quotaAccountCompactAndDetail(now, am.Windows, accNoReadings)
 
 			gm.Accounts = append(gm.Accounts, am)
 		}
@@ -626,6 +745,7 @@ func buildTrayQuotaModel(groups []TrayQuotaGroup, refreshedAt, now time.Time, lo
 		if !gm.MultiAccount && len(gm.Accounts) == 1 {
 			gm.Plan = gm.Accounts[0].Plan
 		}
+		gm.Columns = deriveTrayQuotaColumns(gm.Accounts)
 
 		// 多账号时倒计时按账号分别显示，组头部不再汇总。
 		if !gm.MultiAccount {
@@ -665,6 +785,22 @@ func trayPanelRootBackground(c *ui.Context, goos string) ui.Color {
 	return ThemeSurface(c)
 }
 
+func renderTrayQuotaRefreshSpin(c *ui.Context) {
+	color := ThemeSecondaryText(c)
+	if reduceMotion(c) {
+		ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(color)
+		return
+	}
+	ui.Box(c.Key("tray-quota-refresh-spin")).Size(IconSM, IconSM).Draw(func(p *ui.Painter, r ui.Rect) {
+		const period = 900
+		angle := float32(p.Now().UnixMilli()%period) / float32(period) * 360
+		p.Transform(ui.Rotation(angle), r.X+r.W/2, r.Y+r.H/2, func() {
+			p.Icon(IconRefreshCw(), r, color)
+		})
+		p.After(33 * time.Millisecond)
+	})
+}
+
 func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 	c.Root().Background(trayPanelRootBackground(c, runtime.GOOS))
 
@@ -673,7 +809,7 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 		Padding(Space4, 0).
 		Gap(Space3).
 		Children(func() {
-			// 顶部：标题『额度』，右侧更新时间或加载状态与刷新按钮
+			// 顶部：标题『额度』，右侧更新时间与纯图标刷新按钮
 			ui.Row(c.Key("tray-quota-header")).
 				FillWidth().
 				Padding(0, Space4).
@@ -698,7 +834,16 @@ func (p *TrayQuotaPanel) renderModelView(c *ui.Context, m trayQuotaPanelModel) {
 					}
 
 					if m.Loading {
-						LoadingIndicator(c, nil, "", IconSM, ThemeSecondaryText(c))
+						ui.ButtonBase(c.Key("tray-quota-refresh-btn")).
+							Size(Space7, Space7).
+							Radius(RadiusSM).
+							Center().
+							Disabled(true).
+							Label("刷新").
+							Tooltip("正在刷新").
+							Children(func() {
+								renderTrayQuotaRefreshSpin(c)
+							})
 					} else {
 						IconButton(c, IconButtonProps{
 							Key:     "tray-quota-refresh-btn",
