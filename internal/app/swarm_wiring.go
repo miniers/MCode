@@ -1464,6 +1464,10 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 				// 新的用户请求开始：已失败或已停止的去重记录作废，仍在跑或排队的记录保留，
 				// 免得主代理换个措辞又把同一批工作派一遍。
 				dispatcher.beginRequest(threadID)
+			} else if kind, _, _ := backend.CurrentTurnInput(threadID); kind == "" {
+				// 仅在普通用户输入（Kind 为空）时触发，跳过 Manager 通过 SendFollowUp
+				// （经 SendHostEvent 记为 host_event）发出的定稿、续接、重试、打回等提示。
+				mgr.NoteBeeUserTurn(ctx, threadID)
 			}
 		}
 

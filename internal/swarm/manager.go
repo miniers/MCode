@@ -3161,49 +3161,7 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 			continue
 		}
 
-		// 上一轮的改动已经落地：先把工作副本的当前状态固化为新基线，之后只落地续跑产生的增量，
-		// 否则已合并的改动会被再合并一次。固化失败则放弃这次重新激活，保持原状态。
-		// 共享工作区的 bee 没有独立工作副本，不建基线也不走合并。
-		baseCommit := ""
-		if c.bee.Merged && !c.bee.SharedWorkspace && !c.bee.SharedNoGit && c.bee.WorktreePath != "" {
-			sha, ok := m.settleResumeBaseline(ctx, c.bee.WorktreePath)
-			if !ok {
-				continue
-			}
-			baseCommit = sha
-		}
-
-		now := m.now()
-		m.mu.Lock()
-		lead, ok := m.leads[c.leadThreadID]
-		if !ok {
-			m.mu.Unlock()
-			continue
-		}
-		var bee *Bee
-		for i := range lead.bees {
-			if lead.bees[i].ThreadID == c.bee.ThreadID {
-				bee = &lead.bees[i]
-				break
-			}
-		}
-		// 解锁期间状态可能已被 stopBee/clearFinished/review 改变，以锁内最新状态为准。
-		if bee == nil || !isReactivateCandidate(*bee) || bee.Merged != c.bee.Merged {
-			m.mu.Unlock()
-			continue
-		}
-		m.resetBeeForNewRoundLocked(bee, now)
-		bee.FinalizeRequested = false
-		if baseCommit != "" {
-			bee.BaseCommit = baseCommit
-		}
-		m.mu.Unlock()
-
-		// 让空汇报催促、失败重试与中断续接在这一轮重新生效。
-		m.resetEmptyNudge(c.bee.ThreadID)
-		m.setContinueNudge(c.bee.ThreadID, false)
-		m.setRetryCount(c.bee.ThreadID, 0)
-		m.notifyChange(c.leadThreadID)
+		m.reactivateBee(ctx, c.leadThreadID, c.bee)
 	}
 
 	// 本次真做了探测、且已不在运行的候选清零计数，下次续跑时重新累计。
@@ -3219,6 +3177,102 @@ func (m *Manager) detectReactivatedBees(ctx context.Context) {
 			delete(m.reactivateSeen, threadID)
 		}
 	}
+	m.mu.Unlock()
+}
+
+// reactivateBee 在确认 bee 续跑后固化工作副本基线、重置结果字段并将其置回运行态，
+// 让后续 tick 重新完成落地与汇报。返回是否真正完成了重新激活。
+func (m *Manager) reactivateBee(ctx context.Context, leadThreadID string, snapshot Bee) bool {
+	// 上一轮的改动已经落地：先把工作副本的当前状态固化为新基线，之后只落地续跑产生的增量，
+	// 否则已合并的改动会被再合并一次。固化失败则放弃这次重新激活，保持原状态。
+	// 共享工作区的 bee 没有独立工作副本，不建基线也不走合并。
+	baseCommit := ""
+	if snapshot.Merged && !snapshot.SharedWorkspace && !snapshot.SharedNoGit && snapshot.WorktreePath != "" {
+		sha, ok := m.settleResumeBaseline(ctx, snapshot.WorktreePath)
+		if !ok {
+			return false
+		}
+		baseCommit = sha
+	}
+
+	now := m.now()
+	m.mu.Lock()
+	lead, ok := m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	var bee *Bee
+	for i := range lead.bees {
+		if lead.bees[i].ThreadID == snapshot.ThreadID {
+			bee = &lead.bees[i]
+			break
+		}
+	}
+	// 解锁期间状态可能已被 stopBee/clearFinished/review 改变，以锁内最新状态为准。
+	if bee == nil || !isReactivateCandidate(*bee) || bee.Merged != snapshot.Merged {
+		m.mu.Unlock()
+		return false
+	}
+	m.resetBeeForNewRoundLocked(bee, now)
+	bee.FinalizeRequested = false
+	if baseCommit != "" {
+		bee.BaseCommit = baseCommit
+	}
+	m.mu.Unlock()
+
+	// 让空汇报催促、失败重试与中断续接在这一轮重新生效。
+	m.resetEmptyNudge(snapshot.ThreadID)
+	m.setContinueNudge(snapshot.ThreadID, false)
+	m.setRetryCount(snapshot.ThreadID, 0)
+	m.notifyChange(leadThreadID)
+	return true
+}
+
+// NoteBeeUserTurn 在用户向已结束的 bee 线程直接发消息时立即将其置回运行态，
+// 避免等待续跑探测周期（reactivateProbeInterval 且连续两次见到运行）。
+func (m *Manager) NoteBeeUserTurn(ctx context.Context, threadID string) {
+	if m == nil || threadID == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var (
+		leadThreadID string
+		snapshot     Bee
+		found        bool
+	)
+	m.mu.Lock()
+	for leadID, lead := range m.leads {
+		for _, h := range lead.bees {
+			if h.ThreadID == threadID {
+				leadThreadID = leadID
+				snapshot = h.clone()
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	m.mu.Unlock()
+
+	if !found || !isReactivateCandidate(snapshot) {
+		return
+	}
+
+	baseCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if !m.reactivateBee(baseCtx, leadThreadID, snapshot) {
+		return
+	}
+
+	m.mu.Lock()
+	delete(m.reactivateProbedAt, threadID)
+	delete(m.reactivateSeen, threadID)
 	m.mu.Unlock()
 }
 
