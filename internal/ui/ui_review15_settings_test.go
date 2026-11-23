@@ -188,14 +188,14 @@ func TestUIReview15_NavItemsTabFocusableAndActivatable(t *testing.T) {
 
 	// 下一项用 Space 也能激活。
 	tt.Key(0, ui.KeyTab)
-	if !tt.Focused("远程控制") {
-		t.Fatal("Tab 未能聚焦到下一导航条目「远程控制」")
+	if !tt.Focused("外观") {
+		t.Fatal("Tab 未能聚焦到下一导航条目「外观」")
 	}
 	tt.Key(0, ui.KeySpace)
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.currentPage == "remote"
+		return st.currentPage == "appearance"
 	})
 
 	// 搜索命中条目同样支持 Tab 聚焦与 Enter 激活。
