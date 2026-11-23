@@ -300,7 +300,7 @@ type uiStateFile struct {
 	SwarmFailedSeen map[string]map[string]string `json:"swarm_failed_seen,omitempty"`
 	// PreviewDesignBees 记录本地设计稿路径 -> 设计子代理会话 ID，重启后据此恢复定稿入口。
 	PreviewDesignBees map[string]string `json:"preview_design_bees,omitempty"`
-	Onboarding      string                       `json:"onboarding,omitempty"`
+	Onboarding        string            `json:"onboarding,omitempty"`
 	// LastModel 是最近一次在模型选择组件中确认的模型选择（provider + model + 推理强度 + 快速模式），
 	// 新建会话或组件初始化时优先使用该记录；零值表示还没有记录。
 	LastModel ModelSelection `json:"last_model,omitempty"`
