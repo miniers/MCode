@@ -494,7 +494,7 @@ func (m *Manager) reviewCheckBudget(leadThreadID string, h Bee) time.Duration {
 	return rt.timeout*time.Duration(1+len(h.Acceptance)) + reviewCheckBudgetMargin
 }
 
-const acceptanceFailurePromptSuffix = "\n\n在当前工作副本里修复，让验收命令通过，然后重新输出最终报告。用失败的那条命令确认，等它跑完、看到结果再结束本轮。如果你确认是验收命令本身写错了（与任务要求矛盾，或检查了与本任务无关的内容），不要为迁就它改代码，直接输出最终报告，第一行写「验收存疑：<理由>」。"
+const acceptanceFailurePromptSuffix = "\n\n在当前工作副本里修复，让验收命令通过，然后重新输出最终报告。确认时只跑失败输出里点名的测试或命令（Go 测试用 go test -run '^测试名$' 加超时），等它跑完、看到结果再结束本轮；整条验收命令由 mcode 在你汇报后重跑，你不要再跑一遍。如果你确认是验收命令本身写错了（与任务要求矛盾，或检查了与本任务无关的内容），不要为迁就它改代码，直接输出最终报告，第一行写「验收存疑：<理由>」。"
 
 // acceptanceDisputeReason 从 bee 汇报的第一个非空行中提取「验收存疑：<理由>」的理由。
 func acceptanceDisputeReason(summary string) (string, bool) {

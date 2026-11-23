@@ -486,6 +486,7 @@ func TestLeadPolicyAcceptance(t *testing.T) {
 				"At least one must fail on the code before the change",
 				"merges only if every command exits 0",
 				"A go test acceptance command must use -run to target the tests for this change; entries whose acceptance uses grep -q, a leading timeout, or go test without -run are rejected before the bee starts. Do not repeat the acceptance commands as self-test steps in the prompt.",
+				"Keep acceptance to the tests for this change; leave broad regression patterns to your own full check after the last merge, since any failure there, related or not, blocks the merge.",
 				"When acceptance fails, mcode first sends the output back to the same bee once, so a failed report has already had that retry; a reason starting with 验收存疑 means the bee judged the acceptance command wrong, so check the command before anything else.",
 				"If the acceptance command itself was wrong, send an entry with reworkOf naming that bee, rerun true and the corrected acceptance; mcode reruns it on the kept copy without starting a bee.",
 			} {
