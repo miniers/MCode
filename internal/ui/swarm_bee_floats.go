@@ -758,9 +758,9 @@ func toggleSwarmAutoPops(s *chatState, leadID string) {
 	s.invalidate()
 }
 
-// collectSwarmBees 过滤出有效的 Swarm bee（主会话和子代理会话的所属团队状态共用）。
-func collectSwarmBees(st SwarmState) []SwarmBee {
-	if !st.Available || len(st.Bees) == 0 {
+// getActiveSwarmBees 获取当前会话中所有的有效 Swarm bee。
+func getActiveSwarmBees(st SwarmState) []SwarmBee {
+	if !st.Available || st.IsBee || len(st.Bees) == 0 {
 		return nil
 	}
 	var res []SwarmBee
@@ -771,14 +771,6 @@ func collectSwarmBees(st SwarmState) []SwarmBee {
 		res = append(res, h)
 	}
 	return res
-}
-
-// getActiveSwarmBees 获取当前会话中所有的有效 Swarm bee。
-func getActiveSwarmBees(st SwarmState) []SwarmBee {
-	if st.IsBee {
-		return nil
-	}
-	return collectSwarmBees(st)
 }
 
 // getSelectedSwarmBee 决定团队面板应当呈现的 bee。
@@ -852,7 +844,7 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 	}
 	// 已经自动收起的子线程不再出现在浮窗里；全部收起时按“没有子代理”处理，浮窗随之隐藏。
 	// 子线程列表直接读派生视图，不再每帧拷贝整份 SwarmState 再重新过滤一遍。
-	bees := swarmVisibleBees(leadID, view.floatBees)
+	bees := swarmVisibleBees(leadID, view.active)
 	forced := settleSwarmFloatForced(leadID, len(bees))
 	pending := settleSwarmFloatPending(s, leadID, len(bees))
 	if len(bees) == 0 && !forced && !pending {
@@ -941,7 +933,7 @@ func renderSwarmBeeFloats(c *ui.Context, s *chatState) {
 	var activeBees []SwarmBee
 	if view != nil {
 		leadID = view.leadID
-		activeBees = view.floatBees
+		activeBees = view.active
 	}
 	// 等待集合同一帧只算一次，供自动收起使用。
 	waiting := swarmWaitingBeeIDs(s, activeBees)

@@ -1288,8 +1288,8 @@ func TestSwarmFloatPendingLead(t *testing.T) {
 	}
 }
 
-// TestSwarmFloatShownWhenBeeSelected 验证选中子代理（bee）会话时，仍显示所属主会话的浮窗。
-func TestSwarmFloatShownWhenBeeSelected(t *testing.T) {
+// TestSwarmFloatHiddenWhenBeeSelected 验证选中子代理（bee）会话时，浮窗不显示所属主会话的子代理。
+func TestSwarmFloatHiddenWhenBeeSelected(t *testing.T) {
 	const (
 		leadID = "lead-bee-selected-test"
 		beeID  = "bee-selected-1"
@@ -1330,13 +1330,10 @@ func TestSwarmFloatShownWhenBeeSelected(t *testing.T) {
 	}, 1600, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	tt.Frame()
 
-	if frame.leadID != leadID {
-		t.Fatalf("frame.leadID = %q，期望 %q", frame.leadID, leadID)
+	if len(frame.bees) != 0 {
+		t.Fatalf("选中 bee 会话时 frame.bees 应为空，实际有 %d 个", len(frame.bees))
 	}
-	if len(frame.bees) == 0 {
-		t.Fatal("选中 bee 会话时 frame.bees 不应为空")
-	}
-	if !frame.scene.has() {
-		t.Fatal("选中 bee 会话时浮窗场景应挂载")
+	if frame.scene.has() {
+		t.Fatal("选中 bee 会话时浮窗场景不应挂载")
 	}
 }
