@@ -86,7 +86,6 @@ func fileManagerPaneOpen(s *chatState) bool {
 	return inspectorPaneOpen(s, sidePaneFileID)
 }
 
-// fileManagerPaneWidth 返回文件管理面板的宽度字段指针；状态不存在时返回 nil。调用方持 fileManagerMu。
 func previewPaneOpen(s *chatState) bool {
 	return inspectorPaneOpen(s, sidePanePreviewID)
 }

@@ -13,6 +13,7 @@ import (
 var (
 	fileManagerGOOS        = runtime.GOOS
 	fileManagerPreviewItem = func(abs string) error { return mygo.Shell.PreviewItem(abs) }
+	fileManagerOpenDefault = func(abs string) error { return mygo.Shell.OpenPath(abs) }
 )
 
 // fileManagerEntryEditable 判断条目能否做写操作：受保护条目和服务端不支持文件操作时都不行。
@@ -132,7 +133,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 					})
 				}
 				if m.Item("用默认应用打开").Chosen() {
-					_ = mygo.Shell.OpenPath(abs)
+					_ = fileManagerOpenDefault(abs)
 				}
 			}
 			if m.Item(revealInFileManagerLabel()).Chosen() {

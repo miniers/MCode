@@ -460,7 +460,7 @@ func TestFileManagerMergedHeader(t *testing.T) {
 	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
 	s.mu.Lock()
 	if sess := inspectorExistingSessionLocked(s, "t1"); sess != nil {
-		sess.Width = FileManagerPanelMaxWidth
+		sess.Width = fileTreeSplitMinWidth + 80
 	}
 	s.mu.Unlock()
 	tt.Advance(DurSheet + 50*time.Millisecond)

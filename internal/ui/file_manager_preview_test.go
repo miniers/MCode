@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -324,5 +326,61 @@ func TestLocalPreviewUntrustedNoBindings(t *testing.T) {
 	inspectorDisposeSession(s, inspectorSession(s))
 	if revoked := client.revokedSnapshot(); len(revoked) != 1 || revoked[0] != "t1" {
 		t.Fatalf("释放会话后的撤销记录=%v", revoked)
+	}
+}
+
+func TestFileManagerBinaryOpenDefault(t *testing.T) {
+	workDir := t.TempDir()
+	binPath := filepath.Join(workDir, "archive.zip")
+	if err := os.WriteFile(binPath, []byte{0x50, 0x4b, 0x03, 0x04}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origOpenDefault := fileManagerOpenDefault
+	t.Cleanup(func() { fileManagerOpenDefault = origOpenDefault })
+	var opened []string
+	fileManagerOpenDefault = func(abs string) error {
+		opened = append(opened, abs)
+		return nil
+	}
+
+	client := NewFakeClient()
+	client.SetThreadWorkDir(workDir)
+	client.SetFileContents(map[string]FileContent{
+		"archive.zip": {Path: "archive.zip", Kind: "binary", TotalSize: 4},
+		"remote.bin":  {Path: "remote.bin", Kind: "binary", TotalSize: 4},
+	})
+	s := newInspectorPreviewState(t, client)
+
+	s.openFileManagerFile("t1", "archive.zip", false)
+	tab := waitInspectorPreviewTab(t, s, "archive.zip")
+	if tab.kind != "binary" {
+		t.Fatalf("二进制文件类型=%q", tab.kind)
+	}
+
+	tester := ui.NewTester(func(c *ui.Context) { renderFileManagerPanel(c, s) }, 900, 600)
+	tester.Frame()
+	if !tester.HasText("无法预览此文件") {
+		t.Fatalf("缺少「无法预览此文件」文案: %v", tester.Texts())
+	}
+	if _, ok := tester.Find("用默认应用打开"); !ok {
+		t.Fatalf("缺少「用默认应用打开」按钮: %v", tester.AccessAll())
+	}
+	if err := tester.Click("用默认应用打开"); err != nil {
+		t.Fatal(err)
+	}
+	if len(opened) != 1 || opened[0] != binPath {
+		t.Fatalf("打开路径=%v，期望 [%q]", opened, binPath)
+	}
+
+	// 非本地文件不显示「用默认应用打开」按钮。
+	s.openFileManagerFile("t1", "remote.bin", false)
+	waitInspectorPreviewTab(t, s, "remote.bin")
+	tester.Frame()
+	if !tester.HasText("无法预览此文件") {
+		t.Fatalf("非本地二进制文件缺少「无法预览此文件」文案: %v", tester.Texts())
+	}
+	if _, ok := tester.Find("用默认应用打开"); ok {
+		t.Fatal("非本地二进制文件不应显示「用默认应用打开」按钮")
 	}
 }

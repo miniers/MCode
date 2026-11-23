@@ -604,9 +604,9 @@ func TestSidePaneDraggedWidth_Signs(t *testing.T) {
 // 松手判定：窄于最小宽度的一半收起并复位，否则夹取到 [最小, 最大]；正好一半不收起。
 func TestSidePaneReleasedWidth_CollapseAndClamp(t *testing.T) {
 	const (
-		minW = FileManagerPanelMinWidth
-		defW = FileManagerPanelDefaultWidth
-		maxW = FileManagerPanelMaxWidth
+		minW         = inspectorMinWidth
+		defW         = inspectorDefaultWidth
+		maxW float32 = 720
 	)
 	if w, collapsed := sidePaneReleasedWidth(minW*0.5-1, minW, defW, maxW); !collapsed || w != defW {
 		t.Errorf("过窄松手应收起并复位到 %v, got %v collapsed=%v", defW, w, collapsed)

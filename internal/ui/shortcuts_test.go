@@ -495,7 +495,7 @@ func TestAppShortcutsKeysFollowDefaults(t *testing.T) {
 }
 
 // TestRegisteredShortcutsDefaultSet 默认每帧注册集合与重构前完全一致：
-// ⌘N、⌥⌘N、⌘D、⌘J、⌃`、⇧⌘P、⇧⌘B、⇧⌘E、⇧⌘F、⌥⌘U、⌥⌘R、⌥⌘↑、⌥⌘↓、⇧⌘S、⌃⌘A、⌘,、⇧⌘O、⇧⌘K、⌘1…9、⌘/，
+// ⌘N、⌥⌘N、⌘D、⌘J、⌃`、⇧⌘P、⇧⌘B、⇧⌘F、⌥⌘U、⌥⌘R、⌥⌘↑、⌥⌘↓、⇧⌘S、⌃⌘A、⌘,、⇧⌘O、⇧⌘K、⌘1…9、⌘/，
 // 不含 Esc、⌘K、⌘B（这三者若注册会被 dispatchActiveShortcut 每帧抢占）。
 // 「跳到最新」⌘↓ 与「打开待处理收件箱」⇧⌘I 也在默认注册集合里。
 func TestRegisteredShortcutsDefaultSet(t *testing.T) {
@@ -513,7 +513,6 @@ func TestRegisteredShortcutsDefaultSet(t *testing.T) {
 		{ui.Ctrl, ui.KeyBackquote},
 		{ui.Cmd | ui.Shift, ui.KeyP},
 		{ui.Cmd | ui.Shift, ui.KeyB},
-		{ui.Cmd | ui.Shift, ui.KeyE},
 		{ui.Cmd | ui.Alt, ui.KeyU},
 		{ui.Cmd | ui.Alt, ui.KeyR},
 		{ui.Cmd | ui.Alt, ui.KeyUp},

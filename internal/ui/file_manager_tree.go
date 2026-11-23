@@ -991,7 +991,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 		if depth := strings.Count(path, "/"); depth > 0 {
 			ui.Box(c).Width(float32(depth) * Space3).Shrink(0)
 		}
-		arrow := ui.Box(c.Key("file-tree-arrow-box-" + path)).Size(IconSM, IconSM).Shrink(0).Center()
+		arrow := ui.Box(c.Key("file-tree-arrow-box-"+path)).Size(IconSM, IconSM).Shrink(0).Center()
 		if entry.IsDir {
 			if dirLoading {
 				arrow.Children(func() {

@@ -11,23 +11,11 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 )
 
-// 文件管理面板的宽度范围，与右侧改动面板、网页预览面板同属主区右侧分栏。
-const (
-	FileManagerPanelMinWidth     float32 = 220
-	FileManagerPanelDefaultWidth float32 = 420
-	FileManagerPanelMaxWidth     float32 = 720
-)
-
-// fileManagerCompactHeaderWidth 是文件预览头部收紧按钮文案的宽度阈值：
-// 面板被拖到很窄时，文件名与「引用到输入框」按钮同处一行会互相挤压。
-const fileManagerCompactHeaderWidth float32 = 260
-
 // 文件管理面板的一次性尺寸：令牌刻度覆盖不到的档位，集中在这里避免散落成字面量。
 const (
 	fileManagerHeaderHeight  float32 = 40  // 列表头与文件头的高度
 	fileManagerErrorMaxWidth float32 = 300 // 错误文案的最大宽度
 	fileManagerIconTiny      float32 = 8   // 清除搜索的叉号
-	fileManagerIconChevron   float32 = 10  // 面包屑分隔符
 	fileManagerIconAlert     float32 = 24  // 错误占位图标
 )
 
@@ -565,7 +553,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			}
 		}
 		if props.protected {
-			ui.Row(c.Key(props.key+"-name-wrap")).
+			ui.Row(c.Key(props.key + "-name-wrap")).
 				Grow(1).
 				MinWidth(0).
 				AlignItems(ui.Center).
@@ -676,91 +664,6 @@ func renderFileManagerError(c *ui.Context, s *chatState, keyPrefix, errMsg strin
 		})
 }
 
-// renderFileManagerFileHeader 渲染某一栏的文件头：文件名、路径与大小、Markdown 切换、「引用到输入框」。
-// 返回目录与关闭面板按钮在标签栏里，两栏不再重复。keyPrefix 区分两栏的键。
-func renderFileManagerFileHeader(c *ui.Context, s *chatState, tab fileManagerTabSnapshot, keyPrefix string) {
-	fileName := fileManagerTabName(tab.path)
-
-	ui.Row(c.Key(keyPrefix+"file-manager-file-header")).
-		FillWidth().
-		Height(fileManagerHeaderHeight).
-		Padding(Space3, Space3).
-		BorderWidth(0, 0, Hairline, 0).
-		BorderColor(ThemeBorder(c)).
-		AlignItems(ui.Center).
-		Gap(Space2).
-		Children(func() {
-			ui.Column(c.Key(keyPrefix + "file-manager-file-title")).
-				Grow(1).
-				MinWidth(0).
-				Gap(Hairline).
-				Children(func() {
-					ui.Text(c, fileName).
-						FontSize(uiFont(TypeFootnote)).
-						FontWeight(500).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine().
-						Tooltip(tab.path)
-					var detail string
-					if tab.path != fileName {
-						detail = tab.path
-						if tab.totalSize > 0 {
-							detail += " · " + formatFileSize(tab.totalSize)
-						}
-					} else if tab.totalSize > 0 {
-						detail = formatFileSize(tab.totalSize)
-					}
-					if detail != "" {
-						ui.Text(c, detail).
-							FontSize(uiFont(TypeCaption)).
-							TextColor(ThemeSecondaryText(c)).
-							SingleLine().
-							Tooltip(detail)
-					}
-				})
-
-			if isMarkdownPath(tab.path) {
-				renderFileManagerMarkdownToggle(c, s, tab, keyPrefix)
-			}
-
-			if isInspectorSVGPath(tab.path) && tab.svg != nil {
-				renderFileManagerSVGToggle(c, s, tab, keyPrefix)
-			}
-
-			if isInspectorHTMLPath(tab.path) && inspectorPreviewAvailable(s) {
-				renderFileManagerBrowserOpenButton(c, s, tab, keyPrefix)
-			}
-
-			// 窄面板下把按钮文案收紧为「引用」，保证按钮不被挤出可视区；无障碍名称不变。
-			mentionText := "引用到输入框"
-			if narrowFileManager(s) {
-				mentionText = "引用"
-			}
-
-			ref := inspectorFileReference(s, fileManagerThreadID(s), tab.path, tab.hlFirst, tab.hlLast)
-			Button(c, ButtonOpts{
-				Key:     keyPrefix + "file-manager-file-mention",
-				Text:    mentionText,
-				Label:   "引用到输入框",
-				Variant: ButtonSecondary,
-				OnClick: func() {
-					s.addInspectorFileRefs([]inspectorFileRef{ref})
-				},
-			})
-		})
-}
-
-// narrowFileManager 判断面板是否处于窄宽度（文件头需要收紧文案）。
-func narrowFileManager(s *chatState) bool {
-	st := getFileManagerState(s)
-	if st == nil {
-		return false
-	}
-	fileManagerMu.Lock()
-	defer fileManagerMu.Unlock()
-	return st.width < fileManagerCompactHeaderWidth
-}
-
 // fileManagerPreviewFontSize 返回文件预览正文的字号：跟随设置里的编辑器字号，每帧读取以便即时生效。
 func fileManagerPreviewFontSize(s *chatState) float32 {
 	return editorFontSize()
@@ -807,9 +710,7 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 	switch tab.kind {
 	case "image":
 		if tab.imageBmp == nil {
-			ui.Text(c, "图片加载中…").
-				FontSize(uiFont(TypeFootnote)).
-				TextColor(ThemeSecondaryText(c)).
+			LoadingIndicator(c, keyPrefix+"file-manager-image-loading", "", IconSM, ThemeAccent(c)).
 				Margin(ui.Auto)
 			return
 		}
@@ -826,10 +727,28 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 				}
 			})
 	case "binary":
-		ui.Text(c, "该文件为二进制格式，暂不支持预览").
-			FontSize(uiFont(TypeFootnote)).
-			TextColor(ThemeSecondaryText(c)).
-			Margin(ui.Auto)
+		abs := fileManagerWorkspacePath(s, fileManagerThreadID(s), tab.path)
+		local := fileManagerLocalPath(abs)
+		ui.Column(c.Key(keyPrefix + "file-manager-binary")).
+			Center().
+			Gap(Space3).
+			Margin(ui.Auto).
+			Children(func() {
+				ui.Text(c, "无法预览此文件").
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ThemeSecondaryText(c))
+				if local {
+					Button(c, ButtonOpts{
+						Key:     keyPrefix + "file-manager-binary-open",
+						Text:    "用默认应用打开",
+						Variant: ButtonSecondary,
+						Size:    ControlSM,
+						OnClick: func() {
+							_ = fileManagerOpenDefault(abs)
+						},
+					})
+				}
+			})
 	default:
 		if tab.svgPreview && isInspectorSVGPath(tab.path) && tab.svg != nil {
 			renderFileManagerSVGPreview(c, tab, keyPrefix)
