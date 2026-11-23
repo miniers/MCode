@@ -155,6 +155,7 @@ func renderQuickReplies(c *ui.Context, s *chatState) {
 	ui.Row(c.Key("composer-quick-replies")).
 		Wrap().
 		Gap(Space3).
+		PassThrough().
 		Children(func() {
 			for i, item := range items {
 				item := item

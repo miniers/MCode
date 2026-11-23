@@ -246,14 +246,21 @@ func minimapRowsAll(entries []minimapEntry, active int) []minimapRow {
 // 仍然放不下就只保留最近的一段连续条目，最上面一格换成「+N」，表示还有多少条更早的提问被隐藏。
 // 视口落在被隐藏的区间时点亮「+N」那一格，当前条目的高亮不会因为截断而消失。
 func minimapPlanRows(entries []minimapEntry, active int) minimapPlan {
+	return minimapPlanRowsInBudget(entries, active, minimapRailMaxHeight)
+}
+
+func minimapPlanRowsInBudget(entries []minimapEntry, active int, maxHeight float32) minimapPlan {
 	if len(entries) == 0 {
 		return minimapPlan{}
 	}
-	if len(entries) <= minimapMaxTicks() {
-		return minimapPlan{Rows: minimapRowsAll(entries, active), Spacing: minimapRailSpacing(len(entries))}
+	if maxHeight <= 0 || maxHeight > minimapRailMaxHeight {
+		maxHeight = minimapRailMaxHeight
+	}
+	if len(entries) <= minimapFits(maxHeight, minimapRailSpacingTight) {
+		return minimapPlan{Rows: minimapRowsAll(entries, active), Spacing: minimapRailSpacingInBudget(len(entries), maxHeight)}
 	}
 	// 顶部留一格「+N」，其余放最近的条目。
-	keep := minimapFits(minimapRailMaxHeight-minimapPlusRowHeight, minimapRailSpacingTight)
+	keep := minimapFits(maxHeight-minimapPlusRowHeight, minimapRailSpacingTight)
 	if keep > len(entries)-1 {
 		keep = len(entries) - 1
 	}
@@ -316,9 +323,13 @@ func minimapShown(entries []minimapEntry) bool {
 
 // minimapRailSpacing 返回刻度间距：条目少时用宽松间距，条目多时压缩到最紧间距。
 func minimapRailSpacing(count int) float32 {
+	return minimapRailSpacingInBudget(count, minimapRailMaxHeight)
+}
+
+func minimapRailSpacingInBudget(count int, maxHeight float32) float32 {
 	// 每根刻度占一行：count 行、每行刻度加间距，就是轨道需要的总高。
 	roomy := float32(count) * (minimapTickHeight + minimapRailSpacingRoomy)
-	if count <= 1 || roomy <= minimapRailMaxHeight {
+	if count <= 1 || roomy <= maxHeight {
 		return minimapRailSpacingRoomy
 	}
 	return minimapRailSpacingTight
@@ -358,9 +369,14 @@ func renderTimelineMinimap(c *ui.Context, s *chatState, entries []minimapEntry) 
 		return
 	}
 
+	bottomInset := s.chatBottomDockHeight()
+	budget := minimapRailMaxHeight
+	if availH := s.chatTimelineHeight() - bottomInset; availH > 0 && availH < budget {
+		budget = max(availH, minimapPlusRowHeight+minimapTickHeight+minimapRailSpacingTight)
+	}
 	first, last := s.chatListState.Visible()
 	active := minimapActiveIndex(entries, first, last)
-	plan := minimapPlanRows(entries, active)
+	plan := minimapPlanRowsInBudget(entries, active, budget)
 	sinceRoll := minimapTouch(s.selectedThreadID, first, last, active, c.Now())
 
 	var hoveredEntry minimapEntry
@@ -368,7 +384,7 @@ func renderTimelineMinimap(c *ui.Context, s *chatState, entries []minimapEntry) 
 	hasHovered := false
 
 	ui.Column(c.Key("timeline-minimap-wrap")).
-		Absolute().Right(6).Top(0).Bottom(0).Width(minimapRailWidth).
+		Absolute().Right(6).Top(0).Bottom(bottomInset).Width(minimapRailWidth).
 		Justify(ui.Center).
 		PassThrough().
 		Children(func() {

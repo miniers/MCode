@@ -75,6 +75,7 @@ func renderComposerCapsuleRow(c *ui.Context, s *chatState, capsules []composerCa
 		Wrap().
 		Gap(composerCapsuleGap).
 		AlignItems(ui.Center).
+		PassThrough().
 		Children(func() {
 			for _, capsule := range capsules {
 				renderComposerCapsule(c, s, capsule)

@@ -192,7 +192,7 @@ func renderStewardFocusStrip(c *ui.Context, s *chatState, groups stewardGroups) 
 		return
 	}
 	ui.Row(c.Key("steward-focus-strip")).FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
-		Gap(Space2).Wrap().Transition(motionListItem(c)).Children(func() {
+		Gap(Space2).Wrap().PassThrough().Transition(motionListItem(c)).Children(func() {
 		for _, task := range tasks {
 			renderStewardTaskChip(c, s, "steward-focus-task-"+task.ID, task)
 		}

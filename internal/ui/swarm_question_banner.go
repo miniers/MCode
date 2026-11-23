@@ -95,9 +95,10 @@ func renderSwarmQuestionBanner(c *ui.Context, s *chatState) {
 		MinWidth(0).
 		Justify(ui.Center).
 		Padding(0, Space6, Space2, Space6).
+		PassThrough().
 		Transition(motionCollapse(c)).
 		Children(func() {
-			ui.Column(c.Key("swarm-question-banner-stack")).Grow(1).MinWidth(0).MaxWidth(composerDockMaxWidth).Gap(Space2).Children(func() {
+			ui.Column(c.Key("swarm-question-banner-stack")).Grow(1).MinWidth(0).MaxWidth(composerDockMaxWidth).Gap(Space2).PassThrough().Children(func() {
 				for i, h := range shown {
 					if i == 0 {
 						renderSwarmQuestionBannerInline(c, s, leadID, h, accent)

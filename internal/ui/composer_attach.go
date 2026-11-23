@@ -1789,6 +1789,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 	ui.Column(c.Key("composer-attachments-container")).
 		Padding(Space0, 0, Space1, 0).
 		Gap(Space1).
+		PassThrough().
 		Children(func() {
 			// 附件 token 估算超限提示（实时计算，非临时通知，与拒绝提示同样式）
 			if tokenNotice != "" {

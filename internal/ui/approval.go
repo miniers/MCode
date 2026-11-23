@@ -846,8 +846,9 @@ func renderApproval(c *ui.Context, s *chatState) {
 	}
 
 	batch := batchApprovals(approvals)
-	ui.Row(c.Key("approval-container")).Justify(ui.Center).Padding(0, Space6, Space3, Space6).Children(func() {
+	ui.Row(c.Key("approval-container")).Justify(ui.Center).Padding(0, Space6, Space3, Space6).PassThrough().Children(func() {
 		ui.Column(c.Key("approval-stack")).Grow(1).MaxWidth(composerDockMaxWidth).Gap(Space4).
+			PassThrough().
 			Transition(motionListItem(c)).
 			Children(func() {
 				if len(batch) >= 2 {

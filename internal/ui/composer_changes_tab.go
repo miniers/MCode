@@ -165,6 +165,7 @@ func renderThreadChangesTab(c *ui.Context, s *chatState, add, del, files int, ca
 		Gap(Space3).
 		Wrap().
 		AlignItems(ui.Center).
+		PassThrough().
 		Children(func() {
 			tabText := fmt.Sprintf("%d 个文件", files)
 			tab := ui.ButtonBase(c.Key("composer-changes-tab")).

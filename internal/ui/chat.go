@@ -285,155 +285,191 @@ func renderChat(c *ui.Context, s *chatState) {
 				0,
 				chatBody.AnimateWith("swarm-reserve-leading", swarmReserve.leading, animateDuration(c, DurSheet), motionEaseStandard))
 			chatBody.Children(func() {
-				// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
-				// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
-				hasForwardedContext := s.hasForwardedContextBody(selectedID)
-				hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !hasForwardedContext
-				// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
-				dockDec := s.composerDockDecisionFor(hero, selectedID)
-				if !dockDec.Docked {
-					// Hero 模式：当前会话无内容时输入框垂直居中，上方展示空态引导屏。
-					renderSwarmQuestionBanner(c, s)
-					renderApproval(c, s)
-					// 上下两个弹性占位把「引导块 + 输入框」夹在中间：居中位置与改动前一致，
-					// 而且输入框的父级与兄弟关系在 Hero/Docked 两态下不变，
-					// mygo 的同父 FLIP 才能把同一个输入框元素从中间插值到底部。
-					ui.Spacer(c)
-					heroCol := ui.Column(c.Key("chat-hero-container")).FillWidth().AlignItems(ui.Center)
-					// 引导块淡出：消失时播放（切到有消息的会话也会淡出，约 220ms）。
-					// 过渡常驻注册、只在真正消失时播；输入框不放进来，否则会多出一份淡出的幽灵副本。
-					// 必须显式写 Colors: true：mygo 的 ElementTransition 在 Position/Size/Colors
-					// 全不设时等于三项都动画，引导块就会跟着布局变化做位置插值——审批卡长高把它挤走后，
-					// 它会在旧位置停留，直到过渡停止那一帧才瞬移到位，中途盖住「提交」按钮并截走点击。
-					// 只开 Colors 后只剩颜色通道与 Exit 淡出（Exit 走独立的 animateExits，不受这三项影响），
-					// 不做位置和尺寸动画，布局一变就直接落在新位置。
-					heroCol.Transition(motionTransition(c, ui.ElementTransition{
-						Duration: composerHeroExitDuration,
-						Colors:   true,
-						Exit:     &ui.Motion{Opacity: 0},
-					}))
-					heroCol.Children(func() {
-						// 转发/分叉出来的新会话还没有消息：改为展示来源引导卡片，不再显示通用的新会话引导。
-						if !renderContinuationStartCard(c, s, selectedID) {
-							renderNewThreadPrompt(c, s, selectedID)
-						}
-						// 新会话首轮：后端还没推回用户消息时（messages 仍为空）也要能看到“回复中”，
-						// 否则发送后引导屏毫无变化，看起来像没有反应。
-						if isRunning {
-							renderRunningIndicator(c, runningIndicatorKey(selectedID)+"-row")
-						}
-						// 总管会话还没开口时，输入框上方给三枚起步胶囊。
-						renderStewardStarterCapsules(c, s)
-						renderStewardFocusStrip(c, s, boardGroups)
-					})
-					renderComposer(c, s)
-					ui.Spacer(c)
-				} else {
-					// Docked 停靠模式：有消息时展示时间线并底部停靠输入框
-					// 锚点行在条目里的下标：列表构建时靠它接住锚点行元素，读上一帧的位置。
-					anchorRow := -1
-					if anchorID := s.chatAnchorRowID(); anchorID != "" {
-						anchorRow = anchorRowIndex(timelineItems, anchorID)
-					}
-					// 锚点行与列表的上一帧窗口坐标，列表构建时再填（Bounds 只能读上一帧的值）。
-					var anchorRowTop float32
-					var listEl ui.Element
-					timeline := ui.Row(c.Key("timeline-container")).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Stretch)
-					// 时间线淡入：切换帧（dockDec.Promote）注册，之后只要过渡还在跑就继续注册——
-					// 过渡只在这一帧注册、下一帧就停，淡入会被掐断，所以要跟到 Transitioning() 为假为止。
-					// 切会话、打开已有消息的会话时时间线本来就在且没有过渡在跑，不会重播淡入。
-					// Colors: true 让时间线只跟颜色通道，后续布局变化不做位置动画。
-					if dockDec.Promote || timeline.Transitioning() {
-						timeline.Transition(motionTransition(c, ui.ElementTransition{
+				// chatStage 位于 chatBody 的水平让位内边距之内：Inside 的绝对定位（底部悬浮区与渐变遮罩）
+				// 相对 chatStage 排版，才会跟着 swarmReserve 的左右让位一起收窄或移动。
+				chatStage := ui.Column(c.Key("chat-stage")).Grow(1).MinHeight(0).FillWidth()
+				chatStage.Children(func() {
+					// Hero 判定与输入框停靠共用 composerThreadEmpty：两处口径一致，
+					// 才不会出现「输入框已停靠到底部、引导屏还占着中间」的错位。
+					hasForwardedContext := s.hasForwardedContextBody(selectedID)
+					hero := composerThreadEmpty(len(messages), len(curResolvedPlans), len(curAnsweredQuestions)) && !hasForwardedContext
+					// dockDec 是输入框本帧的布局结论；切换帧（首条消息刚发出）时才播位移与淡入。
+					dockDec := s.composerDockDecisionFor(hero, selectedID)
+					if !dockDec.Docked {
+						s.setChatBottomDockMetrics(0, ui.Rect{}, ui.Rect{}, ui.Rect{})
+						// Hero 模式：当前会话无内容时输入框垂直居中，上方展示空态引导屏。
+						renderSwarmQuestionBanner(c, s)
+						renderApproval(c, s)
+						// 上下两个弹性占位把「引导块 + 输入框 + chat-bottom-dock」夹在中间：居中位置与改动前一致，
+						// 而且 chat-bottom-dock 与输入框的父级关系在 Hero/Docked 两态下不变，
+						// mygo 的同父 FLIP 才能把同一个底部容器从中间插值到底部。
+						ui.Spacer(c)
+						heroCol := ui.Column(c.Key("chat-hero-container")).FillWidth().AlignItems(ui.Center)
+						// 引导块淡出：消失时播放（切到有消息的会话也会淡出，约 220ms）。
+						// 过渡常驻注册、只在真正消失时播；输入框不放进来，否则会多出一份淡出的幽灵副本。
+						// 必须显式写 Colors: true：mygo 的 ElementTransition 在 Position/Size/Colors
+						// 全不设时等于三项都动画，引导块就会跟着布局变化做位置插值——审批卡长高把它挤走后，
+						// 它会在旧位置停留，直到过渡停止那一帧才瞬移到位，中途盖住「提交」按钮并截走点击。
+						// 只开 Colors 后只剩颜色通道与 Exit 淡出（Exit 走独立的 animateExits，不受这三项影响），
+						// 不做位置和尺寸动画，布局一变就直接落在新位置。
+						heroCol.Transition(motionTransition(c, ui.ElementTransition{
 							Duration: composerHeroExitDuration,
 							Colors:   true,
-							Enter:    &ui.Motion{Opacity: 0},
+							Exit:     &ui.Motion{Opacity: 0},
 						}))
-					}
-					timeline.Children(func() {
-						// 锚定期间在列表底部垫出一屏空白，刚发出的消息才能停在视口顶部：
-						// 动画推进时这块空白逐帧增长，follow-end 排版就把锚点行一路顶上来。
-						listPadBottom := listPadY + s.chatAnchorPadExtra(c, chatBody)
-						// 虚拟列表按行按需测量：滑到底的过程中未渲染过的行会撑大 MaxY，
-						// 每帧把目标续到最新 MaxY，避免停在首帧估算的底部位置。
-						if s.chatScroll.Scrolling() {
-							if reduceMotion(c) {
-								s.chatScroll = ui.ScrollState{}
-								s.chatListState.ScrollToEnd()
-							} else {
-								s.chatScroll.ScrollTo(0, math.MaxFloat32, springGentle)
+						heroCol.Children(func() {
+							// 转发/分叉出来的新会话还没有消息：改为展示来源引导卡片，不再显示通用的新会话引导。
+							if !renderContinuationStartCard(c, s, selectedID) {
+								renderNewThreadPrompt(c, s, selectedID)
 							}
+							// 新会话首轮：后端还没推回用户消息时（messages 仍为空）也要能看到“回复中”，
+							// 否则发送后引导屏毫无变化，看起来像没有反应。
+							if isRunning {
+								renderRunningIndicator(c, runningIndicatorKey(selectedID)+"-row")
+							}
+							// 总管会话还没开口时，输入框上方给三枚起步胶囊。
+							renderStewardStarterCapsules(c, s)
+							renderStewardFocusStrip(c, s, boardGroups)
+						})
+						dock := ui.Column(c.Key("chat-bottom-dock")).FillWidth().PassThrough()
+						// Hero 帧只跟颜色通道（不碰位置/尺寸），让引擎记录居中坐标，供 Hero→Docked 同父 FLIP 起跳。
+						dock.Transition(motionFeedback(c))
+						s.composerView.dockTransitioning = false
+						dock.Children(func() {
+							renderComposer(c, s)
+						})
+						ui.Spacer(c)
+					} else {
+						// Docked 停靠模式：有消息时时间线占满高度，底部卡片与输入框悬浮于其上。
+						dockBottomPad := s.chatBottomDockHeight()
+						// 锚点行在条目里的下标：列表构建时靠它接住锚点行元素，读上一帧的位置。
+						anchorRow := -1
+						if anchorID := s.chatAnchorRowID(); anchorID != "" {
+							anchorRow = anchorRowIndex(timelineItems, anchorID)
 						}
-						listEl = ui.List(c.Key("message-list"), &s.chatListState, len(timelineItems), func(i int) {
-							item := timelineItems[i]
-							isLastAssistant := itemHoldsTurnEnd(item, lastAssistantPerTurn) &&
-								!turnRunSuppressesEnd(turnRunning, latestTurn, item.turnIndex)
-							turnUsage, hasUsage := curUsage.Turns[item.turnIndex]
-
-							// 工具组内的节拍由 timelineItemTopGap 自己决定间距，列表不设 Gap
-							el := renderTimelineItem(c, s, item, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, timelineItemTopGap(timelineItems, i, listGap))
-							if i == anchorRow {
-								// 锚点行已排过版（高度非 0）才记位置：没渲染的行留 0，交给“等几何量”分支。
-								if b := el.Bounds(); b.H > 0 {
-									anchorRowTop = b.Y
+						// 锚点行与列表的上一帧窗口坐标，列表构建时再填（Bounds 只能读上一帧的值）。
+						var anchorRowTop float32
+						var listEl ui.Element
+						timeline := ui.Row(c.Key("timeline-container")).Grow(1).MinHeight(0).FillWidth().AlignItems(ui.Stretch)
+						// 时间线淡入：切换帧（dockDec.Promote）注册，之后只要过渡还在跑就继续注册——
+						// 过渡只在这一帧注册、下一帧就停，淡入会被掐断，所以要跟到 Transitioning() 为假为止。
+						// 切会话、打开已有消息的会话时时间线本来就在且没有过渡在跑，不会重播淡入。
+						// Colors: true 让时间线只跟颜色通道，后续布局变化不做位置动画。
+						if dockDec.Promote || timeline.Transitioning() {
+							timeline.Transition(motionTransition(c, ui.ElementTransition{
+								Duration: composerHeroExitDuration,
+								Colors:   true,
+								Enter:    &ui.Motion{Opacity: 0},
+							}))
+						}
+						timeline.Children(func() {
+							// 底部留白 = 常规内边距 + 悬浮区高度（保证滚到末尾时最后一行停在悬浮区上方） + 发送后锚定垫高。
+							listPadBottom := listPadY + dockBottomPad + s.chatAnchorPadExtra(c, chatBody)
+							// 虚拟列表按行按需测量：滑到底的过程中未渲染过的行会撑大 MaxY，
+							// 每帧把目标续到最新 MaxY，避免停在首帧估算的底部位置。
+							if s.chatScroll.Scrolling() {
+								if reduceMotion(c) {
+									s.chatScroll = ui.ScrollState{}
+									s.chatListState.ScrollToEnd()
+								} else {
+									s.chatScroll.ScrollTo(0, math.MaxFloat32, springGentle)
 								}
 							}
-						}).TrackScroll(&s.chatScroll).Grow(1).MinHeight(0).Padding(listPadY, 0, listPadBottom, 0)
-						// 列表构建完再处理锚定：推进垫高动画、下发收口滚动、判断是否该解除。
-						s.applyChatAnchor(selectedID, timelineItems, anchorGeometry{
-							rowTop:       anchorRowTop,
-							listTop:      listEl.Bounds().Y,
-							padTop:       listPadY,
-							reduceMotion: reduceMotion(c),
-						})
-						// 时间线迷你地图在容器内绝对定位贴右缘、不占列表宽度，不走 Overlay，以免盖住浮窗
-						renderTimelineMinimap(c, s, buildMinimapEntries(timelineItems))
-						// 会话内查找条浮在聊天区右上角，横向让出迷你地图的宽度
-						renderChatFindBar(c, s, selectedID, rev, messages, timelineItems)
-					})
+							listEl = ui.List(c.Key("message-list"), &s.chatListState, len(timelineItems), func(i int) {
+								item := timelineItems[i]
+								isLastAssistant := itemHoldsTurnEnd(item, lastAssistantPerTurn) &&
+									!turnRunSuppressesEnd(turnRunning, latestTurn, item.turnIndex)
+								turnUsage, hasUsage := curUsage.Turns[item.turnIndex]
 
-					// 跳到最新按钮浮在时间线右下，不占布局高度。
-					atEnd := s.chatListState.AtEnd()
-					unread := s.observeTimelineUnread(selectedID, messages, atEnd || s.chatAnchorHolding(selectedID))
-					if shouldShowJumpToLatest(atEnd, -1) || unread > 0 {
-						ui.Overlay(c, func() {
-							// 悬停提示带上当前键位；离开底部后有新消息时，胶囊文字换成未读条数。
-							jumpLabel := shortcutTitleWithKey("jump-to-latest", "跳到最新")
-							text := "跳到最新"
-							if unread > 0 {
-								text = unreadJumpLabel(unread)
-							}
-							btn := Capsule(c, CapsuleProps{
-								Key:         "chat-jump-latest",
-								Text:        text,
-								Icon:        IconChevronDown(),
-								Tone:        ToneNeutral,
-								Size:        ControlMD,
-								Interactive: true,
-								Tooltip:     jumpLabel,
-								OnClick:     func() { s.jumpChatToLatest(selectedID) },
+								// 工具组内的节拍由 timelineItemTopGap 自己决定间距，列表不设 Gap
+								el := renderTimelineItem(c, s, item, liveID, lastLiveID, isLastAssistant, hasUsage, turnUsage, timelineItemTopGap(timelineItems, i, listGap))
+								if i == anchorRow {
+									// 锚点行已排过版（高度非 0）才记位置：没渲染的行留 0，交给“等几何量”分支。
+									if b := el.Bounds(); b.H > 0 {
+										anchorRowTop = b.Y
+									}
+								}
+							}).TrackScroll(&s.chatScroll).Grow(1).MinHeight(0).Padding(listPadY, 0, listPadBottom, 0)
+							// 列表构建完再处理锚定：推进垫高动画、下发收口滚动、判断是否该解除。
+							s.applyChatAnchor(selectedID, timelineItems, anchorGeometry{
+								rowTop:       anchorRowTop,
+								listTop:      listEl.Bounds().Y,
+								padTop:       listPadY,
+								reduceMotion: reduceMotion(c),
 							})
-							btn.Transition(motionPopover(c, motionRiseOffset))
-							btn.AttachTo(timeline, ui.AnchorBottomRight, ui.AnchorBottomRight).Margin(0, 24, 10, 0)
+							// 时间线迷你地图在容器内绝对定位贴右缘、不占列表宽度，不走 Overlay，以免盖住浮窗
+							renderTimelineMinimap(c, s, buildMinimapEntries(timelineItems))
+							// 会话内查找条浮在聊天区右上角，横向让出迷你地图的宽度
+							renderChatFindBar(c, s, selectedID, rev, messages, timelineItems)
 						})
+
+						// 跳到最新按钮浮在时间线右下，底部 Margin 加上悬浮区高度，始终停在悬浮区上方。
+						atEnd := s.chatListState.AtEnd()
+						unread := s.observeTimelineUnread(selectedID, messages, atEnd || s.chatAnchorHolding(selectedID))
+						if shouldShowJumpToLatest(atEnd, -1) || unread > 0 {
+							ui.Overlay(c, func() {
+								// 悬停提示带上当前键位；离开底部后有新消息时，胶囊文字换成未读条数。
+								jumpLabel := shortcutTitleWithKey("jump-to-latest", "跳到最新")
+								text := "跳到最新"
+								if unread > 0 {
+									text = unreadJumpLabel(unread)
+								}
+								btn := Capsule(c, CapsuleProps{
+									Key:         "chat-jump-latest",
+									Text:        text,
+									Icon:        IconChevronDown(),
+									Tone:        ToneNeutral,
+									Size:        ControlMD,
+									Interactive: true,
+									Tooltip:     jumpLabel,
+									OnClick:     func() { s.jumpChatToLatest(selectedID) },
+								})
+								btn.Transition(motionPopover(c, motionRiseOffset))
+								btn.AttachTo(timeline, ui.AnchorBottomRight, ui.AnchorBottomRight).Margin(0, 24, 10+dockBottomPad, 0)
+							})
+						}
+
+						// 悬浮区背后纵向渐变遮罩：在 dock 之前构建，使其画在时间线之上、悬浮卡片之下，且不拦截鼠标事件。
+						renderChatBottomDockMask(c, dockBottomPad, s.composerAreaHeight())
+
+						dock := ui.Column(c.Key("chat-bottom-dock")).
+							Absolute().
+							Left(0).
+							Right(0).
+							Bottom(0).
+							PassThrough()
+						if dockDec.Promote || dock.Transitioning() {
+							dock.Transition(motionTransition(c, ui.ElementTransition{
+								Position:  true,
+								Animation: &composerDockTravelAnimation,
+							}))
+						}
+						s.composerView.dockTransitioning = dockDec.Promote || dock.Transitioning()
+						dock.Children(func() {
+							// 审批卡片区域
+							renderSwarmQuestionBanner(c, s)
+							renderApproval(c, s)
+
+							// 长会话压缩建议卡片：输入框上方（压缩卡片优先，避免与转发建议叠在一起）
+							if !renderCompactSuggestionCard(c, s, selectedID, curUsage) {
+								renderForwardSuggestionCard(c, s, selectedID, isRunning)
+							}
+
+							// 总管会话的起步胶囊：用户还没开口时停在输入框上方，发出后条件不再满足自然消失。
+							renderStewardStarterCapsules(c, s)
+							renderStewardFocusStrip(c, s, boardGroups)
+
+							// 底部输入框区域
+							renderComposer(c, s)
+						})
+
+						dockBounds := dock.Bounds()
+						roundedDockH := float32(math.Round(float64(dockBounds.H)))
+						if s.setChatBottomDockMetrics(roundedDockH, timeline.Bounds(), listEl.Bounds(), dockBounds) || dockBounds.H == 0 {
+							s.invalidate()
+						}
 					}
-
-					// 审批卡片区域
-					renderSwarmQuestionBanner(c, s)
-					renderApproval(c, s)
-
-					// 长会话压缩建议卡片：输入框上方（压缩卡片优先，避免与转发建议叠在一起）
-					if !renderCompactSuggestionCard(c, s, selectedID, curUsage) {
-						renderForwardSuggestionCard(c, s, selectedID, isRunning)
-					}
-
-					// 总管会话的起步胶囊：用户还没开口时停在输入框上方，发出后条件不再满足自然消失。
-					renderStewardStarterCapsules(c, s)
-					renderStewardFocusStrip(c, s, boardGroups)
-
-					// 底部输入框区域
-					renderComposer(c, s)
-				}
+				})
 
 				// D-18 骨架：历史加载时显示，数据到达后用 motionFast 淡出。
 				// 它是绝对定位的 PassThrough 层，不参与布局，也不改变已有滚动位置。
@@ -561,7 +597,7 @@ func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string, c
 		return false
 	}
 
-	ui.Column(c.Key("chat-compact-offer")).FillWidth().Padding(Space3, Space7).AlignItems(ui.Center).Transition(motionCollapse(c)).Children(func() {
+	ui.Column(c.Key("chat-compact-offer")).FillWidth().Padding(Space3, Space7).AlignItems(ui.Center).PassThrough().Transition(motionCollapse(c)).Children(func() {
 		ui.Column(c.Key("chat-compact-offer-card")).
 			AlignItems(ui.End).
 			Background(ThemeSurface(c)).
@@ -640,7 +676,7 @@ func renderForwardSuggestionCard(c *ui.Context, s *chatState, threadID string, r
 		return
 	}
 
-	ui.Column(c.Key("chat-forward-offer")).FillWidth().Padding(Space3, Space7).AlignItems(ui.Center).Children(func() {
+	ui.Column(c.Key("chat-forward-offer")).FillWidth().Padding(Space3, Space7).AlignItems(ui.Center).PassThrough().Children(func() {
 		ui.Column(c.Key("chat-forward-offer-card")).
 			AlignItems(ui.End).
 			Background(ThemeSurface(c)).
@@ -1075,4 +1111,83 @@ func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSi
 		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15}, // H6 11pt
 	}
 	return mdTheme
+}
+
+func (s *chatState) chatBottomDockHeight() float32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	h := s.chatBottomDockH
+	s.mu.Unlock()
+	return h
+}
+
+func (s *chatState) chatTimelineHeight() float32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	h := s.chatTimelineBounds.H
+	s.mu.Unlock()
+	return h
+}
+
+func (s *chatState) composerAreaHeight() float32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	h := s.composerAreaH
+	s.mu.Unlock()
+	return h
+}
+
+func (s *chatState) setChatBottomDockMetrics(dockH float32, timelineBounds, listBounds, dockBounds ui.Rect) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	changed := s.chatBottomDockH != dockH
+	s.chatBottomDockH = dockH
+	s.chatTimelineBounds = timelineBounds
+	s.chatListBounds = listBounds
+	s.chatBottomDockBounds = dockBounds
+	s.mu.Unlock()
+	return changed
+}
+
+// renderChatBottomDockMask 在底部悬浮区背后绘制纵向渐变遮罩：
+// 从悬浮区顶部上方 Space6 处的透明聊天背景色，过渡到输入框顶部附近的不透明聊天背景色，
+// 淡出滚到悬浮区下方的时间线内容，同时 PassThrough + IgnoreInput 不拦截鼠标事件。
+func renderChatBottomDockMask(c *ui.Context, dockH, composerH float32) {
+	if dockH <= 0 {
+		return
+	}
+	bg := ThemeSurfaceMain(c)
+	totalH := dockH + Space6
+	fadeEndY := Space6
+	if composerH > 0 && totalH-composerH > fadeEndY {
+		fadeEndY = totalH - composerH
+	}
+	stopAt := min(float32(1), fadeEndY/totalH)
+	stops := []ui.GradientStop{
+		{Color: bg.Alpha(0), At: 0},
+		{Color: bg, At: stopAt},
+	}
+	if stopAt < 1 {
+		stops = append(stops, ui.GradientStop{Color: bg, At: 1})
+	}
+	ui.Box(c.Key("chat-bottom-dock-mask")).
+		Absolute().
+		Left(0).
+		Right(0).
+		Bottom(0).
+		Height(totalH).
+		LinearGradient(ui.LinearGradient{
+			Angle: 180,
+			Stops: stops,
+		}).
+		PassThrough().
+		IgnoreInput(true)
 }

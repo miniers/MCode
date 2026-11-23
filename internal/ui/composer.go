@@ -38,6 +38,7 @@ type composerViewState struct {
 	lastThreadID              string                        // 上一帧的选中会话，用于切换会话时重置历史导航
 	dockThreadID              string                        // 上一帧 Hero/Docked 判定所属的会话
 	dockDocked                bool                          // 上一帧是否停靠（仅当 dockThreadID 与当前会话一致时有效）
+	dockTransitioning         bool                          // 外层 chat-bottom-dock 是否正在进行 Hero→Docked 位移过渡
 	quotaLastSeen             map[string]quotaUsageSnapshot // 按 provider+账户记录上一次观察到的已用百分比
 	quotaChangedAt            map[string]time.Time          // 按账户记录额度最近一次变动的时间
 	activeQuotaAccount        map[string]string             // 后端 Active 标记给出的在用账户（按 provider）
@@ -111,7 +112,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 	provider := s.queuedThreadProvider(threadID)
 	canSteer := provider == "" || providerSupportsSteer(provider)
 
-	ui.Column(c.Key("composer-tab-slot")).Gap(Space2).Children(func() {
+	ui.Column(c.Key("composer-tab-slot")).Gap(Space2).PassThrough().Children(func() {
 		// D-14：排队区默认折叠成 28pt 单行——数量 + 首条 12pt 摘要 + 展开箭头。
 		// 展开状态按会话记住，点这一行切换。
 		expanded := queueExpandedFor(s, threadID)
@@ -768,8 +769,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 	const composerCardMinHDuration = 420 * time.Millisecond
 	const composerCardHeroMinHeight float32 = 120
 
-	// Hero 和停靠模式均以标准宽度居中。
-	container := ui.Row(c.Key("composer-container")).FillWidth().Justify(ui.Center)
+	// Hero 和停靠模式均以标准宽度居中。PassThrough 让两侧留白与子行间隙把点击和滚轮透传给下方时间线。
+	container := ui.Row(c.Key("composer-container")).FillWidth().Justify(ui.Center).PassThrough()
 	if s.embeddedBee {
 		// 浮动面板里的输入框填满面板宽度，没有 Hero 与停靠的过渡。
 		container.Padding(0, Space3, composerEmbeddedPadBottom, Space3)
@@ -808,7 +809,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 	s.composerView.dockThreadID = currentThreadID
 	s.composerView.dockDocked = docked
 	container.Children(func() {
-		outerCol := ui.Column(c.Key("composer-outer-col")).Gap(Space3)
+		outerCol := ui.Column(c.Key("composer-outer-col")).Gap(Space3).PassThrough()
 		if s.embeddedBee {
 			outerCol.Grow(1)
 		} else {
@@ -859,7 +860,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 			if docked {
 				minH = 0
 			}
-			if promote || container.Transitioning() {
+			if promote || s.composerView.dockTransitioning || container.Transitioning() {
 				minH = card.AnimateWith("composer-card-min-h", minH, animateDuration(c, composerCardMinHDuration), ui.EaseOut)
 			} else {
 				minH = card.Jump("composer-card-min-h", minH)

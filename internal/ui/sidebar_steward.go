@@ -399,6 +399,7 @@ func renderStewardStarterCapsules(c *ui.Context, s *chatState) {
 		Justify(ui.Center).
 		Gap(Space3).
 		Margin(0, 0, Space3, 0).
+		PassThrough().
 		Children(func() {
 			for i, prompt := range stewardStarterPrompts {
 				text := prompt

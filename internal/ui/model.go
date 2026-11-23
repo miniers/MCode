@@ -481,7 +481,11 @@ type chatState struct {
 	draftText     richtext.Text
 	isComposing   bool
 	composerView  composerViewState // composer 视图态，仅 UI 线程读写，类型定义在 composer.go
-	composerAreaH float32           // 主 composer 区域上一帧的高度（含标签与卡片），供浮动面板在窄屏停到它上方时避开；受 s.mu 保护
+	composerAreaH        float32           // 主 composer 区域上一帧的高度（含标签与卡片），供浮动面板在窄屏停到它上方时避开；受 s.mu 保护
+	chatBottomDockH      float32           // Docked 模式下底部悬浮区上一帧的高度（按整数像素取整）；受 s.mu 保护
+	chatTimelineBounds   ui.Rect           // 时间线容器上一帧的窗口坐标矩形；受 s.mu 保护
+	chatListBounds       ui.Rect           // message-list 上一帧的窗口坐标矩形；受 s.mu 保护
+	chatBottomDockBounds ui.Rect           // chat-bottom-dock 上一帧的窗口坐标矩形；受 s.mu 保护
 	// chatPaneWidthBits 是聊天区最近一帧的可用宽度（float32 位模式，见 chatPaneWidth / setChatPaneWidth）：
 	// 按比例档的内容宽度每帧按它换算，时间线逐行渲染时用原子量读取，不抢 s.mu。
 	chatPaneWidthBits       atomic.Uint32
