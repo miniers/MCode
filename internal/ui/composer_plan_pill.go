@@ -260,10 +260,10 @@ func todoPlanCurrentText(items []todoItem) string {
 	return ""
 }
 
-// lastUserMessageIndex 返回最后一条用户消息的下标，没有用户消息时返回 -1。
+// lastUserMessageIndex 返回最后一条真正用户消息的下标，没有时返回 -1（子代理 bee 汇报不算用户消息）。
 func lastUserMessageIndex(msgs []Message) int {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "user" {
+		if msgs[i].Role == "user" && !isSwarmReportMessage(msgs[i]) {
 			return i
 		}
 	}

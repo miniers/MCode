@@ -204,6 +204,37 @@ func TestPlanPill_StaleAfterUserMessage(t *testing.T) {
 	}
 }
 
+// bee 汇报以 Role=user 写入主会话，但不算用户消息，不应让未完成的待办胶囊过期。
+func TestPlanPill_SwarmReportNotStale(t *testing.T) {
+	base := []Message{
+		{ID: "u1", Role: "user", Text: "开工"},
+		todoToolMsg("t1", `{"todos":[{"content":"读代码","status":"completed"},{"content":"改代码","status":"in_progress"}]}`),
+	}
+	withReport := append(append([]Message(nil), base...), Message{
+		ID:   "r1",
+		Role: "user",
+		Text: "[编排] 子代理汇报：Aria 已结束工作。",
+	})
+	if !shouldShowPlanPill(withReport, false) {
+		t.Fatal("expected pill shown when only a swarm report follows an unfinished todo plan")
+	}
+	if view := buildPlanPillView(withReport, false); !view.Visible {
+		t.Fatalf("expected visible plan pill view after swarm report, got %+v", view)
+	}
+
+	withUser := append(append([]Message(nil), base...), Message{
+		ID:   "u2",
+		Role: "user",
+		Text: "再改一处",
+	})
+	if shouldShowPlanPill(withUser, false) {
+		t.Fatal("expected pill hidden when a real user message follows the todo plan")
+	}
+	if view := buildPlanPillView(withUser, false); view.Visible {
+		t.Fatalf("expected hidden plan pill view after real user message, got %+v", view)
+	}
+}
+
 // TestPlanPillRunningNoFramePending 验证运行中待办胶囊不再通过 c.After 持续请求整窗重建。
 func TestPlanPillRunningNoFramePending(t *testing.T) {
 	setAppReduceMotion(t, false)
