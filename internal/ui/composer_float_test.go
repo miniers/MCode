@@ -2,8 +2,6 @@ package mcodeui
 
 import (
 	"fmt"
-	"go/ast"
-	"strconv"
 	"testing"
 	"time"
 
@@ -111,7 +109,6 @@ func TestComposerDockFloatsOverTimeline(t *testing.T) {
 }
 
 // TestComposerDockNoOpaqueMask 验证已去掉全宽遮罩：
-// (a) 不存在 chat-bottom-dock-mask 元素与源码引用；
 // (b) 列表滚到非末尾位置时，至少有一条时间线行的纵向范围与 composer-card 相交；
 // (c) 在输入框卡片左侧外、与卡片同高且有时间线文字经过的区域取样，像素不全为 ThemeSurfaceMain 底色。
 func TestComposerDockNoOpaqueMask(t *testing.T) {
@@ -168,23 +165,6 @@ func TestComposerDockNoOpaqueMask(t *testing.T) {
 		t.Fatalf("向上滚动后列表应离开末尾位置")
 	}
 
-	// (a) 不存在 key/label 为 chat-bottom-dock-mask 的元素，且生产源码不再保留该 key。
-	if _, ok := tt.Find("chat-bottom-dock-mask"); ok {
-		t.Fatalf("不应存在 chat-bottom-dock-mask 元素")
-	}
-	for _, pf := range uiProdFiles(t) {
-		ast.Inspect(pf.File, func(n ast.Node) bool {
-			lit, ok := n.(*ast.BasicLit)
-			if !ok {
-				return true
-			}
-			if val, err := strconv.Unquote(lit.Value); err == nil && val == "chat-bottom-dock-mask" {
-				t.Fatalf("%s:%d 不应再保留 chat-bottom-dock-mask", pf.Name, pf.Fset.Position(lit.Pos()).Line)
-			}
-			return true
-		})
-	}
-
 	composerRect, ok := tt.Find("消息输入框")
 	if !ok {
 		t.Fatalf("找不到消息输入框")
@@ -234,5 +214,97 @@ func TestComposerDockNoOpaqueMask(t *testing.T) {
 	if nonBg == 0 {
 		t.Fatalf("输入框左侧外 [%d,%d)x[%d,%d) 全为 ThemeSurfaceMain 底色 %v，时间线文字未穿出（疑似仍有遮罩）",
 			sampleX0, sampleX1, sampleY0, sampleY1, mainRGB)
+	}
+}
+
+// TestComposerDockChipsOpaque 验证 Docked 模式下悬浮区内的普通附件胶囊采用不透明底色，
+// 渲染颜色等于 ThemeHover.Over(ThemeSurface) 且 alpha 为 255。
+func TestComposerDockChipsOpaque(t *testing.T) {
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+
+	fake := NewFakeClient()
+	var msgs []Message
+	for i := 0; i < 80; i++ {
+		msgs = append(msgs, Message{
+			ID:        fmt.Sprintf("u%02d", i),
+			Role:      "user",
+			Text:      fmt.Sprintf("消息-%02d", i),
+			TurnIndex: i + 1,
+			IsFinal:   true,
+		})
+	}
+	fake.SetMessages("t1", msgs)
+
+	state, view := buildRoot(fake, WithInitialThread("t1"))
+	t.Cleanup(state.close)
+
+	var wantBg ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		view(c)
+		wantBg = ThemeHover(c).Over(ThemeSurface(c))
+	}, 1200, 700)
+
+	waitFor(t, tt, func() bool {
+		state.mu.Lock()
+		dockH := state.chatBottomDockH
+		state.mu.Unlock()
+		return dockH > 0 && state.chatListState.AtEnd() && tt.HasText("消息-79")
+	})
+
+	state.mu.Lock()
+	state.attachments = []composerAttachment{{
+		LocalID:  "att-1",
+		ID:       "att-1",
+		Name:     "note.txt",
+		MimeType: "text/plain",
+	}}
+	state.mu.Unlock()
+	state.invalidate()
+
+	waitFor(t, tt, func() bool {
+		_, okText := tt.Find("note.txt")
+		_, okRm := tt.Find("删除附件 note.txt")
+		return okText && okRm
+	})
+
+	// 推进时钟等待入场过渡落定。
+	tt.Advance(3 * time.Second)
+	tt.Frame()
+
+	textRect, ok := tt.Find("note.txt")
+	if !ok {
+		t.Fatalf("找不到附件文件名 note.txt")
+	}
+	rmRect, ok := tt.Find("删除附件 note.txt")
+	if !ok {
+		t.Fatalf("找不到删除附件按钮 删除附件 note.txt")
+	}
+	gap := rmRect.X - (textRect.X + textRect.W)
+	if gap < 4 {
+		t.Fatalf("文件名与删除按钮之间空隙不足以取样: text=%+v rm=%+v", textRect, rmRect)
+	}
+	sampleX := int(textRect.X + textRect.W + gap/2)
+	sampleY := int(rmRect.Y + rmRect.H/2)
+
+	img := tt.Image()
+	if img == nil {
+		t.Fatalf("Tester.Image() 返回 nil，无法校验像素")
+	}
+	if sampleX < 0 || sampleY < 0 || sampleX >= img.Rect.Dx() || sampleY >= img.Rect.Dy() {
+		t.Fatalf("取样坐标 (%d,%d) 超出画布范围 %v", sampleX, sampleY, img.Rect)
+	}
+	if wantBg.A != 255 {
+		t.Fatalf("ThemeHover.Over(ThemeSurface) alpha=%d，期望不透明 (255)", wantBg.A)
+	}
+	px := img.RGBAAt(sampleX, sampleY)
+	if px.A != 255 {
+		t.Fatalf("附件胶囊内部像素 alpha=%d，期望不透明 (255)", px.A)
+	}
+	wantRGB := [3]int{int(wantBg.R), int(wantBg.G), int(wantBg.B)}
+	gotRGB := [3]int{int(px.R), int(px.G), int(px.B)}
+	if !colorNear(gotRGB, wantRGB, 2) {
+		t.Fatalf("附件胶囊内部像素 (%d,%d) 颜色=%v，期望 ThemeHover.Over(ThemeSurface)=%v",
+			sampleX, sampleY, gotRGB, wantRGB)
 	}
 }

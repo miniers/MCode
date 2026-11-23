@@ -145,8 +145,8 @@ func renderComposerTabSlotWithDock(c *ui.Context, s *chatState, threadID string,
 			OnClick(func() {
 				toggleQueueExpanded(s, threadID)
 			})
-		// 排队胶囊本身已有浅底，悬停或展开时再提亮一级。
-		composerHoverBg(c, tabBtn, tabBtn.Hovered() || expanded)
+		// 排队胶囊本身已有浅底，悬停或展开时再提亮一级；Docked 悬浮态下铺不透明底避免透出时间线文字。
+		composerFloatingTabBg(c, tabBtn, tabBtn.Hovered() || expanded, docked)
 
 		chevronRotation := float32(0)
 		if expanded {

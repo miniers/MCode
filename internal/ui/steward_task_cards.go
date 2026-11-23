@@ -238,7 +238,9 @@ func renderStewardTaskChip(c *ui.Context, s *chatState, key string, task KanbanT
 		Padding(Space1, Space3).Radius(RadiusPill).BorderWidth(1, 1, 1, 1).BorderColor(ThemeBorder(c)).
 		Focusable().KeepFocus().Label(task.Title).Cursor(ui.CursorPointer).Transition(motionListItem(c))
 	if chip.Hovered() {
-		chip.Background(ThemeHover(c))
+		chip.Background(ThemeHover(c).Over(ThemeSurface(c)))
+	} else {
+		chip.Background(ThemeSurface(c))
 	}
 	focusRing(c, chip)
 	if chip.Clicked() {

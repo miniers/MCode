@@ -1798,7 +1798,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 					Gap(Space2).
 					Padding(Space0, Space3, Space0, Space3).
 					Radius(RadiusLG).
-					Background(ThemeHover(c)).
+					Background(ThemeHover(c).Over(ThemeSurface(c))).
 					Border(Hairline, ThemeWarning(c)).
 					AlignItems(ui.Center).
 					Children(func() {
@@ -1814,7 +1814,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 					Gap(Space2).
 					Padding(Space0, Space3, Space0, Space3).
 					Radius(RadiusLG).
-					Background(ThemeHover(c)).
+					Background(ThemeHover(c).Over(ThemeSurface(c))).
 					Border(Hairline, ThemeWarning(c)).
 					AlignItems(ui.Center).
 					Children(func() {
@@ -1901,9 +1901,9 @@ func renderAttachments(c *ui.Context, s *chatState) {
 										openComposerContextDraftForAttachment(s, a.LocalID)
 									})
 								if card.Hovered() {
-									card.Background(ThemeBorder(c))
+									card.Background(ThemeBorder(c).Over(ThemeSurface(c)))
 								} else {
-									card.Background(ThemeHover(c))
+									card.Background(ThemeHover(c).Over(ThemeSurface(c)))
 								}
 								focusRing(c, card)
 								scale := motionPressScale(c, card, "button-press-scale", true && card.Pressed())
@@ -1930,7 +1930,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								Gap(Space2).
 								Padding(Space0, Space3, Space0, Space3).
 								Radius(RadiusLG).
-								Background(ThemeHover(c)).
+								Background(ThemeHover(c).Over(ThemeSurface(c))).
 								Border(Hairline, ThemeBorder(c)).
 								AlignItems(ui.Center)
 							if a.InspectorRef != nil && !reduceMotion(c) {

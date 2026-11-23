@@ -110,7 +110,7 @@ func renderComposerCapsule(c *ui.Context, s *chatState, capsule composerCapsule)
 		btn.MaxWidth(capsule.MaxWidth)
 	}
 	if open || btn.Hovered() {
-		btn.Background(ThemeHover(c))
+		btn.Background(ThemeHover(c).Over(ThemeSurface(c)))
 	} else {
 		btn.Background(ThemeSurface(c))
 	}

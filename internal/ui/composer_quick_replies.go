@@ -172,7 +172,7 @@ func renderQuickReplies(c *ui.Context, s *chatState) {
 						s.applyQuickReply(item.Message)
 					})
 				if btn.Hovered() {
-					btn.Background(ThemeHover(c))
+					btn.Background(ThemeHover(c).Over(ThemeSurface(c)))
 				}
 				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 				btn.Scale(scale, scale)

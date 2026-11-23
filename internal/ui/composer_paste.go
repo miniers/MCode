@@ -221,9 +221,9 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 			s.invalidate()
 		})
 	if previewOpen || chip.Hovered() {
-		chip.Background(ThemeBorder(c))
+		chip.Background(ThemeBorder(c).Over(ThemeSurface(c)))
 	} else {
-		chip.Background(ThemeHover(c))
+		chip.Background(ThemeHover(c).Over(ThemeSurface(c)))
 	}
 	scale := motionPressScale(c, chip, "button-press-scale", true && chip.Pressed())
 	chip.Scale(scale, scale)
