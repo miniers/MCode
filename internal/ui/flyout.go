@@ -400,14 +400,12 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 	}
 }
 
-func appFlyoutTransition(c *ui.Context, riseY float32) ui.ElementTransition {
-	return motionTransition(c, ui.ElementTransition{Duration: DurBase, Ease: EaseSnap, Enter: &ui.Motion{Y: riseY, Opacity: 0}})
-}
-
 func renderAppFlyout(c *ui.Context, rootKey, scrollKey string, width float32, background *ui.Color, riseY float32, body func()) {
 	applyAppTheme(c)
-	transition := appFlyoutTransition(c, riseY)
-	root := ui.Column(c.Key(rootKey)).MaxWidth(width).FillWidth().FillHeight().Transition(transition)
+	// 浮窗是新窗口，根节点随首帧创建，mygo 不对它播 Transition.Enter，所以用 Keyframes。
+	root := ui.Column(c.Key(rootKey)).MaxWidth(width).FillWidth().FillHeight()
+	enter := motionEnter(c, root, "flyout-enter", 0)
+	root = root.Opacity(enter).Translate(0, riseY*(1-enter))
 	if background != nil {
 		root = root.Background(*background).Radius(RadiusMD)
 	}

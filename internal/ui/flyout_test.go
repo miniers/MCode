@@ -14,17 +14,23 @@ func TestModelPickerFlyoutRisesFromBelow(t *testing.T) {
 	for _, reduced := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reduced=%t", reduced), func(t *testing.T) {
 			setAppReduceMotion(t, reduced)
-			var transition ui.ElementTransition
 			tester := ui.NewTesterWith(func(c *ui.Context) {
-				transition = appFlyoutTransition(c, Space4)
+				renderAppFlyout(c, "root", "scroll", 330, nil, Space4, func() { ui.Text(c, "内容") })
 			}, 330, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
 			tester.Frame()
 			if reduced {
-				if transition.Enter != nil {
-					t.Fatal("减少动效时不应有入场位移")
+				if tester.FramePending() {
+					t.Fatal("减少动效时首帧后不应继续请求帧")
 				}
-			} else if transition.Enter == nil || transition.Enter.Y != Space4 || transition.Enter.Opacity != 0 {
-				t.Fatalf("入场动效错误: %+v", transition.Enter)
+				return
+			}
+			if !tester.FramePending() {
+				t.Fatal("非减少动效时首帧后应处于入场动画中")
+			}
+			tester.Advance(300 * time.Millisecond)
+			tester.Frame()
+			if tester.FramePending() {
+				t.Fatal("入场动画结束后不应继续请求帧")
 			}
 		})
 	}
