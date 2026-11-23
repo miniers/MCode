@@ -1337,3 +1337,138 @@ func TestSwarmFloatHiddenWhenBeeSelected(t *testing.T) {
 		t.Fatal("选中 bee 会话时浮窗场景不应挂载")
 	}
 }
+
+// TestSwarmPanelStripMergedSwitcher 验证顶栏合并切换器：
+// 1. 顶栏只有一个切换入口，里面显示当前 bee 名字；
+// 2. 点击切换器会打开 bees 菜单且不触发拖动；
+// 3. 顶栏没有「弹出为独立浮窗」按钮，菜单行里保留该入口；
+// 4. 在拖动手柄的空白处拖动会改变停靠位置；
+// 5. 全部子代理结束且静止后不再请求下一帧。
+func TestSwarmPanelStripMergedSwitcher(t *testing.T) {
+	s := newFloatTestState(t)
+	const leadID = "lead-thread-1"
+	t.Cleanup(func() {
+		swarmFloatMu.Lock()
+		delete(swarmTeamDock, leadID)
+		delete(swarmStackOrder, leadID)
+		delete(swarmSelectedBeeID, leadID)
+		delete(swarmMenuOpen, leadID+"|"+string(teamPanelID))
+		delete(swarmDragPos, leadID+"|"+string(teamPanelID))
+		swarmFloatMu.Unlock()
+	})
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderSwarmBeeFloats(c, s)
+	}, 1600, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	tt.Frame()
+
+	switcherRect, ok := tt.Find("子代理列表，共 2 个")
+	if !ok || switcherRect.W <= 0 || switcherRect.H <= 0 {
+		t.Fatalf("顶栏应存在合并后的切换入口: ok=%v rect=%+v", ok, switcherRect)
+	}
+	if _, ok := tt.AccessByRole(ui.RoleMenuButton, "子代理列表，共 2 个"); !ok {
+		t.Fatal("切换入口应具备菜单按钮无障碍角色")
+	}
+	nameRect, ok := tt.Find("Birch")
+	if !ok {
+		t.Fatal("切换入口内应显示当前 bee 名字 Birch")
+	}
+	if nameRect.X < switcherRect.X || nameRect.X+nameRect.W > switcherRect.X+switcherRect.W ||
+		nameRect.Y < switcherRect.Y || nameRect.Y+nameRect.H > switcherRect.Y+switcherRect.H {
+		t.Fatalf("当前 bee 名字 %+v 应位于切换入口 %+v 之内", nameRect, switcherRect)
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, "Birch 面板，可拖动"); ok {
+		t.Fatal("顶栏拖拽空白区不应作为第二个切换/按钮入口")
+	}
+	if _, ok := tt.Find("弹出为独立浮窗"); ok {
+		t.Fatal("顶栏右侧不应再有「弹出为独立浮窗」按钮")
+	}
+	if _, ok := tt.Find("在独立窗口打开 Birch"); !ok {
+		t.Fatal("顶栏右侧应保留「在独立窗口打开」按钮")
+	}
+	if _, ok := tt.Find("关闭面板"); !ok {
+		t.Fatal("顶栏右侧应保留「关闭面板」按钮")
+	}
+
+	// 点击切换器内的当前 bee 名字，应打开 bees 菜单且不触发面板拖动。
+	if err := tt.Click("Birch"); err != nil {
+		t.Fatalf("点击合并切换器失败: %v", err)
+	}
+	tt.Frame()
+
+	menuKey := "swarm-bees-menu-" + leadID + "|" + string(teamPanelID)
+	if _, ok := tt.Find(menuKey); !ok {
+		t.Fatalf("点击切换器后应打开 bees 菜单 %q", menuKey)
+	}
+	swarmFloatMu.Lock()
+	menuOpen := *swarmMenuOpen[leadID+"|"+string(teamPanelID)]
+	dragActive := len(swarmDragPos) > 0
+	dockBefore := swarmTeamDock[leadID]
+	swarmFloatMu.Unlock()
+	if !menuOpen {
+		t.Fatal("点击切换器后菜单应处于展开态")
+	}
+	if dragActive || dockBefore != cornerBottomTrailing {
+		t.Fatalf("点击切换器不应触发拖动: dragActive=%v dock=%v", dragActive, dockBefore)
+	}
+	if _, ok := tt.Find("弹出 Birch 为独立浮窗"); !ok {
+		t.Fatal("bees 菜单行里应有 Birch 的「弹出为独立浮窗」入口")
+	}
+	if _, ok := tt.Find("弹出 Isle 为独立浮窗"); !ok {
+		t.Fatal("bees 菜单行里应有 Isle 的「弹出为独立浮窗」入口")
+	}
+
+	// 点菜单外空白收起菜单，再从拖动手柄的空白处把面板拖到左上角。
+	tt.ClickAt(10, 10)
+	tt.Frame()
+
+	handleRect, ok := tt.Find("Birch 面板，可拖动")
+	if !ok || handleRect.W <= 0 || handleRect.H <= 0 {
+		t.Fatalf("未找到顶栏空白拖动手柄: ok=%v rect=%+v", ok, handleRect)
+	}
+	if handleRect.X < switcherRect.X+switcherRect.W {
+		t.Fatalf("空白拖动手柄 %+v 应位于切换器 %+v 右侧", handleRect, switcherRect)
+	}
+	hx, hy := handleRect.X+handleRect.W/2, handleRect.Y+handleRect.H/2
+	tt.Press(hx, hy)
+	tt.Move(hx-1000, hy-500)
+	tt.Release(hx-1000, hy-500)
+	tt.Frame()
+
+	swarmFloatMu.Lock()
+	dockAfter := swarmTeamDock[leadID]
+	swarmFloatMu.Unlock()
+	if dockAfter == cornerBottomTrailing {
+		t.Fatalf("在拖动手柄空白处拖动后停靠位置应改变，仍为 %v", dockAfter)
+	}
+	if dockAfter != cornerTopLeading {
+		t.Fatalf("拖向左上后停靠位置 = %v，want %v", dockAfter, cornerTopLeading)
+	}
+
+	// 全部子代理转为完成后，待过渡动画走完在静止状态下不再请求下一帧。
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	st := hp.state
+	st.Bees = slices.Clone(st.Bees)
+	st.Bees[0].Status = "completed"
+	hp.setStateLocked(st)
+	swarmPanelMu.Unlock()
+	tt.Frame()
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Fatal("全部子代理完成且静止后不应继续请求下一帧")
+	}
+
+	// 开启应用内减少动效时，状态切换立即到位且不请求下一帧。
+	setAppReduceMotion(t, true)
+	swarmPanelMu.Lock()
+	st2 := hp.state
+	st2.Bees = slices.Clone(st2.Bees)
+	st2.Bees[0].Status = "failed"
+	hp.setStateLocked(st2)
+	swarmPanelMu.Unlock()
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("ReduceMotion 开启时状态切换不应继续请求下一帧")
+	}
+}

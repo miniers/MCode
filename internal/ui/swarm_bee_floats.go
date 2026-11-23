@@ -989,21 +989,21 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 			cur = getSelectedSwarmBee(f.leadID, bees)
 		}
 	}
-	// 已结束（完成/失败/已停止）的子代理：卡片换成该子线程人设色的外发光 + 同色描边，
-	// 让用户一眼看出哪个子线程结束了；运行中的卡片维持原样。
-	curName := ""
+	// 已结束（完成/失败/已停止）的子代理：卡片只保留克制的单层语义边界，不再叠双层发光；
+	// 运行中的卡片维持默认边框。
 	done := false
 	if cur != nil {
-		curName = cur.Name
 		done = swarmBeeDone(*cur, swarmBeeWaiting(s, *cur))
 	}
 
 	// 刚被打开或选中的子代理在脉冲期内用强调色边框，给点击一个直接的可视反馈。
 	borderColor := ThemeBorder(c)
-	borderWidth := float32(1)
 	if done {
-		borderColor = swarmDoneGlowColor(curName, 0.8)
-		borderWidth = 1.5
+		if cur.Status == "failed" {
+			borderColor = ThemeBorder(c).Mix(ThemeDanger(c), 0.50)
+		} else {
+			borderColor = ThemeBorder(c).Mix(ThemeSuccess(c), 0.42)
+		}
 	}
 	if cur != nil && swarmBeePulsing(s, f.leadID, cur.ThreadID) {
 		borderColor = ThemeAccent(c)
@@ -1015,12 +1015,8 @@ func renderSwarmPanelCard(c *ui.Context, s *chatState, f swarmFloatFrame, id pan
 		Height(size.h).
 		Radius(RadiusLG).
 		Background(ThemeSurface(c)).
-		BorderWidth(borderWidth).
+		BorderWidth(Hairline).
 		BorderColor(borderColor), ElevFloat)
-	if done {
-		// mygo 的 Shadow 可以叠加：保留原有投影，再补一圈人设色发光。
-		card.Shadow(0, 0, 22, 2, swarmDoneGlowColor(curName, 0.6))
-	}
 	// 收起或关闭时轻微下沉并淡出，不再瞬间消失。必须显式写 Colors: true：
 	// 三项全不设时 mygo 会同时做位置与尺寸插值，和下面 AnimateWith 的停靠滑动、拖拽缩放打架。
 	card.Transition(motionTransition(c, ui.ElementTransition{
@@ -1083,7 +1079,7 @@ func renderSwarmEmptyTeamPanel(c *ui.Context, s *chatState, f swarmFloatFrame) {
 	})
 }
 
-// renderSwarmPanelStrip 渲染面板顶栏：子代理计数菜单（团队面板）、可拖动的当前子代理胶囊、弹出与关闭。
+// renderSwarmPanelStrip 渲染面板顶栏：合并后的当前子代理切换器（团队面板）、空白拖拽句柄区、弹出与关闭。
 func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id panelID, key string, rest panelPoint, cur SwarmBee, bees []SwarmBee, child *chatState) {
 	isTeam := id == teamPanelID
 	running := 0
@@ -1093,145 +1089,177 @@ func renderSwarmPanelStrip(c *ui.Context, s *chatState, f swarmFloatFrame, id pa
 		}
 	}
 
-	ui.Row(c.Key("swarm-strip")).FillWidth().AlignItems(ui.Center).Padding(Space3, Space4).Gap(Space2).Children(func() {
-		if isTeam {
-			open := swarmMenuFlag(key)
-			btn := ui.ButtonBase(c.Key("swarm-strip-count")).
-				Shrink(0).
-				MinHeight(ControlSM).
-				Radius(RadiusXL).
-				Padding(Space1, Space3).
-				Background(ThemeHover(c)).
-				BorderWidth(1).
-				BorderColor(ThemeBorder(c)).
-				Label("子代理列表，共 " + strconv.Itoa(len(bees)) + " 个").
-				Role(ui.RoleMenuButton).
-				Tooltip("切换正在查看的子代理")
-			{
-				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-				btn.Scale(scale, scale)
-			}
-			if btn.Hovered() {
-				btn.Background(ThemeHover(c).Alpha(0.85))
-			}
-			focusRing(c, btn)
-			// 菜单打开时点按钮由 PopoverBase 负责关闭，这里不能再取反。
-			if btn.Clicked() && !*open {
-				*open = true
-				s.invalidate()
-			}
-			btn.Children(func() {
-				ui.Row(c.Key("swarm-strip-count-row")).AlignItems(ui.Center).Gap(Space1).Children(func() {
-					ui.Icon(c, IconSwarm()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c).Alpha(0.85))
-					ui.Text(c, strconv.Itoa(len(bees))).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c))
-					if running > 0 {
-						renderRunningGlyph(c, "bee-float-run-strip-"+key, 9, ThemeAccent(c))
-					}
-					ui.Icon(c, IconChevronDown()).Size(10, 10).TextColor(ThemeSecondaryText(c))
-				})
-			})
-			anchoredMenu(c, "swarm-bees-menu-"+key, btn, open, nil, 240, 320, 360, func() {
-				renderBeesMenu(c, s, f.leadID, bees, cur.ThreadID, running, open)
-			})
-		}
-
-		persona := findSwarmPersona(cur.Name)
-		childRunning := beeWindowChildRunning(child, cur.ThreadID)
-		background := beeBackgroundTaskCount(child, cur.ThreadID)
-		statusText := beeStatusText(cur, childRunning, background)
-		statusColor := ThemeSecondaryText(c)
-		// 等待后台时用强调色，和仍在工作的 bee 区分开。
-		if beeWaitingBackground(cur.Status, childRunning, background) {
-			statusColor = ThemeAccent(c)
-		}
-		handle := ui.Row(c.Key("swarm-strip-handle")).
-			Grow(1).
+	persona := findSwarmPersona(cur.Name)
+	childRunning := beeWindowChildRunning(child, cur.ThreadID)
+	background := beeBackgroundTaskCount(child, cur.ThreadID)
+	statusText := beeStatusText(cur, childRunning, background)
+	statusColor := swarmStatusColor(c, MapSwarmBeeStatus(cur))
+	// 等待后台时用强调色，和仍在工作的 bee 区分开。
+	if beeWaitingBackground(cur.Status, childRunning, background) {
+		statusColor = ThemeAccent(c)
+	}
+	renderIdentity := func() {
+		renderSwarmGlyph(c, "strip-"+cur.ThreadID, cur, 18)
+		ui.Text(c, cur.Name).
+			FontSize(uiFont(TypeFootnote)).
+			FontWeight(600).
+			TextColor(persona.Color).
+			SingleLine().
+			Ellipsis("…").
 			MinWidth(0).
-			Shrink(1).
-			ClipX().
-			AlignItems(ui.Center).
-			Gap(Space2).
-			Padding(Space1, Space2).
-			Radius(RadiusXL).
-			Cursor(ui.CursorGrab).
-			Label(cur.Name + " 面板，可拖动").
-			Role(ui.RoleButton)
-		if handle.Hovered() {
-			handle.Background(ThemeHover(c).Alpha(0.5))
+			Shrink(1)
+		ui.Text(c, statusText).
+			FontSize(uiFont(TypeCaption)).
+			FontWeight(500).
+			TextColor(statusColor).
+			SingleLine().
+			Shrink(0)
+		if d := formatSwarmDuration(cur.StartedAt, cur.FinishedAt); d != "" {
+			ui.Text(c, d).
+				FontSize(uiFont(TypeCaption)).
+				TextColor(ThemeSecondaryText(c).Alpha(0.8)).
+				SingleLine().
+				Shrink(0)
 		}
-		// 已结束的子代理在顶栏胶囊上补一圈同色细描边与小发光，与卡片的外发光呼应；运行中不加外框，避免与左右按钮同色拥挤。
-		if swarmBeeDone(cur, swarmBeeWaiting(s, cur)) {
-			glow := swarmDoneGlowColor(cur.Name, 0.5)
-			handle.BorderWidth(1).BorderColor(swarmDoneGlowColor(cur.Name, 0.7)).Shadow(0, 0, 10, 0, glow)
-		}
-		handle.Children(func() {
-			renderSwarmGlyph(c, "strip-"+cur.ThreadID, cur, 18)
-			ui.Text(c, cur.Name).FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(persona.Color).SingleLine().Ellipsis("…").MinWidth(0).Shrink(1)
-			// 顶栏胶囊补上档位徽章，与团队卡片里的档位展示保持一致。
-			if cur.Tier != "" {
-				renderSwarmTierChip(c, "strip-tier-"+cur.ThreadID, swarmTierName(s, cur.Tier), cur.Tier, cur.ReadOnly)
-			}
-			ui.Text(c, statusText).FontSize(uiFont(TypeCaption)).FontWeight(500).TextColor(statusColor).SingleLine().Shrink(0)
-			if d := formatSwarmDuration(cur.StartedAt, cur.FinishedAt); d != "" {
-				ui.Text(c, d).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c).Alpha(0.8)).SingleLine().Shrink(0)
-			}
-		})
-		trackSwarmPanelDrag(s, f, id, key, rest, handle)
+	}
 
-		canUndock := isTeam && (len(bees) > 1 || isSwarmAutoHeld(f.leadID, cur.ThreadID))
-		ui.Row(c.Key("swarm-strip-actions")).Shrink(0).AlignItems(ui.Center).Gap(Space1).Children(func() {
-			if canUndock {
+	ui.Row(c.Key("swarm-strip")).
+		FillWidth().
+		AlignItems(ui.Center).
+		Padding(Space3, Space4).
+		Gap(Space2).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeBorder(c)).
+		Children(func() {
+			if isTeam {
+				open := swarmMenuFlag(key)
+				btn := ui.ButtonBase(c.Key("swarm-strip-switcher")).
+					MinWidth(0).
+					Shrink(1).
+					ClipX().
+					MinHeight(ControlMD).
+					Radius(RadiusMD).
+					Padding(Space0, Space2).
+					Transition(motionFeedback(c)).
+					Label("子代理列表，共 " + strconv.Itoa(len(bees)) + " 个").
+					Role(ui.RoleMenuButton).
+					Tooltip("切换正在查看的子代理")
+				{
+					scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+					btn.Scale(scale, scale)
+				}
+				if *open || btn.Hovered() {
+					btn.Background(ThemeHover(c))
+				}
+				focusRing(c, btn)
+				// 菜单打开时点按钮由 PopoverBase 负责关闭，这里不能再取反。
+				if btn.Clicked() && !*open {
+					*open = true
+					s.invalidate()
+				}
+				btn.Children(func() {
+					ui.Row(c.Key("swarm-strip-switcher-row")).
+						MinWidth(0).
+						Shrink(1).
+						AlignItems(ui.Center).
+						Gap(Space2).
+						Children(func() {
+							renderIdentity()
+							ui.Row(c.Key("swarm-strip-count-badge")).
+								Shrink(0).
+								MinHeight(ControlKbd).
+								Padding(0, Space1).
+								Radius(RadiusPill).
+								Background(ThemeHover(c)).
+								Border(Hairline, ThemeBorder(c)).
+								AlignItems(ui.Center).
+								Gap(Space0).
+								Children(func() {
+									ui.Text(c, strconv.Itoa(len(bees))).
+										FontSize(uiFont(TypeCaption)).
+										FontWeight(600).
+										TextColor(ThemeSecondaryText(c)).
+										SingleLine()
+									if running > 0 {
+										renderRunningGlyph(c, "bee-float-run-strip-"+key, 9, ThemeAccent(c))
+									}
+									ui.Icon(c, IconChevronDown()).Size(10, 10).TextColor(ThemeSecondaryText(c))
+								})
+						})
+				})
+				anchoredMenu(c, "swarm-bees-menu-"+key, btn, open, nil, 240, 320, 360, func() {
+					renderBeesMenu(c, s, f.leadID, bees, cur.ThreadID, running, open)
+				})
+
+				// 切换器右侧的空白区保留拖动手柄，点击切换器本身不触发拖动。
+				handle := ui.Row(c.Key("swarm-strip-handle")).
+					Grow(1).
+					MinWidth(Space4).
+					MinHeight(ControlMD).
+					Shrink(0).
+					AlignItems(ui.Center).
+					Cursor(ui.CursorGrab).
+					Label(cur.Name + " 面板，可拖动")
+				trackSwarmPanelDrag(s, f, id, key, rest, handle)
+			} else {
+				handle := ui.Row(c.Key("swarm-strip-handle")).
+					Grow(1).
+					MinWidth(0).
+					Shrink(1).
+					ClipX().
+					MinHeight(ControlMD).
+					AlignItems(ui.Center).
+					Gap(Space2).
+					Padding(Space0, Space2).
+					Radius(RadiusMD).
+					Cursor(ui.CursorGrab).
+					Label(cur.Name + " 面板，可拖动")
+				if handle.Hovered() {
+					handle.Background(ThemeHover(c).Alpha(0.5))
+				}
+				handle.Children(renderIdentity)
+				trackSwarmPanelDrag(s, f, id, key, rest, handle)
+			}
+
+			ui.Row(c.Key("swarm-strip-actions")).Shrink(0).AlignItems(ui.Center).Gap(Space1).Children(func() {
 				IconButton(c, IconButtonProps{
-					Key:     "swarm-strip-undock",
-					Icon:    IconArrowUpRight(),
-					Label:   "弹出为独立浮窗",
-					Tooltip: "弹出为独立浮窗",
+					Key:     "swarm-strip-pop",
+					Icon:    IconSquareArrowOutUpRight(),
+					Label:   "在独立窗口打开 " + cur.Name,
+					Tooltip: "在独立会话窗口打开此子代理",
 					Size:    ControlSM,
 					Variant: ButtonGhost,
 					OnClick: func() {
-						releaseSwarmAutoHeld(f.leadID, cur.ThreadID)
+						s.popOutSwarmBee(cur.ThreadID)
+					},
+				})
+
+				tip := "关闭面板（有新子代理派发时自动重新出现）"
+				label := "关闭面板"
+				icon := IconX()
+				if !isTeam {
+					tip = "放回团队面板"
+					label = "把 " + cur.Name + " 放回团队面板"
+					icon = IconArrowLeft()
+				}
+				IconButton(c, IconButtonProps{
+					Key:     "swarm-strip-close",
+					Icon:    icon,
+					Label:   label,
+					Tooltip: tip,
+					Size:    ControlSM,
+					Variant: ButtonGhost,
+					OnClick: func() {
+						if isTeam {
+							dismissSwarmFloatPanel(f.leadID, f.bees)
+						} else {
+							holdSwarmAutoBee(f.leadID, cur.ThreadID)
+						}
 						s.invalidate()
 					},
 				})
-			}
-			IconButton(c, IconButtonProps{
-				Key:     "swarm-strip-pop",
-				Icon:    IconSquareArrowOutUpRight(),
-				Label:   "在独立窗口打开 " + cur.Name,
-				Tooltip: "在独立会话窗口打开此子代理",
-				Size:    ControlSM,
-				Variant: ButtonGhost,
-				OnClick: func() {
-					s.popOutSwarmBee(cur.ThreadID)
-				},
-			})
-
-			tip := "关闭面板（有新子代理派发时自动重新出现）"
-			label := "关闭面板"
-			icon := IconX()
-			if !isTeam {
-				tip = "放回团队面板"
-				label = "把 " + cur.Name + " 放回团队面板"
-				icon = IconArrowLeft()
-			}
-			IconButton(c, IconButtonProps{
-				Key:     "swarm-strip-close",
-				Icon:    icon,
-				Label:   label,
-				Tooltip: tip,
-				Size:    ControlSM,
-				Variant: ButtonGhost,
-				OnClick: func() {
-					if isTeam {
-						dismissSwarmFloatPanel(f.leadID, f.bees)
-					} else {
-						holdSwarmAutoBee(f.leadID, cur.ThreadID)
-					}
-					s.invalidate()
-				},
 			})
 		})
-	})
 }
 
 // trackSwarmPanelDrag 让顶栏胶囊充当拖拽手柄：拖动时面板跟随指针，松手后换到最近的角并排序。

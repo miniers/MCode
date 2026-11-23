@@ -93,15 +93,22 @@ func TestSwarmFloatMenuAndUndock(t *testing.T) {
 			t.Fatalf("聚合覆盖下 releaseSwarmAutoHeld 后应单只弹出 Isle，got auto=%+v", frame.scene.autoBees)
 		}
 
-		// 再放回团队面板，点击顶栏「弹出为独立浮窗」按钮可再次弹出。
+		// 再放回团队面板：顶栏不再放「弹出为独立浮窗」，从切换器菜单行点击「弹出 Isle 为独立浮窗」可再次弹出。
 		holdSwarmAutoBee(leadID, "h-isle")
 		tt.Frame()
-		if err := tt.Click("弹出为独立浮窗"); err != nil {
-			t.Fatalf("点击顶栏弹出为独立浮窗失败: %v", err)
+		if _, ok := tt.Find("弹出为独立浮窗"); ok {
+			t.Fatal("顶栏不应再渲染「弹出为独立浮窗」按钮")
+		}
+		if err := tt.Click("子代理列表，共 2 个"); err != nil {
+			t.Fatalf("打开切换器菜单失败: %v", err)
+		}
+		tt.Frame()
+		if err := tt.Click("弹出 Isle 为独立浮窗"); err != nil {
+			t.Fatalf("点击菜单行弹出为独立浮窗失败: %v", err)
 		}
 		tt.Frame()
 		if len(frame.scene.autoBees) != 1 || frame.scene.autoBees[0].ThreadID != "h-isle" {
-			t.Fatalf("点击顶栏弹出后 Isle 应回到独立浮窗，got auto=%+v", frame.scene.autoBees)
+			t.Fatalf("点击菜单行弹出后 Isle 应回到独立浮窗，got auto=%+v", frame.scene.autoBees)
 		}
 
 		// 放回并在聚合模式下用 toggleSwarmAutoPops 切到分散模式，会一并清空 swarmAutoHeld。
