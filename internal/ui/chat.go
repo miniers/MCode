@@ -429,9 +429,6 @@ func renderChat(c *ui.Context, s *chatState) {
 							})
 						}
 
-						// 悬浮区背后纵向渐变遮罩：在 dock 之前构建，使其画在时间线之上、悬浮卡片之下，且不拦截鼠标事件。
-						renderChatBottomDockMask(c, dockBottomPad, s.composerAreaHeight())
-
 						dock := ui.Column(c.Key("chat-bottom-dock")).
 							Absolute().
 							Left(0).
@@ -1133,16 +1130,6 @@ func (s *chatState) chatTimelineHeight() float32 {
 	return h
 }
 
-func (s *chatState) composerAreaHeight() float32 {
-	if s == nil {
-		return 0
-	}
-	s.mu.Lock()
-	h := s.composerAreaH
-	s.mu.Unlock()
-	return h
-}
-
 func (s *chatState) setChatBottomDockMetrics(dockH float32, timelineBounds, listBounds, dockBounds ui.Rect) bool {
 	if s == nil {
 		return false
@@ -1155,39 +1142,4 @@ func (s *chatState) setChatBottomDockMetrics(dockH float32, timelineBounds, list
 	s.chatBottomDockBounds = dockBounds
 	s.mu.Unlock()
 	return changed
-}
-
-// renderChatBottomDockMask 在底部悬浮区背后绘制纵向渐变遮罩：
-// 从悬浮区顶部上方 Space6 处的透明聊天背景色，过渡到输入框顶部附近的不透明聊天背景色，
-// 淡出滚到悬浮区下方的时间线内容，同时 PassThrough + IgnoreInput 不拦截鼠标事件。
-func renderChatBottomDockMask(c *ui.Context, dockH, composerH float32) {
-	if dockH <= 0 {
-		return
-	}
-	bg := ThemeSurfaceMain(c)
-	totalH := dockH + Space6
-	fadeEndY := Space6
-	if composerH > 0 && totalH-composerH > fadeEndY {
-		fadeEndY = totalH - composerH
-	}
-	stopAt := min(float32(1), fadeEndY/totalH)
-	stops := []ui.GradientStop{
-		{Color: bg.Alpha(0), At: 0},
-		{Color: bg, At: stopAt},
-	}
-	if stopAt < 1 {
-		stops = append(stops, ui.GradientStop{Color: bg, At: 1})
-	}
-	ui.Box(c.Key("chat-bottom-dock-mask")).
-		Absolute().
-		Left(0).
-		Right(0).
-		Bottom(0).
-		Height(totalH).
-		LinearGradient(ui.LinearGradient{
-			Angle: 180,
-			Stops: stops,
-		}).
-		PassThrough().
-		IgnoreInput(true)
 }

@@ -68,6 +68,10 @@ func sessionStatsRowInComposer(s *chatState, threadID string) bool {
 // renderSessionStatsButton 渲染底部紧凑的「会话统计」文字按钮，点击展开完整会话统计浮层；
 // 浮层由 appFlyoutPopover 承载。
 func renderSessionStatsButton(c *ui.Context, s *chatState, threadID, key string) {
+	renderSessionStatsButtonFloating(c, s, threadID, key, false)
+}
+
+func renderSessionStatsButtonFloating(c *ui.Context, s *chatState, threadID, key string, floating bool) {
 	open := sessionStatsOpen(s)
 	btn := ui.ButtonBase(c.Key(key+"-stats-btn")).
 		Label("会话统计").
@@ -82,7 +86,7 @@ func renderSessionStatsButton(c *ui.Context, s *chatState, threadID, key string)
 		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 		btn.Scale(scale, scale)
 	}
-	composerHoverBg(c, btn, btn.Hovered() || open)
+	composerFloatingTabBg(c, btn, btn.Hovered() || open, floating)
 	btn.Children(func() {
 		ui.Row(c.Key(key + "-stats-btn-content")).
 			Gap(Space1).

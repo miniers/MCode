@@ -84,7 +84,25 @@ func composerHoverBg(c *ui.Context, btn ui.Element, active bool) {
 	btn.Background(bg)
 }
 
+// composerFloatingTabBg 在 Docked 悬浮态下给输入框上方胶囊/按钮铺不透明 ThemeSurface 底，
+// 避免去掉底部全宽遮罩后直接与下方穿行的时间线文字叠色；Hero 或非悬浮上下文保持原透明行为。
+func composerFloatingTabBg(c *ui.Context, btn ui.Element, active, floating bool) {
+	if !floating {
+		composerHoverBg(c, btn, active)
+		return
+	}
+	if active {
+		btn.Background(ThemeHover(c).Over(ThemeSurface(c)))
+		return
+	}
+	btn.Background(ThemeSurface(c))
+}
+
 func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items []QueuedFollowUp, isRunning bool, capsules []composerCapsule) bool {
+	return renderComposerTabSlotWithDock(c, s, threadID, items, isRunning, capsules, false)
+}
+
+func renderComposerTabSlotWithDock(c *ui.Context, s *chatState, threadID string, items []QueuedFollowUp, isRunning bool, capsules []composerCapsule, docked bool) bool {
 	sortableScope := fmt.Sprintf("%p/%s/queue", s, threadID)
 	// 浮动面板里嵌入的 composer 不显示改动统计标签，只保留排队消息。
 	if !s.embeddedBee {
@@ -100,7 +118,7 @@ func renderComposerTabSlot(c *ui.Context, s *chatState, threadID string, items [
 		}
 		// 只要变更文件数大于 0 就展示胶囊，不要求有增删行（重命名、纯权限变更等也会改文件）。
 		if add, del, files, ok := threadChangeStatsFor(s, threadID); ok && files > 0 {
-			renderThreadChangesTab(c, s, add, del, files, capsules)
+			renderThreadChangesTabFloating(c, s, add, del, files, capsules, docked)
 			return true
 		}
 		return false
@@ -827,7 +845,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 			capsules := composerCapsules(c, s, currentThreadID, pillKind, continueState.lastMessageID, isRunning, isEditingQueued, hasContent)
 			// TabSlot 悬浮 Tab 槽位（排队消息等）；出现改动统计行时胶囊并入那一行，
 			// 否则胶囊仍单独成行，渲染顺序保持 tab 槽在前、胶囊行在后。
-			merged := renderComposerTabSlot(c, s, currentThreadID, queueItems, isRunning, capsules)
+			merged := renderComposerTabSlotWithDock(c, s, currentThreadID, queueItems, isRunning, capsules, docked)
 			if !merged {
 				renderComposerCapsuleRow(c, s, capsules)
 			}
@@ -871,8 +889,12 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 			// D-9：聊天区整体接收拖放，输入卡保持普通描边，提示由覆盖层显示。
 			card.Border(Hairline, ThemeBorder(c))
+			var cardEl ui.Element = card
+			if docked {
+				cardEl = applyElevation(c, cardEl, ElevPopover)
+			}
 
-			card.Children(func() {
+			cardEl.Children(func() {
 				// 卡片顶部不再堆提示行：运行中提示、编辑排队消息提示都并入输入框占位符或底栏胶囊。
 				// 待审批等禁用原因同理——草稿为空时占位符本身就显示原因，占位符被草稿盖住时才补这一行。
 				// 占位符沿用平时的颜色（框架固定用 TextMuted），不额外高亮。

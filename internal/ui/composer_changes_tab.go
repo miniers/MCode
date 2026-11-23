@@ -160,6 +160,10 @@ func threadChangeStatsFor(s *chatState, threadID string) (add, del, files int, o
 // 右侧是「会话统计」按钮，几种信息共用一行，时间线底部不再重复占行。
 // 窄屏时胶囊可以换行，避免把右侧按钮挤出行外。
 func renderThreadChangesTab(c *ui.Context, s *chatState, add, del, files int, capsules []composerCapsule) {
+	renderThreadChangesTabFloating(c, s, add, del, files, capsules, false)
+}
+
+func renderThreadChangesTabFloating(c *ui.Context, s *chatState, add, del, files int, capsules []composerCapsule, floating bool) {
 	ui.Row(c.Key("composer-changes-row")).
 		FillWidth().
 		Gap(Space3).
@@ -178,8 +182,8 @@ func renderThreadChangesTab(c *ui.Context, s *chatState, add, del, files int, ca
 				OnClick(func() {
 					s.toggleDiffPanel()
 				})
-			// 改动 tab 与排队胶囊同为浅底胶囊，悬停时提亮一级。
-			composerHoverBg(c, tab, tab.Hovered())
+			// 改动 tab 在停靠悬浮态下铺不透明 ThemeSurface 底，悬停时叠加 ThemeHover；Hero 模式维持透明底。
+			composerFloatingTabBg(c, tab, tab.Hovered(), floating)
 			scale := motionPressScale(c, tab, "button-press-scale", true && tab.Pressed())
 			tab.Scale(scale, scale)
 			tab.Children(func() {
@@ -208,7 +212,7 @@ func renderThreadChangesTab(c *ui.Context, s *chatState, add, del, files int, ca
 				renderComposerCapsule(c, s, capsule)
 			}
 			ui.Spacer(c)
-			renderSessionStatsButton(c, s, sessionStatsThreadID(s), "composer-session-stats")
+			renderSessionStatsButtonFloating(c, s, sessionStatsThreadID(s), "composer-session-stats", floating)
 		})
 }
 
