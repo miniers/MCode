@@ -158,8 +158,8 @@ type SettingsState struct {
 	numberDrafts map[string]string
 	// numberErrors 按行 id 保存数值行最近一次非法/越界提交的校验错误（只在界面线程读写）。
 	numberErrors map[string]string
-	// detailScroll 记录详情区的滚动位置，切页时归零。
-	detailScroll ui.ScrollState
+	// detailScrollGen 每次切到不同页面加一，拼进详情区滚动容器的 key，让新页面从顶部开始。
+	detailScrollGen uint64
 	// jumpToItemID 是逐项搜索点了某条命中后要滚动到可视区的那一行 key，渲染到该行后立即清空。
 	jumpToItemID string
 	// highlightItemID 是同上要高亮的那一行 key，从 highlightStartedAt 起保持 settingsItemHighlightDuration。
@@ -489,11 +489,7 @@ func (s *SettingsState) Open() {
 	s.mu.Lock()
 	s.open = true
 	s.endpoints.failedAt = time.Time{}
-	if normalized := normalizeSettingsPageID(s.currentPage); normalized != s.currentPage {
-		s.currentPage = normalized
-		s.detailScroll.X = 0
-		s.detailScroll.Y = 0
-	}
+	s.currentPage = normalizeSettingsPageID(s.currentPage)
 	s.navSearch = ""
 	s.jumpToItemID = ""
 	s.highlightItemID = ""
@@ -1216,9 +1212,7 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 		s.openSheet = ""
 		s.sheetJumpRow = ""
 		s.sheetDiscardConfirmOpen = false
-		// 切到不同页面时把详情区滚动归零，避免沿用上一页的滚动偏移。
-		s.detailScroll.X = 0
-		s.detailScroll.Y = 0
+		s.detailScrollGen++
 	}
 	if jump := settingsLegacyPageJumpRow(id); jump != "" {
 		s.jumpToItemID = jump
@@ -1746,7 +1740,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 					})
 			})
 		}
-		detailScroll := ui.Scroll(c.Key("settings-detail-scroll")).FillWidth().Grow(1).MinHeight(0).Background(ThemeWindowBg(c)).TrackScroll(&st.detailScroll)
+		detailScroll := ui.Scroll(c.Key(fmt.Sprintf("settings-detail-scroll-%d", st.detailScrollGen))).FillWidth().Grow(1).MinHeight(0).Background(ThemeWindowBg(c))
 		setSwarmTierEditorViewport(c, st, detailScroll.Bounds())
 		detailScroll.Children(func() {
 			ui.Row(c.Key("settings-detail-outer")).FillWidth().Justify(ui.Center).Padding(0, Space7).Children(func() {

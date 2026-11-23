@@ -7,14 +7,20 @@ import (
 )
 
 func TestSettingsDetailScrollResetsOnPageSwitch(t *testing.T) {
+	const winH = 420
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.open = true
 	st.currentPage = "general"
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsWindow(c, st)
-	}, 960, 420)
+	}, 960, winH)
 	tt.Frame()
+
+	firstBefore, ok := tt.Find("默认权限")
+	if !ok {
+		t.Fatalf("未找到通用页第一行：%v", tt.Texts())
+	}
 
 	detail, ok := tt.Find("设置详情列")
 	if !ok {
@@ -22,19 +28,31 @@ func TestSettingsDetailScrollResetsOnPageSwitch(t *testing.T) {
 	}
 	tt.Scroll(detail.X+detail.W/2, 200, 0, 10000)
 	tt.Frame()
-	if st.detailScroll.Y <= 0 {
-		t.Fatalf("通用页滚动后 Y 应大于 0，实际 %v（MaxY=%v）", st.detailScroll.Y, st.detailScroll.MaxY)
+
+	firstAfterScroll, ok := tt.Find("默认权限")
+	if !ok {
+		t.Fatalf("滚动后未找到通用页第一行：%v", tt.Texts())
 	}
-	scrolledY := st.detailScroll.Y
+	if firstAfterScroll.H != 0 || firstAfterScroll.Y >= firstBefore.Y {
+		t.Fatalf("通用页滚到底后第一行应移出顶部可视区：before=%+v after=%+v", firstBefore, firstAfterScroll)
+	}
+	bottomAfterScroll, ok := tt.Find("全部快捷键")
+	if !ok || bottomAfterScroll.H <= 0 || bottomAfterScroll.Y+bottomAfterScroll.H > float32(winH) {
+		t.Fatalf("通用页滚到底后底部行应在窗口内：ok=%v rect=%+v", ok, bottomAfterScroll)
+	}
 
 	// 切换到同一页不重置滚动位置。
 	st.selectSettingsPage("general")
 	tt.Frame()
-	if st.detailScroll.Y != scrolledY {
-		t.Fatalf("切到同一页不应重置滚动：got %v, want %v", st.detailScroll.Y, scrolledY)
+	bottomSamePage, ok := tt.Find("全部快捷键")
+	if !ok {
+		t.Fatalf("同页切换后未找到通用页底部行：%v", tt.Texts())
+	}
+	if bottomSamePage.Y != bottomAfterScroll.Y || bottomSamePage.H <= 0 {
+		t.Fatalf("切到同一页不应重置滚动：got %+v, want %+v", bottomSamePage, bottomAfterScroll)
 	}
 
-	// 通过点击侧栏导航项切到另一页后，滚动位置归零。
+	// 通过点击侧栏导航项切到另一页后，新页第一行回到详情区顶部附近。
 	navAppearance, ok := tt.Find("外观")
 	if !ok || navAppearance.X >= 220 {
 		t.Fatalf("未在侧栏找到外观导航项：ok=%v rect=%+v", ok, navAppearance)
@@ -44,20 +62,26 @@ func TestSettingsDetailScrollResetsOnPageSwitch(t *testing.T) {
 	if st.currentPage != "appearance" {
 		t.Fatalf("点击外观后当前页 = %q，期望 appearance", st.currentPage)
 	}
-	if st.detailScroll.Y != 0 || st.detailScroll.X != 0 {
-		t.Fatalf("切页后详情区滚动应归零，实际 X=%v Y=%v", st.detailScroll.X, st.detailScroll.Y)
+	firstAppearance, ok := tt.Find("主题")
+	if !ok {
+		t.Fatalf("切到外观页后未找到第一行：%v", tt.Texts())
+	}
+	if firstAppearance.H <= 0 || firstAppearance.Y < 0 || firstAppearance.Y > firstBefore.Y+Space4 {
+		t.Fatalf("切到外观页后第一行应在详情区顶部附近：got %+v（通用页初始 firstBefore=%+v）", firstAppearance, firstBefore)
 	}
 
-	// 显式置为较大偏移再调用 selectSettingsPage 切页，同样应归零。
-	st.detailScroll.X = 16
-	st.detailScroll.Y = 480
-	st.selectSettingsPage("conversation")
+	// 跨页通过旧 ID 跳到页面底部的存储清理行，目标行应落在窗口内。
+	st.selectSettingsPage("storage")
 	tt.Frame()
-	if st.currentPage != "conversation" {
-		t.Fatalf("切页后当前页 = %q，期望 conversation", st.currentPage)
+	if st.currentPage != "sourceControl" {
+		t.Fatalf("切到 storage 后当前页 = %q，期望 sourceControl", st.currentPage)
 	}
-	if st.detailScroll.Y != 0 || st.detailScroll.X != 0 {
-		t.Fatalf("selectSettingsPage 切页后滚动应归零，实际 X=%v Y=%v", st.detailScroll.X, st.detailScroll.Y)
+	storageRow, ok := tt.Find("客户端不可用")
+	if !ok {
+		t.Fatalf("跳到 storage 后未找到底部存储清理行：%v", tt.Texts())
+	}
+	if storageRow.H <= 0 || storageRow.Y < 0 || storageRow.Y+storageRow.H > float32(winH) {
+		t.Fatalf("跨页跳到底部存储清理行后应在窗口内（winH=%d）：got %+v", winH, storageRow)
 	}
 }
 
