@@ -625,3 +625,96 @@ func TestQuotaRedesignReduceMotionDisclosure(t *testing.T) {
 		t.Fatalf("减少动效展开后应展示无读数明细: %v", tt.Texts())
 	}
 }
+
+func TestQuotaGroupList_TableColumnsAlign(t *testing.T) {
+	setAppReduceMotion(t, true)
+	cst := time.FixedZone("CST", 8*3600)
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, cst)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "codex",
+		Title:    "Codex",
+		Windows: []ProviderQuotaWindow{
+			{Account: "work", Label: "5h", Period: "5h", UsedPercent: 2, ResetsAt: now.Add(4*time.Hour + 54*time.Minute), Active: true},
+			{Account: "work", Label: "Weekly", Period: "7d", UsedPercent: 53, ResetsAt: now.Add(4 * 24 * time.Hour), Active: true},
+			{Account: "lkliuss@gmail.com", Label: "5h", Period: "5h", UsedPercent: 0, ResetsAt: now.Add(4*time.Hour + 54*time.Minute)},
+			{Account: "lkliuss@gmail.com", Label: "Weekly", Period: "7d", UsedPercent: 0, ResetsAt: now.Add(5 * 24 * time.Hour)},
+		},
+	}}, now, now, false)
+
+	if len(model.Groups) != 1 || len(model.Groups[0].Accounts) != 2 {
+		t.Fatalf("期望 1 组 2 账号，实际 %+v", model.Groups)
+	}
+	if model.Groups[0].Accounts[0].statusTone != quotaStatusWarn {
+		t.Fatalf("在用账号应带 warn 状态，实际 (%q, %v)", model.Groups[0].Accounts[0].CompactStatus, model.Groups[0].Accounts[0].statusTone)
+	}
+
+	const keyPrefix = "align-"
+	opts := quotaGroupListOptions{
+		HideSingleGroupTitle: true,
+		OnSelectAccount:      func(string) {},
+	}
+	bounds := make(map[string]ui.Rect)
+	quotaGroupListBoundsHook = func(key string, rect ui.Rect) {
+		bounds[key] = rect
+	}
+	t.Cleanup(func() { quotaGroupListBoundsHook = nil })
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		ui.Scroll(c.Key("scroll")).Width(442).MaxHeight(260).Children(func() {
+			renderQuotaGroupList(c, keyPrefix, model.Groups, opts)
+		})
+	}, 442, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tt.Frame()
+	tt.Frame()
+
+	if !tt.HasText("在用") || !tt.HasText("lkliuss@gmail.com") || !tt.HasText("4h54m 重置") {
+		t.Fatalf("缺少预期账号或状态文案: %v", tt.Texts())
+	}
+
+	mustBounds := func(key string) ui.Rect {
+		r, ok := bounds[key]
+		if !ok || r.W <= 0 || r.H <= 0 {
+			t.Fatalf("未记录有效边界 %q: %+v", key, r)
+		}
+		return r
+	}
+
+	listRect := mustBounds(keyPrefix + "list")
+	colStatusRect := mustBounds(keyPrefix + "g-0-col-status")
+	colStatusRight := colStatusRect.X + colStatusRect.W
+
+	for ci := 0; ci < 2; ci++ {
+		colRect := mustBounds(fmt.Sprintf("%sg-0-col-%d", keyPrefix, ci))
+		for aIdx := 0; aIdx < 2; aIdx++ {
+			cellKey := fmt.Sprintf("%sg-0-a-%d-c-%d", keyPrefix, aIdx, ci)
+			cellRect := mustBounds(cellKey)
+			if diff := math.Abs(float64(colRect.X - cellRect.X)); diff > 1 {
+				t.Errorf("列 %d 表头与账号 %d 单元格 X 未对齐: col=%+v cell=%+v (diff=%.2f)", ci, aIdx, colRect, cellRect, diff)
+			}
+
+			barRect := mustBounds(cellKey + "-bar")
+			pctRect := mustBounds(cellKey + "-percent")
+			numRect := mustBounds(cellKey + "-number")
+			barRight := barRect.X + barRect.W
+			if gap := pctRect.X - barRight; gap < 0 || gap > Space1+1 {
+				t.Errorf("账号 %d 列 %d -percent 左缘与 -bar 右缘距离异常: gap=%.2f bar=%+v pct=%+v", aIdx, ci, gap, barRect, pctRect)
+			}
+			if gap := numRect.X - barRight; gap < 0 || gap > Space1+1 {
+				t.Errorf("账号 %d 列 %d 百分比数字左缘与 -bar 右缘距离异常: gap=%.2f bar=%+v num=%+v", aIdx, ci, gap, barRect, numRect)
+			}
+		}
+	}
+
+	for aIdx := 0; aIdx < 2; aIdx++ {
+		statusRect := mustBounds(fmt.Sprintf("%sg-0-a-%d-status", keyPrefix, aIdx))
+		statusRight := statusRect.X + statusRect.W
+		if diff := math.Abs(float64(colStatusRight - statusRight)); diff > 1 {
+			t.Errorf("表头 -col-status 与账号 %d 状态格右缘未对齐: head=%+v row=%+v (diff=%.2f)", aIdx, colStatusRect, statusRect, diff)
+		}
+
+		btnRect := mustBounds(fmt.Sprintf("%sg-0-a-%d-btn", keyPrefix, aIdx))
+		if btnRect.X+btnRect.W > listRect.X+listRect.W+0.5 {
+			t.Errorf("账号行 %d -btn 右缘超出列表容器: btn=%+v list=%+v", aIdx, btnRect, listRect)
+		}
+	}
+}
