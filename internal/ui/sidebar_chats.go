@@ -162,10 +162,21 @@ func (s *chatState) filterSidebarThreads(threads []Thread, filter sidebarThreadF
 	return filtered
 }
 
-// renderSidebarChatsSection 渲染侧栏顶部的「对话」段：段标题与右侧过滤、「+」按钮，
+// renderSidebarChatsSection 渲染侧栏的「对话」段：段标题与右侧「+」按钮，
 // 下方按最近活动平铺该项目的顶层会话；threadsFilter 非 nil 时只列传入的会话（搜索态过滤结果），
-// 为 nil 时直接复用侧栏快照里算好的对话会话；没有会话时仅显示段标题，chatsProjectID 为空时整段不渲染。
-func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapshot, selectedID string, threadsFilter []Thread) {
+// 为 nil 时直接复用侧栏快照里算好的对话会话；focusZoneActive 为真时剔除已进入顶部聚焦区的会话。
+// 没有会话时仅显示段标题，chatsProjectID 为空时整段不渲染。
+func renderSidebarChatsSection(
+	c *ui.Context,
+	s *chatState,
+	snap *sidebarSnapshot,
+	selectedID string,
+	threadsFilter []Thread,
+	focusZoneActive bool,
+	stateGroups map[string]sidebarStateGroup,
+	resolvedTop []Thread,
+	resolvedBees map[string][]Thread,
+) {
 	chatsProjID := s.chatsProjectID()
 	if chatsProjID == "" {
 		return
@@ -180,14 +191,31 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapsho
 		topThs, beesByParent = GroupThreadsByParent(rawThreads)
 		topThs = SortThreads(topThs)
 	} else {
-		topThs = snap.chatsTopThreads
-		beesByParent = snap.chatsBeesByParent
+		if resolvedTop != nil {
+			topThs = resolvedTop
+		} else {
+			topThs = snap.chatsTopThreads
+		}
+		if resolvedBees != nil {
+			beesByParent = resolvedBees
+		} else {
+			beesByParent = snap.chatsBeesByParent
+		}
+		if focusZoneActive && len(stateGroups) > 0 {
+			filtered := make([]Thread, 0, len(topThs))
+			for _, th := range topThs {
+				if stateGroups[th.ID] == sidebarStateGroupNone {
+					filtered = append(filtered, th)
+				}
+			}
+			topThs = filtered
+		}
 	}
 	beesByParent, allBeesByParent, hiddenBeeCountByParent, showAllBeesByParent := filterSidebarBeesForAutoHide(s, beesByParent, selectedID)
 
 	m := currentSidebarMetrics(c, s)
 
-	// 一行段标题：左侧文字「对话」，右侧过滤图标与「+」图标按钮，不挂载项目右键菜单。
+	// 一行段标题：左侧文字「对话」，右侧「+」图标按钮，不挂载项目右键菜单。
 	headerRow := ui.Row(c.Key("chats-section-header")).
 		Height(m.rowHeight).
 		Padding(0, m.padX).
@@ -203,8 +231,6 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapsho
 			TextColor(ThemePrimaryText(c)).
 			Grow(1).
 			SingleLine()
-
-		renderSidebarFilterControl(c, s)
 
 		IconButton(c.Key("chats-add-thread"), IconButtonProps{
 			Icon:    IconPlus(),
@@ -238,14 +264,15 @@ func renderSidebarChatsSection(c *ui.Context, s *chatState, snap *sidebarSnapsho
 			padX:           m.padX,
 			compact:        m.compact,
 			providers:      providers,
+			latchHover:     focusZoneActive,
 		})
 	}
 
 	ui.Box(c.Key("chats-section-gap")).Height(m.projectGap)
 }
 
-// renderSidebarFilterControl 渲染过滤按钮与下拉框。默认在「对话」段标题行；
-// 动态视图不渲染该段时由侧栏顶栏调用，保证过滤状态始终可见、可清除。
+// renderSidebarFilterControl 渲染过滤按钮与下拉框，固定置于侧栏顶栏搜索框右侧，
+// 确保任何视图下过滤状态都可见、可清除。
 func renderSidebarFilterControl(c *ui.Context, s *chatState) {
 	trigger := IconButton(c.Key("chats-filter"), IconButtonProps{
 		Icon:    IconFilter(),

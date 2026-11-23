@@ -44,61 +44,54 @@ func buildSidebarStateGroupsFixture(t *testing.T) (*ui.Tester, *chatState) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool {
-		_, pendingHeader := tt.Find("等你处理 · A · 1")
-		_, runningHeader := tt.Find("运行中 · A · 1")
-		return pendingHeader && runningHeader && tt.HasText("B-空闲")
+		_, pendingRow := tt.Find("打开会话 A-待审批")
+		_, runningRow := tt.Find("打开会话 A-运行中")
+		return pendingRow && runningRow && tt.HasText("B-空闲")
 	})
 	return tt, state
 }
 
-// TestSidebarStateGroupsRenderWithPagination 验证项目内的状态分组顺序、空组隐藏，
-// 以及分页只作用于「其余」会话：两个状态组始终全量可见。
+// TestSidebarStateGroupsRenderWithPagination 验证顶部聚焦区按等你处理在前、运行中在后渲染，
+// 项目内不再渲染状态分组头，且分页只作用于项目内的其余会话。
 func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 	tt, _ := buildSidebarStateGroupsFixture(t)
 
-	needsYou, ok := tt.Find("等你处理 · A · 1")
+	pendingRow, ok := tt.Find("打开会话 A-待审批")
 	if !ok {
-		t.Fatalf("项目 A 应有「等你处理」组头，texts: %q", tt.Texts())
+		t.Fatalf("聚焦区应展示待审批会话，texts: %q", tt.Texts())
 	}
-	running, ok := tt.Find("运行中 · A · 1")
+	runningRow, ok := tt.Find("打开会话 A-运行中")
 	if !ok {
-		t.Fatalf("项目 A 应有「运行中」组头，texts: %q", tt.Texts())
+		t.Fatalf("聚焦区应展示运行中会话，texts: %q", tt.Texts())
+	}
+	projAHeader, ok := tt.Find("收起项目 A")
+	if !ok {
+		t.Fatalf("应展示项目 A 标题行，texts: %q", tt.Texts())
 	}
 	firstRest, ok := tt.Find("打开会话 A-空闲1")
 	if !ok {
 		t.Fatalf("项目 A 应展示其余会话，texts: %q", tt.Texts())
 	}
-	if needsYou.Y >= running.Y {
-		t.Fatalf("组头顺序应为等你处理在上、运行中在下: %v >= %v", needsYou.Y, running.Y)
+	if pendingRow.Y >= runningRow.Y {
+		t.Fatalf("聚焦区顺序应为等你处理在上、运行中在下: %v >= %v", pendingRow.Y, runningRow.Y)
 	}
-	if running.Y >= firstRest.Y {
-		t.Fatalf("其余会话应排在两个状态组之后: 组头 %v，行 %v", running.Y, firstRest.Y)
+	if runningRow.Y >= projAHeader.Y || projAHeader.Y >= firstRest.Y {
+		t.Fatalf("聚焦区应在项目列表上方: running=%v, projA=%v, rest=%v", runningRow.Y, projAHeader.Y, firstRest.Y)
 	}
 
-	// 项目 B 没有待处理/运行中的会话，不应出现任何状态组头。
-	for _, label := range []string{"等你处理 · B · 1", "运行中 · B · 1"} {
+	// 项目内不再出现状态组头。
+	for _, label := range []string{"等你处理 · A · 1", "运行中 · A · 1", "等你处理 · B · 1", "运行中 · B · 1"} {
 		if _, ok := tt.Find(label); ok {
-			t.Fatalf("项目 B 不应出现状态组头 %q", label)
+			t.Fatalf("项目内不应出现状态组头 %q", label)
 		}
 	}
 
-	// 图标保留无障碍标签，组内不重复显示行尾文字。
-	count := 0
-	for _, text := range tt.Texts() {
-		if text == "等你审批" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("应只保留一个无障碍标签，texts: %q", tt.Texts())
+	// 行尾保留「等你审批」状态提示。
+	if !tt.HasText("等你审批") {
+		t.Fatalf("聚焦区待审批行应显示「等你审批」，texts: %q", tt.Texts())
 	}
 
-	// 两个状态组全量显示；其余按初始分页窗口（8 条）折叠。
-	for _, label := range []string{"打开会话 A-待审批", "打开会话 A-运行中"} {
-		if _, ok := tt.Find(label); !ok {
-			t.Fatalf("状态组会话应始终可见: %q", label)
-		}
-	}
+	// 其余按初始分页窗口（8 条）折叠。
 	if _, ok := tt.Find("打开会话 A-空闲8"); !ok {
 		t.Fatalf("其余会话应展示分页初始数（A-空闲8 可见），texts: %q", tt.Texts())
 	}
@@ -109,7 +102,7 @@ func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 		t.Fatalf("其余会话超过一页时应出现「加载更多」")
 	}
 
-	// 加载更多只展开其余会话，状态组仍全量可见。
+	// 加载更多只展开其余会话，聚焦区会话仍留在顶部且不重复。
 	if err := tt.Click("加载更多"); err != nil {
 		t.Fatalf("click 加载更多 failed: %v", err)
 	}
@@ -117,21 +110,32 @@ func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 	if tt.HasText("加载更多") {
 		t.Fatalf("全部展开后不应再有「加载更多」")
 	}
-	if _, ok := tt.Find("等你处理 · A · 1"); !ok {
-		t.Fatalf("展开后「等你处理」组头不应消失")
+	countRow := func(label string) int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == label {
+				n++
+			}
+		}
+		return n
 	}
-	if _, ok := tt.Find("运行中 · A · 1"); !ok {
-		t.Fatalf("展开后「运行中」组头不应消失")
+	if n := countRow("打开会话 A-待审批"); n != 1 {
+		t.Fatalf("展开后 A-待审批应只出现 1 次，got %d", n)
+	}
+	if n := countRow("打开会话 A-运行中"); n != 1 {
+		t.Fatalf("展开后 A-运行中应只出现 1 次，got %d", n)
 	}
 }
 
 // TestSidebarStateGroupsLatchHoverKeepsRowInPlace 验证指针停在会话行上时，
-// 状态变化不会让行从指针下跳走；指针离开列表后才重新归组。
-// 悬停的会话取「其余」组的第二行（A-空闲2）：第一行紧跟在运行中组之后，
-// 归组前后位置相同，看不出上移。
+// 状态变化不会让行从指针下跳走；指针离开列表后才归位到聚焦区。
 func TestSidebarStateGroupsLatchHoverKeepsRowInPlace(t *testing.T) {
 	tt, state := buildSidebarStateGroupsFixture(t)
 
+	projAHeader, ok := tt.Find("收起项目 A")
+	if !ok {
+		t.Fatalf("找不到项目 A 标题行，texts: %q", tt.Texts())
+	}
 	rect, ok := tt.Find("打开会话 A-空闲2")
 	if !ok {
 		t.Fatalf("找不到待悬停的空闲会话，texts: %q", tt.Texts())
@@ -150,24 +154,23 @@ func TestSidebarStateGroupsLatchHoverKeepsRowInPlace(t *testing.T) {
 	if held.Y != rect.Y {
 		t.Fatalf("指针在行上时不应跳行: y %v -> %v", rect.Y, held.Y)
 	}
-	if _, ok := tt.Find("运行中 · A · 1"); !ok {
-		t.Fatalf("悬停期间分组计数应保持冻结（运行中仍为 1），texts: %q", tt.Texts())
-	}
 
-	// 指针移出列表后，重新归组，行回到运行中组。
+	// 指针移出列表后，重新归组，行进入顶部聚焦区（位于项目 A 标题行上方）。
 	tt.Move(900, 600)
 	tt.Frame()
+	tt.Advance(DurBase + 50*time.Millisecond)
 	tt.Frame()
 
 	moved, ok := tt.Find("打开会话 A-空闲2")
 	if !ok {
 		t.Fatalf("重新归组后行不应消失，texts: %q", tt.Texts())
 	}
-	if moved.Y >= rect.Y {
-		t.Fatalf("移出后应归入运行中组并上移: y %v（原 %v）", moved.Y, rect.Y)
+	projAAfter, ok := tt.Find("收起项目 A")
+	if !ok {
+		t.Fatalf("找不到项目 A 标题行，texts: %q", tt.Texts())
 	}
-	if _, ok := tt.Find("运行中 · A · 2"); !ok {
-		t.Fatalf("重新归组后运行中计数应为 2，texts: %q", tt.Texts())
+	if moved.Y >= projAAfter.Y || moved.Y >= projAHeader.Y {
+		t.Fatalf("移出后应归入聚焦区（项目 A 上方）: moved=%v, projA=%v", moved.Y, projAAfter.Y)
 	}
 }
 
@@ -228,7 +231,7 @@ func TestSidebarVisibleThreadsMatchRenderedOrder(t *testing.T) {
 	state.invalidate()
 	tt.Frame()
 	got = state.visibleThreads()
-	if len(got) != 1 || got[0].ID != "b-idle" {
-		t.Fatalf("折叠或休眠会话进入跳转列表: %+v", got)
+	if len(got) != 3 || got[0].ID != "a-pending" || got[1].ID != "a-running" || got[2].ID != "b-idle" {
+		t.Fatalf("折叠项目后聚焦区与未折叠项目可见会话列表不符: %+v", got)
 	}
 }

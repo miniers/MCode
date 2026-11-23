@@ -761,6 +761,8 @@ type sidebarSnapshot struct {
 	draftThreads      map[string]bool
 	chatsTopThreads   []Thread
 	chatsBeesByParent map[string][]Thread
+	projTopThreads    map[string][]Thread
+	projBeesByParent  map[string]map[string][]Thread
 	activityGroups    []activityGroup
 	activityMinute    time.Time
 	activityCached    bool
@@ -936,6 +938,13 @@ func (s *chatState) buildSidebarSnapshot(key sidebarSnapshotKey, now time.Time) 
 		chatsTopThreads, chatsBeesByParent = GroupThreadsByParent(threadsByProj[key.chatsProjID])
 		chatsTopThreads = SortThreads(chatsTopThreads)
 	}
+	projTopThreads := make(map[string][]Thread, len(projects))
+	projBeesByParent := make(map[string]map[string][]Thread, len(projects))
+	for _, p := range projects {
+		topThs, beesMap := GroupThreadsByParent(threadsByProj[p.ID])
+		projTopThreads[p.ID] = topThs
+		projBeesByParent[p.ID] = beesMap
+	}
 
 	return &sidebarSnapshot{
 		key:               key,
@@ -950,7 +959,59 @@ func (s *chatState) buildSidebarSnapshot(key sidebarSnapshotKey, now time.Time) 
 		draftThreads:      draftThreads,
 		chatsTopThreads:   chatsTopThreads,
 		chatsBeesByParent: chatsBeesByParent,
+		projTopThreads:    projTopThreads,
+		projBeesByParent:  projBeesByParent,
 	}
+}
+
+// mergeProjectSwarmStateBees 把当前选中 Lead 会话在 SwarmState 里尚未来得及写入列表的新派子代理合并进来，
+// 仅在命中该项目的 Lead 时浅拷贝映射，避免改写只读快照。
+func mergeProjectSwarmStateBees(s *chatState, projectID, selectedID string, topThs []Thread, beesByParent map[string][]Thread) ([]Thread, map[string][]Thread) {
+	if s == nil {
+		return topThs, beesByParent
+	}
+	hp := getSwarmPanelState(s)
+	if hp == nil {
+		return topThs, beesByParent
+	}
+	swarmPanelMu.Lock()
+	st := hp.state
+	swarmPanelMu.Unlock()
+	leadID := st.LeadThreadID
+	if leadID == "" {
+		leadID = selectedID
+	}
+	if leadID == "" || len(st.Bees) == 0 {
+		return topThs, beesByParent
+	}
+	leadInProj := len(beesByParent[leadID]) > 0
+	if !leadInProj {
+		for _, th := range topThs {
+			if th.ID == leadID {
+				leadInProj = true
+				break
+			}
+		}
+	}
+	if !leadInProj {
+		return topThs, beesByParent
+	}
+	clonedBees := make(map[string][]Thread, len(beesByParent)+1)
+	for k, v := range beesByParent {
+		clonedBees[k] = v
+	}
+	clonedBees[leadID] = MergeSwarmStateBees(beesByParent[leadID], st.Bees, leadID, projectID)
+	beeIDSet := make(map[string]bool, len(st.Bees))
+	for _, h := range st.Bees {
+		beeIDSet[h.ThreadID] = true
+	}
+	cleanTop := make([]Thread, 0, len(topThs))
+	for _, th := range topThs {
+		if !beeIDSet[th.ID] {
+			cleanTop = append(cleanTop, th)
+		}
+	}
+	return cleanTop, clonedBees
 }
 
 func renderSidebar(c *ui.Context, s *chatState) {
@@ -1023,26 +1084,49 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	lowerQuery := strings.ToLower(searchQuery)
 
 	activityView := s.activityViewEnabled()
+	focusZoneActive := lowerQuery == "" && filter == sidebarFilterAll && !activityView
 	matchesByProject, chatsMatches, matchingThreads, searchActivityGroups := computeSidebarSearchResults(
 		s, lowerQuery, activityView, filter, chatsProjID, projects, threadsByProj, now,
 	)
 
-	// 状态分组：闩锁的 split 每次都会整体重建归属表，逐项目调用会互相覆盖，
-	// 所以整帧先对全部活跃会话切分一次，项目循环里再按 ID 取用。
+	// 聚焦区拆分：仅在无搜索、过滤「全部」且非动态视图时启用；
+	// 整帧把「对话」段与全部项目的顶层活跃会话交给全局闩锁切分一次，聚焦区与下方列表共用同一份结果。
 	var stateGroups map[string]sidebarStateGroup
-	if lowerQuery == "" {
+	var needsYouAll, runningAll []Thread
+	var focusThreadProjID map[string]string
+	var resolvedTopByProj map[string][]Thread
+	var resolvedBeesByProj map[string]map[string][]Thread
+	if focusZoneActive {
 		var frameActive []Thread
-		for _, p := range projects {
-			for _, th := range threadsByProj[p.ID] {
+		focusThreadProjID = make(map[string]string)
+		resolvedTopByProj = make(map[string][]Thread, len(projects)+1)
+		resolvedBeesByProj = make(map[string]map[string][]Thread, len(projects)+1)
+
+		if chatsProjID != "" {
+			cTop, cBees := mergeProjectSwarmStateBees(s, chatsProjID, selectedID, snap.chatsTopThreads, snap.chatsBeesByParent)
+			resolvedTopByProj[chatsProjID] = cTop
+			resolvedBeesByProj[chatsProjID] = cBees
+			for _, th := range cTop {
 				if !th.Dormant {
 					frameActive = append(frameActive, th)
+					focusThreadProjID[th.ID] = chatsProjID
 				}
 			}
 		}
-		needsYouAll, runningAll, _ := sidebarStateGroupLatchState.split(frameActive, func(th Thread) bool {
-			return s.threadStillBusy(th)
-		})
-		stateGroups = make(map[string]sidebarStateGroup, len(frameActive))
+		for _, p := range projects {
+			pTop, pBees := mergeProjectSwarmStateBees(s, p.ID, selectedID, snap.projTopThreads[p.ID], snap.projBeesByParent[p.ID])
+			resolvedTopByProj[p.ID] = pTop
+			resolvedBeesByProj[p.ID] = pBees
+			for _, th := range pTop {
+				if !th.Dormant {
+					frameActive = append(frameActive, th)
+					focusThreadProjID[th.ID] = p.ID
+				}
+			}
+		}
+
+		needsYouAll, runningAll, _ = sidebarStateGroupLatchState.split(frameActive, s.threadStillBusy)
+		stateGroups = make(map[string]sidebarStateGroup, len(needsYouAll)+len(runningAll))
 		for _, th := range needsYouAll {
 			stateGroups[th.ID] = sidebarStateGroupNeedsYou
 		}
@@ -1050,7 +1134,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			stateGroups[th.ID] = sidebarStateGroupRunning
 		}
 	} else {
-		// 搜索态平铺、不分组：清空归属表，退出搜索后不沿用搜索前的旧分组。
+		// 回落态（搜索/过滤/动态视图）：清空归属表，退出回落态后不沿用旧归属。
 		sidebarStateGroupLatchState.split(nil, nil)
 	}
 
@@ -1103,12 +1187,10 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				},
 			}).Grow(1)
 
+			// 过滤入口固定放在搜索框右侧、动态视图开关旁，保证任意视图下过滤状态都可见、可清除。
+			renderSidebarFilterControl(c, s)
 			// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
 			activityOn := s.activityViewEnabled()
-			// 动态视图不渲染「对话」段，过滤入口移到顶栏，保证过滤状态可见、可清除。
-			if activityOn {
-				renderSidebarFilterControl(c, s)
-			}
 			activityTip := "开启动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
 			if activityOn {
 				activityTip = "关闭动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
@@ -1125,11 +1207,13 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			})
 		})
 
-		// 总管段：头像、「昵称 · 总管」与待处理数徽标合成一行；
-		// 客户端不支持总管或会话还没建好时退回只渲染待处理行。
-		renderSidebarStewardSection(c, s)
+		// 回落态（搜索/过滤/动态视图）没有顶部聚焦区，总管段留在列表上方保持可达；
+		// 启用聚焦区时总管行作为聚焦区第一行渲染在滚动区顶部。
+		if !focusZoneActive {
+			renderSidebarStewardSection(c, s)
+		}
 
-		// 3. 项目与会话列表
+		// 3. 聚焦区 + 项目与会话列表
 		ui.Scroll(c.Key("sidebar-projects-list")).Grow(1).Children(func() {
 			m := currentSidebarMetrics(c, s)
 			isCompact := m.compact
@@ -1189,10 +1273,26 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				return
 			}
 
+			if focusZoneActive {
+				renderSidebarFocusZone(c, s, sidebarFocusZoneOptions{
+					needsYou:     needsYouAll,
+					running:      runningAll,
+					threadProjID: focusThreadProjID,
+					beesByProj:   resolvedBeesByProj,
+					projectNames: projectNames,
+					providers:    providers,
+					selectedID:   selectedID,
+					rowHeight:    threadRowHeight,
+					padY:         threadPadY,
+					padX:         threadPadX,
+					compact:      isCompact,
+				})
+			}
+
 			if lowerQuery == "" {
-				renderSidebarChatsSection(c, s, snap, selectedID, nil)
+				renderSidebarChatsSection(c, s, snap, selectedID, nil, focusZoneActive, stateGroups, resolvedTopByProj[chatsProjID], resolvedBeesByProj[chatsProjID])
 			} else if len(chatsMatches) > 0 {
-				renderSidebarChatsSection(c, s, snap, selectedID, chatsMatches)
+				renderSidebarChatsSection(c, s, snap, selectedID, chatsMatches, false, nil, nil, nil)
 			}
 
 			if len(projects) == 0 {
@@ -1463,39 +1563,15 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 				// 展开状态下展示该项目的会话列表与已休眠折叠组
 				if !isCollapsed {
-					// 步骤 2: 在 renderSidebar 构建会话列表时，把 IsHelper 为真且 ParentThreadID 指向当前列表中某个会话的线程从顶层移除，按 parent 分组；找不到父会话时仍按普通会话显示。
-					topThs, beesByParent := GroupThreadsByParent(ths)
+					var topThs []Thread
+					var beesByParent map[string][]Thread
 					if lowerQuery != "" {
 						topThs, beesByParent = ths, nil
-					}
-
-					// 对当前选中的 Lead 会话，如果其 SwarmState.Bees 中有 bee 的 ThreadID 还不在会话列表中，
-					// 就直接用 SwarmState 里的 Name、ThreadID、Status 在该父行下渲染头像，这样派出瞬间就能显示。
-					if s != nil && lowerQuery == "" {
-						hp := getSwarmPanelState(s)
-						if hp != nil {
-							swarmPanelMu.Lock()
-							st := hp.state
-							swarmPanelMu.Unlock()
-							leadID := st.LeadThreadID
-							if leadID == "" {
-								leadID = selectedID
-							}
-							if leadID != "" && len(st.Bees) > 0 {
-								beesByParent[leadID] = MergeSwarmStateBees(beesByParent[leadID], st.Bees, leadID, pVal.ID)
-								beeIDSet := make(map[string]bool, len(st.Bees))
-								for _, h := range st.Bees {
-									beeIDSet[h.ThreadID] = true
-								}
-								cleanTop := make([]Thread, 0, len(topThs))
-								for _, th := range topThs {
-									if !beeIDSet[th.ID] {
-										cleanTop = append(cleanTop, th)
-									}
-								}
-								topThs = cleanTop
-							}
-						}
+					} else if focusZoneActive {
+						topThs = resolvedTopByProj[pVal.ID]
+						beesByParent = resolvedBeesByProj[pVal.ID]
+					} else {
+						topThs, beesByParent = mergeProjectSwarmStateBees(s, pVal.ID, selectedID, snap.projTopThreads[pVal.ID], snap.projBeesByParent[pVal.ID])
 					}
 
 					// 设置页「侧边栏自动隐藏空闲子代理」打开时，统一过滤所有 lead 下已结束的子代理：
@@ -1504,7 +1580,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 					activeThs, dormantThs := splitAndSortProjectThreads(s, pVal.ID, topThs)
 
-					renderThreadItem := func(th Thread, isDormant bool, needsYou bool) {
+					renderThreadItem := func(th Thread, isDormant bool) {
 						// 键盘高亮匹配判定
 						isHighlighted := (searchQuery != "" && len(matchingThreads) > 0 &&
 							s.searchHighlightIndex >= 0 && s.searchHighlightIndex < len(matchingThreads) &&
@@ -1525,8 +1601,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							indent:         folderIndent,
 							compact:        isCompact,
 							providers:      providers,
-							latchHover:     true,
-							needsYou:       needsYou,
+							latchHover:     focusZoneActive,
 						})
 					}
 
@@ -1540,41 +1615,19 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							FontSize(sidebarFont(TypeFootnote)).
 							Padding(Space1, Space8)
 					} else {
-						// 状态分组：等你处理、运行中全量置顶；其余走下面的分页窗口。
-						// 搜索态保持平铺，不分组也不锁旧归属。
+						// 启用聚焦区时，已进聚焦区的「等你处理」「运行中」会话从下方项目树去重；
+						// 搜索/过滤回落态保持单一列表，不再按状态拆分。
 						restThs := activeThs
-						var needsYouThs, runningThs []Thread
-						if lowerQuery == "" {
-							needsYouThs = make([]Thread, 0, len(activeThs))
-							runningThs = make([]Thread, 0, len(activeThs))
+						if focusZoneActive && len(stateGroups) > 0 {
 							restThs = make([]Thread, 0, len(activeThs))
 							for _, th := range activeThs {
-								switch stateGroups[th.ID] {
-								case sidebarStateGroupNeedsYou:
-									needsYouThs = append(needsYouThs, th)
-								case sidebarStateGroupRunning:
-									runningThs = append(runningThs, th)
-								default:
+								if stateGroups[th.ID] == sidebarStateGroupNone {
 									restThs = append(restThs, th)
 								}
 							}
 						}
-						// 组头文字与会话标题左对齐：会话行是「行内边距 + 文件夹缩进 + 状态图标 14 + Gap 8」。
-						groupHeaderIndent := threadPadX + folderIndent + sidebarThreadTitleOffset
-						if len(needsYouThs) > 0 {
-							renderSidebarStateGroupHeader(c, pVal.ID, pVal.Name, "等你处理", len(needsYouThs), groupHeaderIndent)
-							for _, th := range needsYouThs {
-								renderThreadItem(th, false, true)
-							}
-						}
-						if len(runningThs) > 0 {
-							renderSidebarStateGroupHeader(c, pVal.ID, pVal.Name, "运行中", len(runningThs), groupHeaderIndent)
-							for _, th := range runningThs {
-								renderThreadItem(th, false, false)
-							}
-						}
 
-						// 1. 其余活跃会话：按项目自己的展示窗口截取，超过默认条数的部分折叠
+						// 1. 活跃会话：按项目自己的展示窗口截取，超过默认条数的部分折叠
 						s.mu.Lock()
 						threadLimit := s.visibleThreadsProj[pVal.ID]
 						s.mu.Unlock()
@@ -1583,7 +1636,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						}
 						visibleThs, hiddenThs := visibleThreadWindow(restThs, threadLimit, selectedID, lowerQuery != "")
 						for _, th := range visibleThs {
-							renderThreadItem(th, false, false)
+							renderThreadItem(th, false)
 						}
 
 						// 搜索时不分页（结果本身就是筛选后的全集），只有默认状态下超过一页才给操作栏；
@@ -1690,7 +1743,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 							if isDormantOpen {
 								for _, th := range dormantThs {
-									renderThreadItem(th, true, false)
+									renderThreadItem(th, true)
 								}
 							}
 						}
@@ -1779,7 +1832,106 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	})
 }
 
-// sidebarThreadRowOptions 是会话行渲染的参数，项目树与动态视图两种模式共用。
+// sidebarFocusZoneOptions 是顶部聚焦区渲染所需的只读切片与映射。
+type sidebarFocusZoneOptions struct {
+	needsYou     []Thread
+	running      []Thread
+	threadProjID map[string]string
+	beesByProj   map[string]map[string][]Thread
+	projectNames map[string]string
+	providers    []ProviderInfo
+	selectedID   string
+	rowHeight    float32
+	padY         float32
+	padX         float32
+	compact      bool
+}
+
+// renderSidebarFocusZone 渲染搜索栏下方的唯一聚焦区：首行是总管/待处理入口，
+// 其下依次列出全部项目（含对话段）里「等你处理」和「运行中」的会话，底部用中性细线与列表隔开。
+func renderSidebarFocusZone(c *ui.Context, s *chatState, o sidebarFocusZoneOptions) {
+	stewardVisible := sidebarStewardSectionVisible(s)
+	focusedCount := len(o.needsYou) + len(o.running)
+	if !stewardVisible && focusedCount == 0 {
+		return
+	}
+
+	var focusBees, focusAllBees map[string][]Thread
+	var focusHiddenBeeCount map[string]int
+	var focusShowAllBees map[string]bool
+	if focusedCount > 0 {
+		rawBees := make(map[string][]Thread, focusedCount)
+		collectBees := func(list []Thread) {
+			for _, th := range list {
+				pid := o.threadProjID[th.ID]
+				if pid == "" {
+					pid = th.ProjectID
+				}
+				if bees := o.beesByProj[pid][th.ID]; len(bees) > 0 {
+					rawBees[th.ID] = bees
+				}
+			}
+		}
+		collectBees(o.needsYou)
+		collectBees(o.running)
+		if len(rawBees) > 0 {
+			focusBees, focusAllBees, focusHiddenBeeCount, focusShowAllBees = filterSidebarBeesForAutoHide(s, rawBees, o.selectedID)
+		}
+	}
+
+	renderFocusRow := func(th Thread) {
+		pid := o.threadProjID[th.ID]
+		if pid == "" {
+			pid = th.ProjectID
+		}
+		ui.Column(c.Key("focus-item-" + th.ID)).
+			FillWidth().
+			Transition(motionCollapse(c)).
+			Children(func() {
+				renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
+					projectID:      pid,
+					thread:         th,
+					bees:           focusBees[th.ID],
+					allBees:        focusAllBees[th.ID],
+					hiddenBeeCount: focusHiddenBeeCount[th.ID],
+					showAllBees:    focusShowAllBees[th.ID],
+					selected:       th.ID == o.selectedID,
+					rowHeight:      o.rowHeight,
+					padY:           o.padY,
+					padX:           o.padX,
+					indent:         0,
+					compact:        o.compact,
+					providers:      o.providers,
+					latchHover:     true,
+					projectName:    o.projectNames[pid],
+				})
+			})
+	}
+
+	ui.Column(c.Key("sidebar-focus-zone")).
+		FillWidth().
+		Padding(2, 0, Space2, 0).
+		Transition(motionCollapse(c)).
+		Children(func() {
+			if stewardVisible {
+				renderSidebarStewardSection(c, s)
+			}
+			for _, th := range o.needsYou {
+				renderFocusRow(th)
+			}
+			for _, th := range o.running {
+				renderFocusRow(th)
+			}
+		})
+
+	ui.Box(c.Key("sidebar-focus-zone-divider")).
+		FillWidth().
+		Height(Hairline).
+		Background(ThemeHairline(c)).
+		Margin(0, 0, Space1, 0)
+}
+
+// sidebarThreadRowOptions 是会话行渲染的参数，项目树、聚焦区与动态视图共用。
 type sidebarThreadRowOptions struct {
 	projectID      string
 	thread         Thread
@@ -1793,12 +1945,11 @@ type sidebarThreadRowOptions struct {
 	rowHeight      float32
 	padY           float32
 	padX           float32
-	indent         float32 // 行左缩进：项目树用文件夹缩进，动态视图为 0
+	indent         float32 // 行左缩进：项目树用文件夹缩进，聚焦区与动态视图为 0
 	compact        bool
 	providers      []ProviderInfo
-	needsYou       bool
-	latchHover     bool   // 项目树：把行悬停写进状态分组闩锁（动态视图不传，保持按帧实时分组）
-	projectName    string // 动态视图：行内展示的所属项目名（弱化色小字），空则不展示
+	latchHover     bool   // 聚焦区与下方列表：把行悬停写进状态分组闩锁（动态视图不传，保持按帧实时分组）
+	projectName    string // 聚焦区与动态视图：行内展示的所属项目名（弱化色小字），空则不展示
 }
 
 // renderSidebarThreadRow 渲染一条会话行：状态前缀、标题、模型徽章与状态点，右侧是相对时间
@@ -1981,7 +2132,7 @@ func renderSidebarThreadRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 				status.Opacity(0).Disabled(true)
 			}
 			status.Children(func() {
-				renderSidebarStatusSlot(c, s, thVal, secondaryText, o.needsYou)
+				renderSidebarStatusSlot(c, s, thVal, secondaryText)
 			})
 		})
 		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，因此常驻构建并用 Hidden 隐藏。
@@ -2066,7 +2217,7 @@ func sidebarRunningLabel(th Thread, now time.Time) string {
 }
 
 // renderSidebarStatusSlot 渲染会话行尾的单一状态位。
-func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondaryText ui.Color, needsYou bool) {
+func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondaryText ui.Color) {
 	switch s.sidebarStatusSlotKind(thVal) {
 	case sidebarStatusPending:
 		// 待审批用警示三角加一行同样的短字说明原因，比单个图标更明确；
@@ -2080,12 +2231,10 @@ func renderSidebarStatusSlot(c *ui.Context, s *chatState, thVal Thread, secondar
 				ui.Icon(c, IconAlertTriangle()).
 					Size(12, 12).
 					TextColor(ThemeWarning(c))
-				if !needsYou {
-					ui.Text(c, "等你审批").
-						FontSize(sidebarFont(FontSizeRelativeTime)).
-						TextColor(ThemeWarning(c)).
-						SingleLine()
-				}
+				ui.Text(c, "等你审批").
+					FontSize(sidebarFont(FontSizeRelativeTime)).
+					TextColor(ThemeWarning(c)).
+					SingleLine()
 			})
 	case sidebarStatusRunning:
 		// 运行中用相对时长说明这一轮已经跑了多久；同一时间只占行尾，不再显示相对时间。

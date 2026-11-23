@@ -11,6 +11,26 @@ import (
 // 总管段左侧圆形头像的直径，比侧栏 bee 头像大一圈，作为常驻会话的识别点。
 const stewardSectionAvatarSize float32 = 22
 
+// sidebarStewardSectionVisible 判断顶部总管/待处理入口是否会渲染出可见行，
+// 供聚焦区决定在没有任何可聚焦项时跳过空容器与底部分隔线。
+func sidebarStewardSectionVisible(s *chatState) bool {
+	if s == nil {
+		return false
+	}
+	if _, ok := s.stewardClient(); !ok {
+		_, hasAttention := s.attentionClient()
+		return hasAttention
+	}
+	if enabled, known := s.stewardEnabledState(); known && !enabled {
+		return true
+	}
+	if s.stewardThreadID() != "" {
+		return true
+	}
+	_, hasAttention := s.attentionClient()
+	return hasAttention
+}
+
 // renderSidebarStewardSection 渲染侧栏顶部的总管段：一行里是圆形头像、「昵称 · 总管」与
 // 未处理数徽标。点行打开总管会话，点徽标展开待处理列表。
 // 客户端没有总管能力、或总管会话还没建好时，退回只渲染原来的「待处理」行，

@@ -275,8 +275,8 @@ func TestSidebarBulk_PopoverPreviewSkipsRunning(t *testing.T) {
 		return tt.HasText("mcode-test")
 	})
 
-	// 右键点击项目行打开菜单
-	if err := tt.RightClick("mcode-test"); err != nil {
+	// 右键点击项目行打开菜单（存在运行中会话时聚焦区也会显示项目名，按项目标题行标签定位）
+	if err := tt.RightClick("收起项目 mcode-test"); err != nil {
 		t.Fatalf("right click project failed: %v", err)
 	}
 	tt.Frame()

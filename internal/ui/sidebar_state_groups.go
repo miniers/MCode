@@ -1,12 +1,6 @@
 package mcodeui
 
-import (
-	"fmt"
-	"strconv"
-	"sync"
-
-	"github.com/egoist/mygo/ui"
-)
+import "sync"
 
 // sidebarStateGroup 是侧栏活跃会话按状态分出的组别。
 type sidebarStateGroup int
@@ -134,21 +128,4 @@ func (l *sidebarStateGroupLatch) split(active []Thread, busy func(Thread) bool) 
 	l.groups = next
 	l.pendingRegroup = l.pointerInside && pending
 	return needsYou, running, rest
-}
-
-// renderSidebarStateGroupHeader 渲染项目内的状态分组标题，非交互、不响应点击。
-// key 带上项目 ID 与标题，Label 带上项目名与计数，保证同一页内唯一。
-func renderSidebarStateGroupHeader(c *ui.Context, projectID, projectName, title string, count int, indent float32) {
-	label := title + " · " + projectName + " · " + strconv.Itoa(count)
-	ui.Row(c.Key("state-group-"+projectID+"-"+title)).
-		Label(label).
-		Padding(0, 0, 0, indent).
-		AlignItems(ui.Center).
-		Children(func() {
-			ui.Text(c, fmt.Sprintf("%s  %d", title, count)).
-				FontSize(sidebarFont(TypeCaption)).
-				FontWeight(600).
-				TextColor(ThemeTertiaryText(c)).
-				SingleLine()
-		})
 }

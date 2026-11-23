@@ -1,10 +1,6 @@
 package mcodeui
 
-import (
-	"testing"
-
-	"github.com/egoist/mygo/ui"
-)
+import "testing"
 
 // resetSidebarStateGroupLatch 清空包级闩锁状态，避免用例互相影响。
 func resetSidebarStateGroupLatch() {
@@ -12,6 +8,7 @@ func resetSidebarStateGroupLatch() {
 	l.mu.Lock()
 	l.frameHovered = false
 	l.pointerInside = false
+	l.pendingRegroup = false
 	l.groups = nil
 	l.mu.Unlock()
 }
@@ -226,53 +223,6 @@ func TestSidebarStateGroupLatchDropsVanishedThreads(t *testing.T) {
 	latch.endFrame()
 	if len(needsYou) != 1 || len(running) != 0 {
 		t.Fatalf("指针离开后应归位到等你处理: %d/%d", len(needsYou), len(running))
-	}
-}
-
-// TestRenderSidebarStateGroupHeaderLabelsUnique 验证组头的 a11y Label 在两个项目、
-// 同一项目的两个组之间都唯一，Tester 能按 Label 定位到各自一行。
-func TestRenderSidebarStateGroupHeaderLabelsUnique(t *testing.T) {
-	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c.Key("state-group-test")).Fill().Children(func() {
-			renderSidebarStateGroupHeader(c, "p1", "项目甲", "等你处理", 1, 0)
-			renderSidebarStateGroupHeader(c, "p1", "项目甲", "运行中", 2, 0)
-			renderSidebarStateGroupHeader(c, "p2", "项目乙", "等你处理", 3, 0)
-			renderSidebarStateGroupHeader(c, "p2", "项目乙", "运行中", 4, 0)
-		})
-	}, 480, 240)
-
-	labels := []string{
-		"等你处理 · 项目甲 · 1",
-		"运行中 · 项目甲 · 2",
-		"等你处理 · 项目乙 · 3",
-		"运行中 · 项目乙 · 4",
-	}
-	rects := make(map[string]ui.Rect, len(labels))
-	for _, label := range labels {
-		r, ok := tt.Find(label)
-		if !ok {
-			t.Fatalf("找不到组头 Label %q, texts: %q", label, tt.Texts())
-		}
-		if n := countText(tt, label); n != 1 {
-			t.Fatalf("组头 Label %q 应唯一, got %d", label, n)
-		}
-		rects[label] = r
-	}
-
-	// 同一项目的两个组各占一行，不重叠。
-	if rects[labels[0]].Y == rects[labels[1]].Y {
-		t.Fatalf("同一项目的两个组头不应在同一行: %v", rects[labels[0]].Y)
-	}
-	if rects[labels[2]].Y == rects[labels[3]].Y {
-		t.Fatalf("同一项目的两个组头不应在同一行: %v", rects[labels[2]].Y)
-	}
-
-	// 可见文字是「标题  计数」。
-	if n := countText(tt, "等你处理  1"); n != 1 {
-		t.Fatalf("可见文字应为「等你处理  1」, got %d", n)
-	}
-	if n := countText(tt, "运行中  4"); n != 1 {
-		t.Fatalf("可见文字应为「运行中  4」, got %d", n)
 	}
 }
 
