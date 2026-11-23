@@ -2307,8 +2307,54 @@ func handleElicitation(ctx context.Context, approver harness.Approver, params js
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	const otherPrefix = "Optional free-form answer to: "
+	hasOptions := func(prop elicitationProperty) bool {
+		switch prop.Type {
+		case "string":
+			return len(prop.Enum) > 0 || len(prop.OneOf) > 0 || len(prop.AnyOf) > 0
+		case "array":
+			return prop.Items != nil && (len(prop.Items.Enum) > 0 || len(prop.Items.OneOf) > 0 || len(prop.Items.AnyOf) > 0)
+		default:
+			return false
+		}
+	}
+	propPrompt := func(prop elicitationProperty) string {
+		if prop.Description != "" {
+			return prop.Description
+		}
+		return prop.Title
+	}
+	companions := make(map[string]string)
+	isCompanion := make(map[string]bool)
+	for _, id := range ids {
+		prop := p.RequestedSchema.Properties[id]
+		if prop.Type != "string" || len(prop.Enum) > 0 || len(prop.OneOf) > 0 || len(prop.AnyOf) > 0 {
+			continue
+		}
+		if !strings.HasPrefix(prop.Description, otherPrefix) {
+			continue
+		}
+		target := strings.TrimSpace(strings.TrimPrefix(prop.Description, otherPrefix))
+		if target == "" {
+			continue
+		}
+		for _, baseID := range ids {
+			if baseID == id || companions[baseID] != "" {
+				continue
+			}
+			baseProp := p.RequestedSchema.Properties[baseID]
+			if hasOptions(baseProp) && propPrompt(baseProp) == target {
+				companions[baseID] = id
+				isCompanion[id] = true
+				break
+			}
+		}
+	}
 	values := make(map[string]map[string]string)
 	for _, id := range ids {
+		if isCompanion[id] {
+			continue
+		}
 		prop := p.RequestedSchema.Properties[id]
 		prompt := prop.Description
 		if prompt == "" {
@@ -2349,7 +2395,8 @@ func handleElicitation(ctx context.Context, approver harness.Approver, params js
 			}
 			add(value, choice.Title)
 		}
-		q.AllowsOther = prop.Type == "string" && len(q.Choices) == 0
+		_, hasCompanion := companions[id]
+		q.AllowsOther = (prop.Type == "string" && len(q.Choices) == 0) || hasCompanion
 		req.Questions = append(req.Questions, q)
 	}
 	response, err := interactor.Interact(ctx, req)
@@ -2365,6 +2412,27 @@ func handleElicitation(ctx context.Context, approver harness.Approver, params js
 		for _, q := range req.Questions {
 			answers, ok := response.Answers[q.ID]
 			if !ok {
+				continue
+			}
+			if companionID, hasCompanion := companions[q.ID]; hasCompanion {
+				var optionAnswers, otherAnswers []string
+				for _, answer := range answers {
+					if value, ok := values[q.ID][answer]; ok {
+						optionAnswers = append(optionAnswers, value)
+					} else {
+						otherAnswers = append(otherAnswers, answer)
+					}
+				}
+				if q.AllowsMultiple {
+					if len(optionAnswers) > 0 {
+						content[q.ID] = optionAnswers
+					}
+				} else if len(optionAnswers) > 0 {
+					content[q.ID] = optionAnswers[0]
+				}
+				if len(otherAnswers) > 0 {
+					content[companionID] = strings.Join(otherAnswers, "\n")
+				}
 				continue
 			}
 			mapped := make([]string, 0, len(answers))

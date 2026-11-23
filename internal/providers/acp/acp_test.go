@@ -1440,6 +1440,71 @@ func TestACPElicitationForm(t *testing.T) {
 	})
 }
 
+func TestACPElicitationFoldsOtherCompanion(t *testing.T) {
+	params := json.RawMessage(`{
+		"mode": "form",
+		"message": "Questions",
+		"requestedSchema": {
+			"properties": {
+				"q1": {"type": "string", "enum": ["a", "b"], "description": "Pick?"},
+				"q1_other": {"type": "string", "title": "Other", "description": "Optional free-form answer to: Pick?"},
+				"q2": {"type": "array", "items": {"type": "string", "enum": ["x", "y"]}, "description": "Many?"},
+				"q2_other": {"type": "string", "title": "Other", "description": "Optional free-form answer to: Many?"}
+			}
+		}
+	}`)
+	for _, tc := range []struct {
+		name    string
+		answers map[string][]string
+		want    map[string]any
+	}{
+		{
+			name:    "single custom",
+			answers: map[string][]string{"q1": {"custom"}},
+			want:    map[string]any{"q1_other": "custom"},
+		},
+		{
+			name:    "single option and multi mixed",
+			answers: map[string][]string{"q1": {"a"}, "q2": {"x", "mine"}},
+			want:    map[string]any{"q1": "a", "q2": []string{"x"}, "q2_other": "mine"},
+		},
+		{
+			name:    "multi custom only",
+			answers: map[string][]string{"q2": {"mine1", "mine2"}},
+			want:    map[string]any{"q2_other": "mine1\nmine2"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &elicitationApprover{response: harness.ApprovalResponse{Answers: tc.answers}}
+			res, err := handleElicitation(context.Background(), a, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.mu.Lock()
+			questions := a.req.Questions
+			a.mu.Unlock()
+			if len(questions) != 2 || questions[0].ID != "q1" || questions[1].ID != "q2" {
+				t.Fatalf("questions = %+v", questions)
+			}
+			if !questions[0].AllowsOther || !questions[1].AllowsOther {
+				t.Fatalf("AllowsOther = %v, %v", questions[0].AllowsOther, questions[1].AllowsOther)
+			}
+			resp, ok := res.(acpApprovalResponse)
+			if !ok {
+				t.Fatalf("unexpected response type %T", res)
+			}
+			payload, ok := resp.ResponsePayload().(map[string]any)
+			if !ok || payload["action"] != "accept" {
+				t.Fatalf("payload = %#v", resp.ResponsePayload())
+			}
+			content, _ := payload["content"].(map[string]any)
+			if !reflect.DeepEqual(content, tc.want) {
+				t.Fatalf("content = %#v, want %#v", content, tc.want)
+			}
+		})
+	}
+}
+
 func fakeResponse(messages []map[string]any, id float64) map[string]any {
 	for _, message := range messages {
 		if message["id"] == id {
