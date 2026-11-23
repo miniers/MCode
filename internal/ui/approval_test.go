@@ -1942,3 +1942,61 @@ func TestQuestionSingleAutoAdvanceAndFocusComposer(t *testing.T) {
 		t.Fatal("点击「补充要求」后应取消自动推进，不应自动提交")
 	}
 }
+
+func TestQuestionBodySkipsHeaderEqualToPrompt(t *testing.T) {
+	countText := func(texts []string, target string) int {
+		n := 0
+		for _, text := range texts {
+			if text == target {
+				n++
+			}
+		}
+		return n
+	}
+
+	const sameText = "这次设计稿的覆盖范围希望怎么定?"
+	sameAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-same-header-prompt",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Header:  sameText,
+			Prompt:  sameText,
+			Choices: []ApprovalQuestionChoice{{Label: "全量覆盖"}, {Label: "仅核心流程"}},
+		}},
+	}
+	sSame := newChatState(NewFakeClient())
+	ttSame := ui.NewTester(func(c *ui.Context) {
+		renderQuestionCard(c, sSame, sameAppr, false)
+	}, 720, 480)
+	waitFor(t, ttSame, func() bool { return ttSame.HasText(sameText) })
+	if got := countText(ttSame.Texts(), sameText); got != 1 {
+		t.Fatalf("Header 与 Prompt 相同时文本 %q 应只出现 1 次，实际 %d 次，texts=%q", sameText, got, ttSame.Texts())
+	}
+
+	diffAppr := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-diff-header-prompt",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:      "q1",
+			Header:  "覆盖范围",
+			Prompt:  "这次设计稿希望覆盖哪些模块?",
+			Choices: []ApprovalQuestionChoice{{Label: "全部模块"}, {Label: "只做首页"}},
+		}},
+	}
+	sDiff := newChatState(NewFakeClient())
+	ttDiff := ui.NewTester(func(c *ui.Context) {
+		renderQuestionCard(c, sDiff, diffAppr, false)
+	}, 720, 480)
+	waitFor(t, ttDiff, func() bool {
+		return ttDiff.HasText("覆盖范围") && ttDiff.HasText("这次设计稿希望覆盖哪些模块?")
+	})
+	if got := countText(ttDiff.Texts(), "覆盖范围"); got != 1 {
+		t.Fatalf("Header 与 Prompt 不同时应显示 Header，实际出现 %d 次，texts=%q", got, ttDiff.Texts())
+	}
+	if got := countText(ttDiff.Texts(), "这次设计稿希望覆盖哪些模块?"); got != 1 {
+		t.Fatalf("Header 与 Prompt 不同时应显示 Prompt，实际出现 %d 次，texts=%q", got, ttDiff.Texts())
+	}
+}

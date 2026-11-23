@@ -1465,7 +1465,7 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 	s.mu.Unlock()
 
 	ui.Column(c.Key(fmt.Sprintf("question-body-%s-%d", id, qi))).Gap(Space3).Children(func() {
-		if q.Header != "" {
+		if q.Header != "" && strings.TrimSpace(q.Header) != strings.TrimSpace(q.Prompt) {
 			ui.Text(c, q.Header).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
 		}
 		if q.Prompt != "" {
