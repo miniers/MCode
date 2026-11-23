@@ -188,3 +188,43 @@ func TestFileManagerCodeViewUnknownLanguage(t *testing.T) {
 		t.Fatalf("未知扩展名不应识别语言，得到 %v", state.Buffer.Language())
 	}
 }
+
+func TestFileManagerCodeRevealBounded(t *testing.T) {
+	s := newChatState(nil)
+	defer s.close()
+	tab := fileManagerTabSnapshot{
+		path:      "a.go",
+		kind:      "text",
+		content:   "package a\nfunc A() {}\n",
+		hlFirst:   2,
+		hlLast:    2,
+		reveal:    true,
+		revealSeq: 1,
+	}
+	before := s.invalidateGen.Load()
+	tt := ui.NewTester(func(c *ui.Context) {
+		s.setUIServices(c.Services())
+		ui.Box(c).Width(400).Height(0).Children(func() {
+			renderFileManagerCodePreview(c, s, tab, "file-manager-pane-0-")
+		})
+	}, 400, 300)
+
+	for range 10 {
+		tt.Frame()
+	}
+	got := s.invalidateGen.Load() - before
+	if got <= 0 || got > fileManagerRevealMaxRetries {
+		t.Fatalf("视口高度为 0 时同一 revealSeq 触发重绘 %d 次，期望 1..%d", got, fileManagerRevealMaxRetries)
+	}
+
+	// 新 revealSeq 允许再次重试，同样不超过上限。
+	tab.revealSeq = 2
+	before = s.invalidateGen.Load()
+	for range 10 {
+		tt.Frame()
+	}
+	got2 := s.invalidateGen.Load() - before
+	if got2 <= 0 || got2 > fileManagerRevealMaxRetries {
+		t.Fatalf("新 revealSeq 触发重绘 %d 次，期望 1..%d", got2, fileManagerRevealMaxRetries)
+	}
+}

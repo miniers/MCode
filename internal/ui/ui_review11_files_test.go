@@ -275,27 +275,42 @@ func TestUIReview11RootFileHeaderHidesPath(t *testing.T) {
 	s := &chatState{}
 	defer inspectorDisposeAllSessions(s)
 	tester := ui.NewTester(func(c *ui.Context) {
-		renderFileManagerFileHeader(c, s, fileManagerTabSnapshot{path: "README.md"}, "root-")
-	}, 480, 120)
+		renderFileManagerPanes(c, s, fileManagerPanelSnapshot{
+			tabs:   []fileManagerTabSnapshot{{path: "README.md", kind: "text", content: "body", mdPreview: true}},
+			active: "README.md",
+		}, true)
+	}, 480, 160)
 	tester.Frame()
 
-	texts := tester.Texts()
-	count := 0
-	for _, txt := range texts {
-		if txt == "README.md" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("根目录文件头部不应重复显示路径副标题，Texts=%v", texts)
+	if tester.HasText("README.md") {
+		t.Fatalf("未拆分时窗格顶部不应显示文件头或路径条，Texts=%v", tester.Texts())
 	}
 
 	testerSub := ui.NewTester(func(c *ui.Context) {
-		renderFileManagerFileHeader(c, s, fileManagerTabSnapshot{path: "docs/README.md"}, "sub-")
-	}, 480, 120)
+		renderFileManagerContent(c, s, fileManagerPanelSnapshot{
+			tabs:   []fileManagerTabSnapshot{{path: "docs/README.md", kind: "text", content: "body", mdPreview: true}},
+			active: "docs/README.md",
+		}, false, false)
+	}, 480, 160)
 	testerSub.Frame()
-	if !testerSub.HasText("docs/README.md") {
-		t.Fatalf("子目录文件头部应显示路径副标题，Texts=%v", testerSub.Texts())
+	if testerSub.HasText("docs/README.md") {
+		t.Fatalf("未拆分时不应显示路径副标题，Texts=%v", testerSub.Texts())
+	}
+
+	testerSplit := ui.NewTester(func(c *ui.Context) {
+		renderFileManagerContent(c, s, fileManagerPanelSnapshot{
+			tabs: []fileManagerTabSnapshot{
+				{path: "README.md", kind: "text", content: "root", mdPreview: true},
+				{path: "docs/README.md", kind: "text", content: "sub", mdPreview: true},
+			},
+			active:      "docs/README.md",
+			splitAnchor: "README.md",
+			splitSide:   "docs/README.md",
+		}, false, false)
+	}, 680, 200)
+	testerSplit.Frame()
+	if !testerSplit.HasText("docs/README.md") {
+		t.Fatalf("拆分双栏时窗格路径条应显示相对路径，Texts=%v", testerSplit.Texts())
 	}
 }
 

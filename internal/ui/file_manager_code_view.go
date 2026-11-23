@@ -8,12 +8,17 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
+const fileManagerRevealMaxRetries = 3
+
 // fileManagerCodePreview 是某一栏代码预览缓存的编辑器状态：state 跨帧保留选区与滚动位置，
-// content / fontSize 记录上次同步进去的文本与字号，用来判断这一帧是否需要更新。
+// content / fontSize 记录上次同步进去的文本与字号，用来判断这一帧是否需要更新；
+// revealSeq / revealRetryCount 限制视口高度为 0 时的重绘重试次数，防止逐帧重绘。
 type fileManagerCodePreview struct {
-	state    *editor.State
-	content  string
-	fontSize float32
+	state            *editor.State
+	content          string
+	fontSize         float32
+	revealSeq        int
+	revealRetryCount int
 }
 
 // fileManagerCodePreviewTab 报告该 tab 的预览是否由代码编辑器直接占满一栏。
@@ -55,9 +60,10 @@ func fileManagerCodeViewFor(st *fileManagerState, key, filePath, content string,
 	view := st.codeViews[key]
 	if view == nil {
 		view = &fileManagerCodePreview{
-			state:    newFileManagerCodeState(filePath, content, size),
-			content:  content,
-			fontSize: size,
+			state:     newFileManagerCodeState(filePath, content, size),
+			content:   content,
+			fontSize:  size,
+			revealSeq: -1,
 		}
 		st.codeViews[key] = view
 		return view.state
@@ -104,7 +110,18 @@ func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTa
 		case tab.hlFirst > lineCount && tab.hasMore && !tab.limitReached:
 			s.loadMoreFileManagerTab(tab.path)
 		case st.ViewportHeight() <= 0:
-			s.invalidate()
+			if manager != nil {
+				if preview := manager.codeViews[key]; preview != nil {
+					if preview.revealSeq != tab.revealSeq {
+						preview.revealSeq = tab.revealSeq
+						preview.revealRetryCount = 0
+					}
+					if preview.revealRetryCount < fileManagerRevealMaxRetries {
+						preview.revealRetryCount++
+						s.invalidate()
+					}
+				}
+			}
 		case lineCount > 0:
 			st.GoTo(editor.Pos{Line: min(tab.hlFirst, lineCount) - 1})
 			e.Jump("line-highlight", 0)

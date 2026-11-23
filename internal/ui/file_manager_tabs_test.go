@@ -1,6 +1,15 @@
 package mcodeui
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/testenv"
+)
 
 func TestFileManagerExternalLineRange(t *testing.T) {
 	_, s, _ := openFileManagerForTest(t)
@@ -409,4 +418,87 @@ func TestFileManagerSessionSwitchClearsTabs(t *testing.T) {
 	} else if !showList {
 		t.Fatal("切换会话后应显示目录列表")
 	}
+}
+
+func TestFileManagerMergedHeader(t *testing.T) {
+	testenv.TempHome(t)
+	fake := NewFakeClient()
+	workDir := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(filepath.Join(workDir, "dir1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fake.SetThreadWorkDir(workDir)
+	fake.SetFileTree(map[string][]FileEntry{
+		"": {
+			{Name: "dir1", Path: "dir1", IsDir: true},
+			{Name: "sub", Path: "sub", IsDir: true},
+		},
+		"dir1": {{Name: "a.go", Path: "dir1/a.go", Size: 12}},
+		"sub":  {{Name: "b.go", Path: "sub/b.go", Size: 12}},
+	})
+	fake.SetFileContents(map[string]FileContent{
+		"dir1/a.go": {Path: "dir1/a.go", Kind: "text", Text: "package dir1\n", TotalSize: 13},
+		"sub/b.go":  {Path: "sub/b.go", Kind: "text", Text: "package sub\n", TotalSize: 12},
+	})
+
+	origOpenEditor := fileJumpOpenDefaultEditorFn
+	t.Cleanup(func() { fileJumpOpenDefaultEditorFn = origOpenEditor })
+	var openedPaths []string
+	fileJumpOpenDefaultEditorFn = func(_ *chatState, absPath string) {
+		openedPaths = append(openedPaths, absPath)
+	}
+
+	s, root := buildRoot(fake)
+	defer s.close()
+	tt := ui.NewTester(root, 1500, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyF)
+	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
+	s.mu.Lock()
+	if sess := inspectorExistingSessionLocked(s, "t1"); sess != nil {
+		sess.Width = FileManagerPanelMaxWidth
+	}
+	s.mu.Unlock()
+	tt.Advance(DurSheet + 50*time.Millisecond)
+
+	openTestFileManagerFile(t, s, "dir1/a.go", true)
+	waitForFileManagerText(t, tt, s, "dir1/a.go", "package dir1\n")
+	openTestFileManagerFile(t, s, "sub/b.go", true)
+	waitForFileManagerText(t, tt, s, "sub/b.go", "package sub\n")
+	tt.Frame()
+
+	if _, ok := tt.Find("在外部编辑器打开"); !ok {
+		t.Fatalf("未找到「在外部编辑器打开」按钮: %v", tt.AccessAll())
+	}
+	mentionCount := 0
+	for _, info := range tt.AccessAll() {
+		if info.Name == "引用到输入框" {
+			mentionCount++
+		}
+	}
+	if mentionCount != 1 {
+		t.Fatalf("「引用到输入框」按钮数量 = %d，期望恰好 1 个", mentionCount)
+	}
+	if tt.HasText("sub/b.go") {
+		t.Fatalf("未拆分时不应显示路径副标题文本，Texts=%v", tt.Texts())
+	}
+
+	if err := tt.Click("在外部编辑器打开"); err != nil {
+		t.Fatalf("点击「在外部编辑器打开」失败: %v", err)
+	}
+	wantAbs := filepath.Join(workDir, "sub", "b.go")
+	if len(openedPaths) != 1 || openedPaths[0] != wantAbs {
+		t.Fatalf("外部编辑器打开路径 = %v，期望 [%q]", openedPaths, wantAbs)
+	}
+
+	if err := tt.Click("拆分"); err != nil {
+		t.Fatalf("点击「拆分」失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("dir1/a.go") && tt.HasText("sub/b.go")
+	})
 }

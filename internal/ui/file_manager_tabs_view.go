@@ -143,16 +143,18 @@ func renderFileManagerNavToggle(c *ui.Context, s *chatState, narrow, navOpen boo
 	if btn.Clicked() {
 		action()
 	}
+	focusRing(c, btn)
 	btn.Children(func() {
 		ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
 }
 
-// renderFileManagerTabBar 渲染标签栏：导航切换、tab 列表、拆分与方向。
+// renderFileManagerTabBar 渲染标签栏：导航切换、可横滚标签、右侧图标动作与分栏按钮。
 func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, narrow, navOpen bool) {
+	activeTab, hasActive := snap.activeTab()
 	ui.Row(c.Key("file-manager-tab-bar")).
 		FillWidth().
-		Height(ControlLG).
+		Height(fileManagerHeaderHeight).
 		Padding(Space1, Space3).
 		BorderWidth(0, 0, Hairline, 0).
 		BorderColor(ThemeBorder(c)).
@@ -178,53 +180,122 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 						})
 				})
 
+			if hasActive {
+				renderFileManagerHeaderActions(c, s, snap, activeTab, narrow)
+			}
+		})
+}
+
+// renderFileManagerHeaderActions 渲染内容头部右侧动作组，作用于当前激活标签。
+func renderFileManagerHeaderActions(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, activeTab fileManagerTabSnapshot, narrow bool) {
+	threadID := fileManagerThreadID(s)
+	abs := fileManagerWorkspacePath(s, threadID, activeTab.path)
+	ref := inspectorFileReference(s, threadID, activeTab.path, activeTab.hlFirst, activeTab.hlLast)
+
+	ui.Row(c.Key("file-manager-header-actions")).
+		Shrink(0).
+		AlignItems(ui.Center).
+		Gap(Space0).
+		Transition(motionFeedback(c)).
+		Children(func() {
+			hasKindAction := isMarkdownPath(activeTab.path) ||
+				(isInspectorSVGPath(activeTab.path) && activeTab.svg != nil) ||
+				(isInspectorHTMLPath(activeTab.path) && inspectorPreviewAvailable(s))
+			if hasKindAction {
+				ui.Row(c.Key("file-manager-header-kind-actions")).
+					Shrink(0).
+					AlignItems(ui.Center).
+					Gap(Space0).
+					Transition(motionFeedback(c)).
+					Children(func() {
+						if isMarkdownPath(activeTab.path) {
+							renderFileManagerMarkdownToggle(c, s, activeTab, "file-manager-header-")
+						}
+						if isInspectorSVGPath(activeTab.path) && activeTab.svg != nil {
+							renderFileManagerSVGToggle(c, s, activeTab, "file-manager-header-")
+						}
+						if isInspectorHTMLPath(activeTab.path) && inspectorPreviewAvailable(s) {
+							renderFileManagerBrowserOpenButton(c, s, activeTab, "file-manager-header-")
+						}
+					})
+			}
+
+			IconButton(c, IconButtonProps{
+				Key:     "file-manager-open-external",
+				Icon:    IconSquareArrowOutUpRight(),
+				Label:   "在外部编辑器打开",
+				Tooltip: "在外部编辑器打开",
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				OnClick: func() {
+					s.openFileAtLocation(fileJumpRequest{
+						Path:     abs,
+						ThreadID: threadID,
+						Target:   fileJumpExternal,
+					})
+				},
+			})
+
+			IconButton(c, IconButtonProps{
+				Key:     "file-manager-header-mention",
+				Icon:    IconPaperclip(),
+				Label:   "引用到输入框",
+				Tooltip: "引用到输入框",
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				OnClick: func() {
+					s.addInspectorFileRefs([]inspectorFileRef{ref})
+				},
+			})
+
+			ui.Box(c.Key("file-manager-header-sep")).
+				Width(Hairline).
+				Height(IconSM).
+				Margin(0, Space1).
+				Background(ThemeBorder(c)).
+				Shrink(0)
+
 			splitLabel := "拆分"
 			if snap.splitAnchor != "" {
 				splitLabel = "取消拆分"
 			}
-			fileManagerBarButton(c, "file-manager-split-btn", splitLabel, func() {
-				if snap.splitAnchor != "" {
-					s.unsplitFileManager()
-					return
-				}
-				s.splitFileManager()
+			IconButton(c, IconButtonProps{
+				Key:     "file-manager-split-btn",
+				Icon:    IconPanelRight(),
+				Label:   splitLabel,
+				Tooltip: splitLabel,
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				Active:  snap.splitAnchor != "",
+				OnClick: func() {
+					if snap.splitAnchor != "" {
+						s.unsplitFileManager()
+						return
+					}
+					s.splitFileManager()
+				},
 			})
 
 			if snap.splitAnchor != "" && !narrow {
 				directionLabel := "切换为上下分栏"
+				directionIcon := IconFoldVertical()
 				if snap.splitVertical {
 					directionLabel = "切换为左右分栏"
+					directionIcon = IconColumns3()
 				}
-				fileManagerBarButton(c, "file-manager-split-direction-btn", directionLabel, func() {
-					s.toggleFileManagerSplitDirection()
-				})
+				IconButton(c, IconButtonProps{
+					Key:     "file-manager-split-direction-btn",
+					Icon:    directionIcon,
+					Label:   directionLabel,
+					Tooltip: directionLabel,
+					Size:    ControlSM,
+					Variant: ButtonGhost,
+					OnClick: func() {
+						s.toggleFileManagerSplitDirection()
+					},
+				}).Transition(motionFeedback(c))
 			}
-
 		})
-}
-
-// fileManagerBarButton 渲染标签栏里的小文字按钮：Label 与 Tooltip 同名，便于无障碍与测试定位。
-func fileManagerBarButton(c *ui.Context, key, label string, onClick func()) {
-	btn := ui.ButtonBase(c.Key(key)).
-		Label(label).
-		Tooltip(label).
-		Radius(RadiusSM).
-		Padding(Space1, Space2).
-		Shrink(0)
-	btnScale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
-	btn.Scale(btnScale, btnScale)
-	if btn.Hovered() {
-		btn.Background(ThemeHover(c))
-	}
-	if btn.Clicked() {
-		onClick()
-	}
-	btn.Children(func() {
-		ui.Text(c, label).
-			FontSize(uiFont(TypeFootnote)).
-			TextColor(ThemeSecondaryText(c)).
-			SingleLine()
-	})
 }
 
 // renderFileManagerTabItem 渲染单个 tab：单击激活，双击固定，× 关闭。
@@ -333,7 +404,7 @@ func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSn
 		if !ok {
 			return
 		}
-		renderFileManagerPane(c, s, snap, tab, 0)
+		renderFileManagerPane(c, s, snap, tab, 0, false)
 		return
 	}
 
@@ -346,7 +417,7 @@ func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSn
 		Grow(1).
 		FillWidth().
 		Children(func() {
-			renderFileManagerPane(c, s, snap, anchor, 0)
+			renderFileManagerPane(c, s, snap, anchor, 0, true)
 
 			// 中间用 1px 边框分隔两栏。
 			if snap.splitVertical {
@@ -364,23 +435,51 @@ func renderFileManagerPanes(c *ui.Context, s *chatState, snap fileManagerPanelSn
 			}
 
 			if hasSide {
-				renderFileManagerPane(c, s, snap, side, 1)
+				renderFileManagerPane(c, s, snap, side, 1, true)
 				return
 			}
-			renderFileManagerPane(c, s, snap, anchor, 1)
+			renderFileManagerPane(c, s, snap, anchor, 1, true)
 		})
 }
 
-// renderFileManagerPane 渲染一栏：上面是文件头，下面是可滚动的预览主体。
+// renderFileManagerSplitPathBar 渲染拆分双栏时每栏顶部的极简路径条。
+func renderFileManagerSplitPathBar(c *ui.Context, snap fileManagerPanelSnapshot, tab fileManagerTabSnapshot, keyPrefix string, index int) {
+	activePane := tab.path == snap.active && !(index == 1 && snap.splitAnchor == snap.splitSide)
+	color := ThemeSecondaryText(c)
+	if activePane {
+		color = ThemePrimaryText(c)
+	}
+	ui.Row(c.Key(keyPrefix+"split-path-bar")).
+		FillWidth().
+		Height(RowHeight).
+		Padding(0, Space3).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeBorder(c)).
+		AlignItems(ui.Center).
+		Shrink(0).
+		Transition(motionFeedback(c)).
+		Children(func() {
+			ui.Text(c, tab.path).
+				FontSize(uiFont(TypeFootnote)).
+				TextColor(color).
+				SingleLine().
+				TruncateMiddle().
+				Grow(1).
+				MinWidth(0).
+				Tooltip(tab.path)
+		})
+}
+
+// renderFileManagerPane 渲染一栏：拆分时顶部有 28px 路径条，不拆分时正文直贴标签栏。
 // keyPrefix 按栏区分（file-manager-pane-0- / file-manager-pane-1-），两栏同时渲染时键不冲突。
-func renderFileManagerPane(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, tab fileManagerTabSnapshot, index int) {
+func renderFileManagerPane(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, tab fileManagerTabSnapshot, index int, split bool) {
 	prefix := fmt.Sprintf("file-manager-pane-%d-", index)
 	pane := ui.Column(c.Key(prefix + "pane")).
 		Grow(1).
 		MinWidth(0).
 		MinHeight(0)
 	switch {
-	case snap.splitAnchor == "":
+	case !split:
 		pane.FillWidth()
 	case snap.splitVertical:
 		pane.FillWidth()
@@ -388,7 +487,9 @@ func renderFileManagerPane(c *ui.Context, s *chatState, snap fileManagerPanelSna
 		pane.FillHeight()
 	}
 	pane.Children(func() {
-		renderFileManagerFileHeader(c, s, tab, prefix)
+		if split {
+			renderFileManagerSplitPathBar(c, snap, tab, prefix, index)
+		}
 
 		// 代码预览自带滚动与选区，直接占满剩余空间；再套 ui.Scroll 会出现两层滚动。
 		if fileManagerCodePreviewTab(tab) {
