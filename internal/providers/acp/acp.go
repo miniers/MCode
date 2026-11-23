@@ -2324,11 +2324,32 @@ func handleElicitation(ctx context.Context, approver harness.Approver, params js
 		}
 		return prop.Title
 	}
+	isFreeformString := func(prop elicitationProperty) bool {
+		return prop.Type == "string" && len(prop.Enum) == 0 && len(prop.OneOf) == 0 && len(prop.AnyOf) == 0
+	}
 	companions := make(map[string]string)
 	isCompanion := make(map[string]bool)
+	// 优先按 <id>_other 的 key 配对，避免描述文案变化导致配对失效。
 	for _, id := range ids {
+		if !strings.HasSuffix(id, "_other") {
+			continue
+		}
+		if !isFreeformString(p.RequestedSchema.Properties[id]) {
+			continue
+		}
+		baseID := strings.TrimSuffix(id, "_other")
+		if baseProp, exists := p.RequestedSchema.Properties[baseID]; exists && baseID != "" && companions[baseID] == "" && hasOptions(baseProp) {
+			companions[baseID] = id
+			isCompanion[id] = true
+		}
+	}
+	// 按 key 未配对时，回退到原有的 description 前缀与题干匹配。
+	for _, id := range ids {
+		if isCompanion[id] {
+			continue
+		}
 		prop := p.RequestedSchema.Properties[id]
-		if prop.Type != "string" || len(prop.Enum) > 0 || len(prop.OneOf) > 0 || len(prop.AnyOf) > 0 {
+		if !isFreeformString(prop) {
 			continue
 		}
 		if !strings.HasPrefix(prop.Description, otherPrefix) {

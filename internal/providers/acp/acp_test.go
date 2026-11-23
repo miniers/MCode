@@ -1505,6 +1505,46 @@ func TestACPElicitationFoldsOtherCompanion(t *testing.T) {
 	}
 }
 
+func TestACPElicitationFoldsOtherCompanionByKey(t *testing.T) {
+	params := json.RawMessage(`{
+		"mode": "form",
+		"message": "Questions",
+		"requestedSchema": {
+			"properties": {
+				"q0": {"type": "string", "enum": ["a", "b"], "description": "Pick?"},
+				"q0_other": {"type": "string", "title": "Other", "description": "Write your own"}
+			}
+		}
+	}`)
+	a := &elicitationApprover{response: harness.ApprovalResponse{Answers: map[string][]string{"q0": {"custom"}}}}
+	res, err := handleElicitation(context.Background(), a, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.mu.Lock()
+	questions := a.req.Questions
+	a.mu.Unlock()
+	if len(questions) != 1 || questions[0].ID != "q0" {
+		t.Fatalf("questions = %+v", questions)
+	}
+	if !questions[0].AllowsOther {
+		t.Fatalf("AllowsOther = %v, want true", questions[0].AllowsOther)
+	}
+	resp, ok := res.(acpApprovalResponse)
+	if !ok {
+		t.Fatalf("unexpected response type %T", res)
+	}
+	payload, ok := resp.ResponsePayload().(map[string]any)
+	if !ok || payload["action"] != "accept" {
+		t.Fatalf("payload = %#v", resp.ResponsePayload())
+	}
+	content, _ := payload["content"].(map[string]any)
+	want := map[string]any{"q0_other": "custom"}
+	if !reflect.DeepEqual(content, want) {
+		t.Fatalf("content = %#v, want %#v", content, want)
+	}
+}
+
 func fakeResponse(messages []map[string]any, id float64) map[string]any {
 	for _, message := range messages {
 		if message["id"] == id {
