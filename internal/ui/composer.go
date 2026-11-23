@@ -737,8 +737,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 			s.interruptCurrent()
 		}
 	}
-	// 快捷键 ⌘⇧M 与 ⇧⌘P 切换 Build/Plan 模式
-	if shortcutsOwned && (c.Shortcut(ui.Cmd|ui.Shift, ui.KeyM) || c.Shortcut(ui.Cmd|ui.Shift, ui.KeyP)) {
+	// 快捷键 ⌘⇧M 与 ⇧⌘P 切换 Build/Plan 模式（子代理浮窗输入框不开放模式切换）
+	if !s.embeddedBee && shortcutsOwned && (c.Shortcut(ui.Cmd|ui.Shift, ui.KeyM) || c.Shortcut(ui.Cmd|ui.Shift, ui.KeyP)) {
 		s.toggleInteractionMode()
 	}
 
@@ -1008,8 +1008,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 								h.reset()
 							}
 
-							// 快捷键 ⌘⇧M / ⇧⌘P 切换 Build/Plan 模式
-							if (k.Key == ui.KeyM || k.Key == ui.KeyP) && ((k.Mods&ui.Cmd != 0 || k.Mods&ui.Super != 0) && (k.Mods&ui.Shift != 0)) {
+							// 快捷键 ⌘⇧M / ⇧⌘P 切换 Build/Plan 模式（子代理浮窗输入框不开放模式切换）
+							if !s.embeddedBee && (k.Key == ui.KeyM || k.Key == ui.KeyP) && ((k.Mods&ui.Cmd != 0 || k.Mods&ui.Super != 0) && (k.Mods&ui.Shift != 0)) {
 								s.toggleInteractionMode()
 								return true
 							}
@@ -1238,7 +1238,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 						if stewardID := s.stewardThreadID(); stewardID != "" && ((currentThread != nil && currentThread.ID == stewardID) || (currentThread == nil && selectedID == stewardID)) {
 							renderStewardComposerModel(c, s)
 						} else if currentThread != nil {
-							renderModePermissionCombo(c, s, currentThread.ID, interactionMode, prefsSaving || sending, buttonRadius)
+							if !s.embeddedBee {
+								renderModePermissionCombo(c, s, currentThread.ID, interactionMode, prefsSaving || sending, buttonRadius)
+							}
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)
 						}
