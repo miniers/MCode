@@ -33,6 +33,11 @@ type swarmLiveResize struct {
 	owner string
 }
 
+// swarmFloatPendingState 记录发往主会话的待派发浮窗状态（仅内存）。
+type swarmFloatPendingState struct {
+	sent bool
+}
+
 // 浮窗状态按主会话 ID 记录：关闭状态、选中的子代理、停靠位置与堆叠顺序、拖拽中的临时值。
 var (
 	swarmFloatMu             sync.Mutex
@@ -51,6 +56,8 @@ var (
 	swarmFloatForced = make(map[string]bool)
 	// swarmFloatForcedHadBees 记录强制显示期间是否出现过子代理；出现过且全部结束后自动关闭空面板。
 	swarmFloatForcedHadBees = make(map[string]bool)
+	// swarmFloatPending 记录主会话发送意见后的待派发浮窗状态，由 swarmFloatMu 保护。
+	swarmFloatPending = make(map[string]*swarmFloatPendingState)
 	// swarmAutoPopsOverride 是对“自动分散展示”的临时覆盖：键存在即覆盖，值为分散与否，不写配置。
 	swarmAutoPopsOverride = make(map[string]bool)
 	// swarmPulseTime 记录每个子代理浮窗的激活脉冲起点，键为「主会话|子线程」。
@@ -136,6 +143,7 @@ func dismissSwarmFloatPanel(leadID string, bees []SwarmBee) {
 
 	delete(swarmFloatForced, leadID)
 	delete(swarmFloatForcedHadBees, leadID)
+	delete(swarmFloatPending, leadID)
 	// 用户关掉浮窗即解除「明确点开」的保留，下次再打开时按普通子线程重新计时。
 	delete(swarmBeeKeptOpen, leadID)
 	swarmFloatPanelDismissed[leadID] = true
@@ -212,12 +220,106 @@ func settleSwarmFloatForced(leadID string, beeCount int) bool {
 	return true
 }
 
-// swarmFloatVisible 判断浮窗此刻是否显示：被关闭时不显示；否则强制显示，或至少有子代理。
+// swarmFloatVisible 判断浮窗此刻是否显示：被关闭时不显示；否则强制显示、待派发，或至少有子代理。
 func swarmFloatVisible(leadID string, bees []SwarmBee) bool {
 	if isSwarmFloatPanelDismissed(leadID, bees) {
 		return false
 	}
-	return swarmFloatForcedFor(leadID) || len(bees) > 0
+	return swarmFloatForcedFor(leadID) || swarmFloatPendingFor(leadID) || len(bees) > 0
+}
+
+// markSwarmFloatPending 标记主会话正在等待派发子代理，同时清除该主会话的浮窗关闭记录。
+func markSwarmFloatPending(leadID string) {
+	leadID = strings.TrimSpace(leadID)
+	if leadID == "" {
+		return
+	}
+	swarmFloatMu.Lock()
+	delete(swarmFloatPanelDismissed, leadID)
+	swarmFloatPending[leadID] = &swarmFloatPendingState{}
+	swarmFloatMu.Unlock()
+}
+
+// markSwarmFloatPendingSent 标记发往主会话的消息已成功发出。
+func markSwarmFloatPendingSent(leadID string) {
+	leadID = strings.TrimSpace(leadID)
+	if leadID == "" {
+		return
+	}
+	swarmFloatMu.Lock()
+	if p := swarmFloatPending[leadID]; p != nil {
+		p.sent = true
+	}
+	swarmFloatMu.Unlock()
+}
+
+// clearSwarmFloatPending 清除主会话的待派发状态。
+func clearSwarmFloatPending(leadID string) {
+	leadID = strings.TrimSpace(leadID)
+	if leadID == "" {
+		return
+	}
+	swarmFloatMu.Lock()
+	delete(swarmFloatPending, leadID)
+	swarmFloatMu.Unlock()
+}
+
+// swarmFloatPendingFor 返回指定主会话当前是否处于待派发状态。
+func swarmFloatPendingFor(leadID string) bool {
+	if leadID == "" {
+		return false
+	}
+	swarmFloatMu.Lock()
+	defer swarmFloatMu.Unlock()
+	return swarmFloatPending[leadID] != nil
+}
+
+// swarmFloatLeadRunning 只读内存运行态，判断主会话是否仍在发送或运行中。
+func swarmFloatLeadRunning(s *chatState, leadID string) bool {
+	if s == nil || leadID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sending && s.selectedThreadID == leadID {
+		return true
+	}
+	for _, th := range s.threads {
+		if th.ID == leadID {
+			return th.IsRunning
+		}
+	}
+	return s.optimisticRunning[leadID]
+}
+
+// settleSwarmFloatPending 在渲染帧中结算主会话的待派发状态，返回本帧是否仍按待派发显示空面板。
+func settleSwarmFloatPending(s *chatState, leadID string, beeCount int) bool {
+	if leadID == "" {
+		return false
+	}
+	swarmFloatMu.Lock()
+	p := swarmFloatPending[leadID]
+	if p == nil {
+		swarmFloatMu.Unlock()
+		return false
+	}
+	if beeCount > 0 {
+		delete(swarmFloatPending, leadID)
+		swarmFloatMu.Unlock()
+		return false
+	}
+	sent := p.sent
+	swarmFloatMu.Unlock()
+
+	if !sent || swarmFloatLeadRunning(s, leadID) {
+		return true
+	}
+	swarmFloatMu.Lock()
+	if cur := swarmFloatPending[leadID]; cur != nil && cur.sent {
+		delete(swarmFloatPending, leadID)
+	}
+	swarmFloatMu.Unlock()
+	return false
 }
 
 // swarmAutoHideDelay 是子线程各自进入终态后，把它从浮窗里收起的等待时长。
@@ -700,6 +802,7 @@ func getSelectedSwarmBee(leadID string, bees []SwarmBee) *SwarmBee {
 type swarmFloatFrame struct {
 	leadID     string
 	bees       []SwarmBee
+	pending    bool
 	mainLeft   float32
 	scene      swarmScene
 	stackOrder []panelID
@@ -732,21 +835,26 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 		return f
 	}
 	view := swarmStateViewFor(s)
-	if view == nil {
+	if view == nil || view.isBee {
 		return f
 	}
 	leadID := view.leadID
+	if leadID == "" {
+		leadID = selectedID
+	}
 	// 已经自动收起的子线程不再出现在浮窗里；全部收起时按“没有子代理”处理，浮窗随之隐藏。
 	// 子线程列表直接读派生视图，不再每帧拷贝整份 SwarmState 再重新过滤一遍。
 	bees := swarmVisibleBees(leadID, view.active)
 	forced := settleSwarmFloatForced(leadID, len(bees))
-	if len(bees) == 0 && !forced {
+	pending := settleSwarmFloatPending(s, leadID, len(bees))
+	if len(bees) == 0 && !forced && !pending {
 		return f
 	}
 
 	f.leadID = leadID
 	f.bees = bees
-	showsTeam := forced || !isSwarmFloatPanelDismissed(f.leadID, bees)
+	f.pending = pending
+	showsTeam := forced || pending || !isSwarmFloatPanelDismissed(f.leadID, bees)
 	autoPops, prefW, prefH := swarmFloatPrefs(s)
 	swarmFloatMu.Lock()
 	if override, ok := swarmAutoPopsOverride[f.leadID]; ok {
@@ -791,7 +899,7 @@ func swarmFloatFrameFor(c *ui.Context, s *chatState) swarmFloatFrame {
 		bees:          bees,
 		autoPops:      autoPops,
 		showsTeam:     showsTeam,
-		forcesTeam:    forced,
+		forcesTeam:    forced || pending,
 		teamDock:      teamDock,
 		autoDocks:     autoDocks,
 		autoHeld:      autoHeld,
@@ -966,8 +1074,12 @@ func renderSwarmEmptyTeamPanel(c *ui.Context, s *chatState, f swarmFloatFrame) {
 			},
 		})
 	})
+	emptyTitle := "暂无子代理"
+	if f.pending {
+		emptyTitle = swarmDispatchPendingText
+	}
 	ui.Column(c.Key("swarm-empty-body")).Grow(1).FillWidth().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
-		EmptyState(c, EmptyStateProps{Title: "暂无子代理", Compact: true})
+		EmptyState(c, EmptyStateProps{Title: emptyTitle, Compact: true})
 	})
 }
 

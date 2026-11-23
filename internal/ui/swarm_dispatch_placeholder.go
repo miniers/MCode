@@ -14,6 +14,9 @@ import (
 // swarmDispatchRowID 是派发占位行在时间线里的固定 Key。
 const swarmDispatchRowID = "swarm-dispatch-placeholder"
 
+// swarmDispatchPendingText 是派发占位胶囊与待派发空团队面板共用的提示文案。
+const swarmDispatchPendingText = "正在派发…"
+
 // swarmDispatchPulsePeriod 是状态点呼吸动画一轮的时长：透明度在 0.35 与 1 之间往返循环。
 const swarmDispatchPulsePeriod = 1400 * time.Millisecond
 
@@ -135,7 +138,7 @@ func swarmDispatchPlaceholder(s *chatState, liveID string) swarmDispatchPlacehol
 		return swarmDispatchPlaceholderView{}
 	}
 
-	text := "正在派发…"
+	text := swarmDispatchPendingText
 	switch {
 	case queued > 0 && !streamingPending:
 		text = fmt.Sprintf("排队中 %d 个", queued)

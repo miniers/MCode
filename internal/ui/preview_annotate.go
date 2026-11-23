@@ -627,7 +627,30 @@ func (s *chatState) previewFeedbackLeadID(beeThreadID string) string {
 	return ""
 }
 
-// revealPreviewFeedbackBee 在预览意见或标注直发到 bee 成功后，弹出其所属主会话的浮窗并选中该 bee。
+// previewSwarmLeadEnabled 只读内存中的当前窗口编排状态，判断指定主会话是否开启了编排。
+func (s *chatState) previewSwarmLeadEnabled(leadID string) bool {
+	leadID = strings.TrimSpace(leadID)
+	if s == nil || leadID == "" {
+		return false
+	}
+	hp := getSwarmPanelState(s)
+	if hp == nil {
+		return false
+	}
+	swarmPanelMu.Lock()
+	loadedFor := hp.loadedFor
+	view := hp.viewLocked()
+	swarmPanelMu.Unlock()
+	if view == nil || !view.enabled || view.isBee {
+		return false
+	}
+	if view.leadID != "" {
+		return view.leadID == leadID
+	}
+	return loadedFor == leadID
+}
+
+// revealPreviewFeedbackBee 在预览意见或标注提交到 bee 时，立即弹出其所属主会话的浮窗并选中该 bee。
 func (s *chatState) revealPreviewFeedbackBee(ownerThreadID, targetThreadID string) {
 	beeID := strings.TrimSpace(targetThreadID)
 	if s == nil || beeID == "" || beeID == strings.TrimSpace(ownerThreadID) {
@@ -672,7 +695,24 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 		return
 	}
 	st.annotSending = true
+	ownerThreadID := ""
+	if st.owner != nil {
+		ownerThreadID = strings.TrimSpace(st.owner.threadID)
+	}
+	if ownerThreadID == "" {
+		ownerThreadID = strings.TrimSpace(selectedID)
+	}
+	feedbackThreadID := previewFeedbackThreadIDLocked(st, ownerThreadID)
 	previewMu.Unlock()
+	isBee := feedbackThreadID != "" && feedbackThreadID != ownerThreadID
+	if isBee {
+		s.revealPreviewFeedbackBee(ownerThreadID, feedbackThreadID)
+	}
+	pendingLeadID := ""
+	if send && !isBee && ownerThreadID != "" && s.previewSwarmLeadEnabled(ownerThreadID) {
+		pendingLeadID = ownerThreadID
+		markSwarmFloatPending(pendingLeadID)
+	}
 	s.invalidate()
 	go func() {
 		// 与已开始的 drain、页面标记操作串行，截图与文本取同一批编号。
@@ -685,6 +725,12 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 			}
 			previewMu.Unlock()
 			s.invalidate()
+		}()
+		pendingSent := false
+		defer func() {
+			if pendingLeadID != "" && !pendingSent {
+				clearSwarmFloatPending(pendingLeadID)
+			}
 		}()
 		previewMu.Lock()
 		current := previewStateForTokenLocked(s, token)
@@ -804,7 +850,10 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 				s.setToast("发送失败: " + err.Error())
 				return
 			}
-			s.revealPreviewFeedbackBee(ownerThreadID, targetThreadID)
+			if pendingLeadID != "" {
+				pendingSent = true
+				markSwarmFloatPendingSent(pendingLeadID)
+			}
 			previewMu.Lock()
 			if token.state != nil && token.state.feedbackText == feedbackText {
 				token.state.feedbackText = ""
@@ -838,6 +887,10 @@ func previewSubmitAnnotationsInternal(s *chatState, token previewPageToken, send
 			return
 		}
 		s.sendDraft(ownerThreadID, plan.draftText)
+		if pendingLeadID != "" {
+			pendingSent = true
+			markSwarmFloatPendingSent(pendingLeadID)
+		}
 		s.setToast(plan.toast)
 	}()
 }
@@ -884,12 +937,23 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 	rawText := st.feedbackText
 	st.feedbackSending = true
 	previewMu.Unlock()
+	pendingLeadID := ""
+	if feedbackThreadID != ownerThreadID {
+		s.revealPreviewFeedbackBee(ownerThreadID, feedbackThreadID)
+	} else if s.previewSwarmLeadEnabled(ownerThreadID) {
+		pendingLeadID = ownerThreadID
+		markSwarmFloatPending(pendingLeadID)
+	}
 	s.invalidate()
 
 	go func() {
 		err := s.sendToTargetThread(feedbackThreadID, text, nil)
-		if err == nil {
-			s.revealPreviewFeedbackBee(ownerThreadID, feedbackThreadID)
+		if pendingLeadID != "" {
+			if err == nil {
+				markSwarmFloatPendingSent(pendingLeadID)
+			} else {
+				clearSwarmFloatPending(pendingLeadID)
+			}
 		}
 		previewMu.Lock()
 		if token.state != nil {

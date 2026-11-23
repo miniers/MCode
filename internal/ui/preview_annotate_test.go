@@ -1454,6 +1454,197 @@ func TestPreviewFeedbackRevealsBeeFloat(t *testing.T) {
 	})
 }
 
+type blockingPreviewSendClient struct {
+	*inspectorContextClient
+	sendStarted           chan struct{}
+	sendRelease           chan struct{}
+	sendWithAttachStarted chan struct{}
+	sendWithAttachRelease chan struct{}
+}
+
+func (c *blockingPreviewSendClient) Send(ctx context.Context, threadID, text string) (bool, error) {
+	if c.sendStarted != nil {
+		select {
+		case <-c.sendStarted:
+		default:
+			close(c.sendStarted)
+		}
+	}
+	if c.sendRelease != nil {
+		<-c.sendRelease
+	}
+	return c.inspectorContextClient.Send(ctx, threadID, text)
+}
+
+func (c *blockingPreviewSendClient) SendWithAttachments(ctx context.Context, threadID, text string, attachmentIDs []string) (bool, error) {
+	if c.sendWithAttachStarted != nil {
+		select {
+		case <-c.sendWithAttachStarted:
+		default:
+			close(c.sendWithAttachStarted)
+		}
+	}
+	if c.sendWithAttachRelease != nil {
+		<-c.sendWithAttachRelease
+	}
+	return c.inspectorContextClient.SendWithAttachments(ctx, threadID, text, attachmentIDs)
+}
+
+func TestPreviewRevealBeeBeforeSend(t *testing.T) {
+	const leadID = "t1"
+	const beeID = "bee-1"
+
+	setupDismissed := func(t *testing.T) (*chatState, *blockingPreviewSendClient, *browserTab) {
+		t.Helper()
+		setAppReduceMotion(t, true)
+		s, baseClient := inspectorContextSetup(t)
+		client := &blockingPreviewSendClient{
+			inspectorContextClient: baseClient,
+			sendStarted:            make(chan struct{}),
+			sendRelease:            make(chan struct{}),
+			sendWithAttachStarted:  make(chan struct{}),
+			sendWithAttachRelease:  make(chan struct{}),
+		}
+		s.mu.Lock()
+		s.client = client
+		s.threads = append(s.threads, Thread{ID: beeID, ProjectID: "p1", ParentThreadID: leadID})
+		s.mu.Unlock()
+
+		t.Cleanup(func() {
+			select {
+			case <-client.sendRelease:
+			default:
+				close(client.sendRelease)
+			}
+			select {
+			case <-client.sendWithAttachRelease:
+			default:
+				close(client.sendWithAttachRelease)
+			}
+			swarmFloatMu.Lock()
+			delete(swarmFloatPanelDismissed, leadID)
+			delete(swarmFloatDismissedBees, leadID)
+			delete(swarmSelectedBeeID, leadID)
+			delete(swarmBeeAutoHideHandled, leadID)
+			delete(swarmPulseTime, leadID+"|"+beeID)
+			swarmFloatMu.Unlock()
+		})
+
+		swarmFloatMu.Lock()
+		swarmFloatPanelDismissed[leadID] = true
+		swarmFloatDismissedBees[leadID] = map[string]bool{beeID: true}
+		delete(swarmSelectedBeeID, leadID)
+		swarmFloatMu.Unlock()
+
+		tab := getPreviewState(s)
+		previewMu.Lock()
+		tab.visible = true
+		tab.localPreview = true
+		tab.previewThreadID = beeID
+		previewMu.Unlock()
+		return s, client, tab
+	}
+
+	assertRevealed := func(t *testing.T) {
+		t.Helper()
+		swarmFloatMu.Lock()
+		panelDismissed := swarmFloatPanelDismissed[leadID]
+		beeDismissed := swarmFloatDismissedBees[leadID][beeID]
+		selected := swarmSelectedBeeID[leadID]
+		swarmFloatMu.Unlock()
+		if panelDismissed {
+			t.Fatal("发送结束前就应清除主会话浮窗关闭记录")
+		}
+		if beeDismissed {
+			t.Fatal("发送结束前就应清除该 bee 的浮窗关闭记录")
+		}
+		if selected != beeID {
+			t.Fatalf("swarmSelectedBeeID[%q] = %q, want %q", leadID, selected, beeID)
+		}
+	}
+
+	t.Run("text_feedback_bar", func(t *testing.T) {
+		s, client, tab := setupDismissed(t)
+		previewMu.Lock()
+		tab.feedbackText = "把按钮改大"
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitFeedback(s, token)
+		select {
+		case <-client.sendStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Send 未按预期阻塞")
+		}
+
+		assertRevealed(t)
+
+		close(client.sendRelease)
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			previewMu.Lock()
+			sending := tab.feedbackSending
+			previewMu.Unlock()
+			if !sending {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+
+	t.Run("annotated_upload_blocked", func(t *testing.T) {
+		s, client, tab := setupDismissed(t)
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page = page
+		tab.annotating = true
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta", Comment: "圆角加大"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitAnnotations(s, token, true)
+		req1 := inspectorUpload(t, client.inspectorContextClient)
+
+		assertRevealed(t)
+
+		req1.finish <- nil
+		req2 := inspectorUpload(t, client.inspectorContextClient)
+		req2.finish <- nil
+		close(client.sendWithAttachRelease)
+		waitPreviewAnnotationSend(t, tab)
+	})
+
+	t.Run("annotated_send_with_attachments_blocked", func(t *testing.T) {
+		s, client, tab := setupDismissed(t)
+		page := &screenshotTestPage{data: screenshotPNG(t)}
+		page.eval = func(string) (any, error) { return nil, nil }
+		previewMu.Lock()
+		tab.page = page
+		tab.annotating = true
+		tab.feedbackText = "按标注调整"
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#cta", Comment: "圆角加大"}}
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewSubmitFeedback(s, token)
+		for range 2 {
+			req := inspectorUpload(t, client.inspectorContextClient)
+			req.finish <- nil
+		}
+		select {
+		case <-client.sendWithAttachStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("SendWithAttachments 未按预期阻塞")
+		}
+
+		assertRevealed(t)
+
+		close(client.sendWithAttachRelease)
+		waitPreviewAnnotationSend(t, tab)
+	})
+}
+
 func TestPreviewFinalizeButton(t *testing.T) {
 	const leadID = "t1"
 	const beeID = "bee-1"

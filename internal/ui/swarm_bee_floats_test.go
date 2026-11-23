@@ -376,6 +376,7 @@ func resetSwarmAutoHideFor(leadID string) {
 	delete(swarmFloatDismissedBees, leadID)
 	delete(swarmFloatForced, leadID)
 	delete(swarmFloatForcedHadBees, leadID)
+	delete(swarmFloatPending, leadID)
 	delete(swarmBeeDoneSince, leadID)
 	delete(swarmBeeAutoHideHandled, leadID)
 	delete(swarmBeeSeenActive, leadID)
@@ -1179,5 +1180,110 @@ func TestBeesMenuScroll(t *testing.T) {
 	swarmFloatMu.Unlock()
 	if selected != "h-scroll-19" {
 		t.Fatalf("点击后选中子代理 = %q，期望 h-scroll-19", selected)
+	}
+}
+
+// TestSwarmFloatPendingLead 验证发给主会话时的待派发浮窗生命周期：
+// 标记后无 bees 时浮窗可见且显示“正在派发…”；出现 bees 后 pending 被清除；
+// sent 为真且主会话不在运行时 pending 被清除、浮窗隐藏；未 sent 时即使主会话不在运行也保持可见；
+// 用户关闭浮窗时同样清除 pending。
+func TestSwarmFloatPendingLead(t *testing.T) {
+	const leadID = "lead-pending-test"
+	resetSwarmAutoHideFor(leadID)
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = leadID
+	s.threads = []Thread{{ID: leadID, IsRunning: false}}
+
+	hp := getSwarmPanelState(s)
+	setBees := func(bees []SwarmBee) {
+		swarmPanelMu.Lock()
+		hp.loadedFor = leadID
+		hp.setStateLocked(SwarmState{
+			Available:    true,
+			Enabled:      true,
+			LeadThreadID: leadID,
+			Bees:         bees,
+		})
+		swarmPanelMu.Unlock()
+	}
+	setBees(nil)
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		resetSwarmAutoHideFor(leadID)
+	})
+
+	var frame swarmFloatFrame
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		frame = swarmFloatFrameFor(c, s)
+		renderSwarmBeeFloats(c, s)
+	}, 1600, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+
+	// 先模拟之前关闭过浮窗；标记待派发后应立即清除关闭记录并弹出空团队面板。
+	dismissSwarmFloatPanel(leadID, nil)
+	markSwarmFloatPending(leadID)
+	tt.Frame()
+
+	if !swarmFloatPendingFor(leadID) {
+		t.Fatal("未 sent 时即使主会话不在运行，pending 也应保持存在")
+	}
+	if !frame.scene.has() || !frame.scene.showsTeam || !swarmFloatVisible(leadID, nil) {
+		t.Fatalf("标记待派发且无 bees 时浮窗应可见: has=%v showsTeam=%v", frame.scene.has(), frame.scene.showsTeam)
+	}
+	if !tt.HasText(swarmDispatchPendingText) {
+		t.Fatalf("待派发空团队面板应显示 %q, got %v", swarmDispatchPendingText, tt.Texts())
+	}
+
+	// 出现 bees 后清除 pending，交还正常流程。
+	bees := []SwarmBee{{ThreadID: "h-1", Name: "Aria", Status: "running"}}
+	swarmFloatMu.Lock()
+	swarmBeeSeenActive[leadID] = map[string]bool{"h-1": true}
+	swarmFloatMu.Unlock()
+	setBees(bees)
+	tt.Frame()
+
+	if swarmFloatPendingFor(leadID) {
+		t.Fatal("出现 bees 后应清除 pending")
+	}
+	if !frame.scene.has() || len(frame.bees) != 1 {
+		t.Fatalf("交还正常流程后应显示子代理面板: has=%v bees=%d", frame.scene.has(), len(frame.bees))
+	}
+
+	// 回到无 bees 场景：sent 为真且主会话正在运行时保持可见，主会话停止运行后清除 pending 并隐藏浮窗。
+	setBees(nil)
+	s.mu.Lock()
+	s.threads[0].IsRunning = true
+	s.mu.Unlock()
+	markSwarmFloatPending(leadID)
+	markSwarmFloatPendingSent(leadID)
+	tt.Frame()
+
+	if !swarmFloatPendingFor(leadID) || !frame.scene.has() {
+		t.Fatalf("sent 为真且主会话仍在运行时应保持显示: pending=%v has=%v", swarmFloatPendingFor(leadID), frame.scene.has())
+	}
+
+	s.mu.Lock()
+	s.threads[0].IsRunning = false
+	s.mu.Unlock()
+	tt.Frame()
+
+	if swarmFloatPendingFor(leadID) {
+		t.Fatal("sent 为真且主会话不在运行时应清除 pending")
+	}
+	if frame.scene.has() || swarmFloatVisible(leadID, nil) {
+		t.Fatalf("清除 pending 后浮窗应隐藏: has=%v visible=%v", frame.scene.has(), swarmFloatVisible(leadID, nil))
+	}
+
+	// 用户点击关闭浮窗时应一并清除 pending。
+	markSwarmFloatPending(leadID)
+	tt.Frame()
+	if err := tt.Click("关闭编排面板"); err != nil {
+		t.Fatalf("点击关闭面板失败: %v", err)
+	}
+	tt.Frame()
+	if swarmFloatPendingFor(leadID) {
+		t.Fatal("用户关闭浮窗后应清除 pending")
+	}
+	if frame.scene.has() {
+		t.Fatal("用户关闭浮窗后场景应隐藏")
 	}
 }
