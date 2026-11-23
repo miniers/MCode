@@ -227,16 +227,16 @@ func TestSidebarQuickChatsHeaderVisibleWhenAllFocused(t *testing.T) {
 	now := time.Now()
 	tt, _ := buildSidebarQuickChatsFixture(t,
 		[]Thread{
-			{ID: "c-run", ProjectID: "chats-builtin", Title: "对话运行", IsRunning: true, UpdatedAt: now},
+			{ID: "c-wait", ProjectID: "chats-builtin", Title: "对话待处理", HasPendingRequest: true, UpdatedAt: now},
 		},
 		[]Thread{
 			{ID: "t1", ProjectID: "p1", Title: "项目空闲", UpdatedAt: now.Add(-time.Minute)},
 		},
 	)
 
-	focusRow, ok := tt.Find("打开会话 对话运行")
+	focusRow, ok := tt.Find("打开会话 对话待处理")
 	if !ok {
-		t.Fatalf("找不到聚焦区会话「对话运行」: %q", tt.Texts())
+		t.Fatalf("找不到聚焦区会话「对话待处理」: %q", tt.Texts())
 	}
 	chatsHeader, ok := tt.Find("快速对话")
 	if !ok {
