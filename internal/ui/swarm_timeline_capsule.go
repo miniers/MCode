@@ -645,19 +645,19 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 		KeyPrefix: "swarm-capsule-header-" + key,
 		Name:      swarmCapsuleName(h),
 		Avatar: func() {
-			renderSwarmGlyph(c, "capsule-pop-"+key, h, 28)
+			renderSwarmGlyph(c, "capsule-pop-"+key, h, swarmReportPopoverAvatarSize)
 		},
-		TierColor:   swarmTierColor(c, h.Tier),
-		TierName:    tierName,
+		TierColor:    swarmTierColor(c, h.Tier),
+		TierName:     tierName,
 		TierReadOnly: h.ReadOnly,
-		Status:      swarmStatusLabel(beeStatus),
-		StatusColor: swarmStatusColor(c, beeStatus),
-		Duration:    formatSwarmDuration(h.StartedAt, h.FinishedAt),
-		ToolCalls:   h.ToolCalls,
-		FileCount:   len(h.ChangedFiles),
-		Model:       model,
-		DirectModel: h.DirectModel,
-		Violation:   violation,
+		Status:       swarmStatusLabel(beeStatus),
+		StatusColor:  swarmStatusColor(c, beeStatus),
+		Duration:     formatSwarmDuration(h.StartedAt, h.FinishedAt),
+		ToolCalls:    h.ToolCalls,
+		FileCount:    len(h.ChangedFiles),
+		Model:        model,
+		DirectModel:  h.DirectModel,
+		Violation:    violation,
 	})
 }
 

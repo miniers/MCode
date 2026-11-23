@@ -3403,6 +3403,11 @@ func swarmBeeInActiveState(hp *swarmPanelState, selectedID, beeThreadID string) 
 	return false
 }
 
+const (
+	swarmReportPopoverAvatarSize   = ControlMD
+	swarmReportPopoverHeaderIndent = swarmReportPopoverAvatarSize + Space3
+)
+
 type swarmReportPopoverHeaderProps struct {
 	KeyPrefix    string
 	Name         string
@@ -3430,7 +3435,7 @@ func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderPro
 		Padding(Space4, Space5, Space3, Space5).
 		Gap(Space2).
 		Children(func() {
-			ui.Row(c.Key(p.KeyPrefix+"-title")).
+			ui.Row(c.Key(p.KeyPrefix + "-title")).
 				FillWidth().
 				AlignItems(ui.Center).
 				Gap(Space3).
@@ -3439,7 +3444,7 @@ func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderPro
 					if p.Avatar != nil {
 						p.Avatar()
 					}
-					ui.Row(c.Key(p.KeyPrefix+"-identity")).
+					ui.Row(c.Key(p.KeyPrefix + "-identity")).
 						Grow(1).
 						MinWidth(0).
 						AlignItems(ui.Center).
@@ -3464,7 +3469,7 @@ func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderPro
 			if p.Status != "" || p.Duration != "" || p.ToolCalls > 0 || p.FileCount > 0 || p.LinesAdded+p.LinesDeleted > 0 {
 				ui.Row(c.Key(p.KeyPrefix+"-caption")).
 					FillWidth().
-					Padding(0, 0, 0, 28+Space3).
+					Padding(0, 0, 0, swarmReportPopoverHeaderIndent).
 					Wrap().
 					AlignItems(ui.Center).
 					Gap(0).
@@ -3479,7 +3484,7 @@ func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderPro
 						}
 						hasPrev := false
 						renderSeg := func(segKey string, fn func()) {
-							ui.Row(c.Key(p.KeyPrefix+"-cap-"+segKey)).
+							ui.Row(c.Key(p.KeyPrefix + "-cap-" + segKey)).
 								AlignItems(ui.Center).
 								Gap(0).
 								Shrink(0).
@@ -3529,7 +3534,7 @@ func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderPro
 			if p.Model != "" || p.DirectModel || p.Violation != "" {
 				ui.Row(c.Key(p.KeyPrefix+"-meta")).
 					FillWidth().
-					Padding(0, 0, 0, 28+Space3).
+					Padding(0, 0, 0, swarmReportPopoverHeaderIndent).
 					AlignItems(ui.Center).
 					Gap(Space2).
 					MinWidth(0).
@@ -3788,7 +3793,7 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 			KeyPrefix: cardKey,
 			Name:      e.Name,
 			Avatar: func() {
-				renderSwarmReportAvatar(c, cardKey+"-avatar", e.Name, 28, 13)
+				renderSwarmReportAvatar(c, cardKey+"-avatar", e.Name, swarmReportPopoverAvatarSize, 13)
 			},
 			TierColor:    chipColor,
 			TierName:     chipName,
