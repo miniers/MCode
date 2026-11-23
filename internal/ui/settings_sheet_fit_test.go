@@ -72,7 +72,7 @@ func Test供应商面板_预设供应商显示底栏(t *testing.T) {
 	openProviderSheet(st, "preset", "deepseek")
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("面板操作栏 供应商")
-		return ok && tt.HasText("账号")
+		return ok && tt.HasText("密钥（API Key）")
 	})
 }
 

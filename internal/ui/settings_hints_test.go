@@ -43,6 +43,12 @@ func TestSettingHintKeysExist(t *testing.T) {
 			t.Errorf("settingHintPrefixes 键 %s 未在 internal/ui 非测试源码中作为字符串字面量出现", quoted)
 		}
 	}
+	for suffix := range settingHintSuffixes {
+		quoted := strconv.Quote(suffix)
+		if !strings.Contains(allSrc, quoted) {
+			t.Errorf("settingHintSuffixes 键 %s 未在 internal/ui 非测试源码中作为字符串字面量出现", quoted)
+		}
+	}
 }
 
 func TestSettingHintCopy(t *testing.T) {
@@ -69,10 +75,21 @@ func TestSettingHintCopy(t *testing.T) {
 	for prefix, hint := range settingHintPrefixes {
 		checkHint(prefix, hint)
 	}
+	for suffix, hint := range settingHintSuffixes {
+		checkHint(suffix, hint)
+	}
 
 	wantPrefix := settingHintPrefixes["row-mcp-newthread-"]
 	if got := settingHint("row-mcp-newthread-foo"); got != wantPrefix || got == "" {
 		t.Errorf("settingHint(%q) = %q, want %q", "row-mcp-newthread-foo", got, wantPrefix)
+	}
+	wantToolsAvail := settingHintSuffixes["-row-tools-available"]
+	if got := settingHint("mcp-custom-global-foo-0-row-tools-available"); got != wantToolsAvail || got == "" {
+		t.Errorf("settingHint(%q) = %q, want %q", "mcp-custom-global-foo-0-row-tools-available", got, wantToolsAvail)
+	}
+	wantToolsApprove := settingHintSuffixes["-row-tools-approve"]
+	if got := settingHint("mcp-custom-global-foo-0-row-tools-approve"); got != wantToolsApprove || got == "" {
+		t.Errorf("settingHint(%q) = %q, want %q", "mcp-custom-global-foo-0-row-tools-approve", got, wantToolsApprove)
 	}
 	wantMagpie := "这个智能体怎样连接 Magpie 网关，以及默认模型。"
 	if got := settingHint("row-magpie-agent-claude"); got != wantMagpie {

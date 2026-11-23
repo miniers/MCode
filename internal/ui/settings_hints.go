@@ -158,8 +158,6 @@ var settingHints = map[string]string{
 	// 扩展（MCP、技能、记忆）
 	"row-mcp-fold-tools":                    "服务的工具超过 40 个时，合并成一个入口，节省上下文。",
 	"row-form-transport":                    "在本机运行命令启动服务，还是连接远程服务地址。",
-	"mcp-tools-disable-all":                 "打开后，AI 不能调用这个服务的任何工具。",
-	"mcp-tools-approve-all":                 "打开后，AI 调用这个服务的工具时不再请你批准。",
 	"mcp-tool-disable":                      "打开后，AI 不能调用这个工具。",
 	"mcp-tool-approve":                      "打开后，AI 调用这个工具时不再请你批准。",
 	"row-memory-backend":                    "选择记忆存在哪里。修改后，必须重启应用。",
@@ -181,6 +179,12 @@ var settingHintPrefixes = map[string]string{
 	"row-magpie-agent-":  "这个智能体怎样连接 Magpie 网关，以及默认模型。",
 }
 
+// settingHintSuffixes 保存带动态前缀设置行的说明文案（按后缀匹配）。
+var settingHintSuffixes = map[string]string{
+	"-row-tools-available": "关闭后，AI 不能调用这个服务的任何工具。",
+	"-row-tools-approve":   "打开后，AI 调用这个服务的工具时不再请你批准。",
+}
+
 // settingHint 按行 ID 返回悬停说明文案；未配置时返回空串。
 func settingHint(key string) string {
 	if key == "" {
@@ -191,6 +195,11 @@ func settingHint(key string) string {
 	}
 	for prefix, h := range settingHintPrefixes {
 		if strings.HasPrefix(key, prefix) {
+			return h
+		}
+	}
+	for suffix, h := range settingHintSuffixes {
+		if strings.HasSuffix(key, suffix) {
 			return h
 		}
 	}
