@@ -62,6 +62,10 @@ type browserTab struct {
 	annotPolling, annotSending  bool
 	annotOps                    previewAnnotationOps
 	annotHighlight, annotFocus  uint64
+	annotPageHover              uint64
+	annotCollapsed              bool
+	annotThumbRunning           bool
+	annotThumbPending           []uint64
 	annotLastPoll               time.Time
 	feedbackText                string
 	feedbackSending             bool

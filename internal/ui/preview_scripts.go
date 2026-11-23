@@ -271,12 +271,26 @@ const previewAnnotateInstallJS = `(function () {
   state.setLabels = function (pids) {
     if (!Array.isArray(pids)) return;
     var keep = new Set(pids);
+    var queued = [];
+    var queuedSet = new Set();
+    var q = state.queue || [];
+    for (var j = 0; j < q.length; j++) {
+      var qpid = q[j] && q[j].pid;
+      if (qpid && !keep.has(qpid) && !queuedSet.has(qpid)) {
+        queuedSet.add(qpid);
+        queued.push(qpid);
+      }
+    }
     Array.from(marks.keys()).forEach(function (pid) {
-      if (!keep.has(pid)) state.removeMark(pid);
+      if (!keep.has(pid) && !queuedSet.has(pid)) state.removeMark(pid);
     });
     for (var i = 0; i < pids.length; i++) {
       var mark = marks.get(pids[i]);
       if (mark && mark.number) mark.number.textContent = String(i + 1);
+    }
+    for (var k = 0; k < queued.length; k++) {
+      var qmark = marks.get(queued[k]);
+      if (qmark && qmark.number) qmark.number.textContent = String(pids.length + k + 1);
     }
   };
   state.setOverlayHidden = function (hidden) {
@@ -289,6 +303,35 @@ const previewAnnotateInstallJS = `(function () {
     } else {
       host.style.removeProperty("display");
     }
+  };
+  state.rectsFor = function (pids) {
+    var vp = viewportSize();
+    if (!Array.isArray(pids)) return { vw: vp.w, rects: {} };
+    var sx = window.scrollX || window.pageXOffset || 0;
+    var sy = window.scrollY || window.pageYOffset || 0;
+    var rects = {};
+    for (var i = 0; i < pids.length; i++) {
+      var pid = pids[i];
+      var mark = marks.get(pid);
+      if (!mark) continue;
+      if (mark.kind === "region") {
+        rects[String(pid)] = {
+          x: Math.round(mark.docRect.x - sx),
+          y: Math.round(mark.docRect.y - sy),
+          w: Math.round(mark.docRect.w),
+          h: Math.round(mark.docRect.h)
+        };
+      } else if (mark.element && mark.element.isConnected) {
+        var r = mark.element.getBoundingClientRect();
+        rects[String(pid)] = {
+          x: r.left,
+          y: r.top,
+          w: r.width,
+          h: r.height
+        };
+      }
+    }
+    return { vw: vp.w, rects: rects };
   };
   var createMarkBox = function (isRegion) {
     ensureHost();

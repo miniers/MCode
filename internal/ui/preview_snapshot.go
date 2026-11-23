@@ -62,6 +62,8 @@ type previewSnapshot struct {
 	annotations                      []previewAnnotation
 	annotSending                     bool
 	annotFocus                       uint64
+	annotPageHover                   uint64
+	annotCollapsed                   bool
 	feedbackThreadID                 string
 	feedbackText                     string
 	feedbackSending                  bool
@@ -102,6 +104,7 @@ func previewSnapshotLocked(st *browserTab) previewSnapshot {
 		consoleOpen:   st.consoleOpen, annotating: st.annotating,
 		consoleFilter: st.consoleFilter, consoleSelected: selected, consoleResetSeq: st.consoleResetSeq,
 		annotations: append([]previewAnnotation(nil), st.annotations...), annotSending: st.annotSending, annotFocus: st.annotFocus,
+		annotPageHover: st.annotPageHover, annotCollapsed: st.annotCollapsed,
 		feedbackThreadID: previewFeedbackThreadIDLocked(st, ""),
 		feedbackText:     st.feedbackText,
 		feedbackSending:  st.feedbackSending,

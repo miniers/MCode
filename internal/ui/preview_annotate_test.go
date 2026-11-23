@@ -1,11 +1,16 @@
 package mcodeui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -521,7 +526,7 @@ func TestBrowserAnnotationDrawerAndToolbar(t *testing.T) {
 	previewMu.Unlock()
 	tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 1100, 600)
 	tester.Advance(time.Second)
-	if !tester.HasText("标注 1") || !tester.HasText("添加到对话") || !tester.HasText("8") || tester.HasText("收起") {
+	if !tester.HasText("标注 1") || !tester.HasText("添加到对话") || !tester.HasText("1") || tester.HasText("收起") {
 		t.Fatalf("抽屉内容错误: %v", tester.Texts())
 	}
 	if err := tester.Click("选择元素"); err != nil {
@@ -605,7 +610,7 @@ func TestBrowserAnnotationFocusAndHover(t *testing.T) {
 		previewMu.Unlock()
 		renderPreviewAnnotateDrawer(c, s, snap)
 	}, 1000, 300)
-	if !tester.Focused("标注 12 备注") {
+	if !tester.Focused("标注 1 备注") {
 		t.Fatal("新标注的备注未自动获得焦点")
 	}
 	tester.Type("调整间距")
@@ -1926,5 +1931,318 @@ func TestPreviewAnnotationRegionPrompt(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestPreviewAnnotationSetLabelsKeepsQueued(t *testing.T) {
+	start := strings.Index(previewAnnotateInstallJS, "state.setLabels = function (pids)")
+	if start < 0 {
+		t.Fatal("脚本缺少 state.setLabels")
+	}
+	end := strings.Index(previewAnnotateInstallJS[start:], "state.setOverlayHidden = function")
+	if end < 0 {
+		t.Fatal("无法定位 state.setLabels 结尾")
+	}
+	body := previewAnnotateInstallJS[start : start+end]
+	if !strings.Contains(body, "state.queue") {
+		t.Fatalf("setLabels 未检查 state.queue: %s", body)
+	}
+	if !strings.Contains(body, "!keep.has(pid) && !queuedSet.has(pid)") {
+		t.Fatalf("setLabels 未保护 queue 中的 pid 不被 removeMark 移除: %s", body)
+	}
+	if !strings.Contains(body, "pids.length + k + 1") {
+		t.Fatalf("setLabels 未把 queue 中条目的编号接在 pids 之后顺序编排: %s", body)
+	}
+	if !strings.Contains(previewAnnotateInstallJS, "state.rectsFor = function (pids)") {
+		t.Fatal("脚本缺少 state.rectsFor")
+	}
+}
+
+func TestPreviewAnnotationThumb(t *testing.T) {
+	makePNG := func(t *testing.T, w, h int) []byte {
+		t.Helper()
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				img.SetRGBA(x, y, color.RGBA{R: 37, G: 99, B: 235, A: 255})
+			}
+		}
+		var b bytes.Buffer
+		if err := png.Encode(&b, img); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+
+	waitThumbDone := func(t *testing.T, tab *browserTab) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			previewMu.Lock()
+			running := tab.annotThumbRunning
+			previewMu.Unlock()
+			if !running {
+				tab.annotOps.Lock()
+				tab.annotOps.Unlock()
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+		t.Fatal("等待缩略图抓取完成超时")
+	}
+
+	t.Run("captures_and_decodes_thumb", func(t *testing.T) {
+		s := &chatState{}
+		tab := getPreviewState(s)
+		var mu sync.Mutex
+		var evals []string
+		page := &screenshotTestPage{data: makePNG(t, 120, 80)}
+		page.eval = func(script string) (any, error) {
+			mu.Lock()
+			evals = append(evals, script)
+			mu.Unlock()
+			if script == previewAnnotateDrainScript {
+				return `{"items":[{"pid":1,"kind":"element","selector":"#btn","vw":120,"rect":{"x":10,"y":10,"w":40,"h":20}}],"hover":0,"active":true}`, nil
+			}
+			if strings.Contains(script, "rectsFor(") {
+				return `{"vw":120,"rects":{"1":{"x":10,"y":10,"w":40,"h":20}}}`, nil
+			}
+			return nil, nil
+		}
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating, tab.annotPolling = page, true, true, true
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewPollAnnotations(s, token, page)
+		waitThumbDone(t, tab)
+
+		previewMu.Lock()
+		if len(tab.annotations) != 1 || tab.annotations[0].Thumb == nil {
+			previewMu.Unlock()
+			t.Fatalf("轮询新条目后 Thumb 应非空: %+v", tab.annotations)
+		}
+		previewMu.Unlock()
+
+		mu.Lock()
+		defer mu.Unlock()
+		hideIdx, showIdx := -1, -1
+		for i, sc := range evals {
+			if strings.Contains(sc, previewAnnotateHideOverlayScript) {
+				hideIdx = i
+			}
+			if strings.Contains(sc, previewAnnotateShowOverlayScript) {
+				showIdx = i
+			}
+		}
+		if hideIdx < 0 || showIdx <= hideIdx {
+			t.Fatalf("Eval 未依次包含隐藏脚本与显示脚本: hideIdx=%d showIdx=%d evals=%v", hideIdx, showIdx, evals)
+		}
+	})
+
+	t.Run("capture_error_still_shows_overlay", func(t *testing.T) {
+		s := &chatState{}
+		tab := getPreviewState(s)
+		var mu sync.Mutex
+		var evals []string
+		page := &screenshotTestPage{err: errors.New("capture boom")}
+		page.eval = func(script string) (any, error) {
+			mu.Lock()
+			evals = append(evals, script)
+			mu.Unlock()
+			if script == previewAnnotateDrainScript {
+				return `{"items":[{"pid":1,"kind":"element","selector":"#btn","vw":120,"rect":{"x":10,"y":10,"w":40,"h":20}}],"hover":0,"active":true}`, nil
+			}
+			if strings.Contains(script, "rectsFor(") {
+				return `{"vw":120,"rects":{"1":{"x":10,"y":10,"w":40,"h":20}}}`, nil
+			}
+			return nil, nil
+		}
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating, tab.annotPolling = page, true, true, true
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewPollAnnotations(s, token, page)
+		waitThumbDone(t, tab)
+
+		previewMu.Lock()
+		thumb := tab.annotations[0].Thumb
+		toast := s.toastMessage
+		previewMu.Unlock()
+		if thumb != nil {
+			t.Fatal("CapturePage 失败时 Thumb 应为空")
+		}
+		if toast != "" {
+			t.Fatalf("缩略图失败不应弹 toast: %q", toast)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		var hasShow bool
+		for _, sc := range evals {
+			if strings.Contains(sc, previewAnnotateShowOverlayScript) {
+				hasShow = true
+			}
+		}
+		if !hasShow {
+			t.Fatalf("CapturePage 返回错误时仍应执行显示脚本: %v", evals)
+		}
+	})
+
+	t.Run("revision_change_discards_writeback", func(t *testing.T) {
+		s := &chatState{}
+		tab := getPreviewState(s)
+		page := &screenshotTestPage{
+			data:    makePNG(t, 120, 80),
+			started: make(chan struct{}),
+			release: make(chan struct{}),
+		}
+		page.eval = func(script string) (any, error) {
+			if script == previewAnnotateDrainScript {
+				return `{"items":[{"pid":1,"kind":"element","selector":"#btn","vw":120,"rect":{"x":10,"y":10,"w":40,"h":20}}],"hover":0,"active":true}`, nil
+			}
+			if strings.Contains(script, "rectsFor(") {
+				return `{"vw":120,"rects":{"1":{"x":10,"y":10,"w":40,"h":20}}}`, nil
+			}
+			return nil, nil
+		}
+		previewMu.Lock()
+		tab.page, tab.visible, tab.annotating, tab.annotPolling = page, true, true, true
+		token := previewPageTokenLocked(tab)
+		previewMu.Unlock()
+
+		previewPollAnnotations(s, token, page)
+		select {
+		case <-page.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("缩略图 CapturePage 未启动")
+		}
+		previewMu.Lock()
+		tab.annotRevision++
+		previewMu.Unlock()
+		close(page.release)
+
+		tab.annotOps.Lock()
+		tab.annotOps.Unlock()
+		// 等待后台写回判断结束。
+		time.Sleep(20 * time.Millisecond)
+
+		previewMu.Lock()
+		defer previewMu.Unlock()
+		if len(tab.annotations) != 1 || tab.annotations[0].Thumb != nil {
+			t.Fatalf("抓取期间 annotRevision 变化不应写回 Thumb: %+v", tab.annotations)
+		}
+	})
+}
+
+func TestPreviewAnnotationPageHover(t *testing.T) {
+	s := &chatState{}
+	tab := getPreviewState(s)
+	hoverResp := `{"items":[],"hover":7,"active":true}`
+	page := &previewTestPage{eval: func(string) (any, error) {
+		return hoverResp, nil
+	}}
+	previewMu.Lock()
+	tab.page, tab.visible, tab.annotating = page, true, true
+	tab.annotations = []previewAnnotation{{id: 1, PageID: 7, Selector: "#card"}}
+	token := previewPageTokenLocked(tab)
+	previewMu.Unlock()
+
+	gen0 := s.invalidateGen.Load()
+	previewPollAnnotations(s, token, page)
+	gen1 := s.invalidateGen.Load()
+
+	previewMu.Lock()
+	snap := previewSnapshotLocked(tab)
+	previewMu.Unlock()
+	if snap.annotPageHover != 7 {
+		t.Fatalf("snapshot annotPageHover = %d, want 7", snap.annotPageHover)
+	}
+	if gen1 != gen0+1 {
+		t.Fatalf("hover 首次变化应 invalidate 1 次: before=%d after=%d", gen0, gen1)
+	}
+
+	previewPollAnnotations(s, token, page)
+	gen2 := s.invalidateGen.Load()
+	if gen2 != gen1 {
+		t.Fatalf("连续两次相同 hover 不应重复 invalidate: before=%d after=%d", gen1, gen2)
+	}
+
+	hoverResp = `{"items":[],"hover":0,"active":true}`
+	previewPollAnnotations(s, token, page)
+	gen3 := s.invalidateGen.Load()
+	previewMu.Lock()
+	snap2 := previewSnapshotLocked(tab)
+	previewMu.Unlock()
+	if snap2.annotPageHover != 0 || gen3 != gen2+1 {
+		t.Fatalf("hover 清零后状态与重绘次数异常: hover=%d gen=%d->%d", snap2.annotPageHover, gen2, gen3)
+	}
+}
+
+func TestPreviewAnnotateDrawerThumb(t *testing.T) {
+	setAppReduceMotion(t, false)
+	s := &chatState{}
+	tab := getPreviewState(s)
+	img := image.NewRGBA(image.Rect(0, 0, 24, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 24; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 16, G: 185, B: 129, A: 255})
+		}
+	}
+	thumb := ui.NewBitmap(img)
+	previewMu.Lock()
+	tab.annotations = []previewAnnotation{
+		{id: 1, PageID: 1, Kind: "element", Selector: "#hero", Thumb: thumb},
+		{id: 2, PageID: 2, Kind: "region", W: 120, H: 40},
+	}
+	previewMu.Unlock()
+
+	tester := ui.NewTesterWith(func(c *ui.Context) {
+		previewMu.Lock()
+		snap := previewSnapshotLocked(tab)
+		previewMu.Unlock()
+		if len(snap.annotations) > 0 {
+			renderPreviewAnnotateDrawer(c, s, snap)
+		}
+	}, 600, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: false}})
+	tester.Frame()
+	tester.Advance(time.Second)
+	if tester.FramePending() {
+		t.Fatal("初始展开动画结束后仍请求下一帧")
+	}
+	if !tester.HasText("区域 120×40") {
+		t.Fatalf("区域条目应显示「区域 120×40」: %v", tester.Texts())
+	}
+
+	if err := tester.Click("放大标注 1 缩略图"); err != nil {
+		t.Fatalf("点击缩略图失败: %v", err)
+	}
+	s.mu.Lock()
+	pv := s.imagePreview
+	s.mu.Unlock()
+	if pv == nil || pv.src != thumb {
+		t.Fatalf("点击缩略图后 s.imagePreview 未设置: %+v", pv)
+	}
+
+	if err := tester.Click("折叠标注"); err != nil {
+		t.Fatalf("点击折叠失败: %v", err)
+	}
+	tester.Advance(time.Second)
+	if tester.FramePending() {
+		t.Fatal("折叠动画结束后仍请求下一帧")
+	}
+	if !tester.HasText("标注 2") || tester.HasText("#hero") || tester.HasText("区域 120×40") {
+		t.Fatalf("折叠后应只渲染计数条: %v", tester.Texts())
+	}
+
+	if err := tester.Click("展开标注"); err != nil {
+		t.Fatalf("点击展开失败: %v", err)
+	}
+	tester.Advance(time.Second)
+	if tester.FramePending() {
+		t.Fatal("展开动画结束后仍请求下一帧")
+	}
+	if !tester.HasText("#hero") || !tester.HasText("区域 120×40") {
+		t.Fatalf("展开后未恢复标注列表: %v", tester.Texts())
 	}
 }
