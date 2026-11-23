@@ -1171,7 +1171,7 @@ func renderSwarmHeaderButton(c *ui.Context, s *chatState) {
 				Value(map[bool]string{true: "开启", false: "关闭"}[on]).
 				Tooltip(tooltip).
 				Size(ControlMD, ControlMD).
-				Radius(ControlMD / 2).
+				Radius(RadiusPill).
 				Center()
 
 			if on {
