@@ -22,7 +22,7 @@ func swarmTierColor(c *ui.Context, tierID string) ui.Color {
 	case "deep":
 		return swarmTierPurpleColor
 	case "chore":
-		return ThemeIdentity("tide")
+		return ThemeIdentity("eva")
 	default:
 		var h uint32 = 2166136261
 		id := strings.TrimSpace(tierID)
@@ -34,9 +34,9 @@ func swarmTierColor(c *ui.Context, tierID string) ui.Color {
 		case 0:
 			return ThemeWarning(c) // 橙色
 		case 1:
-			return ThemeIdentity("grove") // 粉色
+			return ThemeIdentity("gwen") // 粉色
 		case 2:
-			return ThemeIdentity("zephyr") // 靛蓝色
+			return ThemeIdentity("hugo") // 靛蓝色
 		default:
 			return ThemeSuccess(c) // 绿色
 		}
