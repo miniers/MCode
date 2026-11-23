@@ -137,12 +137,12 @@ func TestMagpieInstalledAgentSections(t *testing.T) {
 			} else {
 				tt.Frame()
 				// 内置引擎始终有一列，模型分组与矩阵不随 CLI 智能体的安装状态消失。
-				for _, text := range []string{"智能体", "sec-magpie-agents"} {
+				for _, text := range []string{"智能体路由", "sec-magpie-agents"} {
 					if countExactText(tt.Texts(), text) > 0 {
 						t.Fatalf("没有已安装的 CLI 智能体时不应显示 %q: %v", text, tt.Texts())
 					}
 				}
-				for _, text := range []string{"模型", "mcode"} {
+				for _, text := range []string{"模型矩阵", "mcode"} {
 					if countExactText(tt.Texts(), text) < 1 {
 						t.Fatalf("应显示 %q: %v", text, tt.Texts())
 					}
@@ -173,7 +173,7 @@ func TestMagpieModelPickerVisibilitySearchIndex(t *testing.T) {
 
 func TestSettingsMagpie_ThreeSections(t *testing.T) {
 	if len(pageMagpie.Sections) != 3 || pageMagpie.Sections[0].ID != "sec-magpie-gateways" || pageMagpie.Sections[1].ID != "sec-magpie-agents" || pageMagpie.Sections[2].ID != "sec-magpie-models" {
-		t.Fatal("Magpie 应分为网关、智能体、模型三个分组")
+		t.Fatal("Magpie 应分为网关、智能体路由、模型矩阵三个分组")
 	}
 	rows := pageMagpie.Sections[0].Rows
 	if rows[len(rows)-1].ID != "row-magpie-personas" {
@@ -181,12 +181,12 @@ func TestSettingsMagpie_ThreeSections(t *testing.T) {
 	}
 	tt, _, _ := magpiePageTester(t, true)
 	waitMagpie(t, tt, func() bool {
-		return tt.HasText("网关") && tt.HasText("智能体") && tt.HasText("模型") && tt.HasText("人设") && tt.HasText("Claude") && tt.HasText("Codex") && tt.HasText("pi") && tt.HasText("添加网关")
+		return tt.HasText("网关") && tt.HasText("智能体路由") && tt.HasText("模型矩阵") && tt.HasText("人设") && tt.HasText("Claude") && tt.HasText("Codex") && tt.HasText("pi") && tt.HasText("添加网关")
 	})
 	if countExactText(tt.Texts(), "人设") != 1 {
 		t.Fatalf("主页面人设标题应只出现一次: %v", tt.Texts())
 	}
-	order := []string{"网关", "测试网关", "添加网关", "人设", "智能体", "模型"}
+	order := []string{"网关", "测试网关", "添加网关", "人设", "智能体路由", "模型矩阵"}
 	i := 0
 	for _, text := range tt.Texts() {
 		if i < len(order) && text == order[i] {
@@ -203,7 +203,7 @@ func TestSettingsMagpie_DisconnectedOnlyForm(t *testing.T) {
 	waitMagpie(t, tt, func() bool {
 		return tt.HasText("接口地址（BaseURL）") && tt.HasText("密钥（API Key）") && tt.HasText("连接")
 	})
-	for _, text := range []string{"智能体", "人设", "Magpie 提供额度、人设和模型注入。先添加一个网关地址。"} {
+	for _, text := range []string{"智能体路由", "人设", "Magpie 提供额度、人设和模型注入。先添加一个网关地址。"} {
 		if tt.HasText(text) {
 			t.Fatalf("未连接页面不应显示 %q: %v", text, tt.Texts())
 		}
@@ -292,7 +292,7 @@ func TestSettingsMagpie_AgentAndModelSectionsStayWithBrokenPi(t *testing.T) {
 		return !connected && loaded && magpiePageHasGateways(st)
 	})
 	tt.Frame()
-	for _, text := range []string{"智能体", "模型", "Claude", "Codex", "pi"} {
+	for _, text := range []string{"智能体路由", "模型矩阵", "Claude", "Codex", "pi"} {
 		if !tt.HasText(text) {
 			t.Fatalf("连接状态未知时仍应显示 %q: %v", text, tt.Texts())
 		}

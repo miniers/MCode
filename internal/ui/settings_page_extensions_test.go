@@ -8,7 +8,7 @@ func TestSettingsExtensions_SectionsAndPageOwnership(t *testing.T) {
 		{"mcp.custom", "MCP 服务"},
 		{"nowledge.memory", "记忆"},
 		{"nowledge.spaces", "项目记忆空间"},
-		{"advanced.memory", "高级"},
+		{"advanced.memory", "记忆高级"},
 	}
 	page, ok := settingsTreePageOf("extensions")
 	if !ok || len(page.Sections) != len(want) {

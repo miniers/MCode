@@ -47,14 +47,13 @@ func TestSettingsVisual_SwarmNoDoubleInset(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少启用编排行")
 	}
-	add, ok := tt.Find("添加配对")
+	status, ok := tt.Find("已配置 0 组")
 	if !ok {
-		t.Fatal("缺少添加配对按钮")
+		t.Fatal("缺少配对数量状态文案")
 	}
-	// Find 命中按钮的 Label；按钮左边缘应与普通行文字左缘对齐。
-	diff := (enabled.X - mainCard.X) - (add.X - pairsCard.X)
+	diff := (enabled.X - mainCard.X) - (status.X - pairsCard.X)
 	if diff < -2 || diff > 2 {
-		t.Errorf("按钮与行文字左边距之差 = %v，超过 2", diff)
+		t.Errorf("状态文案与行文字左边距之差 = %v，超过 2", diff)
 	}
 	count := 0
 	for _, text := range tt.Texts() {

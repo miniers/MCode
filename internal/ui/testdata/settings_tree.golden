@@ -21,13 +21,13 @@ row row-show-reasoning 显示思考过程
 row row-auto-collapse-reasoning 自动折叠思考过程
 row row-concise-replies 简洁 AI 回复
 section conversation.messages 消息与排队
-row row-quick-replies 快捷回复
+row row-composer-send-key 发送消息快捷键
 row row-queue-while-running 运行中排队消息
 row row-insert-into-running-turn 新消息插入当前回合
-row row-composer-send-key 发送消息快捷键
-row row-composer-attachment-limit 附件数量上限
 row row-pin-sent-message 发送后置顶消息
 row row-auto-continue-after-limit 用尽限额后自动继续
+row row-composer-attachment-limit 附件数量上限
+row row-quick-replies 快捷回复
 section conversation.retention 保留与归档
 row row-auto-dormant-days 无消息多少天后自动休眠
 row row-archive 已归档会话
@@ -49,7 +49,7 @@ row row-nowledge-bee-recall 派发子代理时附带相关记忆
 row row-nowledge-sync-threads 同步会话到 Nowledge
 section nowledge.spaces 项目记忆空间
 row row-nowledge-project-spaces 
-section advanced.memory 高级
+section advanced.memory 记忆高级
 row row-nowledge-inject-memory-tools-note 向新会话说明记忆工具用法
 row row-nowledge-working-memory-budget Working Memory 字数上限
 row row-nowledge-sync-helper-threads 同步编排子代理会话
@@ -59,33 +59,33 @@ section general.permissions 权限
 row row-mode 默认权限
 section general.notifications 通知与提示音
 row row-notify 完成后通知
-row row-notify-foreground 前台也发送通知
 row row-notify-approval 待审批时通知
+row row-notify-stalled 会话卡住时提醒
+row row-stalled-minutes 多久算卡住
+row row-notify-foreground 前台也发送通知
 row row-finish-sound 完成提示音
 row row-chime-attention 需要介入时提示音
 row row-dormant-sound 会话休眠提示音
-row row-notify-stalled 会话卡住时提醒
-row row-stalled-minutes 多久算卡住
 section general.startup 启动与托盘
 row row-tray 菜单栏图标
 row row-tray-quota 菜单栏显示额度百分比
 row row-quit-action 关闭窗口时
 row row-automation-prevent-sleep 自动化运行时保持唤醒
-section general.backup 备份与恢复
-row row-general-backup 备份
-row row-general-restore 恢复
 section general.shortcuts 快捷键
 row row-global-shortcut 全局快捷键
 row row-shortcuts-all 全部快捷键
+section general.backup 备份与恢复
+row row-general-backup 备份
+row row-general-restore 恢复
 page magpie
 section sec-magpie-gateways 网关
 row row-magpie-gateways 
 row row-magpie-personas 人设
-section sec-magpie-agents 智能体
+section sec-magpie-agents 智能体路由
 row row-magpie-agent-claude Claude
 row row-magpie-agent-codex Codex
 row row-magpie-agent-pi pi
-section sec-magpie-models 模型
+section sec-magpie-models 模型矩阵
 row row-magpie-model-matrix 
 page models
 section sec-models-pinned 收藏模型
@@ -154,14 +154,14 @@ row row-steward-cli-fallback 没有 API Key 时用本机 CLI
 section sec-steward-model 模型
 row row-steward-model 前台模型
 row row-steward-task-model 任务模型
-section sec-steward-quiet 安静时段
+section sec-steward-quiet 值守与安静时段
 row row-steward-no-progress 无进展提醒
 row row-steward-quiet-enabled 启用安静时段
 row row-steward-quiet-range 时间范围
-section sec-steward-advanced 总管高级
+section sec-steward-advanced 高级
 row row-steward-home-dir 主目录
 page swarm
-section swarm.main 
+section swarm.main 开关
 row row-swarm-enabled 启用编排
 section swarm.pairs 模型配对
 row block-swarm-pairs 
@@ -208,15 +208,13 @@ row row-kanban-auto-start-on-create 创建后自动启动
 row row-kanban-auto-rescue-stuck 卡死任务自动救援
 row row-kanban-stuck-nudge-timeout 无活动提醒
 row row-kanban-stuck-interrupt-timeout 无活动中断
-section workbench.mcp MCP 工具
+section workbench.mcp 看板 MCP 工具
 row row-kanban-mcp-tools 注册看板 MCP 工具
 row row-kanban-entry-ordinary 普通会话可用看板
-section workbench.terminal 终端
+section workbench.terminal 终端与预览
 row row-terminal-shell 默认终端
 row row-command-shell 命令 shell
-section workbench.preview Web 预览
 row row-browser-console-capture 捕获控制台输出
-section workbench.openIn 
 row row-workbench-open-in 打开方式
 section advanced.workbench 高级
 row row-context-inject-budget 注入字符上限

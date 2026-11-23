@@ -60,7 +60,11 @@ var pageMagpie = settingsPage{
 						})
 					return
 				}
-				ui.Text(c, "正在加载…")
+				ui.Row(c.Key("row-magpie-gateways-loading")).
+					Padding(settingsRowPadY, settingsRowPadX).
+					Children(func() {
+						LoadingIndicator(c, "magpie-gateways-loading-indicator", "正在加载…", IconSM)
+					})
 				return
 			}
 			if !connected {
@@ -79,10 +83,11 @@ var pageMagpie = settingsPage{
 				renderSettingsDivider(c, "div-magpie-gateway-add")
 			}
 			button := ui.ButtonBase(c.Key("row-magpie-gateway-add")).Label("添加网关").FillWidth().
-				Padding(settingsRowPadY, settingsRowPadX).MinHeight(settingsRowMinHeight)
+				Padding(settingsRowPadY, settingsRowPadX).MinHeight(settingsRowMinHeight).Cursor(ui.CursorPointer)
 			if button.Hovered() {
 				button.Background(ThemeHover(c))
 			}
+			focusRing(c, button)
 			if button.Clicked() {
 				openMagpieGatewaySheet(st, "")
 			}
@@ -98,12 +103,12 @@ var pageMagpie = settingsPage{
 			}
 			return ""
 		}, "magpie-personas")}}},
-		{ID: "sec-magpie-agents", Title: "智能体", Visible: magpiePageHasInstalledAgents, Rows: []setting{
+		{ID: "sec-magpie-agents", Title: "智能体路由", Visible: magpiePageHasInstalledAgents, Rows: []setting{
 			magpieAgentRouteRow("claude"),
 			magpieAgentRouteRow("codex"),
 			magpieAgentRouteRow("pi"),
 		}},
-		{ID: "sec-magpie-models", Title: "模型", Visible: magpiePageHasInstalledAgents, Rows: []setting{
+		{ID: "sec-magpie-models", Title: "模型矩阵", Visible: magpiePageHasInstalledAgents, Rows: []setting{
 			{ID: "row-magpie-model-matrix", Control: customFullWidth(renderMagpieModelMatrix)},
 		}},
 	},

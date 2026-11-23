@@ -124,10 +124,10 @@ func TestSettingsPageWorkbench_Tree(t *testing.T) {
 	for _, want := range []string{
 		"项目文档", "注入项目说明", "注入文档",
 		"Instructions", "Overview", "Decisions", "Notes", "Api Design",
-		"看板", "任务执行", "MCP 工具", "默认视图", "列表",
+		"看板", "任务执行", "看板 MCP 工具", "默认视图", "列表",
 		"验收后自动合并工作树", "完成后自动送审", "在独立工作树中执行",
 		"注册看板 MCP 工具", "普通会话可用看板", "创建后自动启动", "卡死任务自动救援", "无活动中断",
-		"终端", "默认终端", "Web 预览", "捕获控制台输出",
+		"终端与预览", "默认终端", "捕获控制台输出",
 		"打开方式", "高级", "注入字符上限", "回滚行数", "快捷端口",
 	} {
 		if !texts[want] {
@@ -157,8 +157,8 @@ func TestSettingsPageWorkbench_SectionsKeepRows(t *testing.T) {
 		"row-kanban-auto-rescue-stuck":       "任务执行",
 		"row-kanban-stuck-nudge-timeout":     "任务执行",
 		"row-kanban-stuck-interrupt-timeout": "任务执行",
-		"row-kanban-mcp-tools":               "MCP 工具",
-		"row-kanban-entry-ordinary":          "MCP 工具",
+		"row-kanban-mcp-tools":               "看板 MCP 工具",
+		"row-kanban-entry-ordinary":          "看板 MCP 工具",
 	}
 	got := map[string]string{}
 	for _, section := range pageWorkbench.Sections {

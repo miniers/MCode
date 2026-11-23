@@ -16,7 +16,7 @@ func TestSettingsMagpieHub_EmptyState(t *testing.T) {
 			t.Fatalf("缺少 %q: %v", text, tt.Texts())
 		}
 	}
-	for _, text := range []string{"智能体", "人设", "添加网关"} {
+	for _, text := range []string{"智能体路由", "人设", "添加网关"} {
 		if tt.HasText(text) {
 			t.Fatalf("未连接时不应显示 %q", text)
 		}

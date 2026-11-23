@@ -20,7 +20,7 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 		"sheet:themes": {"设置卡片 theme-section-canvas", "窗口", func(c *ui.Context, st *SettingsState) {
 			renderSettingsTreeSheet(c, st, sheetThemes)
 		}},
-		"block-swarm-pairs": {"设置卡片 swarm.pairs", "添加配对", func(c *ui.Context, st *SettingsState) {
+		"block-swarm-pairs": {"设置卡片 swarm.pairs", "已配置 0 组", func(c *ui.Context, st *SettingsState) {
 			renderSettingsSection(c, "swarm.pairs", "模型配对", func() { renderSwarmPairsBody(c, st) })
 		}},
 		"block-mcp-custom": {"设置卡片 mcp.custom", "正在扫描 MCP 服务…", func(c *ui.Context, st *SettingsState) {
@@ -127,11 +127,11 @@ func TestSettingsRowInset_SwarmPairsHeader(t *testing.T) {
 	if !ok {
 		t.Fatalf("缺少模型配对卡片：%v", tt.Texts())
 	}
-	add, ok := tt.Find("添加配对")
+	status, ok := tt.Find("已配置 0 组")
 	if !ok {
-		t.Fatalf("缺少添加配对按钮：%v", tt.Texts())
+		t.Fatalf("缺少配对数量状态文案：%v", tt.Texts())
 	}
-	assertSettingsRowInset(t, "添加配对", add, card)
+	assertSettingsRowInset(t, "已配置 0 组", status, card)
 }
 
 // TestSettingsRowInset_ModelsCards 覆盖收藏模型与供应商卡片里的自定义行。
@@ -152,7 +152,11 @@ func TestSettingsRowInset_ModelsCards(t *testing.T) {
 	if !ok {
 		t.Fatalf("缺少空状态行：%v", tt.Texts())
 	}
-	assertSettingsRowInset(t, "尚未选择模型", empty, pinnedCard)
+	cardCenter := pinnedCard.X + pinnedCard.W/2
+	emptyCenter := empty.X + empty.W/2
+	if diff := cardCenter - emptyCenter; diff < -2 || diff > 2 {
+		t.Errorf("空态组件未居中显示：卡片中心 %.1f，文字中心 %.1f", cardCenter, emptyCenter)
+	}
 	add, ok := tt.Find("添加收藏")
 	if !ok {
 		t.Fatalf("缺少添加收藏按钮：%v", tt.Texts())

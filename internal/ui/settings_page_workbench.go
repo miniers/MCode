@@ -141,7 +141,7 @@ var pageWorkbench = settingsPage{
 		},
 		{
 			ID:    "workbench.mcp",
-			Title: "MCP 工具",
+			Title: "看板 MCP 工具",
 			Rows: []setting{
 				{
 					ID:      "row-kanban-mcp-tools",
@@ -160,7 +160,7 @@ var pageWorkbench = settingsPage{
 		},
 		{
 			ID:    "workbench.terminal",
-			Title: "终端",
+			Title: "终端与预览",
 			Rows: []setting{
 				{
 					ID:      "row-terminal-shell",
@@ -175,24 +175,12 @@ var pageWorkbench = settingsPage{
 					Visible: func(*SettingsState) bool { return runtime.GOOS == "windows" },
 					Control: commandShellControl{},
 				},
-			},
-		},
-		{
-			ID:    "workbench.preview",
-			Title: "Web 预览",
-			Rows: []setting{
 				{
 					ID:      "row-browser-console-capture",
 					Title:   "捕获控制台输出",
 					Aliases: []string{"浏览器", "控制台", "console", "日志", "错误", "js"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Workbench.BrowserConsoleCapture }, true)),
 				},
-			},
-		},
-		{
-			ID:    "workbench.openIn",
-			Title: "",
-			Rows: []setting{
 				{
 					ID:    "row-workbench-open-in",
 					Title: "打开方式",

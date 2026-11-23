@@ -75,12 +75,16 @@ var pageConversation = settingsPage{
 			Title: "消息与排队",
 			Rows: []setting{
 				{
-					ID:      "row-quick-replies",
-					Title:   "快捷回复",
-					Aliases: []string{"快捷回复", "常用回复", "常用语", "短语", "quick", "reply", "replies", "canned", "snippet", "template"},
-					Control: link(func(st *SettingsState) string {
-						return fmt.Sprintf("%d 个", len(st.cfg.QuickReplies))
-					}, "quick-replies"),
+					ID:      "row-composer-send-key",
+					Title:   "发送消息快捷键",
+					Aliases: []string{"回车", "换行", "快捷键", "Shift", "Enter", "发送"},
+					Control: choice(
+						val(func(c *config.Config) *string { return &c.Session.ComposerSendKey }, config.ComposerSendKeyEnter),
+						[]choiceOption{
+							{Value: config.ComposerSendKeyEnter, Label: "Enter"},
+							{Value: config.ComposerSendKeyShiftEnter, Label: "Shift+Enter"},
+						},
+					),
 				},
 				{
 					ID:      "row-queue-while-running",
@@ -95,24 +99,6 @@ var pageConversation = settingsPage{
 					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.InsertIntoRunningTurn }, true)),
 				},
 				{
-					ID:      "row-composer-send-key",
-					Title:   "发送消息快捷键",
-					Aliases: []string{"回车", "换行", "快捷键", "Shift", "Enter", "发送"},
-					Control: choice(
-						val(func(c *config.Config) *string { return &c.Session.ComposerSendKey }, config.ComposerSendKeyEnter),
-						[]choiceOption{
-							{Value: config.ComposerSendKeyEnter, Label: "Enter"},
-							{Value: config.ComposerSendKeyShiftEnter, Label: "Shift+Enter"},
-						},
-					),
-				},
-				{
-					ID:      "row-composer-attachment-limit",
-					Title:   "附件数量上限",
-					Aliases: []string{"附件", "图片", "文件", "数量", "上限", "attachment"},
-					Control: number(val(func(c *config.Config) *int { return &c.Session.ComposerAttachmentLimit }, config.DefaultComposerAttachmentLimit), "个", 1, config.MaxComposerAttachmentLimit),
-				},
-				{
 					ID:      "row-pin-sent-message",
 					Title:   "发送后置顶消息",
 					Aliases: []string{"置顶", "滚动", "发送", "时间线", "跟随", "pin"},
@@ -123,6 +109,20 @@ var pageConversation = settingsPage{
 					Title:   "用尽限额后自动继续",
 					Aliases: []string{"额度", "限额", "配额", "续跑", "自动", "limit"},
 					Control: toggle(val(func(c *config.Config) *bool { return &c.Session.AutoContinueAfterLimit }, false)),
+				},
+				{
+					ID:      "row-composer-attachment-limit",
+					Title:   "附件数量上限",
+					Aliases: []string{"附件", "图片", "文件", "数量", "上限", "attachment"},
+					Control: number(val(func(c *config.Config) *int { return &c.Session.ComposerAttachmentLimit }, config.DefaultComposerAttachmentLimit), "个", 1, config.MaxComposerAttachmentLimit),
+				},
+				{
+					ID:      "row-quick-replies",
+					Title:   "快捷回复",
+					Aliases: []string{"快捷回复", "常用回复", "常用语", "短语", "quick", "reply", "replies", "canned", "snippet", "template"},
+					Control: link(func(st *SettingsState) string {
+						return fmt.Sprintf("%d 个", len(st.cfg.QuickReplies))
+					}, "quick-replies"),
 				},
 			},
 		},

@@ -105,7 +105,7 @@ func stewardMainSection() settingsSection {
 				st.cfgMu.Unlock()
 				st.mu.Unlock()
 				st.noteTextEdit()
-			}, "🙂")},
+			}, "🙂").withWidth(settingsFieldNarrowWidth)},
 		{ID: "row-steward-cli-fallback", Title: "没有 API Key 时用本机 CLI", Control: toggle(
 			val(func(cfg *config.Config) *bool { return &cfg.Orchestration.Steward.CLIFallback }, false))},
 	}}
@@ -177,7 +177,8 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 					Label("自动").
 					Padding(settingsBadgePadY, Space3).
 					Radius(RadiusSM).
-					Background(ui.Transparent)
+					Background(ui.Transparent).
+					Cursor(ui.CursorPointer)
 				{
 					scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
 					btnClear.Scale(scale, scale)
@@ -185,6 +186,7 @@ func renderStewardTaskModelControl(c *ui.Context, st *SettingsState) {
 				if btnClear.Hovered() {
 					btnClear.Background(ThemeHover(c))
 				}
+				focusRing(c, btnClear)
 				if btnClear.Clicked() {
 					commitSettingsControl(st, func(cfg *config.Config) {
 						cfg.Orchestration.Steward.TaskProvider = ""
@@ -224,7 +226,8 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 					Label("自动").
 					Padding(settingsBadgePadY, Space3).
 					Radius(RadiusSM).
-					Background(ui.Transparent)
+					Background(ui.Transparent).
+					Cursor(ui.CursorPointer)
 				{
 					scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
 					btnClear.Scale(scale, scale)
@@ -232,6 +235,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 				if btnClear.Hovered() {
 					btnClear.Background(ThemeHover(c))
 				}
+				focusRing(c, btnClear)
 				if btnClear.Clicked() {
 					commitSettingsControl(st, func(cfg *config.Config) {
 						cfg.Orchestration.Steward.Provider = ""
@@ -249,7 +253,7 @@ func renderStewardModelControl(c *ui.Context, st *SettingsState) {
 }
 
 // stewardQuietSection 在启用安静时段后显示具体时间范围。
-var stewardQuietSection = settingsSection{ID: "sec-steward-quiet", Title: "安静时段", Visible: stewardEnabled, Rows: []setting{
+var stewardQuietSection = settingsSection{ID: "sec-steward-quiet", Title: "值守与安静时段", Visible: stewardEnabled, Rows: []setting{
 	{ID: "row-steward-no-progress", Title: "无进展提醒", Aliases: []string{"看门狗", "watchdog", "卡住", "无进展"}, Control: custom(renderStewardNoProgress)},
 	{
 		ID:      "row-steward-quiet-enabled",

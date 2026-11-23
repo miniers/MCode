@@ -114,7 +114,7 @@ func renderPageNowledge(c *ui.Context, st *SettingsState) {
 // advancedMemory 是记忆页的高级设置。
 var advancedMemory = settingsSection{
 	ID:    "advanced.memory",
-	Title: "高级",
+	Title: "记忆高级",
 	Rows: []setting{
 		{
 			ID:      "row-nowledge-inject-memory-tools-note",
@@ -273,7 +273,12 @@ func renderNowledgeSpaceList(c *ui.Context, st *SettingsState) {
 				AlignItems(ui.Center).
 				Children(func() {
 					ui.Text(c, ps.loadErr).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Grow(1)
-					btn := ui.ButtonBase(c.Key("btn-nowledge-space-retry")).Label("重试").Padding(Space2, settingsCompactPadX).Radius(RadiusSM).OnClick(func() {
+					btn := ui.ButtonBase(c.Key("btn-nowledge-space-retry")).Label("重试").Padding(Space2, settingsCompactPadX).Radius(RadiusSM).Cursor(ui.CursorPointer)
+					if btn.Hovered() {
+						btn.Background(ThemeHover(c))
+					}
+					focusRing(c, btn)
+					btn.OnClick(func() {
 						ps.loaded = false
 						ps.loadErr = ""
 						ps.load = nil

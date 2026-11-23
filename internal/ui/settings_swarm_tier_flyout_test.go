@@ -60,7 +60,7 @@ func setupSwarmTierFlyoutTest(t *testing.T) (*SettingsState, *ui.Tester, *swarmT
 		if capture.viewport != nil {
 			setSwarmTierEditorViewport(c, st, *capture.viewport)
 		}
-		ui.Column(c).Width(1000).Children(func() { renderSwarmTiersBody(c, st) })
+		ui.Column(c).FillWidth().MaxWidth(settingsContentMaxWidth).Children(func() { renderSwarmTiersBody(c, st) })
 	}, 1100, 3000)
 	host.Frame()
 	return st, host, capture, parent

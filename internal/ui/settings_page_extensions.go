@@ -14,12 +14,10 @@ var pageExtensions = settingsPage{
 }
 
 func init() {
-	pageExtensions.Sections = append(
-		withSettingsModule("技能", sectionSkills),
-		withSettingsModule("MCP 服务", mcpSections...)...,
-	)
-	pageExtensions.Sections = append(pageExtensions.Sections, withSettingsModule("记忆", nowledgeSections...)...)
-	pageExtensions.Sections = append(pageExtensions.Sections, withSettingsModule("记忆", advancedMemory)...)
+	pageExtensions.Sections = append(pageExtensions.Sections, sectionSkills)
+	pageExtensions.Sections = append(pageExtensions.Sections, mcpSections...)
+	pageExtensions.Sections = append(pageExtensions.Sections, nowledgeSections...)
+	pageExtensions.Sections = append(pageExtensions.Sections, advancedMemory)
 	settingsTreePageDefs = append(settingsTreePageDefs, pageExtensions)
 }
 

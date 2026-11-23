@@ -559,11 +559,11 @@ type modelsLibraryView struct {
 var pageModels = settingsPage{
 	ID: "models", Title: "模型与供应商", Icon: IconSlidersHorizontal(),
 	Sections: []settingsSection{
-		{ID: "sec-models-pinned", Title: "收藏模型", Module: "收藏模型", Rows: []setting{
+		{ID: "sec-models-pinned", Title: "收藏模型", Rows: []setting{
 			{ID: "row-models-pinned", Aliases: []string{"收藏", "模型", "model", "pinned"}, Control: customFullWidth(renderPinnedModels)},
 			{ID: "row-models-add", Aliases: []string{"添加收藏", "添加模型", "add model"}, Control: custom(renderAddModelPin)},
 		}},
-		{ID: "sec-providers", Title: "供应商", Module: "供应商", Rows: []setting{
+		{ID: "sec-providers", Title: "供应商", Rows: []setting{
 			{ID: "row-providers-list", Aliases: []string{"供应商", "provider", "模型"}, Control: customFullWidth(func(c *ui.Context, st *SettingsState) {
 				renderProvidersCard(c, st, modelsPageLibrary(c, st))
 			})},
@@ -578,7 +578,11 @@ func renderAddModelPin(c *ui.Context, st *SettingsState) {
 	ps, client := lib.ps, lib.client
 	const key = "models-add-pin"
 	// 外层自定义行已经提供 settingsRowPadX，按钮不再叠加水平内边距。
-	btn := ui.ButtonBase(c.Key(key+"-button")).Label("添加收藏").Padding(Space4, 0)
+	btn := ui.ButtonBase(c.Key(key+"-button")).Label("添加收藏").Padding(Space4, 0).Radius(RadiusSM).Cursor(ui.CursorPointer)
+	if btn.Hovered() {
+		btn.Background(ThemeHover(c))
+	}
+	focusRing(c, btn)
 	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 	btn.Scale(scale, scale)
 	btn.OnClick(func() {
@@ -673,7 +677,11 @@ func renderPinnedModels(c *ui.Context, st *SettingsState) {
 		return
 	}
 	if len(ps.pins) == 0 {
-		renderSettingRow(c, "row-models-none", "尚未选择模型", func() {})
+		EmptyState(c, EmptyStateProps{
+			Key:     "row-models-none",
+			Title:   "尚未选择模型",
+			Compact: true,
+		}).FillWidth().Padding(settingsRowPadY, settingsRowPadX)
 	} else {
 		for i, pin := range visiblePins {
 			if i > 0 {
@@ -787,13 +795,15 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 				Justify(ui.Start).
 				AlignItems(ui.Center).
 				Padding(Space1, Space2).
-				Radius(RadiusSM)
+				Radius(RadiusSM).
+				Cursor(ui.CursorPointer)
 
 			if rowBody.Hovered() {
 				rowBody.Background(ThemeHover(c))
 			} else {
 				rowBody.Background(ui.Transparent)
 			}
+			focusRing(c, rowBody)
 
 			rowBody.OnClick(func() {
 				if ps.openPopoverKey == pinKey {
@@ -886,6 +896,10 @@ func renderPinnedModelRow(c *ui.Context, st *SettingsState, ps *modelsPageState,
 			busy := ps.pinBusy(pin)
 			disabled := client == nil || busy
 			btnRemove.Disabled(disabled)
+			if !disabled {
+				btnRemove.Cursor(ui.CursorPointer)
+			}
+			focusRing(c, btnRemove)
 			scale := motionPressScale(c, btnRemove, "button-press-scale", !disabled && btnRemove.Pressed())
 			btnRemove.Scale(scale, scale)
 			btnRemove.OnClick(func() {
@@ -1132,6 +1146,10 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 				} else {
 					btnAdded.Background(ui.Transparent)
 				}
+				if canRemove {
+					btnAdded.Cursor(ui.CursorPointer)
+				}
+				focusRing(c, btnAdded)
 
 				if canRemove {
 					btnAdded.OnClick(func() {
@@ -1180,6 +1198,10 @@ func renderProviderModelRowExt(c *ui.Context, st *SettingsState, ps *modelsPageS
 				} else {
 					btnAdd.Background(ui.Transparent)
 				}
+				if canAdd {
+					btnAdd.Cursor(ui.CursorPointer)
+				}
+				focusRing(c, btnAdd)
 
 				if canAdd {
 					btnAdd.OnClick(func() {

@@ -261,6 +261,7 @@ func renderSwarmPairResetSlot(c *ui.Context, key, label string, visible bool, on
 		Radius(RadiusSM).
 		Center().
 		Shrink(0).
+		Cursor(ui.CursorPointer).
 		Label(label).
 		Tooltip(label)
 
@@ -603,7 +604,12 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						Label("编辑 "+pairName).
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
-						Background(ThemeHover(c))
+						Background(ThemeHover(c)).
+						Cursor(ui.CursorPointer)
+					if btnEdit.Hovered() {
+						btnEdit.Background(ThemeOverlay(c, 0.15))
+					}
+					focusRing(c, btnEdit)
 					{
 						scale := motionPressScale(c, btnEdit, "button-press-scale", btnEdit.Pressed())
 						btnEdit.Scale(scale, scale)
@@ -637,7 +643,8 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 						Label("删除 "+pairName).
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
-						Background(ui.Transparent)
+						Background(ui.Transparent).
+						Cursor(ui.CursorPointer)
 					{
 						scale := motionPressScale(c, btnDelete, "button-press-scale", btnDelete.Pressed())
 						btnDelete.Scale(scale, scale)
@@ -645,6 +652,7 @@ func renderSwarmPairRow(c *ui.Context, st *SettingsState, uiSt *swarmPairsUIStat
 					if btnDelete.Hovered() {
 						btnDelete.Background(ThemeDanger(c).Alpha(0.12))
 					}
+					focusRing(c, btnDelete)
 					if btnDelete.Clicked() {
 						swarmPairDelete(st, p.ID)
 						st.invalidate()
@@ -672,7 +680,7 @@ func truncateReviewCheckCommand(s string) string {
 var pageSwarm = settingsPage{
 	ID: "swarm", Title: "编排", Icon: IconSwarm(),
 	Sections: []settingsSection{
-		{ID: "swarm.main", Title: "", Rows: []setting{
+		{ID: "swarm.main", Title: "开关", Rows: []setting{
 			{
 				ID: "row-swarm-enabled", Title: "启用编排", Lock: "swarm-enabled",
 				Aliases: []string{"由主代理拆分任务，派给多个子代理并行执行，完成后统一审查合并", "编排", "子代理"},
@@ -851,6 +859,9 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 		AlignItems(ui.Center).
 		Justify(ui.SpaceBetween).
 		Children(func() {
+			ui.Text(c, fmt.Sprintf("已配置 %d 组", len(st.cfg.Orchestration.Pairs))).
+				FontSize(uiFont(TypeFootnote)).
+				TextColor(ThemeSecondaryText(c))
 			ui.Row(c.Key("row-swarm-pairs-header-actions")).
 				Gap(Space3).
 				AlignItems(ui.Center).
@@ -859,7 +870,12 @@ func renderSwarmPairsBody(c *ui.Context, st *SettingsState) {
 						Label("添加配对").
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
-						Background(ThemeHover(c))
+						Background(ThemeHover(c)).
+						Cursor(ui.CursorPointer)
+					if btnAdd.Hovered() {
+						btnAdd.Background(ThemeOverlay(c, 0.15))
+					}
+					focusRing(c, btnAdd)
 					{
 						scale := motionPressScale(c, btnAdd, "button-press-scale", btnAdd.Pressed())
 						btnAdd.Scale(scale, scale)
@@ -942,15 +958,14 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 		AlignItems(ui.Center).
 		Justify(ui.SpaceBetween).
 		Children(func() {
+			ui.Text(c, "默认档").
+				FontSize(uiFont(TypeBody)).
+				TextColor(ThemePrimaryText(c)).
+				Tooltip(settingHint("swarm-tiers-default"))
 			ui.Row(c.Key("row-swarm-tiers-header-actions")).
 				Gap(Space3).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Text(c, "默认档").
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(c)).
-						Tooltip(settingHint("swarm-tiers-default"))
-
 					var tierOptions []string
 					tierIDToName := make(map[string]string)
 					tierNameToID := make(map[string]string)
@@ -985,7 +1000,12 @@ func renderSwarmTiersBody(c *ui.Context, st *SettingsState) {
 						Label("添加档位").
 						Padding(settingsBadgePadY, settingsCompactPadX).
 						Radius(RadiusSM).
-						Background(ThemeHover(c))
+						Background(ThemeHover(c)).
+						Cursor(ui.CursorPointer)
+					if btnAdd.Hovered() {
+						btnAdd.Background(ThemeOverlay(c, 0.15))
+					}
+					focusRing(c, btnAdd)
 					{
 						scale := motionPressScale(c, btnAdd, "button-press-scale", btnAdd.Pressed())
 						btnAdd.Scale(scale, scale)
@@ -1103,7 +1123,8 @@ func (m swarmModelControl) renderDisabled(c *ui.Context, st *SettingsState, s se
 			Label(m.clearLabel).
 			Padding(settingsBadgePadY, Space3).
 			Radius(RadiusSM).
-			Background(ui.Transparent)
+			Background(ui.Transparent).
+			Cursor(ui.CursorPointer)
 		{
 			scale := motionPressScale(c, btnClear, "button-press-scale", btnClear.Pressed())
 			btnClear.Scale(scale, scale)
@@ -1111,6 +1132,7 @@ func (m swarmModelControl) renderDisabled(c *ui.Context, st *SettingsState, s se
 		if btnClear.Hovered() {
 			btnClear.Background(ThemeHover(c))
 		}
+		focusRing(c, btnClear)
 		if btnClear.Clicked() {
 			m.clear(st)
 		}

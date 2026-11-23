@@ -98,16 +98,30 @@ var pageGeneral = settingsPage{
 					Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenFinished }, true)),
 				},
 				{
-					ID:      "row-notify-foreground",
-					Title:   "前台也发送通知",
-					Aliases: []string{"前台", "系统通知"},
-					Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenForeground }, false)),
-				},
-				{
 					ID:      "row-notify-approval",
 					Title:   "待审批时通知",
 					Aliases: []string{"审批", "请求", "系统通知"},
 					Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyOnApproval }, true)),
+				},
+				{
+					ID:      "row-notify-stalled",
+					Title:   "会话卡住时提醒",
+					Aliases: []string{"卡住", "无进展", "提醒", "系统通知"},
+					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Notifications.NotifyWhenStalled }, true)),
+				},
+				{
+					ID:      "row-stalled-minutes",
+					Title:   "多久算卡住",
+					Aliases: []string{"无进展多久算卡住", "卡住判定", "分钟", "默认", "阈值"},
+					// 提醒关掉时这一行跟着禁用；0 表示没设置过，按默认 10 分钟显示。
+					Enabled: func(st *SettingsState) bool { return st.cfg.Notifications.StalledAlertEnabled() },
+					Control: number(val(func(c *config.Config) *int { return &c.Notifications.StalledAlertMinutes }, config.DefaultStalledAlertMinutes), "分钟", 1, 120),
+				},
+				{
+					ID:      "row-notify-foreground",
+					Title:   "前台也发送通知",
+					Aliases: []string{"前台", "系统通知"},
+					Control: toggle(val(func(c *config.Config) *bool { return &c.Notifications.NotifyWhenForeground }, false)),
 				},
 				{
 					ID:      "row-finish-sound",
@@ -126,20 +140,6 @@ var pageGeneral = settingsPage{
 					Title:   "会话休眠提示音",
 					Aliases: []string{"提示音", "声音", "休眠"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Notifications.DormantSound }, true)),
-				},
-				{
-					ID:      "row-notify-stalled",
-					Title:   "会话卡住时提醒",
-					Aliases: []string{"卡住", "无进展", "提醒", "系统通知"},
-					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Notifications.NotifyWhenStalled }, true)),
-				},
-				{
-					ID:      "row-stalled-minutes",
-					Title:   "多久算卡住",
-					Aliases: []string{"无进展多久算卡住", "卡住判定", "分钟", "默认", "阈值"},
-					// 提醒关掉时这一行跟着禁用；0 表示没设置过，按默认 10 分钟显示。
-					Enabled: func(st *SettingsState) bool { return st.cfg.Notifications.StalledAlertEnabled() },
-					Control: number(val(func(c *config.Config) *int { return &c.Notifications.StalledAlertMinutes }, config.DefaultStalledAlertMinutes), "分钟", 1, 120),
 				},
 			},
 		},
@@ -192,14 +192,6 @@ var pageGeneral = settingsPage{
 			},
 		},
 		{
-			ID:    "general.backup",
-			Title: "备份与恢复",
-			Rows: []setting{
-				{ID: "row-general-backup", Title: "备份", Control: custom(renderBackupControl)},
-				{ID: "row-general-restore", Title: "恢复", Control: custom(renderRestoreControl)},
-			},
-		},
-		{
 			ID:    "general.shortcuts",
 			Title: "快捷键",
 			Rows: []setting{
@@ -218,6 +210,14 @@ var pageGeneral = settingsPage{
 						return fmt.Sprintf("%d 个", len(shortcutDefaults()))
 					}, "shortcuts"),
 				},
+			},
+		},
+		{
+			ID:    "general.backup",
+			Title: "备份与恢复",
+			Rows: []setting{
+				{ID: "row-general-backup", Title: "备份", Control: custom(renderBackupControl)},
+				{ID: "row-general-restore", Title: "恢复", Control: custom(renderRestoreControl)},
 			},
 		},
 	},

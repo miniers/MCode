@@ -11,18 +11,18 @@ func TestSettingsAdvancedPage_Sections(t *testing.T) {
 	if _, ok := settingsTreePageOf("advanced"); ok {
 		t.Fatal("旧高级页不应再注册")
 	}
-	for pageID, sectionID := range map[string]string{
-		"conversation": "advanced.conversation",
-		"swarm":        "advanced.orchestration",
-		"workbench":    "advanced.workbench",
-		"extensions":   "advanced.memory",
+	for pageID, want := range map[string]struct{ id, title string }{
+		"conversation": {"advanced.conversation", "高级"},
+		"swarm":        {"advanced.orchestration", "高级"},
+		"workbench":    {"advanced.workbench", "高级"},
+		"extensions":   {"advanced.memory", "记忆高级"},
 	} {
 		page, ok := settingsTreePageOf(pageID)
 		if !ok || len(page.Sections) == 0 {
 			t.Fatalf("页面 %q 未注册或没有分节", pageID)
 		}
 		section := page.Sections[len(page.Sections)-1]
-		if section.ID != sectionID || section.Title != "高级" {
+		if section.ID != want.id || section.Title != want.title {
 			t.Errorf("页面 %q 最后分节 = %q %q", pageID, section.ID, section.Title)
 		}
 	}
