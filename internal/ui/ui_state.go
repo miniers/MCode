@@ -298,6 +298,8 @@ type uiStateFile struct {
 	// SwarmFailedSeen 记录已查看的失败子代理（主会话 ID -> 子代理 ID -> 查看时的 FinishedAt）：
 	// FinishedAt 变化后该记录自动失效，编排按钮的失败角标重新计数。
 	SwarmFailedSeen map[string]map[string]string `json:"swarm_failed_seen,omitempty"`
+	// PreviewDesignBees 记录本地设计稿路径 -> 设计子代理会话 ID，重启后据此恢复定稿入口。
+	PreviewDesignBees map[string]string `json:"preview_design_bees,omitempty"`
 	Onboarding      string                       `json:"onboarding,omitempty"`
 	// LastModel 是最近一次在模型选择组件中确认的模型选择（provider + model + 推理强度 + 快速模式），
 	// 新建会话或组件初始化时优先使用该记录；零值表示还没有记录。
@@ -500,6 +502,28 @@ func saveSwarmFailedSeen(records map[string]map[string]string) {
 	writeLastSelections(nil)
 }
 
+// loadPreviewDesignBees 读取 ui-state.json 中保存的本地设计稿与设计子代理映射。
+func loadPreviewDesignBees() map[string]string {
+	file, ok := loadUIStateFile()
+	if !ok {
+		return nil
+	}
+	return copyStringMap(file.PreviewDesignBees)
+}
+
+// savePreviewDesignBees 保存本地设计稿与设计子代理映射：先写内存缓存并标脏，再交给统一的写者落盘。
+// 写盘时以磁盘内容为底只覆盖该字段，不会冲掉其它字段。
+func savePreviewDesignBees(records map[string]string) {
+	lastModelSelectionMu.Lock()
+	ensureLastSelectionLoadedLocked()
+	previewDesignBeesCache = copyStringMap(records)
+	previewDesignBeesDirty = true
+	previewDesignBeesGeneration++
+	lastSelectionWritesPending++
+	lastModelSelectionMu.Unlock()
+	writeLastSelections(nil)
+}
+
 // 最近一次模型选择的内存缓存：避免每帧读盘，并在 persistUIState 覆盖写时保留该字段。
 // 缓存按数据目录（ui-state.json 路径）区分，数据目录变化时重新读盘，避免读到别的目录的记录。
 // Swarm 记录与模型选择共用同一缓存与锁。
@@ -540,6 +564,10 @@ var (
 	// 与模型记忆共用同一把锁与同一个写者。
 	swarmFailedSeenCache map[string]map[string]string
 	swarmFailedSeenDirty bool
+	// previewDesignBeesCache/previewDesignBeesDirty 是本地设计稿与设计子代理映射的持久化缓存与脏标记，
+	// 与模型记忆共用同一把锁与同一个写者。
+	previewDesignBeesCache map[string]string
+	previewDesignBeesDirty bool
 	// projectModelCache 是按项目记住的模型选择（项目键 -> 选择）；projectModelDirty 按项目键
 	// 记录本进程改过、还没落盘的条目，projectModelGeneration 用来在写盘期间又有新写入时放弃清脏。
 	// 脏标记按项目键粒度记录，写盘时只覆盖这些键，不会冲掉其它项目的外部改动。
@@ -557,6 +585,7 @@ var (
 	lastSidebarGeneration       uint64
 	continueDismissedGeneration uint64
 	swarmFailedSeenGeneration   uint64
+	previewDesignBeesGeneration uint64
 )
 
 // uiStateBeforeWriteHook 仅供测试注入：在 flushUIStateLocked 于锁内取完快照、释放锁、
@@ -643,6 +672,7 @@ func reloadLastSelectionLocked(path string) {
 	lastSwarmSelectionCache = merged.swarm
 	continueDismissedCache = copyStringMap(merged.continueDismissed)
 	swarmFailedSeenCache = copyNestedStringMap(merged.swarmFailedSeen)
+	previewDesignBeesCache = copyStringMap(merged.previewDesignBees)
 	projectModelCache = copyProjectSelections(merged.projects)
 }
 
@@ -688,6 +718,9 @@ type lastSelectionMerge struct {
 	// swarmFailedSeen 是合并后的已查看失败子代理记录，swarmFailedSeenApplied 标记它来自本进程的脏缓存。
 	swarmFailedSeen        map[string]map[string]string
 	swarmFailedSeenApplied bool
+	// previewDesignBees 是合并后的本地设计稿与设计子代理映射，previewDesignBeesApplied 标记它来自本进程的脏缓存。
+	previewDesignBees        map[string]string
+	previewDesignBeesApplied bool
 	// projects 是合并后的按项目模型选择，projectApplied 记录其中来自本进程脏缓存的键。
 	projects       map[string]ProjectModelSelection
 	projectApplied []string
@@ -703,6 +736,8 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 		continueDismissedApplied: continueDismissedDirty,
 		swarmFailedSeen:          copyNestedStringMap(file.SwarmFailedSeen),
 		swarmFailedSeenApplied:   swarmFailedSeenDirty,
+		previewDesignBees:        copyStringMap(file.PreviewDesignBees),
+		previewDesignBeesApplied: previewDesignBeesDirty,
 		swarmEnabledApplied:      lastSwarmEnabledDirty,
 		swarmBeesApplied:         lastSwarmBeesDirty,
 	}
@@ -713,6 +748,10 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 	if swarmFailedSeenDirty {
 		// 本进程标脏时以内存缓存为准，已查看失败记录整体覆盖，不做逐条合并。
 		merged.swarmFailedSeen = copyNestedStringMap(swarmFailedSeenCache)
+	}
+	if previewDesignBeesDirty {
+		// 本进程标脏时以内存缓存为准，本地设计稿映射整体覆盖，不做逐条合并。
+		merged.previewDesignBees = copyStringMap(previewDesignBeesCache)
 	}
 	// 按项目模型选择同样以磁盘为底，只覆盖本进程标脏的项目键。
 	merged.projects = copyProjectSelections(file.ProjectModels)
@@ -965,6 +1004,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	// 继续胶囊忽略记录与已查看失败子代理记录同样只在本进程标脏时覆盖磁盘内容。
 	file.ContinueDismissed = merged.continueDismissed
 	file.SwarmFailedSeen = merged.swarmFailedSeen
+	file.PreviewDesignBees = merged.previewDesignBees
 	modelGeneration := lastModelGeneration
 	swarmEnabledGeneration := lastSwarmEnabledGeneration
 	swarmBeesGeneration := lastSwarmBeesGeneration
@@ -976,6 +1016,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	lastThreadMu.Unlock()
 	continueGeneration := continueDismissedGeneration
 	swarmFailedSeenGen := swarmFailedSeenGeneration
+	previewDesignBeesGen := previewDesignBeesGeneration
 	tasksGeneration := tasksDetailWidthGeneration
 	tasksApplied := tasksDetailWidthDirty
 	if tasksApplied {
@@ -1125,6 +1166,12 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 		}
 		swarmFailedSeenCache = copyNestedStringMap(merged.swarmFailedSeen)
 	}
+	if previewDesignBeesGen == previewDesignBeesGeneration {
+		if merged.previewDesignBeesApplied {
+			previewDesignBeesDirty = false
+		}
+		previewDesignBeesCache = copyStringMap(merged.previewDesignBees)
+	}
 	for _, key := range merged.projectApplied {
 		if projectGenerations[key] != projectModelGeneration[key] {
 			continue
@@ -1266,6 +1313,7 @@ func applyUIState(s *chatState, st UIState) {
 	// 最后一条消息 ID 变化后该记录自动失效；一并恢复已查看的失败子代理记录。
 	continueDismissed := loadContinueDismissed()
 	swarmFailedSeenRecords := loadSwarmFailedSeen()
+	previewDesignBees := loadPreviewDesignBees()
 	s.mu.Lock()
 	s.sidebarWidth = clampSidebarWidth(st.SidebarWidth)
 	s.sidebarCollapsed = st.SidebarHidden
@@ -1280,6 +1328,7 @@ func applyUIState(s *chatState, st UIState) {
 	}
 	s.mu.Unlock()
 	mergeSwarmFailedSeenMemory(swarmFailedSeenRecords)
+	mergePreviewDesignBeesMemory(previewDesignBees)
 	// 恢复终端 dock 高度偏好（0 表示没有记录，首次打开终端时用默认高度）。
 	setTerminalDockHeightPreference(s, st.TerminalDockHeight)
 	// 恢复右侧分栏面板的宽度偏好（面板状态首次创建时生效）。

@@ -82,6 +82,7 @@ func previewFeedbackThreadIDLocked(st *browserTab, ownerThreadID string) string 
 		return beeID
 	}
 	if lp := strings.TrimSpace(st.localPath); lp != "" {
+		ensurePreviewLocalPathBeesLoadedLocked()
 		if mapped := strings.TrimSpace(previewLocalPathBees[lp]); mapped != "" {
 			return mapped
 		}

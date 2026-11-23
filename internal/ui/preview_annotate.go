@@ -1294,12 +1294,7 @@ func previewFeedbackBeeAwaitingFinalize(s *chatState, beeThreadID string) bool {
 	if view == nil {
 		return false
 	}
-	for _, h := range view.active {
-		if strings.TrimSpace(h.ThreadID) == beeID {
-			return h.AwaitingFinalize
-		}
-	}
-	return false
+	return view.awaitingFinalize[beeID]
 }
 
 // previewFinalizeFeedback 通知后端对当前设计 bee 定稿并触发最终汇报；意见框已输入的文字保持不动。

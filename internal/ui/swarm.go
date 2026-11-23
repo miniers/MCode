@@ -166,6 +166,8 @@ type swarmStateView struct {
 
 	// statusByThread 是“子线程 ID -> bee 状态”，供侧边栏按会话查子代理状态时 O(1) 取值。
 	statusByThread map[string]string
+	// awaitingFinalize 记录处于待定稿状态的 bee threadID（无论当前选中主会话还是子代理会话）。
+	awaitingFinalize map[string]bool
 	// runningIDs 是仍在运行且带会话 ID 的子线程，侧边栏判定“还有子代理在跑”只需遍历它。
 	runningIDs []string
 
@@ -199,6 +201,12 @@ func buildSwarmStateView(st SwarmState, rev int) *swarmStateView {
 				v.statusByThread = make(map[string]string, len(st.Bees))
 			}
 			v.statusByThread[id] = MapSwarmBeeStatus(h)
+			if h.AwaitingFinalize {
+				if v.awaitingFinalize == nil {
+					v.awaitingFinalize = make(map[string]bool)
+				}
+				v.awaitingFinalize[id] = true
+			}
 			if h.Status == "running" {
 				v.runningIDs = append(v.runningIDs, id)
 			}

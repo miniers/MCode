@@ -110,27 +110,83 @@ func previewConsoleErrorsEqual(a, b []previewConsoleError) bool {
 }
 
 var (
-	previewMu         sync.Mutex
-	previewStates     = make(map[*chatState]*previewState)
-	previewNextPageID uint64
-	// shortcut: 仅内存，重启后手动打开的设计稿回落到所属会话，需要时再持久化
-	previewLocalPathBees = make(map[string]string) // guarded by previewMu
+	previewMu                  sync.Mutex
+	previewStates              = make(map[*chatState]*previewState)
+	previewNextPageID          uint64
+	previewLocalPathBees       = make(map[string]string) // guarded by previewMu
+	previewLocalPathBeesLoaded bool                      // guarded by previewMu
 )
 
-func recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID string) {
+func ensurePreviewLocalPathBeesLoaded() {
+	previewMu.Lock()
+	loaded := previewLocalPathBeesLoaded
+	previewMu.Unlock()
+	if loaded {
+		return
+	}
+	records := loadPreviewDesignBees()
+	previewMu.Lock()
+	mergePreviewDesignBeesLocked(records)
+	previewMu.Unlock()
+}
+
+func ensurePreviewLocalPathBeesLoadedLocked() {
+	if previewLocalPathBeesLoaded {
+		return
+	}
+	records := loadPreviewDesignBees()
+	mergePreviewDesignBeesLocked(records)
+}
+
+func mergePreviewDesignBeesLocked(records map[string]string) {
+	previewLocalPathBeesLoaded = true
+	if previewLocalPathBees == nil {
+		previewLocalPathBees = make(map[string]string, len(records))
+	}
+	for localPath, beeID := range records {
+		localPath = strings.TrimSpace(localPath)
+		beeID = strings.TrimSpace(beeID)
+		if localPath == "" || beeID == "" {
+			continue
+		}
+		if _, exists := previewLocalPathBees[localPath]; !exists {
+			previewLocalPathBees[localPath] = beeID
+		}
+	}
+}
+
+func mergePreviewDesignBeesMemory(records map[string]string) {
+	previewMu.Lock()
+	mergePreviewDesignBeesLocked(records)
+	previewMu.Unlock()
+}
+
+func recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID string) (map[string]string, bool) {
+	ensurePreviewLocalPathBeesLoadedLocked()
 	localPath = strings.TrimSpace(localPath)
 	previewThreadID = strings.TrimSpace(previewThreadID)
 	ownerThreadID = strings.TrimSpace(ownerThreadID)
 	if localPath == "" || previewThreadID == "" || ownerThreadID == "" || previewThreadID == ownerThreadID {
-		return
+		return nil, false
+	}
+	if previewLocalPathBees[localPath] == previewThreadID {
+		return nil, false
+	}
+	if previewLocalPathBees == nil {
+		previewLocalPathBees = make(map[string]string)
 	}
 	previewLocalPathBees[localPath] = previewThreadID
+	return copyStringMap(previewLocalPathBees), true
 }
 
 func recordPreviewLocalPathBee(localPath, previewThreadID, ownerThreadID string) {
+	ensurePreviewLocalPathBeesLoaded()
 	previewMu.Lock()
-	recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID)
+	snapshot, changed := recordPreviewLocalPathBeeLocked(localPath, previewThreadID, ownerThreadID)
 	previewMu.Unlock()
+	if changed {
+		savePreviewDesignBees(snapshot)
+	}
 }
 
 // newPreviewWebView 是创建原生 WebView 的唯一入口；测试替换它来检查创建选项。
@@ -543,6 +599,11 @@ func openPreviewLocalURL(s *chatState, threadID, raw string) {
 		return
 	}
 
+	ensurePreviewLocalPathBeesLoaded()
+	var (
+		beeSnapshot map[string]string
+		beeChanged  bool
+	)
 	previewMu.Lock()
 	browserPromoteTabLocked(st)
 	previewAdvanceGenerationLocked(st)
@@ -556,11 +617,14 @@ func openPreviewLocalURL(s *chatState, threadID, raw string) {
 	st.previewThreadID = threadID
 	st.localPreviewURL = target
 	if st.owner != nil {
-		recordPreviewLocalPathBeeLocked(st.localPath, threadID, st.owner.threadID)
+		beeSnapshot, beeChanged = recordPreviewLocalPathBeeLocked(st.localPath, threadID, st.owner.threadID)
 	}
 	// 用户重新打开时重置失败标记，允许再试一次创建 WebView。
 	st.webFailed = false
 	previewMu.Unlock()
+	if beeChanged {
+		savePreviewDesignBees(beeSnapshot)
+	}
 
 	inspectorSelect(s, sidePanePreviewID, false)
 
@@ -817,6 +881,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 		ensureWebView(s, st)
 	}
 	browserStartPolling(s, st)
+	ensurePreviewLocalPathBeesLoaded()
 	previewMu.Lock()
 	snap := previewSnapshotLocked(st)
 	previewMu.Unlock()

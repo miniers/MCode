@@ -9,6 +9,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/testenv"
 )
 
 func TestPreviewAnnotationsSnapshotIsolation(t *testing.T) {
@@ -1835,6 +1838,136 @@ func TestPreviewFinalizeButton(t *testing.T) {
 			t.Fatal("非待定稿 bee 不应显示「定稿」按钮")
 		}
 	})
+}
+
+func TestPreviewLocalPathBeesPersist(t *testing.T) {
+	const leadID = "t-persist-lead"
+	const beeID = "bee-persist-1"
+	const designPath = ".mcode/design/persist-card.html"
+
+	resetState := func() {
+		previewMu.Lock()
+		previewLocalPathBees = make(map[string]string)
+		previewLocalPathBeesLoaded = false
+		previewMu.Unlock()
+
+		lastModelSelectionMu.Lock()
+		previewDesignBeesCache = nil
+		previewDesignBeesDirty = false
+		previewDesignBeesGeneration = 0
+		lastModelSelectionPath = ""
+		lastModelSelectionLoaded = false
+		lastModelSelectionModTime = time.Time{}
+		lastModelSelectionCheckedAt = time.Time{}
+		lastSelectionWritesPending = 0
+		lastModelSelectionMu.Unlock()
+	}
+
+	waitUIStateWrites()
+	resetState()
+	dataDir := settingsTestDir(t)
+	t.Setenv("MCODE_DATA", dataDir)
+	testenv.TempHome(t)
+	t.Cleanup(func() {
+		waitUIStateWrites()
+		resetState()
+	})
+
+	recordPreviewLocalPathBee(designPath, beeID, leadID)
+	waitUIStateWrites()
+
+	raw, err := os.ReadFile(filepath.Join(dataDir, uiStateFileName))
+	if err != nil {
+		t.Fatalf("读取 ui-state.json 失败: %v", err)
+	}
+	var disk struct {
+		PreviewDesignBees map[string]string `json:"preview_design_bees"`
+	}
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatalf("解析 ui-state.json 失败: %v", err)
+	}
+	if got := disk.PreviewDesignBees[designPath]; got != beeID {
+		t.Fatalf("落盘 preview_design_bees[%q] = %q, want %q", designPath, got, beeID)
+	}
+
+	// 清空内存表并重置加载状态，模拟应用重启。
+	resetState()
+
+	tab := &browserTab{
+		localPreview:    true,
+		localPath:       designPath,
+		owner:           &previewState{threadID: leadID},
+		previewThreadID: leadID,
+	}
+	previewMu.Lock()
+	got := previewFeedbackThreadIDLocked(tab, "")
+	previewMu.Unlock()
+	if got != beeID {
+		t.Fatalf("重启恢复后 previewFeedbackThreadIDLocked = %q, want %q", got, beeID)
+	}
+}
+
+func TestPreviewFinalizeButtonFromBeeThread(t *testing.T) {
+	const leadID = "t1"
+	const beeID = "bee-1"
+
+	setAppReduceMotion(t, true)
+	s, client := inspectorContextSetup(t)
+	s.mu.Lock()
+	s.threads = append(s.threads, Thread{ID: beeID, ProjectID: "p1", ParentThreadID: leadID})
+	s.selectedThreadID = beeID
+	s.mu.Unlock()
+
+	st := SwarmState{
+		LeadThreadID: leadID,
+		IsBee:        true,
+		Available:    true,
+		Enabled:      true,
+		Bees: []SwarmBee{{
+			ThreadID:         beeID,
+			Name:             "DesignBee",
+			Status:           "completed",
+			AwaitingFinalize: true,
+		}},
+	}
+	client.SetSwarmState(beeID, st)
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.loadedFor = beeID
+	hp.setStateLocked(st)
+	swarmPanelMu.Unlock()
+
+	tab := getPreviewState(s)
+	t.Cleanup(func() {
+		previewMu.Lock()
+		delete(previewFinalizing, tab)
+		previewMu.Unlock()
+		swarmPanelMu.Lock()
+		delete(swarmPanelStates, s)
+		swarmPanelMu.Unlock()
+		swarmFloatMu.Lock()
+		delete(swarmFloatPanelDismissed, leadID)
+		delete(swarmFloatDismissedBees, leadID)
+		delete(swarmSelectedBeeID, leadID)
+		delete(swarmBeeAutoHideHandled, leadID)
+		delete(swarmPulseTime, leadID+"|"+beeID)
+		swarmFloatMu.Unlock()
+	})
+
+	previewMu.Lock()
+	tab.visible = true
+	tab.localPreview = true
+	tab.previewThreadID = beeID
+	previewMu.Unlock()
+
+	tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tester.Frame()
+	tester.Advance(time.Second)
+
+	finalizeBtn, ok := tester.AccessByRole(ui.RoleButton, "定稿")
+	if !ok || finalizeBtn.Disabled {
+		t.Fatalf("bee 会话中待定稿 bee 应显示可用「定稿」按钮: ok=%v disabled=%v", ok, finalizeBtn.Disabled)
+	}
 }
 
 func TestPreviewAnnotationRegionParse(t *testing.T) {
