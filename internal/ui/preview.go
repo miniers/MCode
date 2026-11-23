@@ -689,7 +689,102 @@ func togglePreview(s *chatState) {
 	s.invalidate()
 }
 
-var previewScreenshotIcon = parseLucideSVG(`<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="4"/>`)
+var (
+	previewScreenshotIcon = parseLucideSVG(`<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="4"/>`)
+	previewMonitorIcon    = parseLucideSVG(`<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>`)
+	previewTabletIcon     = parseLucideSVG(`<rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><line x1="12" x2="12.01" y1="18" y2="18"/>`)
+)
+
+func previewViewportIcon(mode previewViewportMode) *ui.SVG {
+	switch mode {
+	case previewViewportTablet:
+		return previewTabletIcon
+	case previewViewportMobile:
+		return IconSmartphone()
+	default:
+		return previewMonitorIcon
+	}
+}
+
+type previewBadgeButtonProps struct {
+	Key     string
+	Icon    *ui.SVG
+	Label   string
+	Tooltip string
+	Count   int
+	Active  bool
+	Danger  bool
+	OnClick func()
+}
+
+func renderPreviewBadgeButton(c *ui.Context, p previewBadgeButtonProps) ui.Element {
+	btn := ui.ButtonBase(c.Key(p.Key)).
+		Label(p.Label).
+		Tooltip(p.Tooltip).
+		Height(ControlSM).
+		Radius(RadiusSM).
+		AlignItems(ui.Center).
+		Justify(ui.Center).
+		Shrink(0)
+	if p.Count > 0 {
+		btn.Padding(0, Space2).Gap(Space1)
+	} else {
+		btn.Width(ControlSM)
+	}
+
+	hoverTarget, pressTarget := float32(0), float32(0)
+	if btn.Hovered() {
+		hoverTarget = 1
+	}
+	if btn.Pressed() {
+		pressTarget = 1
+	}
+	hover := btn.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
+	press := btn.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+
+	fg := ThemeSecondaryText(c).Mix(ThemePrimaryText(c), hover)
+	bg := buttonBackground(ButtonGhost, false, windowActiveFor(c), hover, press, buttonColors{
+		accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
+		tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
+		overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
+	})
+	switch {
+	case p.Danger:
+		fg = ThemeDanger(c)
+		bg = ThemeDanger(c).Alpha(0.14).
+			Mix(ThemeDanger(c).Alpha(0.20), hover).
+			Mix(ThemeDanger(c).Alpha(0.26), press)
+	case p.Active:
+		fg = ThemeAccent(c)
+		base := ThemeAccentSubtle(c)
+		bg = base.Mix(buttonOverlay(base, ThemeOverlayHover(c)), hover).
+			Mix(buttonOverlay(base, ThemeOverlayPressed(c)), press)
+	}
+
+	btn.Background(bg)
+	focusRing(c, btn)
+	scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+	btn.Scale(scale, scale)
+	if p.OnClick != nil {
+		btn.OnClick(p.OnClick)
+	}
+
+	btn.Children(func() {
+		ui.Icon(c, p.Icon).Size(IconSM, IconSM).TextColor(fg)
+		previous := ui.Local(btn, "badge-count", func() int { return p.Count })
+		changed := *previous != p.Count
+		*previous = p.Count
+		if p.Count > 0 {
+			_, fade := motionNumberProgress(c, btn, changed)
+			ui.Text(c, fmt.Sprint(p.Count)).
+				FontSize(uiFont(TypeCaption)).
+				FontWeight(weightFor(c, 600)).
+				FontFeatures("tnum").
+				TextColor(fg.Alpha(fade))
+		}
+	})
+	return btn
+}
 
 func previewExternalURL(snap previewSnapshot) string {
 	if snap.url != "" {
@@ -736,106 +831,242 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 			// 顶栏 Toolbar
 			ui.Row(c.Key("preview-toolbar")).
 				Height(previewToolbarHeight).
-				Padding(0, Space3).
+				Padding(0, Space2).
 				Gap(Space1).
 				Shrink(0).
 				AlignItems(ui.Center).
+				Background(ThemeSurfaceMain(c)).
 				BorderWidth(0, 0, Hairline, 0).
-				BorderColor(ThemeBorder(c)).
+				BorderColor(ThemeHairline(c)).
 				Children(func() {
-					renderBrowserHistory(c, s, st, snap)
-					// 地址输入框
-					addr := snap.addr
-					in := ui.TextInput(c.Key(fmt.Sprintf("preview-addr-input-%p-%d", st.owner, st.tabID)), &addr).
-						Label("地址").
-						Placeholder("输入地址").
-						FontSize(uiFont(TypeFootnote)).
+					// 导航与地址栏合成一体化胶囊
+					capsule := ui.Row(c.Key("preview-nav-capsule")).
+						Grow(1).
 						MinWidth(0).
-						Grow(1)
-					if addr != snap.addr || in.Focused() != snap.addressEditing {
-						previewMu.Lock()
-						if current := previewStateForTokenLocked(s, snap.token); current != nil {
-							current.addr = addr
-							current.addressEditing = in.Focused()
+						Height(26).
+						Padding(0, Space2, 0, Space1).
+						Gap(Space1).
+						AlignItems(ui.Center).
+						Radius(RadiusMD)
+					var addrFocused bool
+					capsule.Children(func() {
+						ui.Row(c.Key("preview-nav-group")).
+							Gap(Space0).
+							AlignItems(ui.Center).
+							Shrink(0).
+							Children(func() {
+								renderBrowserHistory(c, s, st, snap)
+							})
+						ui.Box(c).Width(Hairline).Height(14).Background(ThemeHairline(c)).Shrink(0)
+						statusColor := ThemeTertiaryText(c)
+						switch {
+						case snap.err != "":
+							statusColor = ThemeDanger(c)
+						case snap.loading:
+							statusColor = ThemeAccent(c)
+						case snap.url != "" || snap.html != "":
+							statusColor = ThemeSuccess(c)
 						}
-						previewMu.Unlock()
-					}
-					if in.Submitted() {
-						openPreviewURL(s, addr)
-					}
-					errorCount := previewConsoleErrorCount(snap.consoleErrors)
-					if captureConsole && (len(snap.consoleErrors) > 0 || snap.consoleOpen) {
-						badgeBtn := ui.ButtonBase(c.Key("preview-console-badge")).
-							Label("控制台").
-							Tooltip("展开或收起控制台").
-							Radius(RadiusXS).
-							Padding(Space0, Space2)
-						if errorCount > 0 {
-							badgeBtn.Background(ThemeDanger(c).Alpha(0.18))
-						}
-						badgeBtnScale := motionPressScale(c, badgeBtn, "button-press-scale", badgeBtn.Pressed())
-						badgeBtn.Scale(badgeBtnScale, badgeBtnScale)
-						if badgeBtn.Clicked() {
+						ui.Icon(c, IconGlobe()).Size(12, 12).TextColor(statusColor).Shrink(0)
+						addr := snap.addr
+						in := ui.TextInput(c.Key(fmt.Sprintf("preview-addr-input-%p-%d", st.owner, st.tabID)), &addr).
+							Label("地址").
+							Placeholder("输入地址").
+							PlaceholderColor(ThemeTertiaryText(c)).
+							FontSize(uiFont(TypeCaption)).
+							TextColor(ThemePrimaryText(c)).
+							BorderWidth(0).
+							Background(ui.Transparent).
+							Padding(0).
+							MinWidth(0).
+							Grow(1)
+						addrFocused = in.Focused()
+						if addr != snap.addr || addrFocused != snap.addressEditing {
 							previewMu.Lock()
 							if current := previewStateForTokenLocked(s, snap.token); current != nil {
-								current.consoleOpen = !snap.consoleOpen
+								current.addr = addr
+								current.addressEditing = addrFocused
 							}
 							previewMu.Unlock()
-							s.invalidate()
 						}
-						badgeBtn.Children(func() {
-							ui.Text(c, "控制台").FontSize(uiFont(TypeCaption))
-							previous := ui.Local(badgeBtn, "error-count", func() int { return errorCount })
-							_, fade := motionNumberProgress(c, badgeBtn, *previous != errorCount)
-							*previous = errorCount
-							if errorCount > 0 {
-								ui.Text(c, fmt.Sprint(errorCount)).FontSize(codeFontSize()).TextColor(ThemeDanger(c).Alpha(fade))
-							}
-						})
+						if in.Submitted() {
+							openPreviewURL(s, addr)
+						}
+					})
+					capsuleBg := ThemeSurfaceCanvas(c)
+					capsuleBorder := ThemeHairline(c)
+					if addrFocused {
+						capsuleBg = ThemeSurfaceCard(c)
+						capsuleBorder = ThemeAccent(c)
+					} else if capsule.Hovered() {
+						capsuleBorder = ThemeBorder(c)
 					}
+					capsule.Background(capsuleBg).Border(Hairline, capsuleBorder)
 
-					label := "选择元素"
-					if snap.annotating {
-						label = "退出选择"
-					}
-					IconButton(c, IconButtonProps{Key: "preview-annotate-btn", Icon: IconHighlighter(), Label: label, Tooltip: label, Size: ControlXS, Variant: ButtonGhost, Active: snap.annotating, OnClick: func() {
-						togglePreviewAnnotate(s, st)
-					}})
-					IconButton(c, IconButtonProps{Key: "preview-screenshot-btn", Icon: previewScreenshotIcon, Label: "截图", Tooltip: "截图", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { previewCaptureScreenshot(s, st) }})
-					menuBtn := IconButton(c, IconButtonProps{Key: "preview-capture-menu-btn", Icon: IconMoreHorizontal(), Label: "更多", Tooltip: "更多", Size: ControlXS, Variant: ButtonGhost, OnClick: func() {
-						st.owner.captureMenuOpen = !st.owner.captureMenuOpen
-					}})
+					ui.Box(c).Width(Hairline).Height(14).Background(ThemeHairline(c)).Shrink(0)
+
 					background := ThemeSurfacePopover(c)
 					native := flyoutHostWindow(c.Services()) != nil
-					appFlyoutPopover(c, "preview-capture-menu", menuBtn, &st.owner.captureMenuOpen, func() { st.owner.captureMenuOpen = false }, appFlyoutProps{Width: 180, Background: &background}, func(fc *ui.Context) {
-						card := ui.Column(fc.Key("preview-capture-menu-panel"))
-						if !native {
-							card = popoverCard(fc, card)
-						}
-						card.Padding(Space1).Transition(motionPopover(fc, motionRiseOffset)).Children(func() {
-							for _, mode := range previewViewportModes() {
-								var icon *ui.SVG
-								if snap.viewport == mode {
-									icon = IconCheck()
-								}
-								Button(fc.Key("preview-viewport-"+string(mode)), ButtonOpts{Text: previewViewportLabel(mode), Icon: icon, Variant: ButtonGhost, OnClick: func() {
-									st.owner.captureMenuOpen = false
-									setPreviewViewport(s, st, mode)
-								}})
-							}
-							Button(fc.Key("browser-new-tab"), ButtonOpts{Text: "新建标签", Variant: ButtonGhost, OnClick: func() {
-								st.owner.captureMenuOpen = false
-								browserNewTab(s)
-							}})
-							if target := previewExternalURL(snap); target != "" {
-								Button(fc.Key("preview-open-external-btn"), ButtonOpts{Text: "在系统浏览器打开", Variant: ButtonGhost, OnClick: func() {
-									st.owner.captureMenuOpen = false
-									fc.OpenURL(target)
-								}})
-							}
-						})
-					})
 
+					ui.Row(c.Key("preview-tool-group")).
+						Gap(Space0).
+						AlignItems(ui.Center).
+						Shrink(0).
+						Children(func() {
+							// 1. 视口切换
+							vpBtn := IconButton(c, IconButtonProps{
+								Key:     "preview-viewport-btn",
+								Icon:    previewViewportIcon(snap.viewport),
+								Label:   "视口尺寸",
+								Tooltip: "视口尺寸",
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								Active:  st.owner.viewportMenuOpen || snap.viewport != previewViewportDesktop,
+								OnClick: func() {
+									if togglePopoverOpen(&st.owner.viewportMenuOpen) {
+										st.owner.captureMenuOpen = false
+									}
+								},
+							}).Shrink(0)
+							appFlyoutPopover(c, "preview-viewport-menu", vpBtn, &st.owner.viewportMenuOpen, func() { st.owner.viewportMenuOpen = false }, appFlyoutProps{Width: 168, Background: &background}, func(fc *ui.Context) {
+								card := ui.Column(fc.Key("preview-viewport-menu-panel"))
+								if !native {
+									card = popoverCard(fc, card)
+								}
+								card.Padding(Space1).Gap(Space0).Transition(motionPopover(fc, motionRiseOffset)).Children(func() {
+									for _, mode := range previewViewportModes() {
+										selected := snap.viewport == mode
+										menuRow(fc, menuRowProps{
+											Key:     "preview-viewport-" + string(mode),
+											Icon:    previewViewportIcon(mode),
+											Title:   previewViewportLabel(mode),
+											Checked: selected,
+											OnClick: func() {
+												st.owner.viewportMenuOpen = false
+												setPreviewViewport(s, st, mode)
+											},
+										}).Selected(selected)
+									}
+								})
+							})
+
+							// 2. 标注模式
+							annotLabel := "选择元素"
+							if snap.annotating {
+								annotLabel = "退出选择"
+							}
+							renderPreviewBadgeButton(c, previewBadgeButtonProps{
+								Key:     "preview-annotate-btn",
+								Icon:    IconHighlighter(),
+								Label:   annotLabel,
+								Tooltip: annotLabel,
+								Count:   len(snap.annotations),
+								Active:  snap.annotating,
+								OnClick: func() {
+									togglePreviewAnnotate(s, st)
+								},
+							})
+
+							// 3. 控制台（常驻）
+							if captureConsole {
+								errorCount := previewConsoleErrorCount(snap.consoleErrors)
+								renderPreviewBadgeButton(c, previewBadgeButtonProps{
+									Key:     "preview-console-badge",
+									Icon:    IconTerminal(),
+									Label:   "控制台",
+									Tooltip: "展开或收起控制台",
+									Count:   errorCount,
+									Active:  snap.consoleOpen,
+									Danger:  errorCount > 0,
+									OnClick: func() {
+										previewMu.Lock()
+										if current := previewStateForTokenLocked(s, snap.token); current != nil {
+											current.consoleOpen = !snap.consoleOpen
+										}
+										previewMu.Unlock()
+										s.invalidate()
+									},
+								})
+							}
+
+							// 4. 整页截图
+							IconButton(c, IconButtonProps{
+								Key:     "preview-screenshot-btn",
+								Icon:    previewScreenshotIcon,
+								Label:   "截图",
+								Tooltip: "整页截图",
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								OnClick: func() { previewCaptureScreenshot(s, st) },
+							}).Shrink(0)
+
+							// 5. 更多菜单
+							menuBtn := IconButton(c, IconButtonProps{
+								Key:     "preview-capture-menu-btn",
+								Icon:    IconMoreHorizontal(),
+								Label:   "更多",
+								Tooltip: "更多",
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								Active:  st.owner.captureMenuOpen,
+								OnClick: func() {
+									if togglePopoverOpen(&st.owner.captureMenuOpen) {
+										st.owner.viewportMenuOpen = false
+									}
+								},
+							}).Shrink(0)
+							appFlyoutPopover(c, "preview-capture-menu", menuBtn, &st.owner.captureMenuOpen, func() { st.owner.captureMenuOpen = false }, appFlyoutProps{Width: 180, Background: &background}, func(fc *ui.Context) {
+								card := ui.Column(fc.Key("preview-capture-menu-panel"))
+								if !native {
+									card = popoverCard(fc, card)
+								}
+								card.Padding(Space1).Gap(Space0).Transition(motionPopover(fc, motionRiseOffset)).Children(func() {
+									menuRow(fc, menuRowProps{
+										Key:   "browser-new-tab",
+										Icon:  IconPlus(),
+										Title: "新建标签",
+										OnClick: func() {
+											st.owner.captureMenuOpen = false
+											browserNewTab(s)
+										},
+									})
+									if target := previewExternalURL(snap); target != "" {
+										menuRow(fc, menuRowProps{
+											Key:   "preview-open-external-btn",
+											Icon:  IconExternalLink(),
+											Title: "在系统浏览器打开",
+											OnClick: func() {
+												st.owner.captureMenuOpen = false
+												fc.OpenURL(target)
+											},
+										})
+										menuRow(fc, menuRowProps{
+											Key:   "preview-copy-url-btn",
+											Icon:  IconCopy(),
+											Title: "复制地址",
+											OnClick: func() {
+												st.owner.captureMenuOpen = false
+												fc.WriteClipboard(target)
+												s.setToast("已复制地址")
+											},
+										})
+									}
+									if len(snap.annotations) > 0 {
+										ui.Box(fc).FillWidth().Height(Hairline).Background(ThemeHairline(fc)).Margin(Space1, 0)
+										menuRow(fc, menuRowProps{
+											Key:    "preview-clear-annotations-menu-btn",
+											Icon:   IconTrash2(),
+											Title:  "清空标注",
+											Danger: true,
+											OnClick: func() {
+												st.owner.captureMenuOpen = false
+												previewClearAnnotations(s, st)
+											},
+										})
+									}
+								})
+							})
+						})
 				})
 
 			// 主体区域

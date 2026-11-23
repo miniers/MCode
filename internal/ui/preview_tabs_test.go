@@ -456,13 +456,16 @@ func TestBrowserToolbarAndConditionalTabs(t *testing.T) {
 	if _, ok := tester.AccessByRole(ui.RoleTab, "新标签"); ok {
 		t.Fatal("单标签仍渲染 browser-tabs-row")
 	}
-	for _, label := range []string{"地址", "选择元素", "截图", "更多"} {
+	for _, label := range []string{"地址", "视口尺寸", "选择元素", "控制台", "截图", "更多"} {
 		rect, ok := tester.Find(label)
 		if !ok || rect.Y >= previewToolbarHeight {
 			t.Fatalf("%s 未放在第一行工具栏：%+v", label, rect)
 		}
 	}
-	for _, label := range []string{"桌面", "平板", "手机", "新建标签", "控制台"} {
+	if rect, ok := tester.Find("0"); ok && rect.Y < previewToolbarHeight {
+		t.Fatalf("无错误时控制台按钮不应显示 0：%+v", rect)
+	}
+	for _, label := range []string{"桌面", "平板", "手机", "新建标签"} {
 		if _, ok := tester.Find(label); ok {
 			t.Fatalf("%s 仍显示在工具栏第二行或空徽标中", label)
 		}
@@ -497,10 +500,12 @@ func TestBrowserHTMLPreviewMenuHasNoExternalURL(t *testing.T) {
 		if external != (target != "") {
 			t.Fatalf("目标 %q 系统浏览器菜单可见=%v", target, external)
 		}
-		for _, label := range []string{"桌面", "平板", "手机", "新建标签"} {
-			if _, ok := tester.Find(label); !ok {
-				t.Fatalf("更多菜单缺少 %s", label)
-			}
+		_, copyURL := tester.Find("复制地址")
+		if copyURL != (target != "") {
+			t.Fatalf("目标 %q 复制地址菜单可见=%v", target, copyURL)
+		}
+		if _, ok := tester.Find("新建标签"); !ok {
+			t.Fatal("更多菜单缺少 新建标签")
 		}
 		inspectorDisposeAllSessions(s)
 	}

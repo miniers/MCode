@@ -70,13 +70,14 @@ type browserTab struct {
 }
 
 type previewState struct {
-	tabs            []*browserTab
-	activeTabID     uint64
-	empty           *browserTab
-	threadID        string
-	captureMenuOpen bool
-	visible         bool
-	lastUsed        time.Time
+	tabs             []*browserTab
+	activeTabID      uint64
+	empty            *browserTab
+	threadID         string
+	viewportMenuOpen bool
+	captureMenuOpen  bool
+	visible          bool
+	lastUsed         time.Time
 }
 
 type browserHistoryPage interface {
@@ -332,13 +333,13 @@ func browserReloadOrStop(s *chatState, tab *browserTab) {
 }
 
 func renderBrowserHistory(c *ui.Context, s *chatState, tab *browserTab, snap previewSnapshot) {
-	IconButton(c, IconButtonProps{Key: "preview-back", Icon: IconArrowLeft(), Label: "后退", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoBack, OnClick: func() { browserNavigateHistory(s, tab, false) }})
-	IconButton(c, IconButtonProps{Key: "preview-forward", Icon: IconArrowRight(), Label: "前进", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoForward, OnClick: func() { browserNavigateHistory(s, tab, true) }})
+	IconButton(c, IconButtonProps{Key: "preview-back", Icon: IconArrowLeft(), Label: "后退", Tooltip: "后退", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoBack, OnClick: func() { browserNavigateHistory(s, tab, false) }}).Shrink(0)
+	IconButton(c, IconButtonProps{Key: "preview-forward", Icon: IconArrowRight(), Label: "前进", Tooltip: "前进", Size: ControlXS, Variant: ButtonGhost, Disabled: !snap.canGoForward, OnClick: func() { browserNavigateHistory(s, tab, true) }}).Shrink(0)
 	label, icon := "刷新", IconRefreshCw()
 	if snap.loading {
 		label, icon = "停止", IconX()
 	}
-	IconButton(c, IconButtonProps{Key: "preview-reload-btn", Icon: icon, Label: label, Size: ControlXS, Variant: ButtonGhost, Disabled: snap.url == "" && snap.html == "", OnClick: func() { browserReloadOrStop(s, tab) }})
+	IconButton(c, IconButtonProps{Key: "preview-reload-btn", Icon: icon, Label: label, Tooltip: label, Size: ControlXS, Variant: ButtonGhost, Disabled: snap.url == "" && snap.html == "", OnClick: func() { browserReloadOrStop(s, tab) }}).Shrink(0)
 }
 
 func browserNeedsPollingLocked(tab *browserTab, capture bool) bool {
@@ -434,8 +435,9 @@ func browserStartPolling(s *chatState, tab *browserTab) {
 
 func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 	type item struct {
-		id    uint64
-		title string
+		id     uint64
+		title  string
+		hasErr bool
 	}
 	previewMu.Lock()
 	items := make([]item, 0, len(st.tabs))
@@ -448,7 +450,7 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 		if title == "" {
 			title = "新标签"
 		}
-		items = append(items, item{tab.tabID, title})
+		items = append(items, item{tab.tabID, title, tab.err != ""})
 		if tab.tabID == st.activeTabID {
 			selected = i
 		}
@@ -457,32 +459,109 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 	if len(items) < 2 {
 		return
 	}
-	row := ui.Row(c.Key("browser-tabs-row")).FillWidth().Height(ControlMD).Shrink(0)
+	row := ui.Row(c.Key("browser-tabs-row")).
+		FillWidth().
+		Height(ControlLG).
+		Padding(Space1, Space2, 0, Space2).
+		Gap(Space1).
+		AlignItems(ui.Center).
+		Background(ThemeSurfaceCanvas(c)).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeHairline(c)).
+		Shrink(0)
 	selection := ui.Local(row, "selection", func() int { return selected })
 	*selection = selected
 	row.Children(func() {
 		tabs := ui.TabsBase(c.Key("browser-tabs"), selection, len(items))
-		tabs.List.Grow(1).Shrink(1).MinWidth(0).Children(func() {
+		tabs.List.Gap(Space0).FillHeight().Shrink(1).MinWidth(0).Children(func() {
 			for i, item := range items {
 				id := item.id
-				ui.Row(c.Key(fmt.Sprintf("browser-tab-%d", id))).Transition(motionListItem(c)).Shrink(1).Children(func() {
-					tab := tabs.Tab(i).Label(item.title).Height(ControlMD).Padding(0, Space2).MinWidth(0).Shrink(1)
-					target := float32(0)
-					if *selection == i {
-						target = 1
+				active := *selection == i
+				tabRow := ui.Row(c.Key(fmt.Sprintf("browser-tab-%d", id))).
+					Transition(motionListItem(c)).
+					FillHeight().
+					AlignItems(ui.Center).
+					MinWidth(0).
+					MaxWidth(184).
+					Shrink(1).
+					Padding(0, Space1, 0, 0).
+					Radius(RadiusSM, RadiusSM, 0, 0)
+				if active {
+					tabRow.Background(ThemeSurfaceMain(c)).
+						BorderWidth(Hairline, Hairline, 0, Hairline).
+						BorderColor(ThemeHairline(c))
+				} else if tabRow.Hovered() {
+					tabRow.Background(ThemeOverlayHover(c))
+				}
+				target := float32(0)
+				if active {
+					target = 1
+				}
+				if reduceMotion(c) {
+					tabRow.Jump("indicator", target)
+				}
+				ink := tabRow.AnimateTo("indicator", target, springSnappy)
+				tabRow.Children(func() {
+					tab := tabs.Tab(i).
+						Label(item.title).
+						FillHeight().
+						Padding(0, Space1, 0, Space2).
+						Gap(Space1).
+						AlignItems(ui.Center).
+						MinWidth(0).
+						Shrink(1)
+					dotColor := ThemeTertiaryText(c)
+					if item.hasErr {
+						dotColor = ThemeDanger(c)
+					} else if active {
+						dotColor = ThemeSuccess(c)
 					}
-					if reduceMotion(c) {
-						tab.Jump("indicator", target)
+					textColor := ThemeSecondaryText(c)
+					if active || tabRow.Hovered() {
+						textColor = ThemePrimaryText(c)
 					}
-					ink := tab.AnimateTo("indicator", target, springSnappy)
 					tab.Children(func() {
-						ui.Text(c, item.title).FontSize(uiFont(TypeCaption)).SingleLine().MaxWidth(160)
-						ui.Box(c).Absolute().Left(Space2).Right(Space2).Bottom(0).Height(Hairline).Background(ThemeAccent(c).Alpha(ink))
+						ui.Box(c).Size(Space1+Space0, Space1+Space0).Radius(RadiusPill).Background(dotColor).Shrink(0)
+						text := ui.Text(c, item.title).
+							FontSize(uiFont(TypeCaption)).
+							TextColor(textColor).
+							SingleLine().
+							Ellipsis("…").
+							MinWidth(0).
+							Shrink(1)
+						if active {
+							text.FontWeight(weightFor(c, 500))
+						}
 					})
-					IconButton(c, IconButtonProps{Key: fmt.Sprintf("browser-close-%d", id), Icon: IconX(), Label: "关闭网页标签", Size: ControlXS, Variant: ButtonGhost, OnClick: func() { browserCloseTab(s, st, id) }})
+					IconButton(c, IconButtonProps{
+						Key:     fmt.Sprintf("browser-close-%d", id),
+						Icon:    IconX(),
+						Label:   "关闭网页标签",
+						Tooltip: "关闭网页标签",
+						Size:    ControlXS,
+						Variant: ButtonGhost,
+						OnClick: func() { browserCloseTab(s, st, id) },
+					}).Shrink(0)
+					ui.Box(c).
+						Absolute().
+						Left(Space2).
+						Right(Space2).
+						Bottom(0).
+						Height(1.5).
+						Radius(RadiusPill).
+						Background(ThemeAccent(c).Alpha(ink))
 				})
 			}
 		})
+		IconButton(c, IconButtonProps{
+			Key:     "browser-tabs-new",
+			Icon:    IconPlus(),
+			Label:   "新建标签",
+			Tooltip: "新建标签",
+			Size:    ControlSM,
+			Variant: ButtonGhost,
+			OnClick: func() { browserNewTab(s) },
+		}).Shrink(0)
 	})
 	if *selection >= 0 && *selection < len(items) && *selection != selected {
 		browserActivateTab(s, st, items[*selection].id)

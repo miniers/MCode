@@ -568,3 +568,237 @@ func TestEnsureWebView_StopsRetryingAfterFailure(t *testing.T) {
 		t.Fatalf("重置标记后应重新尝试创建并再次失败，err=%q", st.err)
 	}
 }
+
+func TestBrowserToolbarRedesign(t *testing.T) {
+	t.Run("NewTabButtonAfterLastTab", func(t *testing.T) {
+		s := &chatState{}
+		defer inspectorDisposeAllSessions(s)
+		first, _ := browserAttachTestPage(s, "https://example.test/a")
+		inspectorSelect(s, sidePanePreviewID, false)
+		browserNewTab(s)
+		browserAttachTestPage(s, "https://example.test/b")
+
+		tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600)
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		var tabBounds []ui.Rect
+		for _, a := range tester.AccessAll() {
+			if a.Role == ui.RoleTab {
+				tabBounds = append(tabBounds, a.Bounds)
+			}
+		}
+		if len(tabBounds) != 2 {
+			t.Fatalf("期望 2 个标签，实际 %d", len(tabBounds))
+		}
+		lastTab := tabBounds[len(tabBounds)-1]
+		newBtn, ok := tester.AccessByRole(ui.RoleButton, "新建标签")
+		if !ok {
+			t.Fatal("未找到新建标签按钮")
+		}
+		if newBtn.Bounds.X < lastTab.X+lastTab.W-1 {
+			t.Fatalf("新建标签按钮未位于最后一个标签之后：newBtn=%+v lastTab=%+v", newBtn.Bounds, lastTab)
+		}
+		if newBtn.Bounds.X+newBtn.Bounds.W >= 700 {
+			t.Fatalf("新建标签按钮仍固定在标签条右端：newBtn=%+v", newBtn.Bounds)
+		}
+
+		tester.ClickAt(newBtn.Bounds.X+newBtn.Bounds.W/2, newBtn.Bounds.Y+newBtn.Bounds.H/2)
+		tester.Frame()
+		previewMu.Lock()
+		count := len(first.owner.tabs)
+		previewMu.Unlock()
+		if count != 3 {
+			t.Fatalf("点击新建标签按钮后标签数 = %d，期望 3", count)
+		}
+	})
+
+	t.Run("ViewportPopoverAndSelection", func(t *testing.T) {
+		s := &chatState{}
+		defer inspectorDisposeAllSessions(s)
+		tab := getPreviewState(s)
+		inspectorSelect(s, sidePanePreviewID, false)
+
+		tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600)
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if err := tester.Click("视口尺寸"); err != nil {
+			t.Fatalf("点击视口切换按钮失败: %v", err)
+		}
+		tester.Advance(time.Second)
+
+		for _, mode := range previewViewportModes() {
+			if _, ok := tester.Find(previewViewportLabel(mode)); !ok {
+				t.Fatalf("视口浮层缺少选项 %s", previewViewportLabel(mode))
+			}
+		}
+		desktopInfo, ok := tester.AccessByRole(ui.RoleButton, "桌面")
+		if !ok || !desktopInfo.Checked {
+			t.Fatalf("默认桌面视口未标记选中: ok=%v info=%+v", ok, desktopInfo)
+		}
+		tabletInfo, ok := tester.AccessByRole(ui.RoleButton, "平板")
+		if !ok || tabletInfo.Checked {
+			t.Fatalf("未选中平板视口状态异常: ok=%v info=%+v", ok, tabletInfo)
+		}
+
+		if err := tester.Click("平板"); err != nil {
+			t.Fatalf("点击平板选项失败: %v", err)
+		}
+		tester.Advance(time.Second)
+		previewMu.Lock()
+		gotViewport := tab.viewport
+		previewMu.Unlock()
+		if gotViewport != previewViewportTablet {
+			t.Fatalf("切换后视口 = %q，期望 %q", gotViewport, previewViewportTablet)
+		}
+
+		if err := tester.Click("视口尺寸"); err != nil {
+			t.Fatalf("再次打开视口浮层失败: %v", err)
+		}
+		tester.Advance(time.Second)
+		tabletInfo, ok = tester.AccessByRole(ui.RoleButton, "平板")
+		if !ok || !tabletInfo.Checked {
+			t.Fatalf("切换后平板未标记选中: ok=%v info=%+v", ok, tabletInfo)
+		}
+		desktopInfo, ok = tester.AccessByRole(ui.RoleButton, "桌面")
+		if !ok || desktopInfo.Checked {
+			t.Fatalf("切换后桌面仍标记选中: ok=%v info=%+v", ok, desktopInfo)
+		}
+	})
+
+	t.Run("AnnotateBadgeCount", func(t *testing.T) {
+		s := &chatState{}
+		defer inspectorDisposeAllSessions(s)
+		tab, _ := browserAttachTestPage(s, "https://example.test/annot")
+		previewMu.Lock()
+		tab.webFailed = true
+		previewMu.Unlock()
+		inspectorSelect(s, sidePanePreviewID, false)
+
+		tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600)
+		tester.Frame()
+		tester.Advance(time.Second)
+		if _, ok := tester.Find("选择元素"); !ok {
+			t.Fatal("缺少标注按钮")
+		}
+		if tester.HasText("3") {
+			t.Fatal("0 条标注时不应显示数量角标")
+		}
+
+		previewMu.Lock()
+		tab.annotations = []previewAnnotation{
+			{id: 1, PageID: 1, Selector: "#a"},
+			{id: 2, PageID: 2, Selector: "#b"},
+			{id: 3, PageID: 3, Selector: "#c"},
+		}
+		previewMu.Unlock()
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		annotRect, ok := tester.Find("选择元素")
+		badgeRect, badgeOK := tester.Find("3")
+		if !ok || !badgeOK {
+			t.Fatalf("有标注时未显示数量角标: btn=%v badge=%v", ok, badgeOK)
+		}
+		const eps float32 = 0.5
+		if badgeRect.X < annotRect.X-eps || badgeRect.X+badgeRect.W > annotRect.X+annotRect.W+eps {
+			t.Fatalf("标注角标未位于标注按钮内: btn=%+v badge=%+v", annotRect, badgeRect)
+		}
+	})
+
+	t.Run("ConsoleAlwaysVisibleAndErrorCount", func(t *testing.T) {
+		s := &chatState{}
+		defer inspectorDisposeAllSessions(s)
+		tab, _ := browserAttachTestPage(s, "https://example.test/console")
+		previewMu.Lock()
+		tab.webFailed = true
+		previewMu.Unlock()
+		inspectorSelect(s, sidePanePreviewID, false)
+
+		tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600)
+		tester.Frame()
+		tester.Advance(time.Second)
+		if _, ok := tester.Find("控制台"); !ok {
+			t.Fatal("控制台按钮未常驻显示")
+		}
+		if tester.HasText("0") {
+			t.Fatal("无错误时控制台按钮不应显示 0")
+		}
+
+		previewMu.Lock()
+		tab.consoleErrors = []previewConsoleError{
+			{Sequence: 1, Kind: "error", Message: "err1"},
+			{Sequence: 2, Kind: "warn", Message: "warn1"},
+			{Sequence: 3, Kind: "error", Message: "err2"},
+		}
+		previewMu.Unlock()
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		consoleRect, ok := tester.Find("控制台")
+		countRect, countOK := tester.Find("2")
+		if !ok || !countOK {
+			t.Fatalf("有控制台错误时未显示错误数角标: btn=%v count=%v", ok, countOK)
+		}
+		const eps float32 = 0.5
+		if countRect.X < consoleRect.X-eps || countRect.X+countRect.W > consoleRect.X+consoleRect.W+eps {
+			t.Fatalf("控制台错误角标未位于控制台按钮内: btn=%+v count=%+v", consoleRect, countRect)
+		}
+	})
+
+	t.Run("MoreMenuContainsExistingEntries", func(t *testing.T) {
+		s := &chatState{}
+		defer inspectorDisposeAllSessions(s)
+		tab, _ := browserAttachTestPage(s, "https://example.test/page")
+		previewMu.Lock()
+		tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#x"}}
+		previewMu.Unlock()
+		inspectorSelect(s, sidePanePreviewID, false)
+
+		tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600)
+		tester.Frame()
+		tester.Advance(time.Second)
+
+		if err := tester.Click("更多"); err != nil {
+			t.Fatalf("点击更多菜单失败: %v", err)
+		}
+		tester.Advance(time.Second)
+
+		for _, label := range []string{"新建标签", "在系统浏览器打开", "复制地址", "清空标注"} {
+			if _, ok := tester.Find(label); !ok {
+				t.Fatalf("更多菜单缺少 %s", label)
+			}
+		}
+		if err := tester.Click("复制地址"); err != nil {
+			t.Fatalf("点击复制地址失败: %v", err)
+		}
+		tester.Advance(time.Second)
+		if got := tester.Clipboard(); got != "https://example.test/page" {
+			t.Fatalf("复制地址剪贴板 = %q，期望 https://example.test/page", got)
+		}
+	})
+
+	t.Run("IdleSettlesWithoutRedraw", func(t *testing.T) {
+		for _, reduced := range []bool{false, true} {
+			setAppReduceMotion(t, reduced)
+			s := &chatState{}
+			browserAttachTestPage(s, "https://example.test/a")
+			browserNewTab(s)
+			tab, _ := browserAttachTestPage(s, "https://example.test/b")
+			previewMu.Lock()
+			tab.annotations = []previewAnnotation{{id: 1, PageID: 1, Selector: "#a"}}
+			tab.consoleErrors = []previewConsoleError{{Sequence: 1, Kind: "error", Message: "err"}}
+			previewMu.Unlock()
+			inspectorSelect(s, sidePanePreviewID, false)
+
+			tester := ui.NewTesterWith(func(c *ui.Context) { renderPreviewPanel(c, s) }, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+			tester.Frame()
+			tester.Advance(2 * time.Second)
+			if tester.FramePending() {
+				t.Fatalf("reduceMotion=%v 静止后仍请求下一帧", reduced)
+			}
+			inspectorDisposeAllSessions(s)
+		}
+	})
+}
