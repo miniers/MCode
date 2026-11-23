@@ -1555,8 +1555,9 @@ func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactio
 				OnClick(func() {
 					s.toggleInteractionMode()
 				})
-			modeColor := ThemePrimaryText(c)
 			modeHovered := modeBtn.Hovered() && !disabled
+			modePressed := !disabled && modeBtn.Pressed()
+			modeColor := ThemeTertiaryText(c)
 			if interactionMode == "plan" {
 				modeBtn.Background(ThemePlan(c).Alpha(0.18))
 				if modeHovered {
@@ -1565,11 +1566,14 @@ func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactio
 				modeColor = ThemePlan(c)
 			} else {
 				composerHoverBg(c, modeBtn, modeHovered)
+				if modeHovered || modePressed {
+					modeColor = ThemePrimaryText(c)
+				}
 			}
-			modeScale := motionPressScale(c, modeBtn, "button-press-scale", !disabled && modeBtn.Pressed())
+			modeScale := motionPressScale(c, modeBtn, "button-press-scale", modePressed)
 			modeBtn.Scale(modeScale, modeScale)
 			modeBtn.Children(func() {
-				ui.Icon(c, interactionModeIcon(interactionMode)).Size(composerControlIconSize, composerControlIconSize).TextColor(modeColor)
+				ui.Icon(c, interactionModeIcon(interactionMode)).Size(IconSM, IconSM).TextColor(modeColor)
 			})
 
 			permBtn = ui.ButtonBase(c.Key("composer-permission-btn")).
@@ -1584,15 +1588,16 @@ func renderModePermissionCombo(c *ui.Context, s *chatState, threadID, interactio
 					s.invalidate()
 				})
 			permHovered := permBtn.Hovered() && !disabled
+			permPressed := !disabled && permBtn.Pressed()
 			composerHoverBg(c, permBtn, permHovered || s.composerView.permissionMenuOpen)
-			permColor := ThemePrimaryText(c)
-			if permMode == "fullAccess" {
-				permColor = ThemeWarning(c)
+			permColor := ThemeTertiaryText(c)
+			if permHovered || permPressed || s.composerView.permissionMenuOpen {
+				permColor = ThemePrimaryText(c)
 			}
-			permScale := motionPressScale(c, permBtn, "button-press-scale", !disabled && permBtn.Pressed())
+			permScale := motionPressScale(c, permBtn, "button-press-scale", permPressed)
 			permBtn.Scale(permScale, permScale)
 			permBtn.Children(func() {
-				ui.Icon(c, composerPermissionIcon(permMode)).Size(composerControlIconSize, composerControlIconSize).TextColor(permColor)
+				ui.Icon(c, composerPermissionIcon(permMode)).Size(IconSM, IconSM).TextColor(permColor)
 			})
 		})
 

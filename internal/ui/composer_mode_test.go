@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"image"
 	"testing"
 	"time"
 
@@ -80,4 +81,118 @@ func lastRuntimeModeCall(fake *FakeClient) (string, string) {
 	}
 	last := fake.setRuntimeModeCalls[len(fake.setRuntimeModeCalls)-1]
 	return last.ThreadID, last.Mode
+}
+
+func rectPixelsNear(t *testing.T, img *image.RGBA, a, b ui.Rect, tol int) bool {
+	t.Helper()
+	w := int(a.W)
+	h := int(a.H)
+	if int(b.W) != w || int(b.H) != h {
+		t.Fatalf("对照矩形尺寸不一致: %+v vs %+v", a, b)
+	}
+	for dy := 0; dy < h; dy++ {
+		for dx := 0; dx < w; dx++ {
+			ia := img.PixOffset(int(a.X)+dx, int(a.Y)+dy)
+			ib := img.PixOffset(int(b.X)+dx, int(b.Y)+dy)
+			pa := [3]int{int(img.Pix[ia]), int(img.Pix[ia+1]), int(img.Pix[ia+2])}
+			pb := [3]int{int(img.Pix[ib]), int(img.Pix[ib+1]), int(img.Pix[ib+2])}
+			if !colorNear(pa, pb, tol) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestComposerModePermissionQuietColors(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.threads = []Thread{{ID: "t1", RuntimeMode: "fullAccess", InteractionMode: "build"}}
+	s.mu.Unlock()
+	_, radius := composerShellRadii(false)
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Gap(Space2).Children(func() {
+			renderModePermissionCombo(c, s, "t1", "build", false, radius)
+			ui.Row(c).Gap(Space1).Children(func() {
+				ui.ButtonBase(c.Key("ref-mode-tertiary")).
+					Label("ref-mode-tertiary").
+					Size(composerActionBtnSize, composerActionBtnSize).
+					Radius(radius).
+					Children(func() {
+						ui.Icon(c, interactionModeIcon("build")).Size(IconSM, IconSM).TextColor(ThemeTertiaryText(c))
+					})
+				ui.ButtonBase(c.Key("ref-mode-warning")).
+					Label("ref-mode-warning").
+					Size(composerActionBtnSize, composerActionBtnSize).
+					Radius(radius).
+					Children(func() {
+						ui.Icon(c, interactionModeIcon("build")).Size(IconSM, IconSM).TextColor(ThemeWarning(c))
+					})
+				ui.ButtonBase(c.Key("ref-perm-tertiary")).
+					Label("ref-perm-tertiary").
+					Size(composerActionBtnSize, composerActionBtnSize).
+					Radius(radius).
+					Children(func() {
+						ui.Icon(c, composerPermissionIcon("fullAccess")).Size(IconSM, IconSM).TextColor(ThemeTertiaryText(c))
+					})
+				ui.ButtonBase(c.Key("ref-perm-warning")).
+					Label("ref-perm-warning").
+					Size(composerActionBtnSize, composerActionBtnSize).
+					Radius(radius).
+					Children(func() {
+						ui.Icon(c, composerPermissionIcon("fullAccess")).Size(IconSM, IconSM).TextColor(ThemeWarning(c))
+					})
+			})
+		})
+	}, 400, 200)
+
+	tt.Move(390, 190)
+	tt.Advance(200 * time.Millisecond)
+
+	modeRect, ok := tt.Find("构建")
+	if !ok {
+		t.Fatal("找不到构建按钮")
+	}
+	permRect, ok := tt.Find("权限：完全访问")
+	if !ok {
+		t.Fatal("找不到完全访问权限按钮")
+	}
+	refModeTertiary, ok := tt.Find("ref-mode-tertiary")
+	if !ok {
+		t.Fatal("找不到 ref-mode-tertiary")
+	}
+	refModeWarning, ok := tt.Find("ref-mode-warning")
+	if !ok {
+		t.Fatal("找不到 ref-mode-warning")
+	}
+	refPermTertiary, ok := tt.Find("ref-perm-tertiary")
+	if !ok {
+		t.Fatal("找不到 ref-perm-tertiary")
+	}
+	refPermWarning, ok := tt.Find("ref-perm-warning")
+	if !ok {
+		t.Fatal("找不到 ref-perm-warning")
+	}
+
+	img := tt.Image()
+	if rectPixelsNear(t, img, refModeTertiary, refModeWarning, 2) {
+		t.Fatal("对照图标 ThemeTertiaryText 与 ThemeWarning 应有明显色差")
+	}
+	if rectPixelsNear(t, img, refPermTertiary, refPermWarning, 2) {
+		t.Fatal("对照权限图标 ThemeTertiaryText 与 ThemeWarning 应有明显色差")
+	}
+	if !rectPixelsNear(t, img, modeRect, refModeTertiary, 2) {
+		t.Fatal("构建按钮未悬停时图标颜色应等于 ThemeTertiaryText")
+	}
+	if rectPixelsNear(t, img, modeRect, refModeWarning, 2) {
+		t.Fatal("构建按钮未悬停时图标颜色不应等于 ThemeWarning")
+	}
+	if !rectPixelsNear(t, img, permRect, refPermTertiary, 2) {
+		t.Fatal("完全访问权限按钮未悬停时图标颜色应等于 ThemeTertiaryText")
+	}
+	if rectPixelsNear(t, img, permRect, refPermWarning, 2) {
+		t.Fatal("完全访问权限按钮未悬停时图标颜色不应等于 ThemeWarning")
+	}
 }
