@@ -2,11 +2,13 @@ package mcodeui
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 
+	"mcode/internal/providers/agy/quota"
 	"mcode/internal/testenv"
 )
 
@@ -85,16 +87,19 @@ func TestComposerQuotaPopoverRefreshRequestsProviderReload(t *testing.T) {
 	if err := tt.Click("额度 " + th.Provider); err != nil {
 		t.Fatalf("打开额度弹层失败: %v", err)
 	}
-	if err := tt.Click("刷新"); err != nil {
+	if err := tt.Click("刷新额度"); err != nil {
 		t.Fatalf("点击刷新失败: %v", err)
 	}
 
-	// 刷新进行中：按钮显示「刷新中…」，重复点击不会再发一次请求。
-	waitFor(t, tt, func() bool { return tt.HasText("刷新中…") })
-	// 界面在 goroutine 调用 fake 之前就已切成「刷新中…」，这里要等 fake 真正收到请求，
+	// 刷新进行中：保持纯图标无文字标签，重复点击不会再发一次请求。
+	waitFor(t, tt, func() bool { return composerQuotaRefreshing(s, th.Provider) })
+	if slices.Contains(tt.Texts(), "刷新中…") || slices.Contains(tt.Texts(), "刷新") {
+		t.Fatalf("刷新按钮不应显示文字标签，texts=%q", tt.Texts())
+	}
+	// 界面在 goroutine 调用 fake 之前就已进入刷新中，这里要等 fake 真正收到请求，
 	// 否则下面的长度断言会受 goroutine 调度时机影响而偶发失败。
 	waitFor(t, tt, func() bool { return len(fake.RefreshProviderQuotaCalls()) >= 1 })
-	if err := tt.Click("刷新中…"); err != nil {
+	if err := tt.Click("刷新额度"); err != nil {
 		t.Fatalf("点击刷新中按钮失败: %v", err)
 	}
 	if calls := fake.RefreshProviderQuotaCalls(); len(calls) != 1 || calls[0] != "pi:magpie-jp" {
@@ -266,8 +271,8 @@ func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
 	if tt.HasText("本周重置") {
 		t.Fatalf("浮层里不应再出现「本周重置」: %q", tt.Texts())
 	}
-	if !tt.HasText("周: 周一用尽 · 周三重置") {
-		t.Fatalf("周窗口提前用尽应显示「周: 周一用尽 · 周三重置」: %q", tt.Texts())
+	if tt.HasText("周: 周一用尽 · 周三重置") {
+		t.Fatalf("新版列表右列应显示紧凑词，未悬停时不应显示长文案: %q", tt.Texts())
 	}
 
 	mustFind := func(tester *ui.Tester, text string) ui.Rect {
@@ -281,20 +286,32 @@ func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
 
 	p60 := mustFind(tt, "60%")
 	p18 := mustFind(tt, "18%")
-	rWed := mustFind(tt, "周三")
-	rThu := mustFind(tt, "周四")
+	sMon := mustFind(tt, "周一用尽")
+	s4h := mustFind(tt, "4h 重置")
+	s3h := mustFind(tt, "3h 重置")
 
-	if !(rWed.X > p60.X) || !(rThu.X > p18.X) {
-		t.Fatalf("重置日应位于百分比右侧：p60=%+v wed=%+v p18=%+v thu=%+v", p60, rWed, p18, rThu)
+	if !(sMon.X > p60.X) || !(s4h.X > p18.X) {
+		t.Fatalf("状态列应位于百分比右侧：p60=%+v mon=%+v p18=%+v h4=%+v", p60, sMon, p18, s4h)
 	}
-	if d := centerY(rWed) - centerY(p60); d > 2 || d < -2 {
-		t.Fatalf("周三应与 60%% 同行：wed=%+v p60=%+v", rWed, p60)
+	if d := centerY(sMon) - centerY(p60); d > 2 || d < -2 {
+		t.Fatalf("周一用尽应与 60%% 同行：mon=%+v p60=%+v", sMon, p60)
 	}
-	if d := centerY(rThu) - centerY(p18); d > 2 || d < -2 {
-		t.Fatalf("周四应与 18%% 同行：thu=%+v p18=%+v", rThu, p18)
+	if d := centerY(s4h) - centerY(p18); d > 2 || d < -2 {
+		t.Fatalf("4h 重置应与 18%% 同行：h4=%+v p18=%+v", s4h, p18)
 	}
-	if d := (rWed.X + rWed.W) - (rThu.X + rThu.W); d > 1 || d < -1 {
-		t.Fatalf("多账号周行重置日列右边缘应对齐：wed=%+v thu=%+v", rWed, rThu)
+	if d := (sMon.X + sMon.W) - (s4h.X + s4h.W); d > 1 || d < -1 {
+		t.Fatalf("多账号状态列右边缘应对齐：mon=%+v h4=%+v", sMon, s4h)
+	}
+	if d := (sMon.X + sMon.W) - (s3h.X + s3h.W); d > 1 || d < -1 {
+		t.Fatalf("多账号状态列右边缘应对齐：mon=%+v h3=%+v", sMon, s3h)
+	}
+
+	// 悬停 a@example.com 行应展示完整用尽与重置日详情。
+	rA := mustFind(tt, "a@example.com")
+	tt.Move(rA.X+rA.W/2, rA.Y+rA.H/2)
+	tt.Frame()
+	if !tt.HasText("周 60% · 周一用尽 · 周三重置") {
+		t.Fatalf("悬停提前用尽账号行应展示完整详情，texts=%q", tt.Texts())
 	}
 
 	// 托盘宽度（400px）下不溢出、不换行。
@@ -313,11 +330,344 @@ func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
 	ttTray.Frame()
 
 	trayPct := mustFind(ttTray, "60%")
-	trayWed := mustFind(ttTray, "周三")
-	if trayWed.X+trayWed.W > 400 {
-		t.Fatalf("托盘宽度下重置日列不应溢出：wed=%+v", trayWed)
+	trayMon := mustFind(ttTray, "周一用尽")
+	if trayMon.X+trayMon.W > 400 {
+		t.Fatalf("托盘宽度下状态列不应溢出：mon=%+v", trayMon)
 	}
-	if d := centerY(trayWed) - centerY(trayPct); d > 2 || d < -2 {
-		t.Fatalf("托盘宽度下重置日列不应换行：wed=%+v pct=%+v", trayWed, trayPct)
+	if d := centerY(trayMon) - centerY(trayPct); d > 2 || d < -2 {
+		t.Fatalf("托盘宽度下状态列不应换行：mon=%+v pct=%+v", trayMon, trayPct)
 	}
+}
+
+func TestComposerQuotaRedesignPopoverWidthAndRefreshIconButton(t *testing.T) {
+	testenv.TempHome(t)
+	if quotaPopoverWidth != 456 {
+		t.Fatalf("quotaPopoverWidth = %v, want 456", quotaPopoverWidth)
+	}
+	setAppReduceMotion(t, true)
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	th := &Thread{ID: "t1", Provider: "codex"}
+	SetChatQuotaWindowsForProvider(s, th.Provider, []ProviderQuotaWindow{
+		{Label: "5 hours", Period: "5h", Plan: "plus", UsedPercent: 18, ResetsAt: time.Now().Add(3 * time.Hour)},
+	})
+	t.Cleanup(func() { SetChatQuotaWindowsForProvider(s, th.Provider, nil) })
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+			renderComposerQuotaPopover(c, s, th, th.Provider, 0)
+		})
+	}, 480, 320, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	if slices.Contains(tt.Texts(), "刷新") || slices.Contains(tt.Texts(), "刷新中…") {
+		t.Fatalf("刷新按钮应为纯图标不含文字，texts=%q", tt.Texts())
+	}
+	if !tt.HasText("· plus") {
+		t.Fatalf("单组有 Plan 时顶栏应保留「· plus」，texts=%q", tt.Texts())
+	}
+	if tt.HasText("自动选号") || tt.HasText("指定") {
+		t.Fatalf("非可选账号供应商不应显示顶栏路由分段，texts=%q", tt.Texts())
+	}
+
+	refreshBtn, ok := tt.AccessByRole(ui.RoleButton, "刷新额度")
+	if !ok {
+		t.Fatalf("找不到无障碍标签为「刷新额度」的刷新按钮")
+	}
+	if refreshBtn.Bounds.W != ControlSM || refreshBtn.Bounds.H != ControlSM {
+		t.Fatalf("刷新按钮应为 ControlSM 正方形，bounds=%+v", refreshBtn.Bounds)
+	}
+	countLabel := func() int {
+		n := 0
+		for _, txt := range tt.Texts() {
+			if txt == "刷新额度" {
+				n++
+			}
+		}
+		return n
+	}
+	if got := countLabel(); got != 1 {
+		t.Fatalf("悬停前「刷新额度」应仅作为无障碍标签出现 1 次，实际=%d，texts=%q", got, tt.Texts())
+	}
+	tt.Move(refreshBtn.Bounds.X+refreshBtn.Bounds.W/2, refreshBtn.Bounds.Y+refreshBtn.Bounds.H/2)
+	tt.Advance(time.Second)
+	if got := countLabel(); got < 2 {
+		t.Fatalf("悬停刷新按钮后应展示 Tooltip「刷新额度」，出现次数=%d，texts=%q", got, tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("静止状态下刷新按钮不应请求后续帧")
+	}
+
+	s.mu.Lock()
+	if s.quotaRefreshingProviders == nil {
+		s.quotaRefreshingProviders = make(map[string]bool)
+	}
+	s.quotaRefreshingProviders[th.Provider] = true
+	s.mu.Unlock()
+	tt.Frame()
+	if tt.HasText("刷新中…") {
+		t.Fatalf("加载中刷新按钮仍不应展示文字，texts=%q", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("ReduceMotion 开启时加载中刷新按钮不应请求后续帧")
+	}
+
+	t.Run("正常动效下加载中旋转且不重建组件树、结束后静止", func(t *testing.T) {
+		setAppReduceMotion(t, false)
+		fixedNow := time.Now()
+		oldNow := usagePanelNow
+		usagePanelNow = func() time.Time { return fixedNow }
+		t.Cleanup(func() { usagePanelNow = oldNow })
+		s.mu.Lock()
+		s.quotaRefreshingProviders[th.Provider] = false
+		s.mu.Unlock()
+		builds := 0
+		ttSpin := ui.NewTester(func(c *ui.Context) {
+			builds++
+			ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+				renderComposerQuotaPopover(c, s, th, th.Provider, 0)
+			})
+		}, 480, 320)
+		ttSpin.Frame()
+		ttSpin.Advance(DurBase + 50*time.Millisecond)
+		ttSpin.Frame()
+		if ttSpin.FramePending() {
+			t.Fatal("静止态下刷新按钮不应请求后续帧")
+		}
+
+		s.mu.Lock()
+		s.quotaRefreshingProviders[th.Provider] = true
+		s.mu.Unlock()
+		ttSpin.Frame()
+		beforeBuilds := builds
+		img1 := slices.Clone(ttSpin.Image().Pix)
+		ttSpin.Advance(150 * time.Millisecond)
+		img2 := slices.Clone(ttSpin.Image().Pix)
+		if builds != beforeBuilds {
+			t.Fatalf("加载中旋转不应重建组件树：%d → %d", beforeBuilds, builds)
+		}
+		if ttSpin.FramePending() {
+			t.Fatal("Draw 旋转应只重画图标，不应通过组件树请求下一帧")
+		}
+		if slices.Equal(img1, img2) {
+			t.Fatal("加载中推进时钟后刷新图标像素应随旋转变化")
+		}
+
+		s.mu.Lock()
+		s.quotaRefreshingProviders[th.Provider] = false
+		s.mu.Unlock()
+		ttSpin.Frame()
+		afterBuilds := builds
+		img3 := slices.Clone(ttSpin.Image().Pix)
+		ttSpin.Advance(150 * time.Millisecond)
+		img4 := slices.Clone(ttSpin.Image().Pix)
+		if builds != afterBuilds || ttSpin.FramePending() {
+			t.Fatalf("加载结束后不应继续重绘：builds=%d->%d pending=%v", afterBuilds, builds, ttSpin.FramePending())
+		}
+		if !slices.Equal(img3, img4) {
+			t.Fatal("加载结束后推进时钟像素不应再变化")
+		}
+	})
+}
+
+func TestComposerQuotaRedesignHeaderRouteSegmentedAndSelection(t *testing.T) {
+	th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
+	fake, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
+	s.composerView.quotaOpen = true
+	s.composerView.quotaPopoverKey = "agy"
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+			renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+		})
+	}, 480, 480)
+
+	if _, ok := tt.AccessByRole(ui.RoleButton, "自动"); ok {
+		t.Fatal("顶栏改版后不应再有独立的「自动」行按钮")
+	}
+	if _, ok := tt.Find("composer-quota-account-auto"); ok {
+		t.Fatal("不应再渲染 composer-quota-account-auto")
+	}
+	segRect, ok := tt.Find("账号路由模式")
+	if !ok {
+		t.Fatalf("accountSelectable 时顶栏应出现「账号路由模式」分段，texts=%q", tt.Texts())
+	}
+	if segRect.H > ControlSM {
+		t.Fatalf("分段胶囊高度不应超过 ControlSM (%v)，实际=%v", ControlSM, segRect.H)
+	}
+	refreshBtn, ok := tt.AccessByRole(ui.RoleButton, "刷新额度")
+	if !ok {
+		t.Fatal("找不到刷新按钮")
+	}
+	if segRect.X+segRect.W > refreshBtn.Bounds.X {
+		t.Fatalf("分段胶囊应位于刷新按钮左侧：seg=%+v refresh=%+v", segRect, refreshBtn.Bounds)
+	}
+
+	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动选号")
+	if !ok || !autoBtn.Checked || autoBtn.Disabled {
+		t.Fatalf("currentAccountID 为空时「自动选号」应选中且可用: ok=%v node=%+v", ok, autoBtn)
+	}
+	manualBtn, ok := tt.AccessByRole(ui.RoleButton, "指定")
+	if !ok || manualBtn.Checked || manualBtn.Disabled {
+		t.Fatalf("currentAccountID 为空时「指定」应未选中且可用: ok=%v node=%+v", ok, manualBtn)
+	}
+
+	// 当前在用账号为 个人账号 (acc-1)，点「指定」应优先以 acc-1 调用选择。
+	if err := tt.Click("指定"); err != nil {
+		t.Fatalf("点击「指定」失败: %v", err)
+	}
+	if got := currentTestThreadSnapshot(s, th.ID, th).Account; got != "acc-1" {
+		t.Fatalf("点击「指定」后线程 Account = %q, want %q", got, "acc-1")
+	}
+	waitFor(t, tt, func() bool {
+		calls := fake.SetThreadAccountCalls()
+		return len(calls) == 1 && calls[0].ThreadID == "t1" && calls[0].AccountID == "acc-1"
+	})
+
+	s.composerView.quotaOpen = true
+	s.composerView.quotaPopoverKey = "agy"
+	tt.Frame()
+	autoBtn, _ = tt.AccessByRole(ui.RoleButton, "自动选号")
+	manualBtn, _ = tt.AccessByRole(ui.RoleButton, "指定")
+	if autoBtn.Checked || !manualBtn.Checked {
+		t.Fatalf("指定账号后应切换选中态: auto=%+v manual=%+v", autoBtn, manualBtn)
+	}
+
+	// 点「自动选号」应以空串调用选择。
+	if err := tt.Click("自动选号"); err != nil {
+		t.Fatalf("点击「自动选号」失败: %v", err)
+	}
+	if got := currentTestThreadSnapshot(s, th.ID, th).Account; got != "" {
+		t.Fatalf("点击「自动选号」后线程 Account 应为空，实际=%q", got)
+	}
+	waitFor(t, tt, func() bool {
+		calls := fake.SetThreadAccountCalls()
+		return len(calls) == 2 && calls[1].ThreadID == "t1" && calls[1].AccountID == ""
+	})
+}
+
+func TestComposerQuotaRedesignManualFallbackAndAllDisabled(t *testing.T) {
+	t.Run("无在用账号时选首个未禁用账号", func(t *testing.T) {
+		th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
+		windows := []ProviderQuotaWindow{
+			{Label: "账号1 · " + quota.GroupGemini, Account: "账号1", AccountID: "acc-1", Period: "5h", UsedPercent: 100},
+			{Label: "账号2 · " + quota.GroupGemini, Account: "账号2", AccountID: "acc-2", Period: "5h", UsedPercent: 20},
+		}
+		fake, s := newAgyAccountTestState(t, th, windows)
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+				renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+			})
+		}, 480, 480)
+
+		if err := tt.Click("指定"); err != nil {
+			t.Fatalf("点击「指定」失败: %v", err)
+		}
+		if got := currentTestThreadSnapshot(s, th.ID, th).Account; got != "acc-2" {
+			t.Fatalf("应回退选首个未禁用账号 acc-2，实际=%q", got)
+		}
+		waitFor(t, tt, func() bool {
+			calls := fake.SetThreadAccountCalls()
+			return len(calls) == 1 && calls[0].AccountID == "acc-2"
+		})
+	})
+
+	t.Run("全部禁用时点指定不动作", func(t *testing.T) {
+		th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
+		windows := []ProviderQuotaWindow{
+			{Label: "账号1 · " + quota.GroupGemini, Account: "账号1", AccountID: "acc-1", Period: "5h", UsedPercent: 100},
+			{Label: "账号2 · " + quota.GroupGemini, Account: "账号2", AccountID: "acc-2", Period: "5h", UsedPercent: 100},
+		}
+		fake, s := newAgyAccountTestState(t, th, windows)
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+				renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+			})
+		}, 480, 480)
+
+		if err := tt.Click("指定"); err != nil {
+			t.Fatalf("点击「指定」失败: %v", err)
+		}
+		if got := currentTestThreadSnapshot(s, th.ID, th).Account; got != "" {
+			t.Fatalf("无可用账号时点「指定」不应修改 Account，实际=%q", got)
+		}
+		if calls := fake.SetThreadAccountCalls(); len(calls) != 0 {
+			t.Fatalf("无可用账号时不应发起 SetThreadAccount，calls=%+v", calls)
+		}
+	})
+}
+
+func TestComposerQuotaRedesignLockedDisablesSegmented(t *testing.T) {
+	th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy", Account: "acc-2"}
+	fake, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
+	s.mu.Lock()
+	s.messages = []Message{{ID: "m1", Role: "user", Text: "hello"}}
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+			renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+		})
+	}, 480, 480)
+
+	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动选号")
+	if !ok || !autoBtn.Disabled {
+		t.Fatalf("locked 时「自动选号」应禁用: ok=%v node=%+v", ok, autoBtn)
+	}
+	manualBtn, ok := tt.AccessByRole(ui.RoleButton, "指定")
+	if !ok || !manualBtn.Disabled {
+		t.Fatalf("locked 时「指定」应禁用: ok=%v node=%+v", ok, manualBtn)
+	}
+	if err := tt.Click("自动选号"); err != nil {
+		t.Fatalf("点击禁用分段失败: %v", err)
+	}
+	if got := currentTestThreadSnapshot(s, th.ID, th).Account; got != "acc-2" {
+		t.Fatalf("locked 时点击不应修改线程 Account，实际=%q", got)
+	}
+	if calls := fake.SetThreadAccountCalls(); len(calls) != 0 {
+		t.Fatalf("locked 时点击不应发起 SetThreadAccount，calls=%+v", calls)
+	}
+}
+
+func TestComposerQuotaRedesignRouteSegmentedTransitionSettles(t *testing.T) {
+	t.Run("正常动效结束后不再请求帧", func(t *testing.T) {
+		setAppReduceMotion(t, false)
+		th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
+		_, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
+
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+				renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+			})
+		}, 480, 480)
+		tt.Frame()
+
+		if err := tt.Click("指定"); err != nil {
+			t.Fatalf("点击「指定」失败: %v", err)
+		}
+		tt.Advance(DurSnap + 50*time.Millisecond)
+		tt.Frame()
+		if tt.FramePending() {
+			t.Fatal("分段选中过渡结束后不应继续请求下一帧")
+		}
+	})
+
+	t.Run("ReduceMotion开启时立即到终点", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
+		_, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			ui.Box(c).Width(quotaPopoverWidth).Children(func() {
+				renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0)
+			})
+		}, 480, 480, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		tt.Frame()
+
+		if err := tt.Click("指定"); err != nil {
+			t.Fatalf("点击「指定」失败: %v", err)
+		}
+		if tt.FramePending() {
+			t.Fatal("ReduceMotion 开启时切换分段不应请求后续帧")
+		}
+	})
 }

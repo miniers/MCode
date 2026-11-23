@@ -721,7 +721,7 @@ func TestComposerQuotaPopoverAccountsMergedIntoList(t *testing.T) {
 	}, 480, 480)
 
 	// 账号与额度列表合并后，每个账号只在「额度列表」内出现（ButtonBase.Label + 文本各 1 次，共 2 次），
-	// 「额度列表」之前的顶部区域只有「自动」行，不再有逐账号 menuRow。
+	// 「额度列表」之前的顶部区域只有顶栏分段「自动选号」「指定」，不再有逐账号 menuRow 或独立「自动」行。
 	texts := tt.Texts()
 	listIdx := -1
 	for i, txt := range texts {
@@ -755,7 +755,7 @@ func TestComposerQuotaPopoverAccountsMergedIntoList(t *testing.T) {
 			btnCounts[node.Name]++
 		}
 	}
-	for _, label := range []string{"自动", "个人账号", "工作账号"} {
+	for _, label := range []string{"自动选号", "指定", "个人账号", "工作账号"} {
 		if btnCounts[label] != 1 {
 			t.Fatalf("按钮 %q 应恰好有 1 个，实际=%d", label, btnCounts[label])
 		}
@@ -764,8 +764,23 @@ func TestComposerQuotaPopoverAccountsMergedIntoList(t *testing.T) {
 	if !ok || workBtn.Disabled || workBtn.Checked {
 		t.Fatalf("初始状态下「工作账号」额度块应可用且未选中: ok=%v node=%+v", ok, workBtn)
 	}
-	if workBtn.Bounds.H <= ControlLG {
-		t.Fatalf("「工作账号」按钮应包裹账号名与额度条整块，实际高度=%v", workBtn.Bounds.H)
+	workName, ok := tt.Find("工作账号")
+	if !ok {
+		t.Fatalf("找不到「工作账号」文字")
+	}
+	p32, ok := tt.Find("32%")
+	if !ok {
+		t.Fatalf("找不到「工作账号」的 5h 额度读数 32%%")
+	}
+	p40, ok := tt.Find("40%")
+	if !ok {
+		t.Fatalf("找不到「工作账号」的 7d 额度读数 40%%")
+	}
+	coversVertically := func(outer, inner ui.Rect) bool {
+		return inner.H > 0 && outer.Y <= inner.Y && inner.Y+inner.H <= outer.Y+outer.H
+	}
+	if !coversVertically(workBtn.Bounds, workName) || !coversVertically(workBtn.Bounds, p32) || !coversVertically(workBtn.Bounds, p40) {
+		t.Fatalf("「工作账号」按钮应在纵向上覆盖账号名与同行额度条: btn=%+v name=%+v p32=%+v p40=%+v", workBtn.Bounds, workName, p32, p40)
 	}
 
 	// 点击额度块会选中对应 AccountID 并关闭弹层。
@@ -783,14 +798,17 @@ func TestComposerQuotaPopoverAccountsMergedIntoList(t *testing.T) {
 		return len(calls) == 1 && calls[0].ThreadID == "t1" && calls[0].AccountID == "acc-2"
 	})
 
-	// 重新渲染已选中 acc-2 的弹层，验证勾选状态同步到额度块。
+	// 重新渲染已选中 acc-2 的弹层，验证勾选状态同步到额度块与顶栏分段。
 	tt.Frame()
 	workBtn, ok = tt.AccessByRole(ui.RoleButton, "工作账号")
 	if !ok || !workBtn.Checked {
 		t.Fatalf("选中 acc-2 后「工作账号」额度块应为 Checked: ok=%v node=%+v", ok, workBtn)
 	}
-	if autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动"); !ok || autoBtn.Checked {
-		t.Fatalf("选中 acc-2 后「自动」不应为 Checked: ok=%v node=%+v", ok, autoBtn)
+	if autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动选号"); !ok || autoBtn.Checked {
+		t.Fatalf("选中 acc-2 后「自动选号」不应为 Checked: ok=%v node=%+v", ok, autoBtn)
+	}
+	if manualBtn, ok := tt.AccessByRole(ui.RoleButton, "指定"); !ok || !manualBtn.Checked {
+		t.Fatalf("选中 acc-2 后「指定」应为 Checked: ok=%v node=%+v", ok, manualBtn)
 	}
 
 	// locked 时（已有消息且当前账号可用）额度块禁用，点击无效。
@@ -839,12 +857,13 @@ func TestComposerQuotaPopoverBeesAccountSelect(t *testing.T) {
 		renderComposerQuotaPopover(c, s, currentTestThreadSnapshot(s, th.ID, th), "agy", 0, beeGroup)
 	}, 480, 480)
 
-	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动")
-	if !ok || autoBtn.Disabled {
-		t.Fatalf("初始状态下「自动」应可用: ok=%v node=%+v", ok, autoBtn)
+	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动选号")
+	if !ok || autoBtn.Disabled || !autoBtn.Checked {
+		t.Fatalf("初始状态下「自动选号」分段应可用且选中: ok=%v node=%+v", ok, autoBtn)
 	}
-	if got := countRightSlotInk(tt.Image(), autoBtn.Bounds); got == 0 {
-		t.Fatalf("初始状态下 BeesAccount 为空应勾选「自动」，右侧像素=%d", got)
+	manualBtn, ok := tt.AccessByRole(ui.RoleButton, "指定")
+	if !ok || manualBtn.Disabled || manualBtn.Checked {
+		t.Fatalf("初始状态下「指定」分段应可用且未选中: ok=%v node=%+v", ok, manualBtn)
 	}
 	personalBtn, ok := tt.AccessByRole(ui.RoleButton, "个人账号")
 	if !ok || personalBtn.Disabled || personalBtn.Checked {
@@ -877,27 +896,29 @@ func TestComposerQuotaPopoverBeesAccountSelect(t *testing.T) {
 	if !ok || !workBtn.Checked {
 		t.Fatalf("选中 acc-2 后「工作账号」应为 Checked: ok=%v node=%+v", ok, workBtn)
 	}
-	if autoBtn, ok = tt.AccessByRole(ui.RoleButton, "自动"); !ok {
-		t.Fatalf("选中 acc-2 后找不到「自动」按钮")
-	} else if got := countRightSlotInk(tt.Image(), autoBtn.Bounds); got != 0 {
-		t.Fatalf("选中 acc-2 后「自动」不应显示勾选，右侧像素=%d", got)
+	if autoBtn, ok = tt.AccessByRole(ui.RoleButton, "自动选号"); !ok || autoBtn.Checked {
+		t.Fatalf("选中 acc-2 后「自动选号」不应选中: ok=%v node=%+v", ok, autoBtn)
+	}
+	if manualBtn, ok = tt.AccessByRole(ui.RoleButton, "指定"); !ok || !manualBtn.Checked {
+		t.Fatalf("选中 acc-2 后「指定」应选中: ok=%v node=%+v", ok, manualBtn)
 	}
 
-	// 再点「自动」可切回空串。
-	if err := tt.Click("自动"); err != nil {
-		t.Fatalf("点击「自动」失败: %v", err)
+	// 再点「自动选号」可切回空串。
+	if err := tt.Click("自动选号"); err != nil {
+		t.Fatalf("点击「自动选号」失败: %v", err)
 	}
 	if got := currentTestThreadSnapshot(s, th.ID, th).BeesAccount; got != "" {
-		t.Fatalf("点击「自动」后线程 BeesAccount 应为空，实际=%q", got)
+		t.Fatalf("点击「自动选号」后线程 BeesAccount 应为空，实际=%q", got)
 	}
 	waitFor(t, tt, func() bool {
 		calls := fake.SetThreadBeesAccountCalls()
 		return len(calls) == 2 && calls[1].ThreadID == "lead-1" && calls[1].AccountID == ""
 	})
 	tt.Frame()
-	if autoBtn, ok = tt.AccessByRole(ui.RoleButton, "自动"); !ok {
-		t.Fatalf("切回自动后找不到「自动」按钮")
-	} else if got := countRightSlotInk(tt.Image(), autoBtn.Bounds); got == 0 {
-		t.Fatalf("切回自动后「自动」应显示勾选，右侧像素=%d", got)
+	if autoBtn, ok = tt.AccessByRole(ui.RoleButton, "自动选号"); !ok || !autoBtn.Checked {
+		t.Fatalf("切回自动后「自动选号」应选中: ok=%v node=%+v", ok, autoBtn)
+	}
+	if manualBtn, ok = tt.AccessByRole(ui.RoleButton, "指定"); !ok || manualBtn.Checked {
+		t.Fatalf("切回自动后「指定」不应选中: ok=%v node=%+v", ok, manualBtn)
 	}
 }

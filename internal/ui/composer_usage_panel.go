@@ -448,6 +448,9 @@ const composerQuotaRefreshTimeout = 30 * time.Second
 
 // composerQuotaRefreshing 返回某 provider 是否正在让网关重读额度。
 func composerQuotaRefreshing(s *chatState, provider string) bool {
+	if s == nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.quotaRefreshingProviders[provider]
@@ -1119,7 +1122,7 @@ func composerQuotaGroupModels(provider, title string, windows []ProviderQuotaWin
 }
 
 const (
-	quotaPopoverWidth  float32 = 440
+	quotaPopoverWidth  float32 = 456
 	quotaPopoverMargin float32 = 8
 )
 
@@ -2386,12 +2389,231 @@ func quotaWindowScopeRank(label string) int {
 	return 0
 }
 
-// composerQuotaRefreshLabel 返回刷新按钮的文字：刷新进行中显示「刷新中…」并提示进度。
-func composerQuotaRefreshLabel(s *chatState, provider string) string {
-	if composerQuotaRefreshing(s, provider) {
-		return "刷新中…"
+type composerQuotaAccountState struct {
+	selectable       bool
+	locked           bool
+	currentAccountID string
+	onSelect         func(accountID string)
+	pickManualID     func() string
+	listOpts         quotaGroupListOptions
+}
+
+func buildComposerQuotaAccountState(s *chatState, th *Thread, provider string, g quotaStripGroup, windows []ProviderQuotaWindow) composerQuotaAccountState {
+	state := composerQuotaAccountState{
+		listOpts: quotaGroupListOptions{HideSingleGroupTitle: true},
 	}
-	return "刷新"
+	if len(windows) == 0 {
+		return state
+	}
+	isBeeGroup := s != nil && !s.embeddedBee && th != nil && (g.model != "" || (g.threadID != "" && g.threadID != th.ID))
+	if isBeeGroup {
+		state.selectable = provider == "agy" && agyQuotaWindowsHaveMultipleAccounts(windows)
+	} else {
+		state.selectable = agyAccountSelectable(th, provider, windows)
+	}
+	if !state.selectable {
+		return state
+	}
+	options := agyAccountOptions(provider, windows)
+	if isBeeGroup {
+		state.currentAccountID = strings.TrimSpace(th.BeesAccount)
+		state.onSelect = func(accountID string) {
+			selectComposerBeesAccount(s, th, accountID)
+		}
+	} else {
+		hasMessages, isRunning := composerAgyAccountLockInputs(s, th)
+		state.locked = agyAccountLocked(th, hasMessages, isRunning, windows)
+		if th != nil {
+			state.currentAccountID = strings.TrimSpace(th.Account)
+		}
+		targetThreadID := g.threadID
+		if targetThreadID == "" && th != nil {
+			targetThreadID = th.ID
+		}
+		if targetThreadID == "" && s != nil {
+			targetThreadID = s.selectedThreadID
+		}
+		state.onSelect = func(accountID string) {
+			selectComposerAgyAccount(s, th, provider, targetThreadID, g.threadID, g.model, accountID)
+		}
+	}
+	accountIDByName := make(map[string]string, len(options))
+	selectedAccountName := ""
+	for _, w := range windows {
+		id := strings.TrimSpace(w.AccountID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(w.Account)
+		if name == "" {
+			name, _ = quotaWindowAccount(w)
+		}
+		if name == "" {
+			continue
+		}
+		if _, exists := accountIDByName[name]; !exists {
+			accountIDByName[name] = id
+		}
+		if id == state.currentAccountID && selectedAccountName == "" {
+			selectedAccountName = name
+		}
+	}
+	disabledByID := make(map[string]bool, len(options))
+	for _, opt := range options {
+		disabledByID[opt.accountID] = opt.disabled || opt.fiveHourFull
+	}
+	state.listOpts.SelectedAccount = selectedAccountName
+	state.listOpts.AccountDisabled = func(account string) bool {
+		if state.locked {
+			return true
+		}
+		id := accountIDByName[account]
+		if id == "" {
+			return true
+		}
+		return disabledByID[id]
+	}
+	state.listOpts.OnSelectAccount = func(account string) {
+		id := accountIDByName[account]
+		if id == "" {
+			return
+		}
+		state.onSelect(id)
+	}
+	state.pickManualID = func() string {
+		if s != nil {
+			if inUseName := s.quotaInUseAccount(provider, windows); inUseName != "" {
+				if id := accountIDByName[inUseName]; id != "" && !disabledByID[id] {
+					return id
+				}
+			}
+		}
+		for _, opt := range options {
+			if !disabledByID[opt.accountID] {
+				return opt.accountID
+			}
+		}
+		return ""
+	}
+	return state
+}
+
+func renderComposerQuotaRouteSeg(c *ui.Context, acct composerQuotaAccountState) {
+	track := ui.Row(c.Key("composer-quota-route-seg")).
+		Label("账号路由模式").
+		Height(ControlSM).
+		Padding(Space0).
+		Gap(Space0).
+		Radius(RadiusPill).
+		Background(ThemeHover(c)).
+		AlignItems(ui.Center).
+		Shrink(0)
+	if acct.locked {
+		track.Disabled(true).Opacity(switchDisabledOpacity)
+	}
+	segments := []struct {
+		key      string
+		label    string
+		selected bool
+		onClick  func()
+	}{
+		{
+			key:      "auto",
+			label:    "自动选号",
+			selected: acct.currentAccountID == "",
+			onClick: func() {
+				if acct.locked || acct.currentAccountID == "" {
+					return
+				}
+				acct.onSelect("")
+			},
+		},
+		{
+			key:      "manual",
+			label:    "指定",
+			selected: acct.currentAccountID != "",
+			onClick: func() {
+				if acct.locked || acct.currentAccountID != "" {
+					return
+				}
+				if id := acct.pickManualID(); id != "" {
+					acct.onSelect(id)
+				}
+			},
+		},
+	}
+	track.Children(func() {
+		for _, seg := range segments {
+			item := ui.ButtonBase(c.Key("composer-quota-route-" + seg.key)).
+				Label(seg.label).
+				Height(ControlXS).
+				Padding(0, Space2).
+				Radius(RadiusPill).
+				Center().
+				Shrink(0).
+				Checked(seg.selected).
+				Disabled(acct.locked).
+				Transition(motionFeedback(c)).
+				OnClick(seg.onClick)
+			bg := ui.Transparent
+			textColor := ThemeSecondaryText(c)
+			if seg.selected {
+				bg = ThemeSurface(c)
+				textColor = ThemePrimaryText(c)
+			} else if item.Hovered() && !acct.locked {
+				bg = ThemeOverlay(c, OverlayFaint)
+				textColor = ThemePrimaryText(c)
+			}
+			item.Background(bg)
+			item.Children(func() {
+				ui.Text(c, seg.label).
+					FontSize(uiFont(TypeFootnote)).
+					FontWeight(weightFor(c, 500)).
+					TextColor(textColor).
+					SingleLine().
+					Transition(motionFeedback(c))
+			})
+		}
+	})
+}
+
+func renderComposerQuotaRefreshButton(c *ui.Context, s *chatState, provider string, g quotaStripGroup) {
+	refreshing := composerQuotaRefreshing(s, provider)
+	refresh := ui.ButtonBase(c.Key("composer-quota-refresh")).
+		Label("刷新额度").
+		Tooltip("刷新额度").
+		Size(ControlSM, ControlSM).
+		Center().
+		Radius(RadiusSM).
+		Shrink(0).
+		OnClick(func() {
+			// 先让网关重新向厂商读取，结束后无论成败都会重新拉额度与余额。
+			s.refreshComposerQuotaForProvider(provider, g.threadID, g.model)
+		})
+	iconColor := ThemeSecondaryText(c)
+	if refresh.Hovered() {
+		refresh.Background(ThemeHover(c))
+		iconColor = ThemePrimaryText(c)
+	}
+	refresh.Children(func() {
+		if refreshing && !reduceMotion(c) {
+			// 仅重绘图标本身，不重建组件树；静止或减少动效时退回静态图标。
+			ui.Box(c.Key("composer-quota-refresh-spin")).
+				Size(IconSM, IconSM).
+				Shrink(0).
+				Draw(func(p *ui.Painter, r ui.Rect) {
+					const periodMs, frameMs = 900, 33
+					ms := int(p.Now().UnixMilli() % periodMs)
+					p.After(time.Duration(frameMs-ms%frameMs) * time.Millisecond)
+					angle := float32(ms) / float32(periodMs) * 360
+					p.Transform(ui.Rotation(angle), r.X+r.W/2, r.Y+r.H/2, func() {
+						p.Icon(IconRefreshCw(), r, iconColor)
+					})
+				})
+			return
+		}
+		ui.Icon(c, IconRefreshCw()).Size(IconSM, IconSM).TextColor(iconColor)
+	})
 }
 
 // composerQuotaPopoverMaxHeight 返回额度弹层的最大高度：弹层在额度条上方展开，优先用
@@ -2447,6 +2669,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 			title += " · " + groups[0].Title
 		}
 	}
+	acct := buildComposerQuotaAccountState(s, th, provider, g, windows)
 	panel.Children(func() {
 		ui.Row(c.Key("composer-quota-popover-header")).
 			FillWidth().
@@ -2479,35 +2702,10 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 						Shrink(0)
 				}
 				ui.Spacer(c)
-				if len(groups) == 1 && groups[0].HeadText != "" {
-					textColor := ThemeSecondaryText(c)
-					if groups[0].HeadWarn {
-						textColor = ThemeWarning(c)
-					}
-					ui.Text(c, groups[0].HeadText).FontSize(uiFont(TypeFootnote)).TextColor(textColor).SingleLine().Shrink(0)
+				if acct.selectable {
+					renderComposerQuotaRouteSeg(c, acct)
 				}
-
-				refresh := ui.ButtonBase(c.Key("composer-quota-refresh")).
-					Label(composerQuotaRefreshLabel(s, provider)).
-					Tooltip("刷新额度").
-					Height(ControlSM).
-					Radius(RadiusPill).
-					Padding(0, Space3).
-					Shrink(0).
-					Background(ThemeSurface(c)).
-					OnClick(func() {
-						// 先让网关重新向厂商读取，结束后无论成败都会重新拉额度与余额。
-						s.refreshComposerQuotaForProvider(provider, g.threadID, g.model)
-					})
-				if refresh.Hovered() {
-					refresh.Background(ThemeHover(c))
-				}
-				refresh.Children(func() {
-					ui.Text(c, composerQuotaRefreshLabel(s, provider)).
-						FontSize(uiFont(FontSizeProjectName)).
-						TextColor(ThemePrimaryText(c)).
-						SingleLine()
-				})
+				renderComposerQuotaRefreshButton(c, s, provider, g)
 			})
 
 		// 预付费余额：仅当 provider 支持余额接口时出现，与额度列表并列。
@@ -2532,120 +2730,6 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 					renderUsageStatusLine(c, usageStatusFor(errText, nil, time.Time{}, usagePanelNow()), FontSizeCallout, usageSettingsTarget{s, settingsProvider})
 				})
 			}
-			var accountSectionHeight float32
-			listOpts := quotaGroupListOptions{HideSingleGroupTitle: true}
-			isBeeGroup := s != nil && !s.embeddedBee && th != nil && (g.model != "" || (g.threadID != "" && g.threadID != th.ID))
-			var accountSelectable bool
-			if isBeeGroup {
-				accountSelectable = provider == "agy" && agyQuotaWindowsHaveMultipleAccounts(windows)
-			} else {
-				accountSelectable = agyAccountSelectable(th, provider, windows)
-			}
-			if accountSelectable {
-				options := agyAccountOptions(provider, windows)
-				var (
-					locked           bool
-					currentAccountID string
-					onSelect         func(accountID string)
-				)
-				if isBeeGroup {
-					currentAccountID = strings.TrimSpace(th.BeesAccount)
-					onSelect = func(accountID string) {
-						selectComposerBeesAccount(s, th, accountID)
-					}
-				} else {
-					hasMessages, isRunning := composerAgyAccountLockInputs(s, th)
-					locked = agyAccountLocked(th, hasMessages, isRunning, windows)
-					if th != nil {
-						currentAccountID = strings.TrimSpace(th.Account)
-					}
-					targetThreadID := g.threadID
-					if targetThreadID == "" && th != nil {
-						targetThreadID = th.ID
-					}
-					if targetThreadID == "" && s != nil {
-						targetThreadID = s.selectedThreadID
-					}
-					onSelect = func(accountID string) {
-						selectComposerAgyAccount(s, th, provider, targetThreadID, g.threadID, g.model, accountID)
-					}
-				}
-				accountIDByName := make(map[string]string, len(options))
-				selectedAccountName := ""
-				for _, w := range windows {
-					id := strings.TrimSpace(w.AccountID)
-					if id == "" {
-						continue
-					}
-					name := strings.TrimSpace(w.Account)
-					if name == "" {
-						name, _ = quotaWindowAccount(w)
-					}
-					if name == "" {
-						continue
-					}
-					if _, exists := accountIDByName[name]; !exists {
-						accountIDByName[name] = id
-					}
-					if id == currentAccountID && selectedAccountName == "" {
-						selectedAccountName = name
-					}
-				}
-				disabledByID := make(map[string]bool, len(options))
-				for _, opt := range options {
-					disabledByID[opt.accountID] = opt.disabled || opt.fiveHourFull
-				}
-				listOpts.SelectedAccount = selectedAccountName
-				listOpts.AccountDisabled = func(account string) bool {
-					if locked {
-						return true
-					}
-					id := accountIDByName[account]
-					if id == "" {
-						return true
-					}
-					return disabledByID[id]
-				}
-				listOpts.OnSelectAccount = func(account string) {
-					id := accountIDByName[account]
-					if id == "" {
-						return
-					}
-					onSelect(id)
-				}
-				ui.Column(c.Key("composer-quota-account-section")).
-					FillWidth().
-					Shrink(0).
-					Gap(Space3).
-					Children(func() {
-						ui.Column(c.Key("composer-quota-account-rows")).
-							FillWidth().
-							Padding(0, Space1).
-							Gap(Space0).
-							Children(func() {
-								menuRow(c, menuRowProps{
-									Key:      "composer-quota-account-auto",
-									Title:    "自动",
-									Checked:  currentAccountID == "",
-									Disabled: locked,
-									OnClick: func() {
-										onSelect("")
-									},
-								})
-							})
-						ui.Row(c.Key("composer-quota-account-divider-wrap")).
-							FillWidth().
-							Padding(0, Space4).
-							Children(func() {
-								ui.Row(c.Key("composer-quota-account-divider")).
-									FillWidth().
-									Height(Hairline).
-									Background(ThemeDivider(c))
-							})
-					})
-				const rowCount float32 = 1
-				accountSectionHeight = rowCount*(ControlLG+Space0) + Space3 + Hairline + Space4
-			}
 			// 标题行固定在面板顶部，账户列表放进滚动容器：窗口矮或供应商多时只滚列
 			// 表，不把弹层顶出屏幕。列表高度扣掉面板内边距、标题行与间距后不超过上限。
 			listMax := maxHeight
@@ -2658,7 +2742,6 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				if errText != "" {
 					listMax -= ControlXS + Space4
 				}
-				listMax -= accountSectionHeight
 				listMax = max(listMax, 40)
 			}
 			list := ui.Scroll(c.Key("composer-quota-popover-scroll")).
@@ -2671,7 +2754,7 @@ func renderComposerQuotaPopover(c *ui.Context, s *chatState, th *Thread, provide
 				list.MaxHeight(listMax)
 			}
 			list.Children(func() {
-				renderQuotaGroupList(c, "composer-quota-", groups, listOpts)
+				renderQuotaGroupList(c, "composer-quota-", groups, acct.listOpts)
 			})
 			return
 		}
