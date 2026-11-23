@@ -13,10 +13,18 @@ import (
 	"mcode/internal/config"
 )
 
+func restoreActiveTheme(t *testing.T) {
+	t.Helper()
+	prev := activeTheme.Load()
+	// t.Cleanup 按后进先出执行，需在 st.Close 之前注册，以在 Close 写入主题后再还原全局 activeTheme。
+	t.Cleanup(func() { activeTheme.Store(prev) })
+}
+
 func newThemesTester(t *testing.T) (*SettingsState, *ui.Tester) {
 	t.Helper()
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Appearance.Theme = config.ThemeLight
+	restoreActiveTheme(t)
 	t.Cleanup(st.Close)
 	return st, ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Children(func() {
@@ -32,6 +40,7 @@ func TestThemeControl_CustomSelectionAndReset(t *testing.T) {
 	st.cfg.Appearance.Themes = []config.ThemeDef{{ID: "custom", Name: "测试主题", Base: config.ThemeLight,
 		Colors: map[string]string{"accent": "#123456"}, Fonts: map[string]int{"code": 16}}}
 	before := cloneConfig(st.cfg).Appearance.Themes
+	restoreActiveTheme(t)
 	t.Cleanup(st.Close)
 	tt := ui.NewTester(func(c *ui.Context) {
 		themeControl{}.render(c, st, appearanceThemeSection.Rows[0])
@@ -181,6 +190,7 @@ func TestThemesSheet_DebouncedSave(t *testing.T) {
 	var saves atomic.Int64
 	settingsSaveHook = func() { saves.Add(1) }
 	t.Cleanup(func() { settingsSaveHook = nil })
+	restoreActiveTheme(t)
 	t.Cleanup(st.Close)
 	for _, value := range []string{"#123456", "#654321", "#ABCDEF80"} {
 		mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeColor(config.ThemeLight, "accent", value) })
