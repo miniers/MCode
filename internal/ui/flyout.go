@@ -232,6 +232,7 @@ type appFlyoutPopoverEntry struct {
 
 var appFlyoutPopoverMu sync.Mutex
 var appFlyoutPopovers = make(map[appFlyoutPopoverKey]*appFlyoutPopoverEntry)
+var appFlyoutHeights = make(map[string]int)
 
 func isAppFlyoutServices(services ui.Services) bool {
 	appFlyoutPopoverMu.Lock()
@@ -335,17 +336,28 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 		action = entry.updateLocked(&appFlyoutPopoverMu, r, func() {
 			appFlyoutPopoverMu.Lock()
 			p := entry.props
+			cachedHeight := appFlyoutHeights[key]
 			appFlyoutPopoverMu.Unlock()
 			opts := appFlyoutOptions(parent, r, p.Width)
+			// 窗口每次新建、首帧在测量前就显示，按上次实测高度创建才不会从默认 200 跳到内容高度。
+			// shortcut: 首次打开仍从默认高度适配一次，mygo 支持显示前测量首帧后改用它
+			if cachedHeight > 0 {
+				opts.Height = cachedHeight
+			}
 			if p.Placement != "" {
 				opts.Placement = p.Placement
 			}
 			render := func(fc *ui.Context) {
+				_, fh := fc.Size()
+				height := int(math.Round(float64(fh * fc.Zoom())))
 				appFlyoutPopoverMu.Lock()
 				active := appFlyoutPopovers[k] == entry
 				view, p := entry.view, entry.props
 				if active {
 					entry.services = fc.Services()
+					if height > 0 && appFlyoutHeights[key] != height {
+						appFlyoutHeights[key] = height
+					}
 				}
 				appFlyoutPopoverMu.Unlock()
 				if active {

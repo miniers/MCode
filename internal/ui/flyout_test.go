@@ -258,6 +258,7 @@ func setupPopoverFlyoutTest(t *testing.T) (*settingsWindowEntry, *swarmTierFlyou
 				delete(appFlyoutPopovers, k)
 			}
 		}
+		clear(appFlyoutHeights)
 		appFlyoutPopoverMu.Unlock()
 	})
 	return entry, capture
@@ -763,5 +764,45 @@ func TestFlyoutNewThreadProjectMenu(t *testing.T) {
 	}
 	if len(capture.destroyedWindows) != 1 {
 		t.Fatal("选择后未关闭")
+	}
+}
+
+func TestAppFlyoutReopensAtLastFitHeight(t *testing.T) {
+	entry, capture := setupPopoverFlyoutTest(t)
+	const key = "reopen-fit-height-popover"
+	t.Cleanup(func() {
+		appFlyoutPopoverMu.Lock()
+		delete(appFlyoutHeights, key)
+		appFlyoutPopoverMu.Unlock()
+	})
+	open := true
+	host := ui.NewTester(func(c *ui.Context) {
+		entry.services = c.Services()
+		anchor := ui.ButtonBase(c.Key("anchor")).Size(100, 30)
+		appFlyoutPopover(c, key, anchor, &open, nil, appFlyoutProps{Width: 120}, func(c *ui.Context) {
+			ui.Text(c, "内容")
+		})
+	}, 400, 300)
+	host.Frame()
+	if len(capture.options) != 1 || capture.options[0].Content == nil {
+		t.Fatalf("首次打开未创建浮层: %+v", capture.options)
+	}
+	if capture.options[0].Height != 0 {
+		t.Fatalf("首次打开应使用默认高度 0，实际: %d", capture.options[0].Height)
+	}
+	menu := ui.NewTester(popoverTestView(t, entry.services, key), 120, 189)
+	menu.Frame()
+	open = false
+	host.Frame()
+	if len(capture.destroyedWindows) != 1 {
+		t.Fatalf("关闭时应销毁窗口，实际: %d", len(capture.destroyedWindows))
+	}
+	open = true
+	host.Frame()
+	if len(capture.options) != 2 {
+		t.Fatalf("再次打开未创建浮层，窗口数: %d", len(capture.options))
+	}
+	if capture.options[1].Height != 189 {
+		t.Fatalf("再次打开应沿用上次实测高度 189，实际: %d", capture.options[1].Height)
 	}
 }
