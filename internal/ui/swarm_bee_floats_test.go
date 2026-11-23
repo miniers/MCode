@@ -1287,3 +1287,56 @@ func TestSwarmFloatPendingLead(t *testing.T) {
 		t.Fatal("用户关闭浮窗后场景应隐藏")
 	}
 }
+
+// TestSwarmFloatShownWhenBeeSelected 验证选中子代理（bee）会话时，仍显示所属主会话的浮窗。
+func TestSwarmFloatShownWhenBeeSelected(t *testing.T) {
+	const (
+		leadID = "lead-bee-selected-test"
+		beeID  = "bee-selected-1"
+	)
+	resetSwarmAutoHideFor(leadID)
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = beeID
+	s.threads = []Thread{
+		{ID: leadID, IsRunning: true},
+		{ID: beeID, IsRunning: true},
+	}
+
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.loadedFor = beeID
+	hp.setStateLocked(SwarmState{
+		Available:    true,
+		Enabled:      true,
+		IsBee:        true,
+		LeadThreadID: leadID,
+		Bees: []SwarmBee{
+			{ThreadID: beeID, Name: "Birch", Task: "实现浮窗卡片", Status: "running"},
+		},
+	})
+	swarmPanelMu.Unlock()
+	swarmFloatMu.Lock()
+	swarmBeeSeenActive[leadID] = map[string]bool{beeID: true}
+	swarmFloatMu.Unlock()
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		resetSwarmAutoHideFor(leadID)
+	})
+
+	var frame swarmFloatFrame
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		frame = swarmFloatFrameFor(c, s)
+		renderSwarmBeeFloats(c, s)
+	}, 1600, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	tt.Frame()
+
+	if frame.leadID != leadID {
+		t.Fatalf("frame.leadID = %q，期望 %q", frame.leadID, leadID)
+	}
+	if len(frame.bees) == 0 {
+		t.Fatal("选中 bee 会话时 frame.bees 不应为空")
+	}
+	if !frame.scene.has() {
+		t.Fatal("选中 bee 会话时浮窗场景应挂载")
+	}
+}

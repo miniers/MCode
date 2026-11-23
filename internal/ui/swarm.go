@@ -159,8 +159,9 @@ type swarmStateView struct {
 	queued    int
 	beeCount  int // 构建时的 len(state.Bees)，用于发现绕过 setStateLocked 的直接赋值
 
-	active  []SwarmBee // 有效子线程，与 getActiveSwarmBees 一致
-	running int        // state.Bees 里运行中的子线程数
+	active    []SwarmBee // 有效子线程，与 getActiveSwarmBees 一致
+	floatBees []SwarmBee // 浮窗展示用的有效子线程；选中子代理会话时保留所属主会话的子代理
+	running   int        // state.Bees 里运行中的子线程数
 	review  int        // state.Bees 里待审查（PendingMerge）的子线程数，仅主会话统计
 	pending bool       // 与 swarmBeesPending 一致
 
@@ -180,6 +181,11 @@ const swarmCapsuleCacheMax = 256
 
 // buildSwarmStateView 由一份 SwarmState 算出渲染所需的派生数据（只在状态变化时调用）。
 func buildSwarmStateView(st SwarmState, rev int) *swarmStateView {
+	active := getActiveSwarmBees(st)
+	floatBees := active
+	if st.IsBee {
+		floatBees = collectSwarmBees(st)
+	}
 	v := &swarmStateView{
 		rev:       rev,
 		leadID:    st.LeadThreadID,
@@ -188,7 +194,8 @@ func buildSwarmStateView(st SwarmState, rev int) *swarmStateView {
 		enabled:   st.Enabled,
 		queued:    st.Queued,
 		beeCount:  len(st.Bees),
-		active:    getActiveSwarmBees(st),
+		active:    active,
+		floatBees: floatBees,
 	}
 	for _, h := range st.Bees {
 		if h.Status == "running" {
