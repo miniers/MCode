@@ -505,10 +505,20 @@ func renderSwarmCapsuleButton(c *ui.Context, key string, view swarmCapsuleView, 
 			})
 	})
 
+	_, hostWinH := c.Size()
+	popoverMaxH := 0
+	if hostWinH > 0 {
+		popoverMaxH = int(max(1, (hostWinH-Space8)*3/4))
+	}
 	background := ThemeSurface(c)
 	appFlyoutPopover(c, "swarm-capsule-popover-"+key, btn, &open, func() {
 		wasDismissed = true
-	}, appFlyoutProps{Width: int(swarmCapsulePopoverWidth), Background: &background}, func(fc *ui.Context) {
+	}, appFlyoutProps{
+		Width:         int(swarmCapsulePopoverWidth),
+		MaxHeight:     popoverMaxH,
+		Background:    &background,
+		DisableScroll: true,
+	}, func(fc *ui.Context) {
 		if native {
 			body(fc)
 			return
@@ -567,57 +577,45 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 		TierReadOnly: h.ReadOnly,
 		Elapsed:      swarmCapsuleElapsed(h),
 	}, opened, dismissed, func(fc *ui.Context) {
-		ui.Column(fc.Key("swarm-capsule-popover-body-"+key)).
-			FillWidth().
-			Padding(Space4, Space5, Space4, Space5).
-			Gap(Space4).
-			Children(func() {
-				renderSwarmCapsuleHeader(fc, s, h, key, func() {
-					renderSwarmCapsuleOpenFloatButton(fc, s, leadID, h, key, func() {
-						closeRequested = true
-						swarmFloatMu.Lock()
-						swarmCapsuleOpen[key] = false
-						swarmFloatMu.Unlock()
-						closeAppFlyoutPopover(host, "swarm-capsule-popover-"+key)
-						host.Invalidate()
-					})
+		bodyKey := "swarm-capsule-popover-body-" + key
+		renderSwarmReportPopoverLayout(fc, bodyKey, bodyKey+"-scroll", func() {
+			renderSwarmCapsuleHeader(fc, s, h, key)
+			ui.Column(fc.Key(bodyKey+"-content")).
+				FillWidth().
+				Padding(Space4, Space5, Space5, Space5).
+				Gap(Space3).
+				Children(func() {
+					renderSwarmReportTaskQuote(fc, "swarm-capsule-task-"+key, h.Task)
+					report := swarmCapsuleReport(h)
+					if report == "" {
+						ui.Text(fc, "暂无汇报").
+							FontSize(scaledFont(TypeFootnote)).
+							TextColor(ThemeSecondaryText(fc))
+					} else {
+						ui.Column(fc.Key("swarm-capsule-report-" + key)).
+							FillWidth().
+							Children(func() {
+								// 汇报正文按 Markdown 渲染（粗体、列表、表格、行内代码都还原）：
+								// 静态整段呈现，字号与原来的正文一致，Markdown 视图自带选区复制。
+								markdown.View(fc, report, swarmReportMarkdownOptions(fc, s, TypeFootnote))
+							})
+					}
+					if strings.TrimSpace(h.MergeError) != "" {
+						ui.Text(fc, "合并错误: "+h.MergeError).
+							FontSize(scaledFont(TypeCaption)).
+							TextColor(ThemeDanger(fc))
+					}
 				})
-				if task := strings.TrimSpace(h.Task); task != "" {
-					ui.Column(fc.Key("swarm-capsule-task-"+key)).
-						FillWidth().
-						Padding(Space2, Space3).
-						Radius(RadiusMD).
-						Background(ThemeHover(fc).Alpha(0.35)).
-						Children(func() {
-							ui.Text(fc, "任务目标: "+task).
-								FontSize(scaledFont(TypeFootnote)).
-								TextColor(ThemePrimaryText(fc).Alpha(0.88))
-						})
-				}
-				report := swarmCapsuleReport(h)
-				if report == "" {
-					ui.Text(fc, "暂无汇报").
-						FontSize(scaledFont(TypeFootnote)).
-						TextColor(ThemeSecondaryText(fc))
-				} else {
-					ui.Text(fc, "工作汇报").
-						FontSize(scaledFont(TypeCaption)).
-						FontWeight(600).
-						TextColor(ThemeAccent(fc))
-					ui.Column(fc.Key("swarm-capsule-report-" + key)).
-						FillWidth().
-						Children(func() {
-							// 汇报正文按 Markdown 渲染（粗体、列表、表格、行内代码都还原）：
-							// 静态整段呈现，字号与原来的正文一致，Markdown 视图自带选区复制。
-							markdown.View(fc, report, swarmReportMarkdownOptions(fc, s, TypeFootnote))
-						})
-				}
-				if strings.TrimSpace(h.MergeError) != "" {
-					ui.Text(fc, "合并错误: "+h.MergeError).
-						FontSize(scaledFont(TypeCaption)).
-						TextColor(ThemeDanger(fc))
-				}
+		}, func() {
+			renderSwarmCapsuleOpenFloatButton(fc, s, leadID, h, key, func() {
+				closeRequested = true
+				swarmFloatMu.Lock()
+				swarmCapsuleOpen[key] = false
+				swarmFloatMu.Unlock()
+				closeAppFlyoutPopover(host, "swarm-capsule-popover-"+key)
+				host.Invalidate()
 			})
+		})
 	})
 	if closeRequested {
 		open = false
@@ -628,69 +626,61 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 	swarmFloatMu.Unlock()
 }
 
-// renderSwarmCapsuleHeader 渲染浮窗头部：头像、名字与档位徽章，以及状态与耗时，右侧可挂载操作按钮。
-func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key string, actions func()) {
-	ui.Row(c.Key("swarm-capsule-header-" + key)).
-		FillWidth().
-		AlignItems(ui.Start).
-		Gap(Space3).
-		Children(func() {
-			renderSwarmGlyph(c, "capsule-pop-"+key, h, 22)
-			ui.Column(c.Key("swarm-capsule-meta-" + key)).
-				Grow(1).
-				MinWidth(0).
-				Gap(2).
-				Children(func() {
-					name := strings.TrimSpace(h.Name)
-					if name == "" {
-						name = "子线程"
-					}
-					ui.Row(c.Key("swarm-capsule-name-row-" + key)).
-						AlignItems(ui.Center).
-						Gap(Space2).
-						Children(func() {
-							ui.Text(c, name).
-								FontSize(scaledFont(TypeBody)).
-								FontWeight(600).
-								TextColor(ThemePrimaryText(c)).
-								SingleLine()
-							// 浮窗头部同样展示档位，只读档位带锁图标。
-							if h.Tier != "" {
-								renderSwarmTierChip(c, "swarm-capsule-pop-tier-"+key, swarmTierName(s, h.Tier), h.Tier, h.ReadOnly)
-							}
-						})
-					beeStatus := MapSwarmBeeStatus(h)
-					meta := swarmStatusLabel(beeStatus)
-					if elapsed := swarmCapsuleElapsed(h); elapsed != "" {
-						meta += " · " + elapsed
-					}
-					ui.Text(c, meta).
-						FontSize(scaledFont(TypeCaption)).
-						TextColor(swarmStatusColor(c, beeStatus)).
-						SingleLine()
-				})
-			if actions != nil {
-				actions()
-			}
-		})
+// renderSwarmCapsuleHeader 渲染浮窗头部：头像、名字与档位徽章、状态统计行与模型标签，全宽展示不截断。
+func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key string) {
+	beeStatus := MapSwarmBeeStatus(h)
+	tierName := ""
+	if h.Tier != "" {
+		tierName = swarmTierName(s, h.Tier)
+	}
+	model := strings.TrimSpace(h.Model)
+	if model != "" && strings.TrimSpace(h.Provider) != "" {
+		model = strings.TrimSpace(h.Provider) + "/" + model
+	}
+	violation := ""
+	if h.ReadOnlyViolation {
+		violation = "只读档子代理改动了文件，改动已丢弃，未合并"
+	}
+	renderSwarmReportPopoverHeader(c, swarmReportPopoverHeaderProps{
+		KeyPrefix: "swarm-capsule-header-" + key,
+		Name:      swarmCapsuleName(h),
+		Avatar: func() {
+			renderSwarmGlyph(c, "capsule-pop-"+key, h, 28)
+		},
+		TierColor:   swarmTierColor(c, h.Tier),
+		TierName:    tierName,
+		TierReadOnly: h.ReadOnly,
+		Status:      swarmStatusLabel(beeStatus),
+		StatusColor: swarmStatusColor(c, beeStatus),
+		Duration:    formatSwarmDuration(h.StartedAt, h.FinishedAt),
+		ToolCalls:   h.ToolCalls,
+		FileCount:   len(h.ChangedFiles),
+		Model:       model,
+		DirectModel: h.DirectModel,
+		Violation:   violation,
+	})
 }
 
-// renderSwarmCapsuleOpenFloatButton 渲染浮窗表头右侧的「打开浮窗」与「查看会话」按钮：
+// renderSwarmCapsuleOpenFloatButton 渲染底部固定操作栏中的「打开浮窗」「查看会话」「复制汇报」按钮：
 // 点击「打开浮窗」解除浮窗关闭记录并选中该子线程；点击「查看会话」跳转至子线程完整会话。
 func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID string, h SwarmBee, key string, onOpened func()) {
 	beeThreadID := strings.TrimSpace(h.ThreadID)
+	report := swarmCapsuleReport(h)
 	ui.Row(c.Key("swarm-capsule-actions-" + key)).
+		Grow(1).
+		FillWidth().
 		AlignItems(ui.Center).
-		Gap(Space1).
+		Gap(Space2).
 		Shrink(0).
 		Children(func() {
 			Button(c, ButtonOpts{
 				Key:     "swarm-capsule-open-float-" + key,
+				Icon:    IconPanelLeft(),
 				Text:    "打开浮窗",
 				Label:   "打开浮窗",
 				Tooltip: "打开子代理浮窗",
 				Variant: ButtonSecondary,
-				Size:    ControlXS,
+				Size:    ControlSM,
 				OnClick: func() {
 					if leadID == "" {
 						return
@@ -709,11 +699,12 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 			if beeThreadID != "" {
 				Button(c, ButtonOpts{
 					Key:     "swarm-capsule-open-thread-" + key,
+					Icon:    IconExternalLink(),
 					Text:    "查看会话",
 					Label:   "查看会话",
 					Tooltip: "查看子代理完整会话",
 					Variant: ButtonGhost,
-					Size:    ControlXS,
+					Size:    ControlSM,
 					OnClick: func() {
 						if onOpened != nil {
 							onOpened()
@@ -726,6 +717,11 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 						}
 					},
 				})
+			}
+
+			if report != "" {
+				ui.Box(c.Key("swarm-capsule-actions-spacer-" + key)).Grow(1)
+				renderSwarmReportCopyTextButton(c, s, "swarm-capsule-"+key, report)
 			}
 		})
 }

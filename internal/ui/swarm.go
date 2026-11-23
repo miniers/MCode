@@ -3105,6 +3105,31 @@ func renderSwarmReportCopyButton(c *ui.Context, s *chatState, key, text string) 
 	})
 }
 
+// renderSwarmReportCopyTextButton 渲染报告浮层底栏的文字复制按钮：显示「复制汇报」，复制后短暂变为对勾反馈。
+func renderSwarmReportCopyTextButton(c *ui.Context, s *chatState, key, text string) {
+	copyKey := key + "-copy"
+	copied := copyFeedbackActive(copyKey, time.Now())
+	icon := IconCopy()
+	btnText := "复制汇报"
+	if copied {
+		icon = IconCheck()
+		btnText = "已复制"
+	}
+	Button(c, ButtonOpts{
+		Key:     copyKey,
+		Icon:    icon,
+		Text:    btnText,
+		Label:   "复制汇报",
+		Tooltip: "复制汇报",
+		Variant: ButtonGhost,
+		Size:    ControlSM,
+		OnClick: func() {
+			c.WriteClipboard(text)
+			markCopyFeedback(s, copyKey)
+		},
+	})
+}
+
 // renderSwarmReportRow 渲染时间线中的 Swarm 汇报行：相邻的汇报消息合并成一行，
 // 每个 bee 一枚胶囊，胶囊横向流式排列、放不下时自动换行；点开各自弹出详情卡片。
 func renderSwarmReportRow(c *ui.Context, s *chatState, msgs ...Message) ui.Element {
@@ -3378,6 +3403,254 @@ func swarmBeeInActiveState(hp *swarmPanelState, selectedID, beeThreadID string) 
 	return false
 }
 
+type swarmReportPopoverHeaderProps struct {
+	KeyPrefix    string
+	Name         string
+	Avatar       func()
+	TierColor    ui.Color
+	TierName     string
+	TierReadOnly bool
+	Status       string
+	StatusColor  ui.Color
+	Duration     string
+	ToolCalls    int
+	FileCount    int
+	LinesAdded   int
+	LinesDeleted int
+	Model        string
+	DirectModel  bool
+	Violation    string
+}
+
+// renderSwarmReportPopoverHeader 渲染统一的报告浮层顶栏：全宽信息、不放操作按钮，
+// 统计项自动换行不截断，模型名超长时允许单独截断。
+func renderSwarmReportPopoverHeader(c *ui.Context, p swarmReportPopoverHeaderProps) {
+	ui.Column(c.Key(p.KeyPrefix+"-header")).
+		FillWidth().
+		Padding(Space4, Space5, Space3, Space5).
+		Gap(Space2).
+		Children(func() {
+			ui.Row(c.Key(p.KeyPrefix+"-title")).
+				FillWidth().
+				AlignItems(ui.Center).
+				Gap(Space3).
+				MinWidth(0).
+				Children(func() {
+					if p.Avatar != nil {
+						p.Avatar()
+					}
+					ui.Row(c.Key(p.KeyPrefix+"-identity")).
+						Grow(1).
+						MinWidth(0).
+						AlignItems(ui.Center).
+						Gap(Space2).
+						Children(func() {
+							ui.Text(c, p.Name).
+								FontSize(uiFont(TypeProse)).
+								FontWeight(600).
+								TextColor(ThemePrimaryText(c)).
+								SingleLine().
+								Ellipsis("…").
+								Shrink(1).
+								MinWidth(0)
+							if p.TierName != "" {
+								ui.Box(c.Key(p.KeyPrefix + "-tier-wrap")).Shrink(0).Children(func() {
+									renderSwarmTierChipColored(c, p.KeyPrefix+"-tier-chip", p.TierName, p.TierColor, p.TierReadOnly)
+								})
+							}
+						})
+				})
+
+			if p.Status != "" || p.Duration != "" || p.ToolCalls > 0 || p.FileCount > 0 || p.LinesAdded+p.LinesDeleted > 0 {
+				ui.Row(c.Key(p.KeyPrefix+"-caption")).
+					FillWidth().
+					Padding(0, 0, 0, 28+Space3).
+					Wrap().
+					AlignItems(ui.Center).
+					Gap(0).
+					GapY(Space1).
+					Children(func() {
+						captionText := func(text string, color ui.Color) {
+							ui.Text(c, text).
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(color).
+								SingleLine().
+								Shrink(0)
+						}
+						hasPrev := false
+						renderSeg := func(segKey string, fn func()) {
+							ui.Row(c.Key(p.KeyPrefix+"-cap-"+segKey)).
+								AlignItems(ui.Center).
+								Gap(0).
+								Shrink(0).
+								Children(func() {
+									if hasPrev {
+										captionText(" · ", ThemeSecondaryText(c))
+									}
+									fn()
+								})
+							hasPrev = true
+						}
+						if p.Status != "" {
+							renderSeg("status", func() {
+								ui.Text(c, p.Status).
+									FontSize(uiFont(TypeFootnote)).
+									FontWeight(500).
+									TextColor(p.StatusColor).
+									SingleLine().
+									Shrink(0)
+							})
+						}
+						if p.Duration != "" {
+							renderSeg("dur", func() {
+								captionText(p.Duration, ThemeSecondaryText(c))
+							})
+						}
+						if p.ToolCalls > 0 {
+							renderSeg("tools", func() {
+								captionText(fmt.Sprintf("%d 次工具调用", p.ToolCalls), ThemeSecondaryText(c))
+							})
+						}
+						if p.FileCount > 0 {
+							renderSeg("files", func() {
+								captionText(fmt.Sprintf("%d 个文件", p.FileCount), ThemeSecondaryText(c))
+							})
+						}
+						if p.LinesAdded+p.LinesDeleted > 0 {
+							renderSeg("diff", func() {
+								captionText(fmt.Sprintf("+%d", p.LinesAdded), ThemeSuccess(c))
+								captionText(" ", ThemeSecondaryText(c))
+								captionText(fmt.Sprintf("−%d", p.LinesDeleted), ThemeDanger(c))
+							})
+						}
+					})
+			}
+
+			if p.Model != "" || p.DirectModel || p.Violation != "" {
+				ui.Row(c.Key(p.KeyPrefix+"-meta")).
+					FillWidth().
+					Padding(0, 0, 0, 28+Space3).
+					AlignItems(ui.Center).
+					Gap(Space2).
+					MinWidth(0).
+					Children(func() {
+						if p.Model != "" {
+							ui.Text(c, p.Model).
+								FontSize(uiFont(TypeCaption)).
+								TextColor(ThemeTertiaryText(c)).
+								SingleLine().
+								Ellipsis("…").
+								Shrink(1).
+								MinWidth(0)
+						}
+						if p.DirectModel {
+							ui.Row(c.Key(p.KeyPrefix+"-direct-model-tag")).
+								BorderWidth(1).
+								BorderColor(ThemeAccent(c).Alpha(0.5)).
+								Radius(RadiusXS).
+								Padding(Space0, Space1).
+								Shrink(0).
+								Tooltip("用户在消息里点名了这个模型").
+								Children(func() {
+									ui.Text(c, "指定模型").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeAccent(c)).
+										SingleLine().
+										Shrink(0)
+								})
+						}
+						if p.Violation != "" {
+							ui.Row(c.Key(p.KeyPrefix+"-violation-tag")).
+								Padding(Space0, Space1).
+								Radius(RadiusXS).
+								Background(ThemeDanger(c).Alpha(0.15)).
+								Shrink(0).
+								Tooltip(p.Violation).
+								Children(func() {
+									ui.Text(c, "越权写入").
+										FontSize(uiFont(TypeCaption)).
+										FontWeight(600).
+										TextColor(ThemeDanger(c)).
+										SingleLine().
+										Shrink(0)
+								})
+						}
+					})
+			}
+		})
+
+	ui.Row(c.Key(p.KeyPrefix + "-divider")).
+		FillWidth().
+		Height(Hairline).
+		Background(ThemeBorder(c))
+}
+
+// renderSwarmReportTaskQuote 用浅色左边框引用条渲染任务描述（不带「任务目标: 」前缀）。
+func renderSwarmReportTaskQuote(c *ui.Context, key, task string) {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return
+	}
+	ui.Column(c.Key(key)).
+		FillWidth().
+		Padding(Space2, Space3).
+		Radius(RadiusMD).
+		Background(ThemeHover(c).Alpha(0.35)).
+		BorderWidth(0, 0, 0, 2).
+		BorderColor(ThemeBorder(c)).
+		Children(func() {
+			ui.Text(c, task).
+				FontSize(uiFont(TypeFootnote)).
+				TextColor(ThemeSecondaryText(c))
+		})
+}
+
+func swarmReportPopoverScrollMaxHeight(winH float32) float32 {
+	if winH <= 0 {
+		return 1
+	}
+	byRatio := max(1, (winH-Space8)*3/4)
+	byFooter := max(1, winH-Space8-(ControlSM+Space2*2+Hairline+Space2))
+	return min(byRatio, byFooter)
+}
+
+// renderSwarmReportPopoverLayout 渲染三层统一浮层结构：
+// (a) 顶栏与正文共用的滚动区；(b) Hairline 分隔线；(c) 固定在底部的操作栏。
+func renderSwarmReportPopoverLayout(c *ui.Context, keyPrefix, scrollKey string, renderTopAndBody, renderActions func()) {
+	native := flyoutHostWindow(c.Services()) != nil
+	ui.Column(c.Key(keyPrefix)).
+		FillWidth().
+		MaxHeightPercent(100).
+		Shrink(1).
+		Children(func() {
+			scroll := ui.Scroll(c.Key(scrollKey)).
+				Label(scrollKey).
+				FillWidth().
+				Shrink(1).
+				MinHeight(0)
+			if !native {
+				_, winH := c.Size()
+				scroll = scroll.MaxHeight(swarmReportPopoverScrollMaxHeight(winH))
+			}
+			scroll.Children(renderTopAndBody)
+
+			if renderActions != nil {
+				ui.Box(c.Key(keyPrefix + "-footer-divider")).
+					FillWidth().
+					Height(Hairline).
+					Shrink(0).
+					Background(ThemeBorder(c))
+				ui.Row(c.Key(keyPrefix+"-actions")).
+					FillWidth().
+					Shrink(0).
+					Padding(Space2, Space4).
+					Gap(Space2).
+					AlignItems(ui.Center).
+					Children(renderActions)
+			}
+		})
+}
+
 // renderSwarmReportEntryCard 渲染单个 bee 的汇报详情。
 func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState, msgID string, idx int, e swarmReportEntry) {
 	cardKey := fmt.Sprintf("swarm-report-card-%s-%d", msgID, idx)
@@ -3426,362 +3699,196 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 		statusColor = ThemeDanger(c)
 	case "已停止":
 		statusColor = ThemeWarning(c)
+	case "已完成":
+		statusColor = ThemeSuccess(c)
 	}
 	duration, toolCount, fileCount, linesAdded, linesDeleted := swarmReportCaptionParts(e, matchedBee)
 
-	ui.Column(c.Key(cardKey)).
-		FillWidth().
-		Children(func() {
-			// 表头：头像、名字与状态、档位与模型标签、任务标题，右侧是复制按钮。
-			ui.Row(c.Key(cardKey+"-header")).
-				FillWidth().
-				AlignItems(ui.Start).
-				Gap(Space4).
-				Padding(Space4, Space5).
-				Background(ThemePrimaryText(c).Alpha(0.035)).
-				Children(func() {
-					renderSwarmReportAvatar(c, cardKey+"-avatar", e.Name, 28, 13)
+	var chipColor ui.Color
+	var chipName string
+	var isReadOnly bool
+	if tier != "" {
+		chipColor, chipName, isReadOnly = resolveSwarmReportTier(c, s, tier)
+	}
 
-					ui.Column(c.Key(cardKey + "-header-text")).
-						Grow(1).
-						MinWidth(0).
-						Gap(Space2).
-						Children(func() {
-							// 第一行只放名字和状态说明：两者都不压缩，后面的说明在末尾截断。
-							ui.Row(c.Key(cardKey + "-title")).
-								AlignItems(ui.Center).
-								Gap(Space3).
-								MinWidth(0).
-								ClipX().
-								Children(func() {
-									ui.Text(c, e.Name).
-										FontSize(uiFont(TypeProse)).
-										FontWeight(600).
-										TextColor(ThemePrimaryText(c)).
-										SingleLine().
-										Shrink(0)
+	summary := swarmReportDisplaySummary(s, e)
+	hasSummary := strings.TrimSpace(summary) != ""
 
-									// 名字紧跟状态说明：状态、耗时、工具数、文件数、增删行数，整体不换行。
-									if e.Status != "" || duration != "" || toolCount > 0 || fileCount > 0 || linesAdded+linesDeleted > 0 {
-										ui.Row(c.Key(cardKey + "-caption")).
-											AlignItems(ui.Center).
-											Gap(0).
-											Shrink(1).
-											MinWidth(0).
-											ClipX().
-											Children(func() {
-												// 状态与耗时保持完整，排在后面的说明在空间不足时从末尾截断。
-												captionText := func(text string, color ui.Color) {
-													ui.Text(c, text).
-														FontSize(uiFont(TypeFootnote)).
-														TextColor(color).
-														SingleLine().
-														Shrink(0)
-												}
-												captionTail := func(text string, color ui.Color) {
-													ui.Text(c, text).
-														FontSize(uiFont(TypeFootnote)).
-														TextColor(color).
-														SingleLine().
-														Ellipsis("…").
-														Shrink(1).
-														MinWidth(0)
-												}
-												separator := func() {
-													captionText(" · ", ThemeSecondaryText(c))
-												}
-
-												if e.Status != "" {
-													ui.Text(c, e.Status).
-														FontSize(uiFont(TypeFootnote)).
-														FontWeight(500).
-														TextColor(statusColor).
-														SingleLine().
-														Shrink(0)
-												}
-												if duration != "" {
-													if e.Status != "" {
-														separator()
-													}
-													captionText(duration, ThemeSecondaryText(c))
-												}
-												if toolCount > 0 {
-													separator()
-													captionTail(fmt.Sprintf("%d 次工具调用", toolCount), ThemeSecondaryText(c))
-												}
-												if fileCount > 0 {
-													separator()
-													captionTail(fmt.Sprintf("%d 个文件", fileCount), ThemeSecondaryText(c))
-												}
-												if linesAdded+linesDeleted > 0 {
-													separator()
-													captionTail(fmt.Sprintf("+%d", linesAdded), ThemeSuccess(c))
-													captionTail(" ", ThemeSecondaryText(c))
-													captionTail(fmt.Sprintf("−%d", linesDeleted), ThemeDanger(c))
-												}
-											})
-									}
-								})
-
-							// 第二行：档位、模型与标签。模型名放不下时自己截断，档位和标签保持完整宽度。
-							if tier != "" || model != "" || isDirectModel || violation != "" {
-								ui.Row(c.Key(cardKey + "-meta")).
-									AlignItems(ui.Center).
-									Gap(Space3).
-									MinWidth(0).
-									ClipX().
-									Children(func() {
-										if tier != "" {
-											chipColor, chipName, isReadOnly := resolveSwarmReportTier(c, s, tier)
-											ui.Row(c.Key(cardKey+"-tier-chip")).
-												Padding(Space0, Space2).
-												Radius(RadiusMD).
-												Background(chipColor.Alpha(0.15)).
-												AlignItems(ui.Center).
-												Gap(Space1).
-												Shrink(0).
-												Children(func() {
-													if isReadOnly {
-														ui.Icon(c, IconLock()).
-															Size(10, 10).
-															TextColor(chipColor)
-													}
-													ui.Text(c, chipName).
-														FontSize(uiFont(TypeCaption)).
-														FontWeight(600).
-														TextColor(chipColor).
-														SingleLine().
-														Shrink(0)
-												})
-										}
-
-										if model != "" {
-											ui.Text(c, model).
-												FontSize(uiFont(TypeCaption)).
-												TextColor(ThemeSecondaryText(c)).
-												SingleLine().
-												Ellipsis("…").
-												Shrink(1).
-												MinWidth(0)
-										}
-
-										if isDirectModel {
-											ui.Row(c.Key(cardKey+"-direct-model-tag")).
-												BorderWidth(1).
-												BorderColor(ThemeAccent(c).Alpha(0.5)).
-												Radius(RadiusXS).
-												Padding(Space0, Space1).
-												Shrink(0).
-												Tooltip("用户在消息里点名了这个模型").
-												Children(func() {
-													ui.Text(c, "指定模型").
-														FontSize(uiFont(TypeCaption)).
-														TextColor(ThemeAccent(c)).
-														SingleLine().
-														Shrink(0)
-												})
-										}
-
-										if violation != "" {
-											ui.Row(c.Key(cardKey+"-violation-tag")).
-												Padding(Space0, Space1).
-												Radius(RadiusXS).
-												Background(ThemeDanger(c).Alpha(0.15)).
-												Shrink(0).
-												Tooltip(violation).
-												Children(func() {
-													ui.Text(c, "越权写入").
-														FontSize(uiFont(TypeCaption)).
-														FontWeight(600).
-														TextColor(ThemeDanger(c)).
-														SingleLine().
-														Shrink(0)
-												})
-										}
-									})
+	var renderActions func()
+	if beeThreadID != "" || hasSummary {
+		reportKey := fmt.Sprintf("%s#%d", msgID, idx)
+		popoverKey := "swarm-capsule-popover-" + reportKey
+		host := c.Services()
+		closeReportPopover := func() {
+			if hp != nil {
+				swarmPanelMu.Lock()
+				if hp.reportOpen != nil {
+					hp.reportOpen[reportKey] = false
+				}
+				swarmPanelMu.Unlock()
+			}
+			closeAppFlyoutPopover(host, popoverKey)
+			if host != (ui.Services{}) {
+				host.Invalidate()
+			}
+		}
+		renderActions = func() {
+			if beeThreadID != "" {
+				inBees := swarmBeeInActiveState(hp, selectedID, beeThreadID)
+				floatTooltip := "打开子代理浮窗"
+				if !inBees {
+					floatTooltip = "在独立窗口中打开"
+				}
+				Button(c, ButtonOpts{
+					Key:     cardKey + "-open-float-btn",
+					Icon:    IconPanelLeft(),
+					Text:    "打开浮窗",
+					Label:   "打开浮窗",
+					Tooltip: floatTooltip,
+					Variant: ButtonSecondary,
+					Size:    ControlSM,
+					OnClick: func() {
+						closeReportPopover()
+						if inBees {
+							undismissSwarmFloatPanel(leadID)
+							openSwarmFloatForBee(leadID, beeThreadID)
+							if s != nil {
+								s.invalidate()
 							}
-
-							if e.Task != "" {
-								ui.Text(c, e.Task).
-									FontSize(uiFont(TypeBody)).
-									TextColor(ThemePrimaryText(c).Alpha(0.85))
-							}
-						})
-
-					hasSummary := strings.TrimSpace(e.Summary) != ""
-					if beeThreadID != "" || hasSummary {
-						reportKey := fmt.Sprintf("%s#%d", msgID, idx)
-						popoverKey := "swarm-capsule-popover-" + reportKey
-						host := c.Services()
-						closeReportPopover := func() {
-							if hp != nil {
-								swarmPanelMu.Lock()
-								if hp.reportOpen != nil {
-									hp.reportOpen[reportKey] = false
-								}
-								swarmPanelMu.Unlock()
-							}
-							closeAppFlyoutPopover(host, popoverKey)
-							if host != (ui.Services{}) {
-								host.Invalidate()
-							}
+						} else {
+							openBeeWindow(s, beeThreadID)
 						}
-						ui.Row(c.Key(cardKey + "-actions")).
-							AlignItems(ui.Center).
+					},
+				})
+				Button(c, ButtonOpts{
+					Key:     cardKey + "-open-thread-btn",
+					Icon:    IconExternalLink(),
+					Text:    "查看会话",
+					Label:   "查看会话",
+					Tooltip: "查看子代理完整会话",
+					Variant: ButtonGhost,
+					Size:    ControlSM,
+					OnClick: func() {
+						closeReportPopover()
+						if s != nil && s.client != nil {
+							s.selectThread(beeThreadID)
+						}
+					},
+				})
+			}
+			if hasSummary {
+				ui.Box(c.Key(cardKey + "-actions-spacer")).Grow(1)
+				renderSwarmReportCopyTextButton(c, s, cardKey, summary)
+			}
+		}
+	}
+
+	renderSwarmReportPopoverLayout(c, cardKey, cardKey+"-body-scroll", func() {
+		renderSwarmReportPopoverHeader(c, swarmReportPopoverHeaderProps{
+			KeyPrefix: cardKey,
+			Name:      e.Name,
+			Avatar: func() {
+				renderSwarmReportAvatar(c, cardKey+"-avatar", e.Name, 28, 13)
+			},
+			TierColor:    chipColor,
+			TierName:     chipName,
+			TierReadOnly: isReadOnly,
+			Status:       e.Status,
+			StatusColor:  statusColor,
+			Duration:     duration,
+			ToolCalls:    toolCount,
+			FileCount:    fileCount,
+			LinesAdded:   linesAdded,
+			LinesDeleted: linesDeleted,
+			Model:        model,
+			DirectModel:  isDirectModel,
+			Violation:    violation,
+		})
+
+		ui.Column(c.Key(cardKey+"-body")).
+			FillWidth().
+			Padding(Space4, Space5, Space5, Space5).
+			Gap(Space3).
+			Children(func() {
+				renderSwarmReportTaskQuote(c, cardKey+"-task", e.Task)
+
+				// 可信度（没有“不可核实 / 未读却引用”时用成功色，否则警告色）
+				if e.Credibility != "" {
+					credColor := ThemeSuccess(c)
+					if strings.Contains(e.Credibility, "不可核实") || strings.Contains(e.Credibility, "未读却引用") {
+						credColor = ThemeWarning(c)
+					}
+					credText := e.Credibility
+					if !strings.HasPrefix(credText, "可信度") {
+						credText = "可信度: " + credText
+					}
+					ui.Text(c, credText).
+						FontSize(uiFont(TypeCaption)).
+						TextColor(credColor)
+				}
+
+				// 合并结果
+				if e.MergeResult != "" {
+					ui.Text(c, "合并结果: "+e.MergeResult).
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c))
+				}
+
+				// 改动文件与冲突文件
+				if matchedBee != nil {
+					if len(matchedBee.ChangedFiles) > 0 {
+						ui.Column(c.Key(cardKey + "-changed-files")).
 							Gap(Space1).
-							Shrink(0).
 							Children(func() {
-								if beeThreadID != "" {
-									inBees := swarmBeeInActiveState(hp, selectedID, beeThreadID)
-									floatTooltip := "打开子代理浮窗"
-									if !inBees {
-										floatTooltip = "在独立窗口中打开"
-									}
-									Button(c, ButtonOpts{
-										Key:     cardKey + "-open-float-btn",
-										Text:    "打开浮窗",
-										Label:   "打开浮窗",
-										Tooltip: floatTooltip,
-										Variant: ButtonGhost,
-										Size:    ControlXS,
-										OnClick: func() {
-											closeReportPopover()
-											if inBees {
-												undismissSwarmFloatPanel(leadID)
-												openSwarmFloatForBee(leadID, beeThreadID)
-												if s != nil {
-													s.invalidate()
-												}
-											} else {
-												openBeeWindow(s, beeThreadID)
-											}
-										},
-									})
-									Button(c, ButtonOpts{
-										Key:     cardKey + "-open-thread-btn",
-										Text:    "查看会话",
-										Label:   "查看会话",
-										Tooltip: "查看子代理完整会话",
-										Variant: ButtonGhost,
-										Size:    ControlXS,
-										OnClick: func() {
-											closeReportPopover()
-											if s != nil && s.client != nil {
-												s.selectThread(beeThreadID)
-											}
-										},
-									})
-								}
-								if hasSummary {
-									renderSwarmReportCopyButton(c, s, cardKey, swarmReportDisplaySummary(s, e))
+								ui.Text(c, fmt.Sprintf("改动文件 (%d):", len(matchedBee.ChangedFiles))).
+									FontSize(uiFont(TypeCaption)).
+									FontWeight(600).
+									TextColor(ThemeSecondaryText(c))
+								for _, f := range matchedBee.ChangedFiles {
+									ui.Text(c, f).
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeSecondaryText(c))
 								}
 							})
 					}
-				})
 
-			// 表头与正文之间的分隔线。
-			ui.Row(c.Key(cardKey + "-divider")).
-				FillWidth().
-				Height(Hairline).
-				Background(ThemeBorder(c))
+					if len(matchedBee.ConflictFiles) > 0 {
+						ui.Column(c.Key(cardKey + "-conflict-files")).
+							Gap(Space1).
+							Children(func() {
+								ui.Text(c, fmt.Sprintf("冲突文件 (%d):", len(matchedBee.ConflictFiles))).
+									FontSize(uiFont(TypeCaption)).
+									FontWeight(600).
+									TextColor(ThemeDanger(c))
+								for _, f := range matchedBee.ConflictFiles {
+									ui.Text(c, f).
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeDanger(c))
+								}
+							})
+					}
+				}
 
-			renderBody := func() {
-				ui.Column(c.Key(cardKey+"-body")).
-					FillWidth().
-					Padding(Space4, Space5).
-					Gap(Space3).
-					Children(func() {
-						// 可信度（没有“不可核实 / 未读却引用”时用成功色，否则警告色）
-						if e.Credibility != "" {
-							credColor := ThemeSuccess(c)
-							if strings.Contains(e.Credibility, "不可核实") || strings.Contains(e.Credibility, "未读却引用") {
-								credColor = ThemeWarning(c)
+				// 汇报总结全文沿用聊天区的 Markdown 样式；消息里被截断的总结从存档读全文。
+				if hasSummary {
+					ui.Column(c.Key(cardKey + "-summary")).
+						FillWidth().
+						Selectable().
+						Children(func() {
+							if s != nil {
+								markdown.View(c, summary, &s.mdStaticOpts)
+							} else {
+								ui.Text(c, summary).
+									Selectable().
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemePrimaryText(c))
 							}
-							credText := e.Credibility
-							if !strings.HasPrefix(credText, "可信度") {
-								credText = "可信度: " + credText
-							}
-							ui.Text(c, credText).
-								FontSize(uiFont(TypeCaption)).
-								TextColor(credColor)
-						}
-
-						// 合并结果
-						if e.MergeResult != "" {
-							ui.Text(c, "合并结果: "+e.MergeResult).
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
-						}
-
-						// 改动文件与冲突文件
-						if matchedBee != nil {
-							if len(matchedBee.ChangedFiles) > 0 {
-								ui.Column(c.Key(cardKey + "-changed-files")).
-									Gap(Space1).
-									Children(func() {
-										ui.Text(c, fmt.Sprintf("改动文件 (%d):", len(matchedBee.ChangedFiles))).
-											FontSize(uiFont(TypeCaption)).
-											FontWeight(600).
-											TextColor(ThemeSecondaryText(c))
-										for _, f := range matchedBee.ChangedFiles {
-											ui.Text(c, f).
-												FontSize(uiFont(TypeCaption)).
-												TextColor(ThemeSecondaryText(c))
-										}
-									})
-							}
-
-							if len(matchedBee.ConflictFiles) > 0 {
-								ui.Column(c.Key(cardKey + "-conflict-files")).
-									Gap(Space1).
-									Children(func() {
-										ui.Text(c, fmt.Sprintf("冲突文件 (%d):", len(matchedBee.ConflictFiles))).
-											FontSize(uiFont(TypeCaption)).
-											FontWeight(600).
-											TextColor(ThemeDanger(c))
-										for _, f := range matchedBee.ConflictFiles {
-											ui.Text(c, f).
-												FontSize(uiFont(TypeCaption)).
-												TextColor(ThemeDanger(c))
-										}
-									})
-							}
-						}
-
-						// 汇报总结全文沿用聊天区的 Markdown 样式；消息里被截断的总结从存档读全文。
-						if summary := swarmReportDisplaySummary(s, e); summary != "" {
-							ui.Column(c.Key(cardKey + "-summary")).
-								FillWidth().
-								Selectable().
-								Children(func() {
-									if s != nil {
-										markdown.View(c, summary, &s.mdStaticOpts)
-									} else {
-										ui.Text(c, summary).
-											Selectable().
-											FontSize(uiFont(TypeFootnote)).
-											TextColor(ThemePrimaryText(c))
-									}
-								})
-						} else {
-							ui.Text(c, "还没有汇报。").
-								FontSize(uiFont(TypeFootnote)).
-								TextColor(ThemeSecondaryText(c))
-						}
-					})
-			}
-
-			if flyoutHostWindow(c.Services()) != nil {
-				ui.Column(c.Key(cardKey + "-body-scroll")).
-					FillWidth().
-					Children(renderBody)
-			} else {
-				_, winH := c.Size()
-				ui.Scroll(c.Key(cardKey + "-body-scroll")).
-					Label(cardKey + "-body-scroll").
-					FillWidth().
-					MaxHeight(max(1, (winH-Space8)*3/4)).
-					Children(renderBody)
-			}
-		})
+						})
+				} else {
+					ui.Text(c, "还没有汇报。").
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(ThemeSecondaryText(c))
+				}
+			})
+	}, renderActions)
 }

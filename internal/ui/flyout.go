@@ -209,10 +209,12 @@ func appFlyoutOptions(parent *mygo.Window, anchor mygo.Rectangle, width int) myg
 }
 
 type appFlyoutProps struct {
-	Width      int
-	Placement  mygo.Placement
-	Background *ui.Color
-	RiseY      float32 // 入场时内容从下方抬起的距离，0 表示只淡入。
+	Width         int
+	MaxHeight     int // 0 表示不设额外上限（仍受工作区限制）。
+	Placement     mygo.Placement
+	Background    *ui.Color
+	RiseY         float32 // 入场时内容从下方抬起的距离，0 表示只淡入。
+	DisableScroll bool    // 为 true 时外层不包 ui.Scroll，由内容自行管理滚动与固定底栏。
 }
 
 type appFlyoutPopoverKey struct {
@@ -341,7 +343,13 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 			opts := appFlyoutOptions(parent, r, p.Width)
 			// 窗口每次新建、首帧在测量前就显示，按上次实测高度创建才不会从默认 200 跳到内容高度。
 			// shortcut: 首次打开仍从默认高度适配一次，mygo 支持显示前测量首帧后改用它
+			if p.MaxHeight > 0 {
+				opts.MaxHeight = p.MaxHeight
+			}
 			if cachedHeight > 0 {
+				if p.MaxHeight > 0 && cachedHeight > p.MaxHeight {
+					cachedHeight = p.MaxHeight
+				}
 				opts.Height = cachedHeight
 			}
 			if p.Placement != "" {
@@ -361,7 +369,7 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 				}
 				appFlyoutPopoverMu.Unlock()
 				if active {
-					renderAppFlyout(fc, key+"-root", key+"-scroll", float32(p.Width), p.Background, p.RiseY, func() { view(fc) })
+					renderAppFlyoutWithScroll(fc, key+"-root", key+"-scroll", float32(p.Width), p.Background, p.RiseY, p.DisableScroll, func() { view(fc) })
 				}
 			}
 			appFlyoutPopoverMu.Lock()
@@ -401,6 +409,10 @@ func appFlyoutPopover(c *ui.Context, key string, anchor ui.Element, open *bool, 
 }
 
 func renderAppFlyout(c *ui.Context, rootKey, scrollKey string, width float32, background *ui.Color, riseY float32, body func()) {
+	renderAppFlyoutWithScroll(c, rootKey, scrollKey, width, background, riseY, false, body)
+}
+
+func renderAppFlyoutWithScroll(c *ui.Context, rootKey, scrollKey string, width float32, background *ui.Color, riseY float32, disableScroll bool, body func()) {
 	applyAppTheme(c)
 	// 浮窗是新窗口，根节点随首帧创建，mygo 不对它播 Transition.Enter，所以用 Keyframes。
 	root := ui.Column(c.Key(rootKey)).MaxWidth(width).FillWidth().FillHeight()
@@ -408,6 +420,10 @@ func renderAppFlyout(c *ui.Context, rootKey, scrollKey string, width float32, ba
 	root = root.Opacity(enter).Translate(0, riseY*(1-enter))
 	if background != nil {
 		root = root.Background(*background).Radius(RadiusMD)
+	}
+	if disableScroll {
+		root.Children(body)
+		return
 	}
 	root.Children(func() { ui.Scroll(c.Key(scrollKey)).Grow(1).FillWidth().Children(body) })
 }
