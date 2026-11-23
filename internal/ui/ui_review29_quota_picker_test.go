@@ -297,9 +297,9 @@ func TestUIReview29NarrowLayoutBounds(t *testing.T) {
 			}
 			assertRectInside(t, "额度详情浮层", quotaPanel, winRect)
 
-			refreshBtn, ok := tt.Find("刷新")
+			refreshBtn, ok := tt.Find("刷新额度")
 			if !ok {
-				t.Fatal("找不到刷新按钮")
+				t.Fatal("找不到刷新额度按钮")
 			}
 			assertRectInside(t, "刷新按钮", refreshBtn, quotaPanel)
 

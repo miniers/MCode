@@ -100,18 +100,18 @@ func TestComposerAgyAccountPopoverListsAutoAndAccounts(t *testing.T) {
 	// 等 PopoverCard 入场淡入动画（DurBase）结束后再取像素断言勾选图标。
 	tt.Advance(DurBase + 50*time.Millisecond)
 	tt.Frame()
-	for _, want := range []string{"自动", "个人账号", "工作账号", "18%", "32%"} {
+	for _, want := range []string{"自动选号", "个人账号", "工作账号", "18%", "32%"} {
 		if !tt.HasText(want) {
 			t.Fatalf("弹层缺少 %q，texts=%q", want, tt.Texts())
 		}
 	}
 
-	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动")
+	autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动选号")
 	if !ok {
-		t.Fatalf("找不到「自动」选项按钮")
+		t.Fatalf("找不到「自动选号」选项按钮")
 	}
-	if got := countRightSlotInk(tt.Image(), autoBtn.Bounds); got == 0 {
-		t.Fatalf("Account 为空时应勾选「自动」，右侧像素=%d", got)
+	if !autoBtn.Checked {
+		t.Fatalf("Account 为空时应选中「自动选号」，node=%+v", autoBtn)
 	}
 }
 
@@ -157,8 +157,8 @@ func TestComposerAgyAccountHiddenForSingleAccountOrNonAgy(t *testing.T) {
 		if err := tt.Click("额度 agy"); err != nil {
 			t.Fatalf("打开弹层失败: %v", err)
 		}
-		if tt.HasText("自动") {
-			t.Fatalf("只有一个可用账号时不应出现「自动」行，texts=%q", tt.Texts())
+		if tt.HasText("自动选号") {
+			t.Fatalf("只有一个可用账号时不应出现「自动选号」分段，texts=%q", tt.Texts())
 		}
 	})
 
@@ -173,8 +173,8 @@ func TestComposerAgyAccountHiddenForSingleAccountOrNonAgy(t *testing.T) {
 		if err := tt.Click("额度 claude"); err != nil {
 			t.Fatalf("打开弹层失败: %v", err)
 		}
-		if tt.HasText("自动") {
-			t.Fatalf("非 agy 线程不应出现「自动」行，texts=%q", tt.Texts())
+		if tt.HasText("自动选号") {
+			t.Fatalf("非 agy 线程不应出现「自动选号」分段，texts=%q", tt.Texts())
 		}
 	})
 }
@@ -189,15 +189,15 @@ func TestComposerAgyAccountLockingInPopover(t *testing.T) {
 			renderComposerQuotaPopover(c, s, &th, "agy", 0)
 		}, 480, 420)
 
-		for _, label := range []string{"自动", "个人账号", "工作账号"} {
+		for _, label := range []string{"自动选号", "指定", "个人账号", "工作账号"} {
 			node, ok := tt.AccessByRole(ui.RoleButton, label)
 			if !ok || !node.Disabled {
 				t.Fatalf("已有消息时 %q 应禁用: ok=%v node=%+v", label, ok, node)
 			}
 		}
-		autoBtn, _ := tt.AccessByRole(ui.RoleButton, "自动")
-		if got := countRightSlotInk(tt.Image(), autoBtn.Bounds); got == 0 {
-			t.Fatalf("锁定时仍应显示当前勾选图标，像素=%d", got)
+		autoBtn, _ := tt.AccessByRole(ui.RoleButton, "自动选号")
+		if !autoBtn.Checked {
+			t.Fatalf("锁定时仍应保持「自动选号」选中状态，node=%+v", autoBtn)
 		}
 	})
 
@@ -210,7 +210,7 @@ func TestComposerAgyAccountLockingInPopover(t *testing.T) {
 			renderComposerQuotaPopover(c, s, &th, "agy", 0)
 		}, 480, 420)
 
-		for _, label := range []string{"自动", "个人账号"} {
+		for _, label := range []string{"自动选号", "指定", "个人账号"} {
 			node, ok := tt.AccessByRole(ui.RoleButton, label)
 			if !ok || node.Disabled {
 				t.Fatalf("指定账号 5h 满额解锁后 %q 应可用: ok=%v node=%+v", label, ok, node)

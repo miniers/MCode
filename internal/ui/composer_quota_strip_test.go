@@ -87,7 +87,7 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 	if _, ok := tt.Find("额度详情"); !ok || !tt.HasText("58%") {
 		t.Fatalf("expected quota popover content, texts: %q", tt.Texts())
 	}
-	if !tt.HasText("2 小时 30 分钟后重置") {
+	if !tt.HasText("2h30m 重置") {
 		t.Fatalf("expected reset countdown, texts: %q", tt.Texts())
 	}
 	if tt.HasText("lkliuss@gmail.com · 在用") {

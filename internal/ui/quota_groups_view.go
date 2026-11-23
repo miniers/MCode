@@ -393,10 +393,9 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									targetAngle = -90
 								}
 								if reduceMotion(c) {
-									chevron.Rotate(targetAngle)
-								} else {
-									chevron.Rotate(chevron.AnimateTo(groupKey+"-chevron", targetAngle, ui.Animation{Duration: DurSnap, Ease: EaseSnap}))
+									chevron.Jump(groupKey+"-chevron", targetAngle)
 								}
+								chevron.Rotate(chevron.AnimateTo(groupKey+"-chevron", targetAngle, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap}))
 							}
 						}
 
@@ -455,12 +454,10 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								Height(quotaBarHeight).
 								Radius(quotaBarRadius).
 								Background(quotaBarTrackColor(c)).
-								Clip()
-							if fixedWidth > 0 {
-								bar.Grow(1).Width(0).MinWidth(24)
-							} else {
-								bar.Grow(1).Width(0).MinWidth(24)
-							}
+								Clip().
+								Grow(1).
+								Width(0).
+								MinWidth(24)
 							if !win.hasElapsed {
 								if reduceMotion(c) {
 									bar.Jump("ratio", ratio)
@@ -904,10 +901,9 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											arrowAngle = 90
 										}
 										if reduceMotion(c) {
-											arrow.Rotate(arrowAngle)
-										} else {
-											arrow.Rotate(arrow.AnimateTo(groupKey+"-nr-arrow", arrowAngle, ui.Animation{Duration: DurSnap, Ease: EaseSnap}))
+											arrow.Jump(groupKey+"-nr-arrow", arrowAngle)
 										}
+										arrow.Rotate(arrow.AnimateTo(groupKey+"-nr-arrow", arrowAngle, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap}))
 										ui.Text(c, discLabel).
 											FontSize(uiFont(TypeCaption)).
 											TextColor(ThemeTertiaryText(c)).

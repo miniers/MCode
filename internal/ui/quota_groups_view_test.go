@@ -591,3 +591,37 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaRedesignReduceMotionDisclosure(t *testing.T) {
+	setAppReduceMotion(t, true)
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.Local)
+	model := buildTrayQuotaModel([]TrayQuotaGroup{{
+		Provider: "codex",
+		Title:    "Codex",
+		Windows: []ProviderQuotaWindow{
+			{Account: "a@example.com", Label: "5h", Period: "5h", UsedPercent: 10, ResetsAt: now.Add(3 * time.Hour)},
+			{Account: "a@example.com", Label: "Image generation", Text: true, Display: "Unknown"},
+			{Account: "b@example.com", Label: "5h", Period: "5h", UsedPercent: 20, ResetsAt: now.Add(3 * time.Hour)},
+			{Account: "b@example.com", Label: "Image generation", Text: true, Display: "Unknown"},
+		},
+	}}, now, now, false)
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderQuotaGroupList(c, "redesign-rm-nr-", model.Groups, quotaGroupListOptions{})
+	}, 456, 360, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("减少动效下初始静止不应请求帧")
+	}
+
+	if err := tt.Click("2 项无读数"); err != nil {
+		t.Fatalf("点击展开无读数失败: %v", err)
+	}
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("减少动效开启时点击展开无读数后下一帧不应继续请求动画帧")
+	}
+	if !tt.HasText("Image generation") || !tt.HasText("Unknown") {
+		t.Fatalf("减少动效展开后应展示无读数明细: %v", tt.Texts())
+	}
+}
