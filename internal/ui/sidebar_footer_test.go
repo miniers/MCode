@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -35,7 +36,8 @@ func TestSidebarFooter_WorkspaceButtons(t *testing.T) {
 			t.Cleanup(state.close)
 			tt := ui.NewTester(view, 1000, 700)
 			waitFor(t, tt, func() bool {
-				return tt.HasText("测试会话1") && tt.HasText(tc.label)
+				_, ok := tt.Find(tc.label)
+				return tt.HasText("测试会话1") && ok
 			})
 
 			if err := tt.Click(tc.label); err != nil {
@@ -182,4 +184,121 @@ func TestEmptyChatAddProjectCloneClosesPopover(t *testing.T) {
 	if getSidebarFooterState(state).chatAddProjectOpen {
 		t.Fatal("克隆后空白页添加项目浮层仍然打开")
 	}
+}
+
+func TestSidebarFooterUnified(t *testing.T) {
+	countText := func(texts []string, target string) int {
+		n := 0
+		for _, s := range texts {
+			if s == target {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("layout_across_widths", func(t *testing.T) {
+		for _, width := range []int{200, 280, 360} {
+			t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+				s := newChatState(NewFakeClient())
+				t.Cleanup(s.close)
+				setChatSettings(s, NewSettingsState(settingsTestDir(t), nil, s))
+				s.mu.Lock()
+				s.sidebarWidth = float32(width)
+				s.mu.Unlock()
+
+				tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, width, 100)
+				tt.Frame()
+
+				texts := tt.Texts()
+				addBtn, ok := tt.AccessByRole(ui.RoleButton, "添加项目")
+				if !ok {
+					t.Fatalf("宽度 %d 缺少「添加项目」按钮: texts=%q", width, texts)
+				}
+				if countText(texts, "添加项目") < 2 || addBtn.Bounds.W <= ControlSM {
+					t.Fatalf("宽度 %d 左侧「添加项目」应保持带文字主按钮形态: bounds=%+v texts=%q", width, addBtn.Bounds, texts)
+				}
+
+				for _, label := range []string{"任务", "自动化", "设置"} {
+					if countText(texts, label) > 1 {
+						t.Fatalf("宽度 %d 不应出现右侧文字按钮 %q: texts=%q", width, label, texts)
+					}
+				}
+
+				kanbanBtn, ok := tt.AccessByRole(ui.RoleButton, "任务")
+				if !ok {
+					t.Fatalf("宽度 %d 缺少「任务」图标按钮", width)
+				}
+				autoBtn, ok := tt.AccessByRole(ui.RoleButton, "自动化")
+				if !ok {
+					t.Fatalf("宽度 %d 缺少「自动化」图标按钮", width)
+				}
+				settingsBtn, ok := tt.AccessByRole(ui.RoleButton, "设置")
+				if !ok {
+					t.Fatalf("宽度 %d 缺少「设置」图标按钮", width)
+				}
+
+				rightBtns := []struct {
+					label string
+					info  ui.AccessInfo
+				}{
+					{"任务", kanbanBtn},
+					{"自动化", autoBtn},
+					{"设置", settingsBtn},
+				}
+				for _, b := range rightBtns {
+					if b.info.Bounds.W != ControlSM || b.info.Bounds.H != ControlSM {
+						t.Fatalf("宽度 %d 右侧按钮 %q 应为 ControlSM(%v) 紧凑图标按钮: %+v", width, b.label, ControlSM, b.info.Bounds)
+					}
+				}
+
+				all := []ui.Rect{addBtn.Bounds, kanbanBtn.Bounds, autoBtn.Bounds, settingsBtn.Bounds}
+				for i, r := range all {
+					if r.X < -0.5 || r.X+r.W > float32(width)+0.5 {
+						t.Fatalf("宽度 %d 按钮 %d 越界: %+v", width, i, r)
+					}
+					if i > 0 && all[i-1].X+all[i-1].W > r.X+0.5 {
+						t.Fatalf("宽度 %d 按钮顺序或间距重叠: prev=%+v cur=%+v", width, all[i-1], r)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("kanban_badge_number_only", func(t *testing.T) {
+		t.Run("zero_hidden", func(t *testing.T) {
+			fake := newAttentionFakeClient()
+			s := newChatState(fake)
+			t.Cleanup(s.close)
+			tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, 280, 100)
+			tt.Frame()
+
+			if tt.HasText("0") {
+				t.Fatalf("任务角标计数为 0 时不应显示: texts=%q", tt.Texts())
+			}
+			if _, ok := tt.Find("0"); ok {
+				t.Fatalf("任务角标计数为 0 时不应存在 0 节点")
+			}
+		})
+
+		t.Run("positive_number_only", func(t *testing.T) {
+			fake := newAttentionFakeClient(
+				AttentionItem{ID: "r1", Kind: "kanban_review"},
+				AttentionItem{ID: "r2", Kind: "kanban_failed"},
+				AttentionItem{ID: "r3", Kind: "kanban_approval"},
+			)
+			s := newChatState(fake)
+			t.Cleanup(s.close)
+			tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, 280, 100)
+			waitFor(t, tt, func() bool { _, ok := tt.Find("3"); return ok })
+
+			texts := tt.Texts()
+			if countText(texts, "任务") > 1 {
+				t.Fatalf("任务按钮与角标不应包含文字标签「任务」: texts=%q", texts)
+			}
+			if countText(texts, "3") < 1 {
+				t.Fatalf("任务角标应显示数字 3: texts=%q", texts)
+			}
+		})
+	})
 }

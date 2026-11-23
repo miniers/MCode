@@ -13,9 +13,6 @@ import (
 // kanbanBadgeRefreshInterval 是底栏看板待审阅徽标的后台刷新间隔。
 const kanbanBadgeRefreshInterval = 30 * time.Second
 
-// sidebarFooterCompactWidth 是底栏由文字按钮切换为紧凑图标按钮的可用宽度阈值（DIP）。
-const sidebarFooterCompactWidth float32 = 280
-
 // sidebarFooterState 维护底栏浮层的展开状态与看板待审阅徽标缓存，按 chatState 附加（同 chatHeaderState）。
 // addProjectOpen 绑定在控件上，只在 UI 线程读写；
 // kanbanReviewCount、kanbanFetchedAt、kanbanLoading 由后台 goroutine 写入，受 sidebarFooterMu 保护。
@@ -60,8 +57,8 @@ func renderUnreadDot(c *ui.Context, key string) ui.Element {
 }
 
 // renderSidebarBottomBar 渲染底部常驻工具栏：
-// 添加项目（浮层：选择文件夹 / 从 GitHub 克隆）、
-// 任务与看板（带待审阅圆点）、自动化与设置齿轮图标按钮。
+// 左侧「添加项目」主按钮（浮层：选择文件夹 / 从 GitHub 克隆），
+// 右侧紧凑图标按钮组（任务与看板、自动化、设置及更新胶囊）。
 func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -73,54 +70,31 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	}
 
 	fs := getSidebarFooterState(s)
-	s.mu.Lock()
-	sbW := s.sidebarWidth
-	s.mu.Unlock()
-	winW, _ := c.Size()
-	availW := sbW
-	if availW <= 0 || (winW > 0 && winW < availW) {
-		availW = winW
-	}
-	compact := availW > 0 && availW < sidebarFooterCompactWidth
-
-	renderAction := func(key, label, tooltip string, icon *ui.SVG, onClick func()) ui.Element {
-		if compact {
-			if tooltip == "" {
-				tooltip = label
-			}
-			return IconButton(c, IconButtonProps{
-				Key:     key,
-				Icon:    icon,
-				Size:    ControlSM,
-				Variant: ButtonGhost,
-				Label:   label,
-				Tooltip: tooltip,
-				OnClick: onClick,
-			})
-		}
-		return Button(c, ButtonOpts{
-			Key:     key,
-			Text:    label,
-			Icon:    icon,
-			Size:    ControlSM,
-			Variant: ButtonGhost,
-			Label:   label,
-			Tooltip: tooltip,
-			OnClick: onClick,
-		})
-	}
 
 	ui.Row(c.Key("sidebar-bottom-bar")).
+		FillWidth().
 		MinWidth(0).
-		Height(HeightBottomBar).
-		Margin(Space1, ListInset, Space3, ListInset).
+		Height(ControlSM+Space2*2).
+		Shrink(0).
+		Padding(0, ListInset).
+		BorderWidth(Hairline, 0, 0, 0).
+		BorderColor(ThemeHairline(c)).
 		Gap(Space2).
 		AlignItems(ui.Center).
 		Children(func() {
 			// 点击展开「选择文件夹 / 从 GitHub 克隆」浮层。
-			addBtn := renderAction("sidebar-add-project-btn", "添加项目", "添加项目", IconPlus(), func() {
-				togglePopoverOpen(&fs.addProjectOpen)
-				s.invalidate()
+			addBtn := Button(c, ButtonOpts{
+				Key:     "sidebar-add-project-btn",
+				Text:    "添加项目",
+				Icon:    IconPlus(),
+				Size:    ControlSM,
+				Variant: ButtonGhost,
+				Label:   "添加项目",
+				Tooltip: "添加项目",
+				OnClick: func() {
+					togglePopoverOpen(&fs.addProjectOpen)
+					s.invalidate()
+				},
 			})
 			appPopover(c.Key("sidebar-add-project-popover"), addBtn, &fs.addProjectOpen, func() {
 				fs.addProjectOpen = false
@@ -130,48 +104,82 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 
 			ui.Spacer(c)
 
-			// 任务与看板入口：待审阅任务数大于 0 时在按钮右上角显示强调色小圆点
-			ui.Row(c.Key("sidebar-kanban-wrapper")).Children(func() {
-				renderAction("sidebar-kanban-btn", "任务", "", IconColumns3(), func() {
-					s.openTasksWindow("tasks")
-				})
-				if count > 0 {
-					ui.Box(c.Key("sidebar-kanban-review-dot")).
-						Background(ThemeHover(c)).Radius(RadiusSM).
-						Attach(ui.AnchorTopRight, ui.AnchorCenter).Children(func() {
-						rollingNumber(c, fmt.Sprintf("sidebar-kanban-count-%p", s), count)
+			ui.Row(c.Key("sidebar-footer-actions")).
+				Gap(Space0).
+				AlignItems(ui.Center).
+				Shrink(0).
+				Children(func() {
+					// 任务与看板入口：待处理或待审阅数大于 0 时在右上角显示纯数字角标
+					ui.Row(c.Key("sidebar-kanban-wrapper")).
+						AlignItems(ui.Center).
+						Children(func() {
+							IconButton(c, IconButtonProps{
+								Key:     "sidebar-kanban-btn",
+								Icon:    IconColumns3(),
+								Size:    ControlSM,
+								Variant: ButtonGhost,
+								Label:   "任务",
+								Tooltip: "任务",
+								OnClick: func() {
+									s.openTasksWindow("tasks")
+								},
+							})
+							if count > 0 {
+								ui.Row(c.Key("sidebar-kanban-review-dot")).
+									Height(IconSM).
+									MinWidth(IconSM).
+									Padding(0, Space1).
+									Radius(RadiusPill).
+									Center().
+									Background(ThemeAccent(c)).
+									Attach(ui.AnchorTopRight, ui.AnchorCenter).
+									Children(func() {
+										rollingNumber(c, fmt.Sprintf("sidebar-kanban-count-%p", s), count).
+											FontSize(uiFont(TypeMicro)).
+											FontWeight(600).
+											TextColor(ThemeOnAccent(c))
+									})
+							}
+						})
+
+					IconButton(c, IconButtonProps{
+						Key:     "sidebar-automations-btn",
+						Icon:    IconCalendarClock(),
+						Size:    ControlSM,
+						Variant: ButtonGhost,
+						Label:   "自动化",
+						Tooltip: "自动化",
+						OnClick: func() {
+							s.openTasksWindow("automations")
+						},
 					})
-				}
-			})
 
-			renderAction("sidebar-automations-btn", "自动化", "", IconCalendarClock(), func() {
-				s.openTasksWindow("automations")
-			})
-
-			// 设置入口图标按钮
-			if st := getChatSettings(s); st != nil {
-				initWhatsNew(s, st, fs)
-				settingsBtn := IconButton(c, IconButtonProps{
-					Key:     "sidebar-settings-btn",
-					Icon:    IconSettings(),
-					Size:    ControlSM,
-					Variant: ButtonGhost,
-					Label:   "设置",
-					OnClick: func() {
-						openSettingsWindow(s, "")
-					},
+					// 设置入口图标按钮
+					if st := getChatSettings(s); st != nil {
+						initWhatsNew(s, st, fs)
+						settingsBtn := IconButton(c, IconButtonProps{
+							Key:     "sidebar-settings-btn",
+							Icon:    IconSettings(),
+							Size:    ControlSM,
+							Variant: ButtonGhost,
+							Label:   "设置",
+							Tooltip: "设置",
+							OnClick: func() {
+								openSettingsWindow(s, "")
+							},
+						})
+						appPopoverAbove(c.Key("sidebar-whats-new-popover"), settingsBtn, &fs.whatsNewOpen, nil, func() {
+							renderUpdatePopover(c, s, st, "已更新到 "+fs.whatsNewVersion, fs.whatsNewSection, nil)
+						})
+						status, _ := latestUpdateStatus(s.client)
+						if status.Available {
+							renderUpdateCapsule(c, s, st, fs, status)
+						} else {
+							fs.updateOpen = false
+						}
+						fs.updateVisible = status.Available
+					}
 				})
-				appPopoverAbove(c.Key("sidebar-whats-new-popover"), settingsBtn, &fs.whatsNewOpen, nil, func() {
-					renderUpdatePopover(c, s, st, "已更新到 "+fs.whatsNewVersion, fs.whatsNewSection, nil)
-				})
-				status, _ := latestUpdateStatus(s.client)
-				if status.Available {
-					renderUpdateCapsule(c, s, st, fs, status)
-				} else {
-					fs.updateOpen = false
-				}
-				fs.updateVisible = status.Available
-			}
 		})
 }
 
