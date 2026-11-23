@@ -352,10 +352,14 @@ func previewPollAnnotations(s *chatState, token previewPageToken, page previewPa
 		st.annotPageHover = 0
 		changed = true
 	}
+	thumbPage := page
+	if polling, ok := page.(browserPollingPage); ok {
+		thumbPage = polling.previewPage
+	}
 	var startThumb bool
 	var thumbToken previewPageToken
 	if len(thumbPIDs) > 0 {
-		if _, canCapture := page.(previewCapturePage); canCapture {
+		if _, canCapture := thumbPage.(previewCapturePage); canCapture {
 			previewQueueThumbPIDsLocked(st, thumbPIDs)
 			if !st.annotThumbRunning {
 				st.annotThumbRunning = true
@@ -369,7 +373,7 @@ func previewPollAnnotations(s *chatState, token previewPageToken, page previewPa
 		_, _ = page.Eval(script)
 	}
 	if startThumb {
-		go previewCaptureAnnotationThumbs(s, thumbToken, page)
+		go previewCaptureAnnotationThumbs(s, thumbToken, thumbPage)
 	}
 	if changed && s != nil {
 		s.invalidate()

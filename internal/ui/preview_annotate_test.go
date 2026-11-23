@@ -2294,3 +2294,59 @@ func TestPreviewAnnotateDrawerThumb(t *testing.T) {
 		t.Fatalf("展开后未恢复标注列表: %v", tester.Texts())
 	}
 }
+
+func TestPreviewAnnotationThumbThroughPollingWrapper(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 120, 80))
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 120; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: 37, G: 99, B: 235, A: 255})
+		}
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &chatState{}
+	tab := getPreviewState(s)
+	page := &screenshotTestPage{data: pngBuf.Bytes()}
+	page.eval = func(script string) (any, error) {
+		if script == previewAnnotateDrainScript {
+			return `{"items":[{"pid":1,"kind":"element","selector":"#btn","vw":120,"rect":{"x":10,"y":10,"w":40,"h":20}}],"hover":0,"active":true}`, nil
+		}
+		if strings.Contains(script, "rectsFor(") {
+			return `{"vw":120,"rects":{"1":{"x":10,"y":10,"w":40,"h":20}}}`, nil
+		}
+		return nil, nil
+	}
+	previewMu.Lock()
+	tab.page, tab.visible, tab.annotating, tab.annotPolling = page, true, true, true
+	token := previewPageTokenLocked(tab)
+	previewMu.Unlock()
+
+	previewPollAnnotations(s, token, browserPollingPage{previewPage: page, ctx: context.Background()})
+
+	done := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		previewMu.Lock()
+		running := tab.annotThumbRunning
+		previewMu.Unlock()
+		if !running {
+			tab.annotOps.Lock()
+			tab.annotOps.Unlock()
+			done = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !done {
+		t.Fatal("等待缩略图抓取完成超时")
+	}
+
+	previewMu.Lock()
+	defer previewMu.Unlock()
+	if len(tab.annotations) != 1 || tab.annotations[0].Thumb == nil {
+		t.Fatalf("经 browserPollingPage 轮询新条目后 Thumb 应非空: %+v", tab.annotations)
+	}
+}
