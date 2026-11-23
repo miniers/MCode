@@ -690,21 +690,6 @@ func sidebarTopBarHeight(topOffset float32) float32 {
 	return 0
 }
 
-// applySidebarHeaderAddReveal 控制段/项目标题行右侧「+」按钮的悬停与键盘焦点显隐：
-// 未悬停且无焦点时透明度为 0，悬停所在标题行或按钮获焦时以短时长过渡显现；ReduceMotion 时直达终点。
-func applySidebarHeaderAddReveal(c *ui.Context, btn ui.Element, animKey string, visible bool) {
-	target := float32(0)
-	if visible {
-		target = 1
-	}
-	if reduceMotion(c) {
-		btn.Jump(animKey, target)
-		btn.Opacity(target)
-		return
-	}
-	btn.Opacity(btn.AnimateTo(animKey, target, ui.Animation{Duration: motionFast, Ease: motionEaseStandard}))
-}
-
 type sidebarMetrics struct {
 	compact      bool
 	rowHeight    float32
@@ -1565,7 +1550,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							Margin(0, Space1, 0, 0)
 					}
 
-					addBtn := IconButton(c.Key("proj-add-thread-"+pVal.ID), IconButtonProps{
+					IconButton(c.Key("proj-add-thread-"+pVal.ID), IconButtonProps{
 						Icon:    IconPlus(),
 						Size:    ControlMD,
 						Variant: ButtonGhost,
@@ -1580,7 +1565,6 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							s.createThread(pVal.ID)
 						},
 					})
-					applySidebarHeaderAddReveal(c, addBtn, "proj-add-reveal-"+pVal.ID, headerRow.Hovered() || addBtn.Focused())
 				})
 
 				// 展开状态下展示该项目的会话列表与已休眠折叠组

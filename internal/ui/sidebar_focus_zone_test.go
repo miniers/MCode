@@ -95,9 +95,9 @@ func TestSidebarFocusZoneDefaultAndDeduplication(t *testing.T) {
 	if !ok {
 		t.Fatalf("找不到项目乙运行行: %q", tt.Texts())
 	}
-	chatsHeader, ok := tt.Find("对话")
+	chatsHeader, ok := tt.Find("快速对话")
 	if !ok {
-		t.Fatalf("找不到「对话」段标题: %q", tt.Texts())
+		t.Fatalf("找不到「快速对话」段标题: %q", tt.Texts())
 	}
 	projAHeader, ok := tt.Find("收起项目 项目甲")
 	if !ok {
@@ -137,10 +137,10 @@ func TestSidebarFocusZoneDefaultAndDeduplication(t *testing.T) {
 		t.Fatalf("空闲会话应留在各自项目下: projA=%v/%v, projB=%v/%v", projAHeader.Y, projAIdleRow.Y, projBHeader.Y, projBIdleRow.Y)
 	}
 
-	// 聚焦区行左缘与总管行、对话段行对齐（无左侧高亮边框/额外缩进）。
-	if pendingRow.X != stewardRow.X || chatRunRow.X != stewardRow.X || pendingRow.X != chatIdleRow.X {
-		t.Fatalf("聚焦区行左缘应与总管行及对话段行对齐: steward=%v, pending=%v, chatRun=%v, chatIdle=%v",
-			stewardRow.X, pendingRow.X, chatRunRow.X, chatIdleRow.X)
+	// 聚焦区行左缘与总管行对齐（无左侧高亮边框/额外缩进），快速对话段内会话行与项目内会话行左缘对齐。
+	if pendingRow.X != stewardRow.X || chatRunRow.X != stewardRow.X || chatIdleRow.X != projAIdleRow.X {
+		t.Fatalf("聚焦区行左缘应与总管行对齐，快速对话行应与项目会话行对齐: steward=%v, pending=%v, chatRun=%v, chatIdle=%v, projAIdle=%v",
+			stewardRow.X, pendingRow.X, chatRunRow.X, chatIdleRow.X, projAIdleRow.X)
 	}
 
 	// 聚焦区来自普通项目的行内显示项目名，且聚焦区会话不在下方重复。
@@ -166,9 +166,9 @@ func TestSidebarFocusZoneFallbackModes(t *testing.T) {
 		state.invalidate()
 		tt.Frame()
 
-		chatsHeader, ok := tt.Find("对话")
+		chatsHeader, ok := tt.Find("快速对话")
 		if !ok {
-			t.Fatalf("搜索命中对话会话时应显示「对话」段: %q", tt.Texts())
+			t.Fatalf("搜索命中对话会话时应显示「快速对话」段: %q", tt.Texts())
 		}
 		chatRunRow, ok := tt.Find("打开会话 对话运行")
 		if !ok {
@@ -207,9 +207,9 @@ func TestSidebarFocusZoneFallbackModes(t *testing.T) {
 		}
 		tt.Frame()
 
-		chatsHeader, ok := tt.Find("对话")
+		chatsHeader, ok := tt.Find("快速对话")
 		if !ok {
-			t.Fatalf("非全部过滤应保留「对话」段: %q", tt.Texts())
+			t.Fatalf("非全部过滤应保留「快速对话」段: %q", tt.Texts())
 		}
 		chatRunRow, ok := tt.Find("打开会话 对话运行")
 		if !ok {
@@ -262,7 +262,7 @@ func TestSidebarFocusZoneFallbackModes(t *testing.T) {
 		// 关闭动态视图后恢复聚焦区。
 		state.toggleActivityView()
 		tt.Frame()
-		chatsHeader, _ := tt.Find("对话")
+		chatsHeader, _ := tt.Find("快速对话")
 		chatRunRow, _ := tt.Find("打开会话 对话运行")
 		if chatRunRow.Y >= chatsHeader.Y {
 			t.Fatalf("退出动态视图后应恢复顶部聚焦区: chatRun=%v, chatsHeader=%v", chatRunRow.Y, chatsHeader.Y)
@@ -276,9 +276,9 @@ func TestSidebarFocusZoneHoverLatchAndSettle(t *testing.T) {
 	t.Run("hover_on_focus_row", func(t *testing.T) {
 		tt, state := buildSidebarFocusZoneFixture(t, false)
 
-		chatsHeader, ok := tt.Find("对话")
+		chatsHeader, ok := tt.Find("快速对话")
 		if !ok {
-			t.Fatalf("找不到「对话」段标题: %q", tt.Texts())
+			t.Fatalf("找不到「快速对话」段标题: %q", tt.Texts())
 		}
 		projBRunRow, ok := tt.Find("打开会话 乙运行")
 		if !ok {
@@ -330,9 +330,9 @@ func TestSidebarFocusZoneHoverLatchAndSettle(t *testing.T) {
 	t.Run("hover_on_project_row", func(t *testing.T) {
 		tt, state := buildSidebarFocusZoneFixture(t, false)
 
-		chatsHeader, ok := tt.Find("对话")
+		chatsHeader, ok := tt.Find("快速对话")
 		if !ok {
-			t.Fatalf("找不到「对话」段标题: %q", tt.Texts())
+			t.Fatalf("找不到「快速对话」段标题: %q", tt.Texts())
 		}
 		idleRow, ok := tt.Find("打开会话 甲空闲")
 		if !ok {
@@ -388,9 +388,9 @@ func TestSidebarFocusZoneFilterControlInTopBar(t *testing.T) {
 	if !ok {
 		t.Fatalf("找不到动态视图铃铛按钮: %q", tt.Texts())
 	}
-	chatsHeader, ok := tt.Find("对话")
+	chatsHeader, ok := tt.Find("快速对话")
 	if !ok {
-		t.Fatalf("找不到「对话」段标题: %q", tt.Texts())
+		t.Fatalf("找不到「快速对话」段标题: %q", tt.Texts())
 	}
 	addChatBtn, ok := tt.Find("新建对话")
 	if !ok {

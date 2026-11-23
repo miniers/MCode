@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -162,10 +163,11 @@ func (s *chatState) filterSidebarThreads(threads []Thread, filter sidebarThreadF
 	return filtered
 }
 
-// renderSidebarChatsSection 渲染侧栏的「对话」段：段标题与右侧「+」按钮，
+// renderSidebarChatsSection 渲染侧栏的「快速对话」一级行：气泡图标、标题、计数与常驻「+」按钮，
 // 下方按最近活动平铺该项目的顶层会话；threadsFilter 非 nil 时只列传入的会话（搜索态过滤结果），
 // 为 nil 时直接复用侧栏快照里算好的对话会话；focusZoneActive 为真时剔除已进入顶部聚焦区的会话。
-// 没有会话时仅显示段标题，chatsProjectID 为空时整段不渲染。
+// 非「全部」过滤且无命中会话时整段不渲染；聚焦区开启且本段会话全进聚焦区时仍保留标题行与分隔线。
+// chatsProjectID 为空时整段不渲染。
 func renderSidebarChatsSection(
 	c *ui.Context,
 	s *chatState,
@@ -211,30 +213,79 @@ func renderSidebarChatsSection(
 			topThs = filtered
 		}
 	}
+
+	filter := snap.key.filter
+	isSearching := threadsFilter != nil
+	if (isSearching || filter != sidebarFilterAll) && len(topThs) == 0 {
+		return
+	}
+
 	beesByParent, allBeesByParent, hiddenBeeCountByParent, showAllBeesByParent := filterSidebarBeesForAutoHide(s, beesByParent, selectedID)
 
 	m := currentSidebarMetrics(c, s)
+	canCollapse := !isSearching && filter == sidebarFilterAll
+	isCollapsed := snap.collapsed[chatsProjID] && canCollapse
 
-	// 一行段标题：左侧弱化段标签「对话」，右侧悬停或聚焦显现的「+」图标按钮，不挂载项目右键菜单。
+	// 一级标题行：气泡图标 + 「快速对话」（与项目标题行同字号字重），右侧是会话计数与常驻「+」图标按钮，不挂载项目右键菜单。
 	headerRow := ui.Row(c.Key("chats-section-header")).
 		Height(m.rowHeight).
 		Padding(0, m.padX).
 		Margin(1, ListInset, 1, ListInset).
 		Radius(RowCornerRadius).
-		Gap(Space1).
 		AlignItems(ui.Center)
 
-	headerRow.Children(func() {
-		ui.Text(c, "对话").
-			FontSize(sidebarFont(TypeCaption)).
-			FontWeight(600).
-			TextColor(ThemeTertiaryText(c)).
-			Grow(1).
-			SingleLine()
+	if headerRow.Hovered() {
+		headerRow.Background(ThemeOverlayHover(c))
+	}
 
-		addBtn := IconButton(c.Key("chats-add-thread"), IconButtonProps{
+	headerRow.Children(func() {
+		toggleLabel := "展开快速对话"
+		if !isCollapsed {
+			toggleLabel = "收起快速对话"
+		}
+		titleArea := ui.Row(c.Key("chats-section-toggle")).
+			AlignItems(ui.Center).
+			Grow(1).
+			Gap(Space3).
+			Radius(RadiusXS).
+			Label(toggleLabel).
+			Focusable().
+			KeepFocus()
+		focusRing(c, titleArea)
+
+		if titleArea.Clicked() && canCollapse {
+			s.mu.Lock()
+			if s.collapsedProj == nil {
+				s.collapsedProj = make(map[string]bool)
+			}
+			s.collapsedProj[chatsProjID] = !isCollapsed
+			s.mu.Unlock()
+			s.invalidate()
+		}
+
+		titleArea.Children(func() {
+			ui.Icon(c, IconMessageCircle()).
+				Size(12, 12).
+				TextColor(ThemeSecondaryText(c))
+
+			ui.Text(c, "快速对话").
+				FontSize(sidebarFont(FontSizeThreadTitle)).
+				FontWeight(500).
+				TextColor(ThemePrimaryText(c)).
+				Grow(1).
+				SingleLine()
+		})
+
+		if len(topThs) > 0 {
+			ui.Text(c, "("+strconv.Itoa(len(topThs))+")").
+				FontSize(sidebarFont(TypeCaption)).
+				TextColor(ThemeTertiaryText(c)).
+				Margin(0, Space1, 0, 0)
+		}
+
+		IconButton(c.Key("chats-add-thread"), IconButtonProps{
 			Icon:    IconPlus(),
-			Size:    ControlXS,
+			Size:    ControlMD,
 			Variant: ButtonGhost,
 			Label:   "新建对话",
 			OnClick: func() {
@@ -247,29 +298,39 @@ func renderSidebarChatsSection(
 				s.createThread(chatsProjID)
 			},
 		})
-		applySidebarHeaderAddReveal(c, addBtn, "chats-add-reveal", headerRow.Hovered() || addBtn.Focused())
 	})
 
-	for _, th := range topThs {
-		renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
-			projectID:      chatsProjID,
-			thread:         th,
-			bees:           beesByParent[th.ID],
-			allBees:        allBeesByParent[th.ID],
-			hiddenBeeCount: hiddenBeeCountByParent[th.ID],
-			showAllBees:    showAllBeesByParent[th.ID],
-			dormant:        th.Dormant,
-			selected:       th.ID == selectedID,
-			rowHeight:      m.rowHeight,
-			padY:           m.padY,
-			padX:           m.padX,
-			compact:        m.compact,
-			providers:      providers,
-			latchHover:     focusZoneActive,
-		})
+	if !isCollapsed {
+		for _, th := range topThs {
+			renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
+				projectID:      chatsProjID,
+				thread:         th,
+				bees:           beesByParent[th.ID],
+				allBees:        allBeesByParent[th.ID],
+				hiddenBeeCount: hiddenBeeCountByParent[th.ID],
+				showAllBees:    showAllBeesByParent[th.ID],
+				dormant:        th.Dormant,
+				selected:       th.ID == selectedID,
+				rowHeight:      m.rowHeight,
+				padY:           m.padY,
+				padX:           m.padX,
+				indent:         m.folderIndent,
+				compact:        m.compact,
+				providers:      providers,
+				latchHover:     focusZoneActive,
+			})
+		}
 	}
 
-	ui.Box(c.Key("chats-section-gap")).Height(m.projectGap)
+	dividerPadY := Space2
+	if m.compact {
+		dividerPadY = Space1
+	}
+	ui.Box(c.Key("chats-section-divider")).
+		FillWidth().
+		Height(Hairline).
+		Background(ThemeHairline(c)).
+		Margin(dividerPadY, ListInset, dividerPadY, ListInset)
 }
 
 // renderSidebarFilterControl 渲染过滤按钮与下拉框，内嵌置于侧栏搜索框右侧，

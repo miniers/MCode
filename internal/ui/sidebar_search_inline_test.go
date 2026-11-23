@@ -44,7 +44,7 @@ func buildSidebarInlineTestFixture(t *testing.T, reduceMotion bool) (*ui.Tester,
 	t.Cleanup(state.close)
 	tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduceMotion}})
 	waitFor(t, tt, func() bool {
-		return tt.HasText("对话") && tt.HasText("测试项目") && tt.HasText("项目会话")
+		return tt.HasText("快速对话") && tt.HasText("测试项目") && tt.HasText("项目会话")
 	})
 	return tt, state
 }
@@ -175,123 +175,6 @@ func TestSidebarTopGapBelowTrafficLights(t *testing.T) {
 		wantY := (HeaderHeight - ControlMD) / 2
 		if searchOuter.Y < Space1 || searchOuter.Y+searchOuter.H > HeaderHeight-Space1 || math.Abs(float64(searchOuter.Y-wantY)) > 0.5 {
 			t.Fatalf("windows 搜索框顶边 Y = %v, want ~%v (HeaderHeight=%v, ControlMD=%v)", searchOuter.Y, wantY, HeaderHeight, ControlMD)
-		}
-	})
-}
-
-// TestSidebarHeaderAddRevealOnHover 验证「对话」段与项目标题行的两个「+」按钮始终挂载，
-// 未悬停且无焦点时透明不可见，悬停对应标题行后显现并在过渡结束后停止重绘，ReduceMotion 下直达终点。
-func TestSidebarHeaderAddRevealOnHover(t *testing.T) {
-	t.Run("normal_motion", func(t *testing.T) {
-		tt, _ := buildSidebarInlineTestFixture(t, false)
-		tt.Move(900, 600)
-		tt.Frame()
-		tt.Advance(motionFast + 50*time.Millisecond)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("初始静止状态下不应持续请求下一帧")
-		}
-
-		chatsText, ok := tt.Find("对话")
-		if !ok {
-			t.Fatalf("找不到「对话」段标题: %q", tt.Texts())
-		}
-		chatsAdd, ok := tt.Find("新建对话")
-		if !ok {
-			t.Fatalf("未悬停时「新建对话」按钮仍应保持挂载: %q", tt.Texts())
-		}
-		projHeader, ok := tt.Find("收起项目 测试项目")
-		if !ok {
-			t.Fatalf("找不到项目标题行: %q", tt.Texts())
-		}
-		projAdd, ok := tt.Find("在此项目中新建会话")
-		if !ok {
-			t.Fatalf("未悬停时「在此项目中新建会话」按钮仍应保持挂载: %q", tt.Texts())
-		}
-
-		imgIdle := tt.Image()
-		if d := rectMaxChannelDelta(t, imgIdle, chatsAdd); d > 2 {
-			t.Fatalf("未悬停时对话段「+」应透明不可见，像素差=%d", d)
-		}
-		if d := rectMaxChannelDelta(t, imgIdle, projAdd); d > 2 {
-			t.Fatalf("未悬停时项目标题「+」应透明不可见，像素差=%d", d)
-		}
-
-		// 悬停「对话」段标题行：对应「+」显现，项目「+」保持透明，过渡完成后不再请求帧。
-		tt.Move(chatsText.X+4, chatsText.Y+chatsText.H/2)
-		tt.Frame()
-		tt.Advance(motionFast + 50*time.Millisecond)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("对话段「+」显隐过渡结束后不应继续请求下一帧")
-		}
-		imgChatsHover := tt.Image()
-		if d := rectMaxChannelDelta(t, imgChatsHover, chatsAdd); d <= 10 {
-			t.Fatalf("悬停对话段标题行后「+」应可见，像素差=%d", d)
-		}
-		if d := rectMaxChannelDelta(t, imgChatsHover, projAdd); d > 2 {
-			t.Fatalf("悬停对话段时项目标题「+」仍应保持不可见，像素差=%d", d)
-		}
-
-		// 悬停项目标题行：项目「+」显现，对话段「+」淡出归零并停止重绘。
-		tt.Move(projHeader.X+4, projHeader.Y+projHeader.H/2)
-		tt.Frame()
-		tt.Advance(motionFast + 50*time.Millisecond)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("项目标题「+」显隐过渡结束后不应继续请求下一帧")
-		}
-		imgProjHover := tt.Image()
-		if d := rectMaxChannelDelta(t, imgProjHover, projAdd); d <= 10 {
-			t.Fatalf("悬停项目标题行后「+」应可见，像素差=%d", d)
-		}
-		if d := rectMaxChannelDelta(t, imgProjHover, chatsAdd); d > 2 {
-			t.Fatalf("离开对话段后其「+」应恢复不可见，像素差=%d", d)
-		}
-
-		// 移开指针后全部恢复透明且静止。
-		tt.Move(900, 600)
-		tt.Frame()
-		tt.Advance(motionFast + 50*time.Millisecond)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("指针离开标题行且过渡结束后不应继续请求下一帧")
-		}
-		imgLeave := tt.Image()
-		if d := rectMaxChannelDelta(t, imgLeave, projAdd); d > 2 {
-			t.Fatalf("指针离开后项目标题「+」应恢复不可见，像素差=%d", d)
-		}
-	})
-
-	t.Run("reduce_motion_immediate", func(t *testing.T) {
-		tt, _ := buildSidebarInlineTestFixture(t, true)
-		tt.Move(900, 600)
-		tt.Frame()
-
-		chatsText, _ := tt.Find("对话")
-		chatsAdd, _ := tt.Find("新建对话")
-		projHeader, _ := tt.Find("收起项目 测试项目")
-		projAdd, _ := tt.Find("在此项目中新建会话")
-
-		tt.Move(chatsText.X+4, chatsText.Y+chatsText.H/2)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("ReduceMotion 下悬停对话段不应请求过渡帧")
-		}
-		if d := rectMaxChannelDelta(t, tt.Image(), chatsAdd); d <= 10 {
-			t.Fatalf("ReduceMotion 下悬停对话段后「+」应立即显现，像素差=%d", d)
-		}
-
-		tt.Move(projHeader.X+4, projHeader.Y+projHeader.H/2)
-		tt.Frame()
-		if tt.FramePending() {
-			t.Fatal("ReduceMotion 下悬停项目行不应请求过渡帧")
-		}
-		if d := rectMaxChannelDelta(t, tt.Image(), projAdd); d <= 10 {
-			t.Fatalf("ReduceMotion 下悬停项目行后「+」应立即显现，像素差=%d", d)
-		}
-		if d := rectMaxChannelDelta(t, tt.Image(), chatsAdd); d > 2 {
-			t.Fatalf("ReduceMotion 下离开对话段后「+」应立即隐藏，像素差=%d", d)
 		}
 	})
 }

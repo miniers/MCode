@@ -316,6 +316,8 @@ func IconByName(name string) *ui.SVG {
 		return iconNotebook
 	case "square-arrow-out-up-right":
 		return iconSquareArrowOutUpRight
+	case "message-circle":
+		return iconMessageCircle
 	case "message-square-plus":
 		return iconMessageSquarePlus
 	case "log-in":
@@ -478,6 +480,7 @@ const (
 	svgPathTimer                 = `<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>`
 	svgPathNotebook              = `<path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M16 2v20"/>`
 	svgPathSquareArrowOutUpRight = `<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>`
+	svgPathMessageCircle         = `<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>`
 	svgPathMessageSquarePlus     = `<path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M12 8v6"/><path d="M9 11h6"/>`
 	svgPathLogIn                 = `<path d="m10 17 5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>`
 	svgPathEqual                 = `<line x1="5" x2="19" y1="9" y2="9"/><line x1="5" x2="19" y1="15" y2="15"/>`
@@ -622,6 +625,7 @@ var (
 	iconTimer                 = parseLucideSVG(svgPathTimer)
 	iconNotebook              = parseLucideSVG(svgPathNotebook)
 	iconSquareArrowOutUpRight = parseLucideSVG(svgPathSquareArrowOutUpRight)
+	iconMessageCircle         = parseLucideSVG(svgPathMessageCircle)
 	iconMessageSquarePlus     = parseLucideSVG(svgPathMessageSquarePlus)
 	iconLogIn                 = parseLucideSVG(svgPathLogIn)
 	iconEqual                 = parseLucideSVG(svgPathEqual)
@@ -716,6 +720,7 @@ func IconGitPullRequestCreate() *ui.SVG  { return iconGitPullRequestCreate }
 func IconTimer() *ui.SVG                 { return iconTimer }
 func IconNotebook() *ui.SVG              { return iconNotebook }
 func IconSquareArrowOutUpRight() *ui.SVG { return iconSquareArrowOutUpRight }
+func IconMessageCircle() *ui.SVG         { return iconMessageCircle }
 func IconMessageSquarePlus() *ui.SVG     { return iconMessageSquarePlus }
 func IconLogIn() *ui.SVG                 { return iconLogIn }
 func IconEqual() *ui.SVG                 { return iconEqual }
