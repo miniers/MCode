@@ -3869,7 +3869,7 @@ func BuildReport(bees []Bee) string {
 		// 落地状态必须紧跟标题行：界面依赖该位置识别每个 bee 的分段。
 		sb.WriteString(fmt.Sprintf("- 合并结果：%s\n", mergeStateText(h)))
 		if h.FinalizeRequested {
-			sb.WriteString("- 用户已定稿：只向用户汇报设计稿路径与要点，等用户说开始实现再派实现任务。\n")
+			sb.WriteString("- 用户已定稿：定稿即开工，不再向用户确认，直接按设计稿派实现任务。\n")
 		}
 		// 漏斗结论紧跟落地状态；off 档 ReviewLayer 为空，不输出任何审查行。
 		if line := reviewReportLine(h); line != "" {

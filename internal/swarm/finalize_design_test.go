@@ -163,6 +163,12 @@ func TestFinalizeDesignBee(t *testing.T) {
 		if !strings.Contains(secondReport, "Bee-Design") || !strings.Contains(secondReport, "用户已定稿") || !strings.Contains(secondReport, "docs/design.md") {
 			t.Fatalf("定稿汇报应包含 Bee-Design、用户已定稿提示与最终内容，实际:\n%s", secondReport)
 		}
+		if !strings.Contains(secondReport, "直接按设计稿派实现任务") {
+			t.Fatalf("定稿汇报应包含直接按设计稿派实现任务，实际:\n%s", secondReport)
+		}
+		if strings.Contains(secondReport, "等用户说开始实现") {
+			t.Fatalf("定稿汇报不应包含等用户说开始实现，实际:\n%s", secondReport)
+		}
 		gotDesign = beeByThread(t, mgr, leadID, designBee.ThreadID)
 		if gotDesign.Status != StatusCompleted || gotDesign.AwaitingFinalize || !gotDesign.FinalizeRequested || !gotDesign.Reported {
 			t.Fatalf("定稿汇报后设计 bee 应完成且 Reported=true、AwaitingFinalize=false，实际: %+v", gotDesign)
