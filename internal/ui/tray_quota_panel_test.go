@@ -1775,3 +1775,26 @@ func TestQuotaRedesign_TrayPanelWidthAndIconRefresh(t *testing.T) {
 		t.Fatal("加载结束后不应继续请求下一帧")
 	}
 }
+
+func TestDeriveTrayQuotaColumnsStableOnTies(t *testing.T) {
+	makeWindows := func() []trayQuotaWindowModel {
+		return []trayQuotaWindowModel{
+			{ShortLabel: "Extra credits", sortMinutes: trayQuotaFallbackSortMinutes, NoBar: false},
+			{ShortLabel: "Total credits", sortMinutes: trayQuotaFallbackSortMinutes, NoBar: false},
+			{ShortLabel: "Credits", sortMinutes: trayQuotaFallbackSortMinutes, NoBar: false},
+		}
+	}
+	accounts := []trayQuotaAccountModel{
+		{Account: "acct1", Windows: makeWindows()},
+		{Account: "acct2", Windows: makeWindows()},
+	}
+	for i := 0; i < 100; i++ {
+		cols := deriveTrayQuotaColumns(accounts)
+		if len(cols) != 2 {
+			t.Fatalf("iter %d: got %d cols, want 2: %+v", i, len(cols), cols)
+		}
+		if cols[0].ShortLabel != "Extra credits" || cols[1].ShortLabel != "Total credits" {
+			t.Fatalf("iter %d: got [%q, %q], want [\"Extra credits\", \"Total credits\"]", i, cols[0].ShortLabel, cols[1].ShortLabel)
+		}
+	}
+}

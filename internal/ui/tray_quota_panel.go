@@ -464,6 +464,7 @@ func deriveTrayQuotaColumns(accounts []trayQuotaAccountModel) []trayQuotaColumn 
 		count       int
 	}
 	byLabel := make(map[string]*colStat)
+	var stats []*colStat
 	for _, acc := range accounts {
 		seenInAcc := make(map[string]bool)
 		for _, win := range acc.Windows {
@@ -474,6 +475,7 @@ func deriveTrayQuotaColumns(accounts []trayQuotaAccountModel) []trayQuotaColumn 
 			if !ok {
 				st = &colStat{label: win.ShortLabel, sortMinutes: win.sortMinutes}
 				byLabel[win.ShortLabel] = st
+				stats = append(stats, st)
 			} else if win.sortMinutes < st.sortMinutes {
 				st.sortMinutes = win.sortMinutes
 			}
@@ -483,12 +485,8 @@ func deriveTrayQuotaColumns(accounts []trayQuotaAccountModel) []trayQuotaColumn 
 			}
 		}
 	}
-	if len(byLabel) == 0 {
+	if len(stats) == 0 {
 		return nil
-	}
-	stats := make([]*colStat, 0, len(byLabel))
-	for _, st := range byLabel {
-		stats = append(stats, st)
 	}
 	slices.SortStableFunc(stats, func(a, b *colStat) int {
 		if a.count != b.count {
