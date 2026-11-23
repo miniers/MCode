@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 
@@ -309,11 +308,8 @@ func openTimelineAttachmentTemp(s *chatState, threadID, messageID string, med Me
 	}()
 }
 
-func timelineAttachmentSaveDialog(defaultPath string) (string, error) {
-	// 保持复用 previewSaveDialog 的测试替换能力，同时避免默认标题出现「图片」。
-	if previewSaveDialog != nil && reflect.ValueOf(previewSaveDialog).Pointer() != reflect.ValueOf(defaultPreviewSaveDialog).Pointer() {
-		return previewSaveDialog(defaultPath)
-	}
+// timelineAttachmentSaveDialog 唤起系统保存对话框，测试时可替换以避免弹出真实窗口。
+var timelineAttachmentSaveDialog = func(defaultPath string) (string, error) {
 	return mygo.Dialog.Save(mygo.SaveDialogOptions{
 		Title:             "另存为",
 		DefaultPath:       defaultPath,
