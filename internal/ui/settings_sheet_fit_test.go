@@ -50,7 +50,7 @@ func Test供应商面板_正文高度贴合且不显示空底栏(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		sheet, _ := settingsTreeSheetState(st)
 		kind, id := currentProviderSheet(st)
-		return sheet == "provider" && kind == "cli" && id == "claude" && tt.HasText("展开高级")
+		return sheet == "provider" && kind == "cli" && id == "claude" && tt.HasText("可执行文件路径")
 	})
 	for i := 0; i < 5; i++ {
 		tt.Frame()
@@ -59,12 +59,6 @@ func Test供应商面板_正文高度贴合且不显示空底栏(t *testing.T) {
 	if !ok || card.H < 240 || card.H > 640 {
 		t.Fatalf("正文应贴合内容且不超过面板上限：card=%+v，found=%v", card, ok)
 	}
-	before := card.H
-	clickWhenSettled(t, tt, "展开高级")
-	waitFor(t, tt, func() bool {
-		after, found := tt.Find("设置面板 供应商")
-		return found && after.H > before && after.H <= 640
-	})
 	if _, ok := tt.Find("面板操作栏 供应商"); ok {
 		t.Fatal("CLI 供应商面板不应显示空底栏")
 	}
@@ -173,7 +167,7 @@ func Test供应商面板_用户高度优先于内容高度(t *testing.T) {
 	clickProviderDetailTabForTest(t, tt, "claude", "")
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("设置面板 供应商")
-		return ok && tt.HasText("展开高级")
+		return ok && tt.HasText("可执行文件路径")
 	})
 	modalDragMu.Lock()
 	modalDragOffsets["settings-sheet-provider"] = &modalDragOffset{rh: 600}

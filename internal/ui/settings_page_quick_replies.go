@@ -11,6 +11,10 @@ import (
 	"mcode/internal/config"
 )
 
+func init() {
+	sheetQuickReplies.Footer = renderQuickRepliesSheetFooter
+}
+
 // 快捷回复页维护输入框上方那排按钮的标题与正文。
 // 草稿与配置刻意分开：用户常把标题填了、内容还没填，这种半截状态必须能继续输入，
 // 而配置里只存合法条目，所以草稿常驻内存，只有整组合法时才写进配置并落盘。
@@ -207,7 +211,7 @@ func renderPageQuickReplies(c *ui.Context, st *SettingsState) {
 	page.mu.Unlock()
 
 	ui.Column(c.Key("quick-replies-container")).Gap(Space5).Children(func() {
-		renderSettingsSection(c, "sec-quick-replies", "快捷回复列表", func() {
+		renderSettingsSection(c, "sec-quick-replies", "", func() {
 			if len(rows) == 0 {
 				ui.Column(c.Key("quick-replies-empty")).Padding(settingsRowPadY, settingsRowPadX).Gap(Space1).Children(func() {
 					settingStatus(c, "quick-replies-empty-status", "还没有快捷回复。")
@@ -219,8 +223,6 @@ func renderPageQuickReplies(c *ui.Context, st *SettingsState) {
 				}
 				renderQuickReplyRow(c, st, page, i, rows[i], quickReplyRowErr(errs, i), len(rows))
 			}
-			renderSettingsDivider(c, "div-quick-replies-add")
-			renderQuickReplyAddRow(c, st, page)
 		})
 	})
 
@@ -297,30 +299,40 @@ func renderQuickReplyRow(c *ui.Context, st *SettingsState, page *quickRepliesPag
 	})
 }
 
-// renderQuickReplyAddRow 渲染列表底部的「添加一条」按钮。
-func renderQuickReplyAddRow(c *ui.Context, st *SettingsState, page *quickRepliesPageState) {
-	ui.Row(c.Key("quick-replies-add")).Padding(settingsRowPadY, settingsRowPadX).Children(func() {
-		addBtn := ui.ButtonBase(c.Key("btn-quick-reply-add")).
-			Label("添加一条").
-			Padding(settingsBadgePadY, settingsCompactPadX).
-			Radius(RadiusSM).
-			Border(Hairline, ThemeBorder(c))
-		{
-			scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
-			addBtn.Scale(scale, scale)
-		}
-		if addBtn.Hovered() {
-			addBtn.Background(ThemeHover(c))
-		}
-		if addBtn.Clicked() {
-			addQuickReplyRow(st, page)
-		}
-		addBtn.Children(func() {
-			ui.Row(c.Key("btn-quick-reply-add-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
-				ui.Text(c, "添加一条").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
-			})
+// renderQuickRepliesSheetFooter 渲染快捷回复面板底栏：左侧「添加一条」，右侧「完成」。
+func renderQuickRepliesSheetFooter(c *ui.Context, st *SettingsState) {
+	page := getQuickRepliesPage(st)
+	addBtn := ui.ButtonBase(c.Key("btn-quick-reply-add")).
+		Label("添加一条").
+		Padding(settingsBadgePadY, settingsCompactPadX).
+		Radius(RadiusSM).
+		Border(Hairline, ThemeBorder(c)).
+		Cursor(ui.CursorPointer)
+	{
+		scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
+		addBtn.Scale(scale, scale)
+	}
+	if addBtn.Hovered() {
+		addBtn.Background(ThemeHover(c))
+	}
+	focusRing(c, addBtn)
+	if addBtn.Clicked() {
+		addQuickReplyRow(st, page)
+	}
+	addBtn.Children(func() {
+		ui.Row(c.Key("btn-quick-reply-add-row")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemePrimaryText(c))
+			ui.Text(c, "添加一条").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
 		})
+	})
+
+	ui.Spacer(c)
+
+	Button(c, ButtonOpts{
+		Key:     "btn-quick-replies-done",
+		Text:    "完成",
+		Variant: ButtonPrimary,
+		OnClick: func() { requestCloseSettingsSheet(st) },
 	})
 }
 
@@ -369,14 +381,17 @@ func quickReplyIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SV
 	}
 	if disabled {
 		btn.Disabled(true)
+	} else {
+		btn.Cursor(ui.CursorPointer)
 	}
-	if btn.Hovered() {
+	if !disabled && btn.Hovered() {
 		if danger {
 			btn.Background(ThemeDanger(c).Alpha(0.12))
 		} else {
 			btn.Background(ThemeHover(c))
 		}
 	}
+	focusRing(c, btn)
 	if !disabled {
 		btn.OnClick(onClick)
 	}

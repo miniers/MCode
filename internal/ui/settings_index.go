@@ -129,13 +129,11 @@ func settingsLegacyItems() []settingsItem {
 		// ---- 模型与供应商：添加供应商面板 ----
 		{ID: "row-provider-add-type", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "类型", Aliases: []string{"供应商", "类型"}},
 		{ID: "row-provider-add-apikey", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "密钥（API Key）", Aliases: []string{"供应商", "密钥"}},
-		{ID: "row-provider-add-actions", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "供应商操作", Aliases: []string{"供应商", "操作"}},
 		{ID: "row-provider-add-name", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "名称", Aliases: []string{"供应商", "名称"}},
 		{ID: "row-provider-add-baseurl", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "接口地址（BaseURL）", Aliases: []string{"供应商", "地址"}},
 		{ID: "row-provider-add-model", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "默认模型", Aliases: []string{"供应商", "模型"}},
 		{ID: "row-provider-add-cli-", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "命令行供应商", Aliases: []string{"供应商", "cli"}, Dynamic: true},
-		{ID: "row-provider-add-preset-", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "预设供应商", Aliases: []string{"供应商", "预设"}, Dynamic: true},
-		{ID: "row-provider-add-custom", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "自定义端点", Aliases: []string{"供应商", "自定义", "端点"}},
+		{ID: "row-provider-add-preset-select", Page: "models", Sheet: "provider-add", Section: "添加供应商", Title: "预设", Aliases: []string{"供应商", "预设", "自定义端点", "自定义", "端点"}},
 
 		// ---- 模型与供应商：供应商账号（按供应商循环的模板行） ----
 		{ID: "row-provider-copilot-account", Page: "models", Section: "供应商账号", Title: "GitHub Copilot 登录", Aliases: []string{"供应商", "登录"}},

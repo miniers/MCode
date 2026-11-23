@@ -1911,9 +1911,8 @@ func cliProviderSheetSections(st *SettingsState, id string, lib *modelsLibraryVi
 	}
 	if id != "agy" {
 		sections = append(sections, providerSheetSection{
-			ID:       "sec-provider-cli",
-			Title:    "命令行",
-			Advanced: true,
+			ID:    "sec-provider-cli",
+			Title: "命令行",
 			Render: func(c *ui.Context, st *SettingsState) {
 				renderSettingsSection(c, "sec-provider-cli", "", func() {
 					renderProviderAdvancedTab(c, st, id, view, locked)

@@ -165,11 +165,7 @@ func TestSettingsP2Slim_SheetUnsavedCloseConfirm(t *testing.T) {
 	if err := tt.Click("API Key"); err != nil {
 		t.Fatalf("选择 API Key 类型失败: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("选择 DeepSeek") })
-	if err := tt.Click("选择 DeepSeek"); err != nil {
-		t.Fatalf("选择 DeepSeek 失败: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("编辑预设 API Key") })
+	waitFor(t, tt, func() bool { return tt.HasText("DeepSeek") && tt.HasText("编辑预设 API Key") })
 	if err := tt.Click("编辑预设 API Key"); err != nil {
 		t.Fatalf("点击预设 API Key 输入框失败: %v", err)
 	}

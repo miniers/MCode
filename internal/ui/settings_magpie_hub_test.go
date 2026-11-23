@@ -254,7 +254,12 @@ func TestMagpieGatewaySheetBody_SaveKeepsKey(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = []CustomEndpoint{gw}
-	tt := ui.NewTester(func(c *ui.Context) { renderMagpieGatewaySheetBody(c, st, "gw") }, 1200, 4000)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Children(func() {
+			renderMagpieGatewaySheetBody(c, st, "gw")
+			ui.Row(c).Children(func() { renderMagpieGatewaySheetFooter(c, st) })
+		})
+	}, 1200, 4000)
 	if err := tt.Click("网关名称"); err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +316,10 @@ func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
 			openMagpieGatewaySheet(st, "gw")
 			tt := ui.NewTester(func(c *ui.Context) {
 				if id, _ := settingsTreeSheetState(st); id == "magpie-gateway" {
-					renderMagpieGatewaySheetBody(c, st, "gw")
+					ui.Column(c).Children(func() {
+						renderMagpieGatewaySheetBody(c, st, "gw")
+						ui.Row(c).Children(func() { renderMagpieGatewaySheetFooter(c, st) })
+					})
 				}
 			}, 1200, 4000)
 			waitMagpie(t, tt, func() bool { return tt.HasText("切换启用 测试网关") })
@@ -389,7 +397,12 @@ func TestMagpieGatewayToggleSave_RollbackOnFailure(t *testing.T) {
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = []CustomEndpoint{gw}
 	st.mu.Unlock()
-	tt := ui.NewTester(func(c *ui.Context) { renderMagpieGatewaySheetBody(c, st, "gw") }, 1200, 4000)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).Children(func() {
+			renderMagpieGatewaySheetBody(c, st, "gw")
+			ui.Row(c).Children(func() { renderMagpieGatewaySheetFooter(c, st) })
+		})
+	}, 1200, 4000)
 	waitMagpie(t, tt, func() bool { return tt.HasText("切换启用 测试网关") })
 	if err := tt.Click("网关名称"); err != nil {
 		t.Fatal(err)

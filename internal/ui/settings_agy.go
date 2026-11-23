@@ -1554,17 +1554,15 @@ func agyProviderSheetSections(st *SettingsState) []providerSheetSection {
 			},
 		},
 		{
-			ID:       "sec-agy-routing",
-			Title:    "调度",
-			Advanced: true,
+			ID:    "sec-agy-routing",
+			Title: "调度",
 			Render: func(c *ui.Context, st *SettingsState) {
 				renderSettingsTreeSection(c, st, agyRoutingSection, true)
 			},
 		},
 		{
-			ID:       "sec-agy-advanced-login",
-			Title:    "终端登录",
-			Advanced: true,
+			ID:    "sec-agy-advanced-login",
+			Title: "终端登录",
 			Render: func(c *ui.Context, st *SettingsState) {
 				renderSettingsTreeSection(c, st, agyTerminalLoginSection, true)
 			},

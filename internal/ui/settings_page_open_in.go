@@ -10,6 +10,10 @@ import (
 	"mcode/internal/config"
 )
 
+func init() {
+	sheetOpenIn.Footer = renderOpenInSheetFooter
+}
+
 // settingsPageOpenIn 是设置面板里「打开方式」所在页的导航 id；打开方式已并入「工作台」页，
 // 页面注册与渲染分支见 settings.go。
 const settingsPageOpenIn = "workbench"
@@ -116,7 +120,8 @@ func openInIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, d
 		Tooltip(tooltip).
 		Size(ControlSM, ControlSM).
 		Radius(RadiusSM).
-		Center()
+		Center().
+		Cursor(ui.CursorPointer)
 	{
 		scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
 		btn.Scale(scale, scale)
@@ -128,6 +133,7 @@ func openInIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, d
 			btn.Background(ThemeHover(c))
 		}
 	}
+	focusRing(c, btn)
 	btn.OnClick(onClick)
 	color := ThemePrimaryText(c).Alpha(0.70)
 	if danger {
@@ -138,13 +144,30 @@ func openInIconButton(c *ui.Context, key, label, tooltip string, icon *ui.SVG, d
 	})
 }
 
+func renderOpenInSheetFooter(c *ui.Context, st *SettingsState) {
+	ui.Spacer(c)
+	Button(c, ButtonOpts{
+		Key:     "btn-openin-done",
+		Text:    "完成",
+		Variant: ButtonPrimary,
+		OnClick: func() { requestCloseSettingsSheet(st) },
+	})
+}
+
 func renderPageOpenIn(c *ui.Context, st *SettingsState) {
 	ps := getOpenInPageState(st)
 	apps := st.openInAppsDraft()
+	defaultIdx := -1
+	for i := range apps {
+		if apps[i].Enabled {
+			defaultIdx = i
+			break
+		}
+	}
 	ui.Column(c.Key("openin-sections-container")).Gap(Space5).Children(func() {
-		renderSettingsSection(c, "sec-openin-apps", "应用列表", func() {
+		renderSettingsSection(c, "sec-openin-apps", "", func() {
 			for i := range apps {
-				renderOpenInAppRow(c, st, ps, apps, i)
+				renderOpenInAppRow(c, st, ps, apps, i, i == defaultIdx)
 			}
 			renderOpenInAddApp(c, st, ps)
 		})
@@ -188,13 +211,13 @@ func renderPageOpenIn(c *ui.Context, st *SettingsState) {
 	})
 }
 
-// renderOpenInAppRow 渲染打开方式列表中的一项：名称、开关、上移/下移、删除。
-func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, apps []config.OpenInAppConfig, i int) {
+// renderOpenInAppRow 渲染打开方式列表中的一项：名称（默认应用附带强调色「默认」徽标）、开关、上移/下移、删除。
+func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, apps []config.OpenInAppConfig, i int, isDefault bool) {
 	app := apps[i]
 	if i > 0 {
 		renderSettingsDivider(c, "div-openin-"+app.Name)
 	}
-	renderSettingRow(c, "row-openin-"+app.Name, app.Name, func() {
+	controls := func() {
 		toggleFunc(
 			func(*SettingsState) (bool, bool) { return app.Enabled, false },
 			func(st *SettingsState, on bool) {
@@ -231,6 +254,23 @@ func renderOpenInAppRow(c *ui.Context, st *SettingsState, ps *openInPageState, a
 			ps.pendingDeleteName = app.Name
 			st.invalidate()
 		})
+	}
+	if !isDefault {
+		renderSettingRow(c, "row-openin-"+app.Name, app.Name, controls)
+		return
+	}
+	rowKey := "row-openin-" + app.Name
+	row := applySettingsRowFocus(c, ui.Row(c.Key(rowKey)).
+		Padding(settingsRowPadY, settingsRowPadX).
+		MinHeight(settingsRowMinHeight).
+		Gap(Space4).
+		AlignItems(ui.Center), rowKey)
+	row.Children(func() {
+		ui.Row(c.Key(rowKey + "-left")).MinWidth(0).Grow(1).Gap(Space2).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, app.Name).FontSize(uiFont(TypeBody)).FontWeight(400).TextColor(ThemePrimaryText(c))
+			Badge(c, "badge-openin-default-"+app.Name, "默认", ToneAccent)
+		})
+		ui.Row(c.Key(rowKey + "-right")).MinWidth(0).Shrink(1).AlignItems(ui.Center).Gap(Space3).Children(controls)
 	})
 }
 
@@ -242,7 +282,8 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Label("添加应用…").
 				Padding(Space2, Space4).
 				Radius(RadiusSM).
-				Border(Hairline, ThemeBorder(c))
+				Border(Hairline, ThemeBorder(c)).
+				Cursor(ui.CursorPointer)
 			{
 				scale := motionPressScale(c, addBtn, "button-press-scale", addBtn.Pressed())
 				addBtn.Scale(scale, scale)
@@ -250,6 +291,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			if addBtn.Hovered() {
 				addBtn.Background(ThemeHover(c))
 			}
+			focusRing(c, addBtn)
 			if addBtn.Clicked() {
 				st.mu.Lock()
 				ps.adding = true
@@ -306,7 +348,8 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 					Label("选择…").
 					Padding(Space2, settingsCompactPadX).
 					Radius(RadiusSM).
-					Border(Hairline, ThemeBorder(c))
+					Border(Hairline, ThemeBorder(c)).
+					Cursor(ui.CursorPointer)
 				{
 					scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
 					chooseBtn.Scale(scale, scale)
@@ -314,6 +357,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				if chooseBtn.Hovered() {
 					chooseBtn.Background(ThemeHover(c))
 				}
+				focusRing(c, chooseBtn)
 				if chooseBtn.Clicked() {
 					go func() {
 						path, ok, err := pickOpenInAppDialog()
@@ -355,11 +399,16 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				Label("添加").
 				Padding(Space2, Space4).
 				Radius(RadiusSM).
-				Background(ThemeAccent(c))
+				Background(ThemeAccent(c)).
+				Cursor(ui.CursorPointer)
 			{
 				scale := motionPressScale(c, add, "button-press-scale", add.Pressed())
 				add.Scale(scale, scale)
 			}
+			if add.Hovered() {
+				add.Background(ThemeAccent(c).Alpha(0.85))
+			}
+			focusRing(c, add)
 			if add.Clicked() {
 				st.mu.Lock()
 				name := strings.TrimSpace(ps.draftName)
@@ -391,13 +440,14 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 				}
 			}
 			add.Children(func() {
-				ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)).FontWeight(600)
+				ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemeOnAccent(c))
 			})
 
 			cancel := ui.ButtonBase(c.Key("btn-openin-add-cancel")).
 				Label("取消").
 				Padding(Space2, Space4).
-				Radius(RadiusSM)
+				Radius(RadiusSM).
+				Cursor(ui.CursorPointer)
 			{
 				scale := motionPressScale(c, cancel, "button-press-scale", cancel.Pressed())
 				cancel.Scale(scale, scale)
@@ -405,6 +455,7 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 			if cancel.Hovered() {
 				cancel.Background(ThemeHover(c))
 			}
+			focusRing(c, cancel)
 			if cancel.Clicked() {
 				st.mu.Lock()
 				ps.adding = false

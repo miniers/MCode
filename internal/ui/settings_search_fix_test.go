@@ -69,8 +69,8 @@ func TestSettingsSearchProviderAddTypes(t *testing.T) {
 		kind      int
 	}{
 		{"命令行供应商", "row-provider-add-cli-", 0},
-		{"预设供应商", "row-provider-add-preset-", 1},
-		{"自定义端点", "row-provider-add-custom", 1},
+		{"预设", "row-provider-add-preset-select", 1},
+		{"自定义端点", "row-provider-add-preset-select", 1},
 		{"名称", "row-provider-add-name", 2},
 		{"密钥", "row-provider-add-apikey", 2},
 	} {

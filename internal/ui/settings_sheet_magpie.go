@@ -10,11 +10,13 @@ var sheetMagpieGateway = settingsSheet{
 		st.mu.Unlock()
 		renderMagpieGatewaySheetBody(c, st, id)
 	},
+	Footer: renderMagpieGatewaySheetFooter,
 }
 
 var sheetMagpiePersonas = settingsSheet{
 	ID: "magpie-personas", Title: "人设",
-	Body: renderMagpiePersonasSheetBody,
+	Body:   renderMagpiePersonasSheetBody,
+	Footer: renderMagpiePersonasSheetFooter,
 }
 
 func init() {

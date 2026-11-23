@@ -12,7 +12,7 @@ func TestProviderSheet_OpensOnClick(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		sheet, _ := settingsTreeSheetState(st)
 		_, id := currentProviderSheet(st)
-		return sheet == "provider" && id == "claude" && tt.HasText("展开高级")
+		return sheet == "provider" && id == "claude" && tt.HasText("可执行文件路径")
 	})
 	closeSettingsSheet(st)
 	tt.Frame()
@@ -47,18 +47,16 @@ func Test供应商面板_Claude常用节顺序(t *testing.T) {
 	}, 1000, 4000)
 	tt.Frame()
 	previous := float32(-1)
-	for _, title := range []string{"账号", "高级"} {
+	for _, title := range []string{"账号", "命令行"} {
 		r, ok := tt.Find(title)
 		if !ok || r.Y <= previous {
-			t.Fatalf("常用节与高级区 %q 顺序错误：%v", title, tt.Texts())
+			t.Fatalf("常用节与命令行节 %q 顺序错误：%v", title, tt.Texts())
 		}
 		previous = r.Y
 	}
-	if tt.HasText("可执行文件路径") {
-		t.Fatal("高级默认应收起")
+	if !tt.HasText("可执行文件路径") || tt.HasText("展开高级") {
+		t.Fatalf("高级命令行区应直接摊开：%v", tt.Texts())
 	}
-	clickWhenSettled(t, tt, "展开高级")
-	waitFor(t, tt, func() bool { return tt.HasText("可执行文件路径") })
 }
 
 func TestProviderSheet_AgyAccounts(t *testing.T) {

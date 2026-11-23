@@ -61,19 +61,12 @@ func Test供应商面板_单页与高级折叠(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
 	fake.SetProviders([]ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "test-model", Name: "测试模型"}}}})
-	tt, st := openProvidersPageTest(t, fake)
+	tt, _ := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "claude", "")
-	waitFor(t, tt, func() bool { return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("展开高级") })
-	if tt.HasText("返回概览") || tt.HasText("可执行文件路径") {
-		t.Fatalf("初始页面应直接显示常用节并收起高级：%v", tt.Texts())
+	waitFor(t, tt, func() bool { return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("可执行文件路径") })
+	if tt.HasText("返回概览") || tt.HasText("展开高级") || tt.HasText("收起高级") {
+		t.Fatalf("高级设置应直接平铺展开：%v", tt.Texts())
 	}
-	clickWhenSettled(t, tt, "展开高级")
-	waitFor(t, tt, func() bool { return tt.HasText("可执行文件路径") && tt.HasText("收起高级") })
-	if !providerSheetAdvancedOpen(st, "cli", "claude") {
-		t.Fatal("高级展开状态未保存")
-	}
-	clickWhenSettled(t, tt, "收起高级")
-	waitFor(t, tt, func() bool { return !tt.HasText("可执行文件路径") && tt.HasText("展开高级") })
 }
 
 func Test供应商面板_重新打开收起高级(t *testing.T) {
@@ -84,7 +77,7 @@ func Test供应商面板_重新打开收起高级(t *testing.T) {
 	tt.Frame()
 	openProviderSheet(st, "cli", "claude")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("展开高级") && !tt.HasText("可执行文件路径") && !providerSheetAdvancedOpen(st, "cli", "claude")
+		return tt.HasText("可执行文件路径") && !tt.HasText("展开高级")
 	})
 }
 
@@ -123,7 +116,7 @@ func Test供应商面板_搜索命令行自动展开高级(t *testing.T) {
 	st.jumpToItemID = "row-claude-bin"
 	st.mu.Unlock()
 	waitFor(t, tt, func() bool {
-		return providerSheetAdvancedOpen(st, "cli", "claude") && tt.HasText("可执行文件路径")
+		return tt.HasText("可执行文件路径")
 	})
 	tt.Frame()
 	st.mu.Lock()
@@ -158,7 +151,7 @@ func Test供应商面板_预设没有高级折叠区(t *testing.T) {
 	tt, st := openProvidersPageTest(t, fake)
 	openProviderSheet(st, "preset", "deepseek")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("接口地址（BaseURL）")
+		return tt.HasText("接口地址（BaseURL）") && tt.HasText("默认模型") && tt.HasText("密钥（API Key）")
 	})
 	if tt.HasText("展开高级") || tt.HasText("返回概览") {
 		t.Fatalf("预设应直接显示全部内容：%v", tt.Texts())
@@ -172,18 +165,15 @@ func Test供应商面板_agy滚动后展开高级(t *testing.T) {
 	fake.agyDefaultAccountID = "acc-1"
 	tt, st := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "agy", "")
-	waitFor(t, tt, func() bool { return tt.HasText("agy-user@example.com") && tt.HasText("展开高级") })
+	waitFor(t, tt, func() bool { return tt.HasText("agy-user@example.com") && tt.HasText("终端登录（备用）") })
 	login, ok := tt.Find("浏览器登录")
 	if !ok {
 		t.Fatalf("账号节缺少浏览器登录按钮：%v", tt.Texts())
 	}
-	// 从账号节的可视位置滚到底，再通过真实点击展开高级。
 	tt.Scroll(login.X+login.W/2, login.Y+login.H/2, 0, 1e6)
 	tt.Frame()
-	clickWhenSettled(t, tt, "展开高级")
-	waitFor(t, tt, func() bool { return tt.HasText("收起高级") && tt.HasText("终端登录（备用）") })
 	if kind, id := currentProviderSheet(st); kind != "cli" || id != "agy" {
-		t.Fatalf("展开高级后 agy 面板应仍然打开，当前为 %q/%q", kind, id)
+		t.Fatalf("滚动后 agy 面板应仍然打开，当前为 %q/%q", kind, id)
 	}
 }
 
@@ -191,9 +181,9 @@ func Test供应商面板_agy常用节与高级提示(t *testing.T) {
 	tt, _ := openProvidersPageTest(t, NewFakeClient())
 	clickProviderDetailTabForTest(t, tt, "agy", "")
 	waitFor(t, tt, func() bool {
-		return tt.HasText("调度策略") && tt.HasText("会话保持模式") && tt.HasText("展开高级")
+		return tt.HasText("调度策略") && tt.HasText("会话保持模式") && tt.HasText("终端登录（备用）")
 	})
-	if !tt.HasText("调度、终端登录") || tt.HasText("终端登录（备用）") {
-		t.Fatalf("agy 高级折叠提示或默认状态错误：%v", tt.Texts())
+	if tt.HasText("展开高级") || tt.HasText("收起高级") {
+		t.Fatalf("agy 高级区应直接摊开：%v", tt.Texts())
 	}
 }

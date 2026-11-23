@@ -117,7 +117,7 @@ func TestSettingsModels_ProviderSheetSections(t *testing.T) {
 		t.Fatalf("Claude 应有账号、模型、命令行三节，实际 %d", len(defs))
 	}
 	for i, title := range []string{"账号", "模型", "命令行"} {
-		if defs[i].Title != title || defs[i].Advanced != (i == 2) {
+		if defs[i].Title != title || defs[i].Advanced {
 			t.Fatalf("第 %d 节标题或高级归属错误：%+v", i, defs[i])
 		}
 	}

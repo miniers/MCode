@@ -126,7 +126,10 @@ func TestProviderAddSheet_TwoKinds(t *testing.T) {
 	enabled := false
 	candidates := []providerListEntry{{ID: "cli", Name: "示例 CLI", CanToggle: true, Toggle: func(v bool) { enabled = v }}}
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, candidates) })
+		ui.Column(c.Key("test-add")).Children(func() {
+			renderProviderAddSheetBody(c, st, candidates)
+			renderProviderAddSheetFooter(c, st)
+		})
 	}, 1000, 3000)
 	waitFor(t, tt, func() bool { return tt.HasText("启用 示例 CLI") })
 	for _, label := range []string{"智能体", "API Key"} {
@@ -149,10 +152,10 @@ func TestProviderAddSheet_TwoKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("示例预置") })
-	if !tt.HasText("选择 自定义端点") || tt.HasText("已配置预置") || tt.HasText("Magpie") {
+	if !tt.HasText("自定义端点") || tt.HasText("已配置预置") || tt.HasText("Magpie") {
 		t.Fatalf("API Key 来源列表错误: %v", tt.Texts())
 	}
-	if err := tt.Click("选择 自定义端点"); err != nil {
+	if err := tt.Click("自定义端点"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("端点名称") })
@@ -218,14 +221,15 @@ func TestSettingsProviders_CreateCustomEndpoint(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
 	st.presets.loaded = true
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
+		ui.Column(c.Key("test-add")).Children(func() {
+			renderProviderAddSheetBody(c, st, nil)
+			renderProviderAddSheetFooter(c, st)
+		})
 	}, 1000, 3000)
 	if err := tt.Click("API Key"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("选择 自定义端点"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("端点名称") })
 	for _, field := range []struct{ label, value string }{{"编辑端点名称", "OpenRouter"}, {"编辑端点 BaseURL", "https://openrouter.ai/api/v1"}, {"编辑端点默认模型", "anthropic/claude-3.5-sonnet"}, {"编辑端点 API Key", "sk-or-testkey-123456"}} {
 		if err := tt.Click(field.label); err != nil {
 			t.Fatal(err)
@@ -473,7 +477,7 @@ func TestSettingsProviders_PresetRowShowsCredits(t *testing.T) {
 	}
 }
 
-// TestSettingsProviders_PresetSectionInSettingsPage 覆盖：供应商账号和模型直接显示。
+// TestSettingsProviders_PresetSectionInSettingsPage 覆盖：预设供应商面板在单张卡片内直接显示 BaseURL、默认模型与 API Key。
 func TestSettingsProviders_PresetSectionInSettingsPage(t *testing.T) {
 	fake := NewFakeClient()
 	fake.mu.Lock()
@@ -490,7 +494,10 @@ func TestSettingsProviders_PresetSectionInSettingsPage(t *testing.T) {
 		ui.Column(c.Key("preset-sheet-test")).Children(func() { renderProviderSheetBody(c, st) })
 	}, 1000, 3000)
 	waitFor(t, tt, func() bool {
-		return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("编辑预设默认模型")
+		return tt.HasText("设置卡片 sec-provider-account") &&
+			tt.HasText("编辑预设 BaseURL") &&
+			tt.HasText("编辑预设默认模型") &&
+			tt.HasText("编辑预设 API Key")
 	})
 }
 
@@ -707,14 +714,15 @@ func TestSettingsProviders_MagpieEndpointNotListed(t *testing.T) {
 		t.Fatalf("列表包含 Magpie: %+v", entries)
 	}
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
+		ui.Column(c.Key("test-add")).Children(func() {
+			renderProviderAddSheetBody(c, st, nil)
+			renderProviderAddSheetFooter(c, st)
+		})
 	}, 1000, 3000)
 	if err := tt.Click("API Key"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("选择 自定义端点"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("端点名称") })
 	if tt.HasText("远程 Magpie") || tt.HasText("Magpie · ") {
 		t.Fatal("添加面板包含 Magpie")
 	}
@@ -725,14 +733,15 @@ func TestSettingsProviders_FormHasNoMagpieCheckbox(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
 	st.presets.loaded = true
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c.Key("test-add")).Children(func() { renderProviderAddSheetBody(c, st, nil) })
+		ui.Column(c.Key("test-add")).Children(func() {
+			renderProviderAddSheetBody(c, st, nil)
+			renderProviderAddSheetFooter(c, st)
+		})
 	}, 1000, 3000)
 	if err := tt.Click("API Key"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("选择 自定义端点"); err != nil {
-		t.Fatal(err)
-	}
+	waitFor(t, tt, func() bool { return tt.HasText("端点名称") })
 	if tt.HasText("这是 Magpie 网关") || tt.HasText("人设来源（可选）") {
 		t.Fatal("自定义表单包含 Magpie 控件")
 	}

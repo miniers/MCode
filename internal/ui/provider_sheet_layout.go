@@ -41,19 +41,8 @@ func renderProviderSheetBody(c *ui.Context, st *SettingsState) {
 	if len(defs) == 0 {
 		return
 	}
-	// 搜索命中高级行时先展开，确保目标行在本帧即可渲染并消费滚动标记。
-	if row := consumeProviderSheetJumpRow(st); row != "" {
-		section := providerSheetSectionForRow(kind, id, row)
-		for _, def := range defs {
-			if def.ID == section && def.Advanced {
-				st.mu.Lock()
-				setProviderSheetAdvancedOpenLocked(st, kind, id, true)
-				st.mu.Unlock()
-				break
-			}
-		}
-	}
-	open := providerSheetAdvancedOpen(st, kind, id)
+	// 高级设置已全部平铺展开，直接消费一次性跳转行标记即可。
+	consumeProviderSheetJumpRow(st)
 	ui.Scroll(c.Key("settings-sheet-provider-scroll")).
 		Grow(1).
 		Shrink(1).
@@ -65,10 +54,15 @@ func renderProviderSheetBody(c *ui.Context, st *SettingsState) {
 				Gap(settingsSectionGap).
 				Padding(0, Space5, Space5, Space5)
 			content.Children(func() {
+				if kind == "cli" && providerSheetHasStatusRow(c, st, kind, id) {
+					renderSettingsSection(c, "sec-provider-status", "", func() {
+						renderProviderSheetStatusRow(c, st, kind, id)
+					})
+				}
 				renderSection := func(def providerSheetSection) {
 					ui.Column(c.Key("provider-sheet-section-" + def.ID)).FillWidth().Gap(Space2).Children(func() {
-						// agy 的账号、策略、会话保持和调度由原有渲染函数画标题。
-						if !(kind == "cli" && id == "agy" && def.ID != "sec-agy-advanced-login") {
+						// agy 与 API 供应商卡片不重复画小节外标题；仅普通 CLI 保留节标题以便区分账号/模型/命令行。
+						if kind == "cli" && id != "agy" {
 							ui.Text(c, def.Title).
 								FontSize(uiFont(TypeCaption)).
 								FontWeight(500).
@@ -78,43 +72,8 @@ func renderProviderSheetBody(c *ui.Context, st *SettingsState) {
 						def.Render(c, st)
 					})
 				}
-				var advanced []providerSheetSection
-				var titles []string
 				for _, def := range defs {
-					if def.Advanced {
-						advanced = append(advanced, def)
-						titles = append(titles, def.Title)
-					} else {
-						renderSection(def)
-					}
-				}
-				if len(advanced) == 0 {
-					return
-				}
-				label, icon := "展开高级", IconChevronRight()
-				if open {
-					label, icon = "收起高级", IconChevronDown()
-				}
-				btn := ui.ButtonBase(c.Key("provider-sheet-advanced-toggle")).
-					Label(label).Radius(RadiusSM).Padding(Space2, Space2)
-				if btn.Hovered() {
-					btn.Background(ThemeHover(c))
-				}
-				if btn.Clicked() {
-					setProviderSheetAdvancedOpen(st, kind, id, !open)
-				}
-				btn.Children(func() {
-					ui.Row(c.Key("provider-advanced-content")).FillWidth().AlignItems(ui.Center).Gap(Space2).Children(func() {
-						ui.Text(c, "高级").FontSize(uiFont(TypeBody)).FontWeight(500).TextColor(ThemeSecondaryText(c))
-						ui.Text(c, strings.Join(titles, "、")).FontSize(uiFont(TypeFootnote)).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1)
-						ui.Box(c.Key("provider-advanced-spacer")).Grow(1)
-						ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-					})
-				})
-				if open {
-					for _, def := range advanced {
-						renderSection(def)
-					}
+					renderSection(def)
 				}
 			})
 			reportSettingsSheetContentHeight("provider", content.Bounds().H)
@@ -196,56 +155,74 @@ func providerSheetSectionForRow(kind, id, rowID string) string {
 	return ""
 }
 
-// renderProviderSheetHero 画面板身份区：图标、名称、状态胶囊、副标题与主操作。
+// renderProviderSheetHero 画面板头部标题：仅显示当前供应商名称。
 func renderProviderSheetHero(c *ui.Context, st *SettingsState) {
 	kind, id := currentProviderSheet(st)
-	if id == "" {
-		ui.Box(c.Key("settings-sheet-provider-hero")).Grow(1)
+	name := "供应商"
+	if id != "" {
+		entry := providerSheetListEntry(c, st, kind, id)
+		name = entry.Name
+		if name == "" {
+			name = providerDisplayName(id)
+		}
+	}
+	ui.Text(c, name).
+		FontSize(uiFont(TypeTitle)).
+		FontWeight(600).
+		TextColor(ThemePrimaryText(c)).
+		Grow(1).
+		SingleLine()
+}
+
+// providerSheetHasStatusRow 判断供应商面板正文第一行是否需要渲染状态与主操作。
+func providerSheetHasStatusRow(c *ui.Context, st *SettingsState, kind, id string) bool {
+	entry := providerSheetListEntry(c, st, kind, id)
+	subtitle := providerSheetSubtitle(st, kind, id)
+	_, _, ok := providerSheetPrimaryAction(st, id)
+	return entry.Status != "" || subtitle != "" || ok
+}
+
+// renderProviderSheetStatusRow 在供应商面板正文第一行渲染状态胶囊、副标题与主操作按钮。
+func renderProviderSheetStatusRow(c *ui.Context, st *SettingsState, kind, id string) {
+	entry := providerSheetListEntry(c, st, kind, id)
+	subtitle := providerSheetSubtitle(st, kind, id)
+	label, action, ok := providerSheetPrimaryAction(st, id)
+	if entry.Status == "" && subtitle == "" && !ok {
 		return
 	}
-	entry := providerSheetListEntry(c, st, kind, id)
-	name := entry.Name
-	if name == "" {
-		name = providerDisplayName(id)
-	}
-	ui.Row(c.Key("settings-sheet-provider-hero")).
-		Grow(1).
-		AlignItems(ui.Center).
+	ui.Row(c.Key("row-provider-status")).
+		Padding(settingsRowPadY, settingsRowPadX).
+		MinHeight(settingsRowMinHeight).
 		Gap(Space4).
+		AlignItems(ui.Center).
 		Children(func() {
-			ui.Box(c.Key("settings-sheet-provider-hero-icon")).
-				Width(IconLG).
-				Height(IconLG).
-				Shrink(0).
-				Children(func() { renderProviderRowIcon(c, id, IconLG) })
-			ui.Column(c.Key("settings-sheet-provider-hero-titles")).
+			ui.Row(c.Key("row-provider-status-left")).
+				MinWidth(0).
 				Grow(1).
-				Shrink(1).
-				Gap(Space1).
+				Gap(Space3).
+				AlignItems(ui.Center).
 				Children(func() {
-					ui.Row(c.Key("settings-sheet-provider-hero-name")).
-						Gap(Space3).
-						AlignItems(ui.Center).
-						Children(func() {
-							ui.Text(c, name).
-								FontSize(uiFont(TypeTitle)).
-								FontWeight(600).
-								TextColor(ThemePrimaryText(c)).
-								SingleLine()
-							renderProviderSheetStatusPill(c, entry.Status)
-						})
-					if subtitle := providerSheetSubtitle(st, kind, id); subtitle != "" {
+					renderProviderSheetStatusPill(c, entry.Status)
+					if subtitle != "" {
 						ui.Text(c, subtitle).
 							FontSize(uiFont(TypeCaption)).
 							TextColor(ThemeSecondaryText(c)).
-							SingleLine()
+							SingleLine().
+							Shrink(1)
 					}
 				})
-			if label, action, ok := providerSheetPrimaryAction(st, id); ok {
+			if ok {
 				btn := ui.ButtonBase(c.Key("provider-action-"+id)).
 					Label(label).
-					Padding(settingsPillPadX, settingsRowPadX).
+					Radius(RadiusSM).
+					Padding(settingsPillPadX, Space4).
+					Background(ThemeHover(c)).
+					Cursor(ui.CursorPointer).
 					Shrink(0)
+				if btn.Hovered() {
+					btn.Background(ThemeOverlay(c, 0.15))
+				}
+				focusRing(c, btn)
 				if btn.Clicked() {
 					launchProviderTerminalAction(st, id, action)
 				}
@@ -260,15 +237,41 @@ func renderProviderSheetHero(c *ui.Context, st *SettingsState) {
 
 // providerSheetListEntry 在供应商列表快照里找当前供应商，拿名称与状态；找不到时返回零值。
 func providerSheetListEntry(c *ui.Context, st *SettingsState, kind, id string) providerListEntry {
-	var entries []providerListEntry
 	if kind == "cli" {
-		entries = cliProviderListEntries(st, modelsPageLibrary(c, st))
-	} else {
-		entries = apiProviderListEntries(st)
+		for _, entry := range cliProviderListEntries(st, modelsPageLibrary(c, st)) {
+			if entry.Kind == kind && entry.ID == id {
+				return entry
+			}
+		}
+		return providerListEntry{}
 	}
-	for _, entry := range entries {
-		if entry.Kind == kind && entry.ID == id {
-			return entry
+	// API 供应商只读当前状态快照，避免在面板渲染中触发后台拉取覆盖已注入或未标记 loaded 的列表。
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	switch kind {
+	case "preset":
+		for _, p := range st.presets.items {
+			if p.ID == id && p.Kind == "api" {
+				return providerListEntry{
+					Kind:    "preset",
+					ID:      p.ID,
+					Name:    p.Name,
+					Status:  apiProviderStatusText(p.Enabled, presetProviderHasAPIKey(p)),
+					Enabled: p.Enabled,
+				}
+			}
+		}
+	case "custom":
+		for _, ep := range st.endpoints.endpoints {
+			if ep.ID == id && !ep.Magpie {
+				return providerListEntry{
+					Kind:    "custom",
+					ID:      ep.ID,
+					Name:    ep.Name,
+					Status:  apiProviderStatusText(ep.Enabled, ep.HasAPIKey),
+					Enabled: ep.Enabled,
+				}
+			}
 		}
 	}
 	return providerListEntry{}

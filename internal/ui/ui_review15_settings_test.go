@@ -8,9 +8,8 @@ import (
 	"mcode/internal/testenv"
 )
 
-// TestUIReview15_ProviderAddTypeSwitchAllDirections 覆盖第 5 项：
-// 添加供应商面板保持两段（智能体 / API Key），addType == 2 为 API Key 下的自定义端点子状态，
-// 可通过「← API Key」回到 API 预设列表，也可直接切回智能体。
+// TestUIReview15_ProviderAddTypeSwitchAllDirections 覆盖：
+// 添加供应商面板保持两段（智能体 / API Key），同张卡片内用「预设」在预设与自定义端点之间切换，无返回按钮。
 func TestUIReview15_ProviderAddTypeSwitchAllDirections(t *testing.T) {
 	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
@@ -27,20 +26,17 @@ func TestUIReview15_ProviderAddTypeSwitchAllDirections(t *testing.T) {
 		})
 	}, 1000, 3000)
 
-	if !tt.HasText("端点名称") || !tt.HasText("← API Key") {
-		t.Fatalf("addType==2 时应渲染自定义端点表单与返回按钮: %v", tt.Texts())
-	}
-	if tt.HasText("自定义端点") {
-		t.Fatalf("类型分段不应包含第三段「自定义端点」: %v", tt.Texts())
+	if !tt.HasText("端点名称") || tt.HasText("← API Key") {
+		t.Fatalf("addType==2 时应渲染自定义端点表单且无返回按钮: %v", tt.Texts())
 	}
 
-	if err := tt.Click("← API Key"); err != nil {
-		t.Fatalf("点击 ← API Key 失败: %v", err)
+	if err := tt.Click("DeepSeek"); err != nil {
+		t.Fatalf("切换回 DeepSeek 预设失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.presets.addType == 1 && tt.HasText("DeepSeek") && !tt.HasText("端点名称") && !st.endpoints.editing
+		return st.presets.addType == 1 && st.presets.addPresetID == "deepseek" && !tt.HasText("端点名称") && !st.endpoints.editing
 	})
 
 	if err := tt.Click("智能体"); err != nil {
@@ -61,13 +57,13 @@ func TestUIReview15_ProviderAddTypeSwitchAllDirections(t *testing.T) {
 		return st.presets.addType == 1 && tt.HasText("DeepSeek")
 	})
 
-	if err := tt.Click("选择 自定义端点"); err != nil {
+	if err := tt.Click("自定义端点"); err != nil {
 		t.Fatalf("进入自定义端点表单失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.presets.addType == 2 && tt.HasText("端点名称") && tt.HasText("← API Key")
+		return st.presets.addType == 2 && tt.HasText("端点名称") && !tt.HasText("← API Key")
 	})
 
 	if err := tt.Click("智能体"); err != nil {

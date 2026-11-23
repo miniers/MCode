@@ -680,10 +680,12 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 							Disabled(busy).
 							Radius(RadiusSM).
 							Padding(Space1, Space4).
-							Background(ThemeHover(c))
-						if editBtn.Hovered() {
+							Background(ThemeHover(c)).
+							Cursor(ui.CursorPointer)
+						if !busy && editBtn.Hovered() {
 							editBtn.Background(ThemeOverlay(c, 0.15))
 						}
+						focusRing(c, editBtn)
 						if editBtn.Clicked() {
 							epCopy := epVal
 							st.mu.Lock()
@@ -718,7 +720,8 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 							Label(delA11y).
 							Disabled(busy).
 							Radius(RadiusSM).
-							Padding(Space1, Space4)
+							Padding(Space1, Space4).
+							Cursor(ui.CursorPointer)
 						scale := motionPressScale(c, delBtn, "button-press-scale", !busy && delBtn.Pressed())
 						delBtn.Scale(scale, scale)
 						if isConfirm {
@@ -726,13 +729,14 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						} else {
 							delBtn.Background(ThemeHover(c))
 						}
-						if delBtn.Hovered() {
+						if !busy && delBtn.Hovered() {
 							if isConfirm {
 								delBtn.Background(ThemeDanger(c).Alpha(0.2))
 							} else {
 								delBtn.Background(ThemeOverlay(c, 0.15))
 							}
 						}
+						focusRing(c, delBtn)
 						if delBtn.Clicked() {
 							if isConfirm {
 								deleteCustomEndpoint(st, epVal.ID)
@@ -767,10 +771,12 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						Disabled(busy).
 						Radius(RadiusSM).
 						Padding(Space2, Space4).
-						Background(ThemeHover(c))
-					if addBtn.Hovered() {
+						Background(ThemeHover(c)).
+						Cursor(ui.CursorPointer)
+					if !busy && addBtn.Hovered() {
 						addBtn.Background(ThemeOverlay(c, 0.15))
 					}
+					focusRing(c, addBtn)
 					if addBtn.Clicked() {
 						st.mu.Lock()
 						openCustomEndpointForm(st, nil, endpointFormScopeCustom)
@@ -891,10 +897,12 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						Radius(RadiusSM).
 						Padding(Space2, Space4).
 						Background(ThemeHover(c)).
-						Disabled(busy)
-					if !testing && testBtn.Hovered() {
+						Disabled(busy).
+						Cursor(ui.CursorPointer)
+					if !busy && testBtn.Hovered() {
 						testBtn.Background(ThemeOverlay(c, 0.15))
 					}
+					focusRing(c, testBtn)
 					if !testing && testBtn.Clicked() {
 						testCustomEndpoint(st)
 					}
@@ -914,10 +922,12 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						Radius(RadiusSM).
 						Padding(Space2, Space4).
 						Background(ThemeAccent(c)).
-						Disabled(busy)
-					if !saving && saveBtn.Hovered() {
+						Disabled(busy).
+						Cursor(ui.CursorPointer)
+					if !busy && saveBtn.Hovered() {
 						saveBtn.Background(ThemeAccent(c).Alpha(0.85))
 					}
+					focusRing(c, saveBtn)
 					if !saving && saveBtn.Clicked() {
 						saveCustomEndpoint(st)
 					}
@@ -933,10 +943,12 @@ func renderPageCustomEndpoints(c *ui.Context, st *SettingsState) {
 						Radius(RadiusSM).
 						Padding(Space2, Space4).
 						Background(ThemeHover(c)).
-						Disabled(busy)
-					if cancelBtn.Hovered() {
+						Disabled(busy).
+						Cursor(ui.CursorPointer)
+					if !busy && cancelBtn.Hovered() {
 						cancelBtn.Background(ThemeOverlay(c, 0.15))
 					}
+					focusRing(c, cancelBtn)
 					if cancelBtn.Clicked() {
 						st.mu.Lock()
 						closeCustomEndpointForm(st)
@@ -957,6 +969,16 @@ func presetProviderHasAPIKey(p ProviderSetting) bool {
 	return p.HasAPIKey
 }
 
+func apiProviderStatusText(enabled, hasKey bool) string {
+	if !enabled {
+		return "已停用"
+	}
+	if !hasKey {
+		return "未配置密钥"
+	}
+	return "已配置"
+}
+
 // apiProviderListEntries 返回预置和普通自定义供应商的快照。
 func apiProviderListEntries(st *SettingsState) []providerListEntry {
 	st.mu.Lock()
@@ -973,29 +995,20 @@ func apiProviderListEntries(st *SettingsState) []providerListEntry {
 	if loadEndpoints {
 		loadCustomEndpoints(st)
 	}
-	status := func(enabled, hasKey bool) string {
-		if !enabled {
-			return "已停用"
-		}
-		if !hasKey {
-			return "未配置密钥"
-		}
-		return "已配置"
-	}
 	entries := make([]providerListEntry, 0, len(presets)+len(endpoints))
 	for _, p := range presets {
 		if p.Kind != "api" {
 			continue
 		}
 		p := p
-		entries = append(entries, providerListEntry{Kind: "preset", ID: p.ID, Name: p.Name, Status: status(p.Enabled, presetProviderHasAPIKey(p)), Enabled: p.Enabled, CanToggle: !presetBusy, Toggle: func(enabled bool) { togglePresetProviderEnabled(st, p, enabled) }})
+		entries = append(entries, providerListEntry{Kind: "preset", ID: p.ID, Name: p.Name, Status: apiProviderStatusText(p.Enabled, presetProviderHasAPIKey(p)), Enabled: p.Enabled, CanToggle: !presetBusy, Toggle: func(enabled bool) { togglePresetProviderEnabled(st, p, enabled) }})
 	}
 	for _, ep := range endpoints {
 		if ep.Magpie {
 			continue
 		}
 		ep := ep
-		entries = append(entries, providerListEntry{Kind: "custom", ID: ep.ID, Name: ep.Name, Status: status(ep.Enabled, ep.HasAPIKey), Enabled: ep.Enabled, CanToggle: !endpointBusy, Toggle: func(enabled bool) { toggleCustomEndpointEnabled(st, ep, enabled) }})
+		entries = append(entries, providerListEntry{Kind: "custom", ID: ep.ID, Name: ep.Name, Status: apiProviderStatusText(ep.Enabled, ep.HasAPIKey), Enabled: ep.Enabled, CanToggle: !endpointBusy, Toggle: func(enabled bool) { toggleCustomEndpointEnabled(st, ep, enabled) }})
 	}
 	return entries
 }
@@ -1030,7 +1043,11 @@ func providerSheetButton(c *ui.Context, key, label string, disabled bool, action
 }
 
 func providerSheetButtonWithColor(c *ui.Context, key, label string, disabled bool, textColor ui.Color, action func()) {
-	b := ui.ButtonBase(c.Key(key)).Label(label).Disabled(disabled).Radius(RadiusSM).Padding(Space2, Space4).Background(ThemeHover(c))
+	b := ui.ButtonBase(c.Key(key)).Label(label).Disabled(disabled).Radius(RadiusSM).Padding(Space2, Space4).Background(ThemeHover(c)).Cursor(ui.CursorPointer)
+	if !disabled && b.Hovered() {
+		b.Background(ThemeOverlay(c, 0.15))
+	}
+	focusRing(c, b)
 	if b.Clicked() {
 		action()
 	}
@@ -1038,10 +1055,11 @@ func providerSheetButtonWithColor(c *ui.Context, key, label string, disabled boo
 }
 
 func providerSheetPrimaryButton(c *ui.Context, key, label string, disabled bool, action func()) {
-	b := ui.ButtonBase(c.Key(key)).Label(label).Disabled(disabled).Radius(RadiusSM).Padding(Space2, Space4).Background(ThemeAccent(c))
+	b := ui.ButtonBase(c.Key(key)).Label(label).Disabled(disabled).Radius(RadiusSM).Padding(Space2, Space4).Background(ThemeAccent(c)).Cursor(ui.CursorPointer)
 	if !disabled && b.Hovered() {
 		b.Background(ThemeAccent(c).Alpha(0.85))
 	}
+	focusRing(c, b)
 	if b.Clicked() {
 		action()
 	}
@@ -1138,10 +1156,10 @@ func apiProviderNeedsEndpointFields(st *SettingsState, kind, id string) bool {
 	return true
 }
 
-// apiProviderSheetSections 返回 API 供应商面板的分节；渲染时重新取快照，保证与底栏一致。
+// apiProviderSheetSections 返回 API 供应商面板的分节；状态、凭据与默认模型合在同一张卡片平铺。
 func apiProviderSheetSections(st *SettingsState, kind, id string) []providerSheetSection {
 	needsEndpoint := apiProviderNeedsEndpointFields(st, kind, id)
-	sections := []providerSheetSection{
+	return []providerSheetSection{
 		{
 			ID:    "sec-provider-account",
 			Title: "账号",
@@ -1151,60 +1169,70 @@ func apiProviderSheetSections(st *SettingsState, kind, id string) []providerShee
 					return
 				}
 				renderSettingsSection(c, "sec-provider-account", "", func() {
+					rowIndex := 0
+					nextRow := func(divKey string, render func()) {
+						if rowIndex > 0 {
+							renderSettingsDivider(c, divKey)
+						}
+						render()
+						rowIndex++
+					}
+					if providerSheetHasStatusRow(c, st, kind, id) {
+						nextRow("div-provider-status", func() {
+							renderProviderSheetStatusRow(c, st, kind, id)
+						})
+					}
 					if kind == "custom" {
-						renderSettingRow(c, "row-ep-form-name", "名称", func() {
-							providerDraftInput(c, st, "input-ep-sheet-name", "端点名称", "端点名称", state.name, false, func(v string) { st.endpoints.editName = v })
+						nextRow("div-ep-form-name", func() {
+							renderSettingRow(c, "row-ep-form-name", "名称", func() {
+								providerDraftInput(c, st, "input-ep-sheet-name", "端点名称", "端点名称", state.name, false, func(v string) { st.endpoints.editName = v })
+							})
 						})
-						renderSettingRow(c, "row-ep-form-baseurl", "接口地址（BaseURL）", func() {
-							providerDraftInput(c, st, "input-ep-sheet-baseurl", "端点 BaseURL", "https://host/v1", state.base, false, func(v string) { st.endpoints.editBaseURL = v })
+						nextRow("div-ep-form-baseurl", func() {
+							renderSettingRow(c, "row-ep-form-baseurl", "接口地址（BaseURL）", func() {
+								providerDraftInput(c, st, "input-ep-sheet-baseurl", "端点 BaseURL", "https://host/v1", state.base, false, func(v string) { st.endpoints.editBaseURL = v })
+							})
 						})
-						renderSettingRow(c, "row-ep-form-apikey", "密钥（API Key）", func() {
-							providerDraftInput(c, st, "input-ep-sheet-apikey", "端点 API Key", "留空则保留已保存的 Key", state.key, true, func(v string) { st.endpoints.editAPIKey = v })
+						nextRow("div-ep-form-model", func() {
+							renderSettingRow(c, "row-ep-form-model", "默认模型", func() {
+								providerDraftInput(c, st, "input-ep-sheet-model", "端点默认模型", "默认模型", state.model, false, func(v string) { st.endpoints.editModel = v })
+							})
 						})
-					} else {
-						if needsEndpoint {
+						nextRow("div-ep-form-apikey", func() {
+							renderSettingRow(c, "row-ep-form-apikey", "密钥（API Key）", func() {
+								providerDraftInput(c, st, "input-ep-sheet-apikey", "端点 API Key", "留空则保留已保存的 Key", state.key, true, func(v string) { st.endpoints.editAPIKey = v })
+							})
+						})
+						return
+					}
+					if needsEndpoint {
+						nextRow("div-preset-form-baseurl", func() {
 							renderSettingRow(c, "row-preset-form-baseurl", "接口地址（BaseURL）", func() {
 								providerDraftInput(c, st, "input-preset-sheet-baseurl", "预设 BaseURL", providerDefaultPlaceholder(state.provider.DefaultBaseURL), state.base, false, func(v string) { st.presets.baseURLDraft = v })
 							})
-						}
+						})
+						nextRow("div-preset-form-model", func() {
+							renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
+								providerDraftInput(c, st, "input-preset-sheet-model", "预设默认模型", providerDefaultPlaceholder(state.provider.DefaultModel), state.model, false, func(v string) { st.presets.modelDraft = v })
+							})
+						})
+					}
+					nextRow("div-preset-form-apikey", func() {
 						renderSettingRow(c, "row-preset-form-apikey", "密钥（API Key）", func() {
 							providerDraftInput(c, st, "input-preset-sheet-apikey", "预设 API Key", "留空则保留已保存的 Key", state.key, true, func(v string) { st.presets.apiKeyDraft = v })
 						})
-						renderProviderBalancePanel(c, st, id)
-						if state.credits.BreakdownText != "" {
-							renderSettingRow(c, "row-provider-balance-breakdown", "余额明细", func() {
-								ui.Text(c, state.credits.BreakdownText).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
-							})
-						}
+					})
+					renderProviderBalancePanel(c, st, id)
+					if state.credits.BreakdownText != "" {
+						renderSettingsDivider(c, "div-provider-balance-breakdown")
+						renderSettingRow(c, "row-provider-balance-breakdown", "余额明细", func() {
+							ui.Text(c, state.credits.BreakdownText).FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+						})
 					}
 				})
 			},
 		},
 	}
-	if !needsEndpoint {
-		return sections
-	}
-	return append(sections, providerSheetSection{
-		ID:    "sec-provider-models",
-		Title: "模型",
-		Render: func(c *ui.Context, st *SettingsState) {
-			state, ok := apiProviderSheetStateFor(st, kind, id)
-			if !ok {
-				return
-			}
-			renderSettingsSection(c, "sec-provider-models", "", func() {
-				if kind == "custom" {
-					renderSettingRow(c, "row-ep-form-model", "默认模型", func() {
-						providerDraftInput(c, st, "input-ep-sheet-model", "端点默认模型", "默认模型", state.model, false, func(v string) { st.endpoints.editModel = v })
-					})
-				} else {
-					renderSettingRow(c, "row-preset-form-model", "默认模型", func() {
-						providerDraftInput(c, st, "input-preset-sheet-model", "预设默认模型", providerDefaultPlaceholder(state.provider.DefaultModel), state.model, false, func(v string) { st.presets.modelDraft = v })
-					})
-				}
-			})
-		},
-	})
 }
 
 func renderAPIProviderSheetFooter(c *ui.Context, st *SettingsState, kind, id string) {
@@ -1304,42 +1332,65 @@ func renderAPIProviderSheetSections(c *ui.Context, st *SettingsState, kind, id s
 	renderAPIProviderSheetFooter(c, st, kind, id)
 }
 
+func providerAddAvailablePresets(presets []ProviderSetting) []ProviderSetting {
+	var available []ProviderSetting
+	for _, item := range presets {
+		if item.Kind != "api" || presetProviderHasAPIKey(item) || strings.EqualFold(strings.TrimSpace(item.ID), "magpie") {
+			continue
+		}
+		available = append(available, item)
+	}
+	return available
+}
+
+func providerAddSelectedPreset(available []ProviderSetting, selected string) (*ProviderSetting, int) {
+	if len(available) == 0 {
+		return nil, 0
+	}
+	for i := range available {
+		if available[i].ID == selected {
+			p := available[i]
+			return &p, i
+		}
+	}
+	p := available[0]
+	return &p, 0
+}
+
 func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates []providerListEntry) {
 	st.mu.Lock()
 	kind := st.presets.addType
 	selected := st.presets.addPresetID
 	presets := append([]ProviderSetting(nil), st.presets.items...)
+	available := providerAddAvailablePresets(presets)
+	customMode := kind == 2 || (kind == 1 && len(available) == 0)
+	if kind == 1 && len(available) > 0 {
+		if chosen, _ := providerAddSelectedPreset(available, selected); chosen != nil && chosen.ID != selected {
+			st.presets.addPresetID = chosen.ID
+			st.presets.baseURLDraft = chosen.BaseURL
+			st.presets.modelDraft = chosen.Model
+			selected = chosen.ID
+		}
+	}
+	if customMode && (!st.endpoints.editing || st.endpoints.editScope != endpointFormScopeCustom) {
+		openCustomEndpointForm(st, nil, endpointFormScopeCustom)
+	}
 	load := !st.presets.loaded && !st.presets.loading
 	name, base, model, key := st.endpoints.editName, st.endpoints.editBaseURL, st.endpoints.editModel, st.endpoints.editAPIKey
 	presetKey := st.presets.apiKeyDraft
 	busy, errText := st.endpoints.saving, st.endpoints.editErr
-	if kind == 1 {
+	if kind == 1 && !customMode {
 		busy, errText = st.presets.saving, st.presets.saveErr
 	}
 	st.mu.Unlock()
 	if load {
 		loadPresetProviders(st)
 	}
-	if kind == 2 {
-		Button(c.Key("provider-add-back"), ButtonOpts{
-			Text:    "← API Key",
-			Variant: ButtonGhost,
-			OnClick: func() {
-				st.mu.Lock()
-				st.presets.addType = 1
-				st.presets.addPresetID = ""
-				st.presets.apiKeyDraft = ""
-				closeCustomEndpointForm(st)
-				st.mu.Unlock()
-				st.invalidate()
-			},
-		})
-	}
 	choice := kind
 	if choice == 2 {
 		choice = 1
 	}
-	renderSettingsSection(c, "sec-provider-add-type", "类型", func() {
+	renderSettingsSection(c, "sec-provider-add", "", func() {
 		renderSettingRow(c, "row-provider-add-type", "类型", func() {
 			choiceFunc(
 				[]string{"智能体", "API Key"},
@@ -1350,6 +1401,7 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 						st.presets.addType = 1
 						st.presets.addPresetID = ""
 						st.presets.apiKeyDraft = ""
+						st.presets.saveErr = ""
 						closeCustomEndpointForm(st)
 					} else {
 						if st.presets.addType == 2 {
@@ -1358,26 +1410,15 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 						st.presets.addType = index
 						st.presets.addPresetID = ""
 						st.presets.apiKeyDraft = ""
+						st.presets.saveErr = ""
+						st.endpoints.editErr = ""
 					}
 					st.mu.Unlock()
 					st.invalidate()
 				},
 			).render(c, st, setting{ID: "provider-add-type", Title: "类型"})
 		})
-	})
-	hasCredentials := kind == 1 || kind == 2 || errText != ""
-	if kind == 0 {
-		for _, entry := range cliCandidates {
-			if !entry.Enabled {
-				hasCredentials = true
-				break
-			}
-		}
-	}
-	if !hasCredentials {
-		return
-	}
-	renderSettingsSection(c, "sec-provider-add-credentials", "凭据", func() {
+
 		switch kind {
 		case 0:
 			for _, entry := range cliCandidates {
@@ -1385,71 +1426,112 @@ func renderProviderAddSheetBody(c *ui.Context, st *SettingsState, cliCandidates 
 					continue
 				}
 				e := entry
+				renderSettingsDivider(c, "div-provider-add-cli-"+e.ID)
 				renderSettingRow(c, "row-provider-add-cli-"+e.ID, e.Name, func() {
 					providerSheetButton(c, "provider-add-cli-"+e.ID, "启用 "+e.Name, e.Locked || !e.CanToggle || e.Toggle == nil, func() { e.Toggle(true) })
 				})
 			}
-		case 1:
-			var chosen *ProviderSetting
-			for _, item := range presets {
-				if item.Kind != "api" || presetProviderHasAPIKey(item) || strings.EqualFold(strings.TrimSpace(item.ID), "magpie") {
-					continue
-				}
-				p := item
-				if p.ID == selected {
-					chosen = &p
-				}
-				renderSettingRow(c, "row-provider-add-preset-"+p.ID, p.Name, func() {
-					providerSheetButton(c, "provider-add-preset-"+p.ID, "选择 "+p.Name, busy, func() {
+		case 1, 2:
+			presetOptions := make([]string, 0, len(available)+1)
+			for _, p := range available {
+				presetOptions = append(presetOptions, p.Name)
+			}
+			presetOptions = append(presetOptions, "自定义端点")
+			_, presetIdx := providerAddSelectedPreset(available, selected)
+			if customMode {
+				presetIdx = len(available)
+			}
+			renderSettingsDivider(c, "div-provider-add-preset")
+			// 沿用 row-provider-add-preset- 前缀以匹配 settings.go 的搜索定位分支。
+			renderSettingRow(c, "row-provider-add-preset-select", "预设", func() {
+				choiceFunc(
+					presetOptions,
+					func(*SettingsState) (int, bool) { return presetIdx, busy },
+					func(st *SettingsState, idx int) {
 						st.mu.Lock()
-						st.presets.addPresetID = p.ID
-						st.presets.baseURLDraft = p.BaseURL
-						st.presets.modelDraft = p.Model
-						st.presets.apiKeyDraft = ""
+						if idx >= len(available) {
+							st.presets.addType = 2
+							st.presets.addPresetID = ""
+							st.presets.apiKeyDraft = ""
+							st.presets.saveErr = ""
+							openCustomEndpointForm(st, nil, endpointFormScopeCustom)
+						} else {
+							p := available[idx]
+							if st.endpoints.editing && st.endpoints.editScope == endpointFormScopeCustom {
+								closeCustomEndpointForm(st)
+							}
+							st.presets.addType = 1
+							st.presets.addPresetID = p.ID
+							st.presets.baseURLDraft = p.BaseURL
+							st.presets.modelDraft = p.Model
+							st.presets.apiKeyDraft = ""
+							st.presets.saveErr = ""
+						}
 						st.mu.Unlock()
 						st.invalidate()
-					})
-				})
-			}
-			renderSettingRow(c, "row-provider-add-custom", "自定义端点", func() {
-				providerSheetButton(c, "provider-add-custom", "选择 自定义端点", busy, func() {
-					st.mu.Lock()
-					st.presets.addType = 2
-					openCustomEndpointForm(st, nil, endpointFormScopeCustom)
-					st.mu.Unlock()
-					st.invalidate()
-				})
+					},
+				).render(c, st, setting{ID: "provider-add-preset", Title: "预设"})
 			})
-			if chosen != nil {
-				p := *chosen
+
+			if customMode {
+				renderSettingsDivider(c, "div-provider-add-name")
+				renderSettingRow(c, "row-provider-add-name", "名称", func() {
+					providerDraftInput(c, st, "provider-add-name", "端点名称", "端点名称", name, false, func(v string) { st.endpoints.editName = v })
+				})
+				renderSettingsDivider(c, "div-provider-add-baseurl")
+				renderSettingRow(c, "row-provider-add-baseurl", "接口地址（BaseURL）", func() {
+					providerDraftInput(c, st, "provider-add-baseurl", "端点 BaseURL", "https://api.example.com/v1", base, false, func(v string) { st.endpoints.editBaseURL = v })
+				})
+				renderSettingsDivider(c, "div-provider-add-model")
+				renderSettingRow(c, "row-provider-add-model", "默认模型", func() {
+					providerDraftInput(c, st, "provider-add-model", "端点默认模型", "默认模型", model, false, func(v string) { st.endpoints.editModel = v })
+				})
+				renderSettingsDivider(c, "div-provider-add-apikey")
+				renderSettingRow(c, "row-provider-add-apikey", "密钥（API Key）", func() {
+					providerDraftInput(c, st, "provider-add-key", "端点 API Key", "API Key", key, true, func(v string) { st.endpoints.editAPIKey = v })
+				})
+			} else if chosen, _ := providerAddSelectedPreset(available, selected); chosen != nil {
+				renderSettingsDivider(c, "div-provider-add-apikey")
 				renderSettingRow(c, "row-provider-add-apikey", "密钥（API Key）", func() {
 					providerDraftInput(c, st, "provider-add-preset-key", "预设 API Key", "API Key", presetKey, true, func(v string) { st.presets.apiKeyDraft = v })
 				})
-				renderSettingRow(c, "row-provider-add-actions", "", func() {
-					providerSheetButton(c, "provider-add-preset-save", "添加", busy || strings.TrimSpace(presetKey) == "", func() { p.Enabled = true; savePresetProvider(st, p, presetKey) })
-				})
 			}
-		case 2:
-			renderSettingRow(c, "row-provider-add-name", "名称", func() {
-				providerDraftInput(c, st, "provider-add-name", "端点名称", "端点名称", name, false, func(v string) { st.endpoints.editName = v })
-			})
-			renderSettingRow(c, "row-provider-add-baseurl", "接口地址（BaseURL）", func() {
-				providerDraftInput(c, st, "provider-add-baseurl", "端点 BaseURL", "https://api.example.com/v1", base, false, func(v string) { st.endpoints.editBaseURL = v })
-			})
-			renderSettingRow(c, "row-provider-add-model", "默认模型", func() {
-				providerDraftInput(c, st, "provider-add-model", "端点默认模型", "默认模型", model, false, func(v string) { st.endpoints.editModel = v })
-			})
-			renderSettingRow(c, "row-provider-add-apikey", "密钥（API Key）", func() {
-				providerDraftInput(c, st, "provider-add-key", "端点 API Key", "API Key", key, true, func(v string) { st.endpoints.editAPIKey = v })
-			})
-			renderSettingRow(c, "row-provider-add-actions", "", func() {
-				providerSheetButton(c, "provider-add-custom-save", "添加", busy, func() { saveCustomEndpoint(st) })
-			})
 		}
+
 		if errText != "" {
-			ui.Text(c, errText).TextColor(ThemeDanger(c))
+			renderSettingsDivider(c, "div-provider-add-err")
+			ui.Row(c.Key("row-provider-add-err")).
+				Padding(settingsRowPadY, settingsRowPadX).
+				Children(func() {
+					ui.Text(c, errText).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+				})
 		}
 	})
+}
+
+func renderProviderAddSheetFooter(c *ui.Context, st *SettingsState) {
+	st.mu.Lock()
+	kind := st.presets.addType
+	selected := st.presets.addPresetID
+	presets := append([]ProviderSetting(nil), st.presets.items...)
+	presetKey := st.presets.apiKeyDraft
+	available := providerAddAvailablePresets(presets)
+	customMode := kind == 2 || (kind == 1 && len(available) == 0)
+	busy := st.endpoints.saving
+	if kind == 1 && !customMode {
+		busy = st.presets.saving
+	}
+	st.mu.Unlock()
+
+	ui.Box(c.Key("provider-add-footer-spacer")).Grow(1)
+	if customMode {
+		providerSheetPrimaryButton(c, "provider-add-custom-save", "添加", busy, func() { saveCustomEndpoint(st) })
+		return
+	}
+	if chosen, _ := providerAddSelectedPreset(available, selected); chosen != nil {
+		p := *chosen
+		providerSheetPrimaryButton(c, "provider-add-preset-save", "添加", busy || strings.TrimSpace(presetKey) == "", func() { p.Enabled = true; savePresetProvider(st, p, presetKey) })
+	}
 }
 
 // presetProvidersState 维护「API 供应商」预设区域的交互状态。

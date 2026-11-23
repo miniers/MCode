@@ -69,7 +69,10 @@ func TestSettingsAdvanced_PersonaRowsInMagpieForm(t *testing.T) {
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = []CustomEndpoint{{ID: "gateway", Name: "Magpie", Magpie: true, Enabled: true}}
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderMagpiePersonasSheetBody(c, st)
+		ui.Column(c).Children(func() {
+			renderMagpiePersonasSheetBody(c, st)
+			ui.Row(c).Children(func() { renderMagpiePersonasSheetFooter(c, st) })
+		})
 	}, 1000, 4000)
 	tt.Frame()
 
@@ -78,7 +81,7 @@ func TestSettingsAdvanced_PersonaRowsInMagpieForm(t *testing.T) {
 			tt.HasText("人设管理地址") &&
 			tt.HasText("人设管理密钥") &&
 			tt.HasText("手动人设列表") &&
-			tt.HasText("测试并刷新")
+			tt.HasText("测试人设")
 	})
 }
 

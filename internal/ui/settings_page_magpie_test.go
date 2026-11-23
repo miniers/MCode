@@ -33,9 +33,15 @@ func magpiePageWithFake(t *testing.T, fake *FakeClient, connected bool) (*ui.Tes
 		id, _ := settingsTreeSheetState(st)
 		switch id {
 		case "magpie-gateway":
-			sheetMagpieGateway.Body(c, st)
+			ui.Column(c).Children(func() {
+				sheetMagpieGateway.Body(c, st)
+				ui.Row(c).Children(func() { sheetMagpieGateway.Footer(c, st) })
+			})
 		case "magpie-personas":
-			sheetMagpiePersonas.Body(c, st)
+			ui.Column(c).Children(func() {
+				sheetMagpiePersonas.Body(c, st)
+				ui.Row(c).Children(func() { sheetMagpiePersonas.Footer(c, st) })
+			})
 		case "provider":
 			renderProviderSheetBody(c, st)
 		default:

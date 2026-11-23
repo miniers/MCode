@@ -236,6 +236,16 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				).withSecret().render(c, st, setting{ID: "hub-persona-webkey", Title: "人设 web key"})
 			})
 
+			renderSettingsDivider(c, "div-hub-persona-rules")
+			renderStackedSettingRow(c, "row-magpie-persona-rules", "人设规则", func() {
+				cb := ui.Checkbox(c.Key("input-hub-persona-rules"), &personaRulesDraft, "已在 magpie 部署 persona-rules").Tooltip("手动列表才生效")
+				if cb.Changed() {
+					st.mu.Lock()
+					st.endpoints.editPersonaRules = personaRulesDraft
+					st.mu.Unlock()
+				}
+			})
+
 			renderSettingsDivider(c, "div-hub-persona-json")
 			renderStackedSettingRow(c, "row-magpie-persona-json", "手动人设列表", func() {
 				TextField(c, TextFieldProps{
@@ -255,42 +265,36 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				})
 			})
 
-			renderSettingsDivider(c, "div-hub-persona-rules")
-			renderStackedSettingRow(c, "row-magpie-persona-rules", "人设规则", func() {
-				cb := ui.Checkbox(c.Key("input-hub-persona-rules"), &personaRulesDraft, "已在 magpie 部署 persona-rules").Tooltip("手动列表才生效")
-				if cb.Changed() {
-					st.mu.Lock()
-					st.endpoints.editPersonaRules = personaRulesDraft
-					st.mu.Unlock()
-				}
-			})
-
-			renderSettingsDivider(c, "div-hub-persona-test")
-			renderSettingRow(c, "row-magpie-persona-test", "测试人设", func() {
-				testLabel := "测试并刷新"
-				if personaTestBusy {
-					testLabel = "测试中…"
-				}
-				personaTestBtn := ui.ButtonBase(c.Key("btn-hub-persona-test")).
-					Label(testLabel).
-					Radius(RadiusSM).
-					Padding(Space1, Space4).
-					Background(ThemeHover(c)).
-					Disabled(busy)
-				scale := motionPressScale(c, personaTestBtn, "button-press-scale", !busy && personaTestBtn.Pressed())
-				personaTestBtn.Scale(scale, scale)
-				if !busy && personaTestBtn.Hovered() {
-					personaTestBtn.Background(ThemeOverlay(c, 0.15))
-				}
-				if !busy && personaTestBtn.Clicked() {
-					testMagpiePersonas(st)
-				}
-				personaTestBtn.Children(func() {
-					ui.Text(c, testLabel).
-						FontSize(uiFont(TypeFootnote)).
-						TextColor(ThemeAccent(c))
+			if mode == "hub" {
+				renderSettingsDivider(c, "div-hub-persona-test")
+				renderSettingRow(c, "row-magpie-persona-test", "测试人设", func() {
+					testLabel := "测试并刷新"
+					if personaTestBusy {
+						testLabel = "测试中…"
+					}
+					personaTestBtn := ui.ButtonBase(c.Key("btn-hub-persona-test")).
+						Label(testLabel).
+						Radius(RadiusSM).
+						Padding(Space1, Space4).
+						Background(ThemeHover(c)).
+						Disabled(busy).
+						Cursor(ui.CursorPointer)
+					scale := motionPressScale(c, personaTestBtn, "button-press-scale", !busy && personaTestBtn.Pressed())
+					personaTestBtn.Scale(scale, scale)
+					if !busy && personaTestBtn.Hovered() {
+						personaTestBtn.Background(ThemeOverlay(c, 0.15))
+					}
+					focusRing(c, personaTestBtn)
+					if !busy && personaTestBtn.Clicked() {
+						testMagpiePersonas(st)
+					}
+					personaTestBtn.Children(func() {
+						ui.Text(c, testLabel).
+							FontSize(uiFont(TypeFootnote)).
+							TextColor(ThemeAccent(c))
+					})
 				})
-			})
+			}
 
 			if personaTestErr != "" {
 				ui.Row(c.Key("row-hub-persona-test-err")).
@@ -325,11 +329,13 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Disabled(busy).
 					Radius(RadiusSM).
 					Padding(Space1, Space4).
-					Background(ThemeHover(c))
-				if refreshBtn.Hovered() {
+					Background(ThemeHover(c)).
+					Cursor(ui.CursorPointer)
+				if !busy && refreshBtn.Hovered() {
 					refreshBtn.Background(ThemeOverlay(c, 0.15))
 				}
-				if refreshBtn.Clicked() {
+				focusRing(c, refreshBtn)
+				if !busy && refreshBtn.Clicked() {
 					loadMagpieQuotaProviders(st, id)
 				}
 				refreshBtn.Children(func() {
@@ -436,19 +442,22 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 			})
 	}
 
+	if mode == "gateway" || mode == "persona" {
+		return
+	}
 	if mode == "hub" {
 		renderSettingsDivider(c, "div-hub-form-actions")
 	}
 
 	buttonsRow := ui.Row(c.Key("row-hub-form-buttons"))
 	// 行内表单（未连接时的「连接」表单）没有行内边距，按钮自己留白，
-	// 让左边与上面的表单项对齐、下边与卡片底边留出间距。sheet 里已有外壳内边距，不再叠加。
+	// 让左边与上面的表单项对齐、下边与卡片底边留出间距。
 	if mode == "connect" || mode == "hub" {
 		buttonsRow = buttonsRow.Padding(Space3, Space5)
 	}
 	buttonsRow.Gap(Space4).
 		Children(func() {
-			if mode == "hub" || mode == "gateway" {
+			if mode == "hub" {
 				testLabel := "测试连接"
 				if testing {
 					testLabel = "测试中…"
@@ -458,12 +467,14 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Radius(RadiusSM).
 					Padding(Space2, Space4).
 					Background(ThemeHover(c)).
-					Disabled(busy)
+					Disabled(busy).
+					Cursor(ui.CursorPointer)
 				scale := motionPressScale(c, testBtn, "button-press-scale", !busy && testBtn.Pressed())
 				testBtn.Scale(scale, scale)
 				if !busy && testBtn.Hovered() {
 					testBtn.Background(ThemeOverlay(c, 0.15))
 				}
+				focusRing(c, testBtn)
 				if !busy && testBtn.Clicked() {
 					testCustomEndpoint(st)
 				}
@@ -486,18 +497,15 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				Radius(RadiusSM).
 				Padding(Space2, Space4).
 				Background(ThemeAccent(c)).
-				Disabled(busy)
+				Disabled(busy).
+				Cursor(ui.CursorPointer)
 			scale := motionPressScale(c, saveBtn, "button-press-scale", !busy && saveBtn.Pressed())
 			saveBtn.Scale(scale, scale)
 			if !busy && saveBtn.Hovered() {
 				saveBtn.Background(ThemeAccent(c).Alpha(0.85))
 			}
+			focusRing(c, saveBtn)
 			if !busy && saveBtn.Clicked() {
-				if mode == "gateway" {
-					st.mu.Lock()
-					st.magpieHub.sheetSaving = true
-					st.mu.Unlock()
-				}
 				saveCustomEndpoint(st)
 			}
 			saveBtn.Children(func() {
@@ -512,19 +520,18 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 					Radius(RadiusSM).
 					Padding(Space2, Space4).
 					Background(ThemeHover(c)).
-					Disabled(busy)
+					Disabled(busy).
+					Cursor(ui.CursorPointer)
 				scale := motionPressScale(c, cancelBtn, "button-press-scale", !busy && cancelBtn.Pressed())
 				cancelBtn.Scale(scale, scale)
-				if cancelBtn.Hovered() {
+				if !busy && cancelBtn.Hovered() {
 					cancelBtn.Background(ThemeOverlay(c, 0.15))
 				}
-				if cancelBtn.Clicked() {
+				focusRing(c, cancelBtn)
+				if !busy && cancelBtn.Clicked() {
 					st.mu.Lock()
 					closeCustomEndpointForm(st)
 					st.mu.Unlock()
-					if mode != "hub" {
-						closeSettingsSheet(st)
-					}
 					st.invalidate()
 				}
 				cancelBtn.Children(func() {
@@ -534,4 +541,129 @@ func renderMagpieGatewayForm(c *ui.Context, st *SettingsState, id, keyDraft, web
 				})
 			}
 		})
+}
+
+func renderMagpieSheetFooter(c *ui.Context, st *SettingsState, testKey, testLabel string, busy, saving bool, onTest, onSave func()) {
+	testBtn := ui.ButtonBase(c.Key(testKey)).
+		Label(testLabel).
+		Radius(RadiusSM).
+		Padding(Space2, Space4).
+		Background(ThemeHover(c)).
+		Disabled(busy).
+		Cursor(ui.CursorPointer)
+	{
+		scale := motionPressScale(c, testBtn, "button-press-scale", !busy && testBtn.Pressed())
+		testBtn.Scale(scale, scale)
+	}
+	if !busy && testBtn.Hovered() {
+		testBtn.Background(ThemeOverlay(c, 0.15))
+	}
+	focusRing(c, testBtn)
+	if !busy && testBtn.Clicked() && onTest != nil {
+		onTest()
+	}
+	testBtn.Children(func() {
+		ui.Text(c, testLabel).
+			FontSize(uiFont(TypeBody)).
+			TextColor(ThemeSecondaryText(c))
+	})
+
+	ui.Spacer(c)
+
+	cancelBtn := ui.ButtonBase(c.Key("btn-hub-cancel")).
+		Label("取消").
+		Radius(RadiusSM).
+		Padding(Space2, Space4).
+		Background(ThemeHover(c)).
+		Disabled(busy).
+		Cursor(ui.CursorPointer)
+	{
+		scale := motionPressScale(c, cancelBtn, "button-press-scale", !busy && cancelBtn.Pressed())
+		cancelBtn.Scale(scale, scale)
+	}
+	if !busy && cancelBtn.Hovered() {
+		cancelBtn.Background(ThemeOverlay(c, 0.15))
+	}
+	focusRing(c, cancelBtn)
+	if !busy && cancelBtn.Clicked() {
+		st.mu.Lock()
+		closeCustomEndpointForm(st)
+		st.mu.Unlock()
+		closeSettingsSheet(st)
+		st.invalidate()
+	}
+	cancelBtn.Children(func() {
+		ui.Text(c, "取消").
+			FontSize(uiFont(TypeBody)).
+			TextColor(ThemeSecondaryText(c))
+	})
+
+	saveLabel := "保存"
+	if saving {
+		saveLabel = "保存中…"
+	}
+	saveBtn := ui.ButtonBase(c.Key("btn-hub-save")).
+		Label(saveLabel).
+		Radius(RadiusSM).
+		Padding(Space2, Space4).
+		Background(ThemeAccent(c)).
+		Disabled(busy).
+		Cursor(ui.CursorPointer)
+	{
+		scale := motionPressScale(c, saveBtn, "button-press-scale", !busy && saveBtn.Pressed())
+		saveBtn.Scale(scale, scale)
+	}
+	if !busy && saveBtn.Hovered() {
+		saveBtn.Background(ThemeAccent(c).Alpha(0.85))
+	}
+	focusRing(c, saveBtn)
+	if !busy && saveBtn.Clicked() && onSave != nil {
+		onSave()
+	}
+	saveBtn.Children(func() {
+		ui.Text(c, saveLabel).
+			FontSize(uiFont(TypeBody)).
+			TextColor(ThemeOnAccent(c))
+	})
+}
+
+func renderMagpieGatewaySheetFooter(c *ui.Context, st *SettingsState) {
+	st.mu.Lock()
+	e := st.endpoints
+	busy := e.saving || e.testing || e.personaTestBusy || e.toggling || e.deletingID != ""
+	testing := e.testing
+	saving := e.saving
+	st.mu.Unlock()
+
+	testLabel := "测试连接"
+	if testing {
+		testLabel = "测试中…"
+	}
+	renderMagpieSheetFooter(c, st, "btn-hub-test", testLabel, busy, saving, func() {
+		testCustomEndpoint(st)
+	}, func() {
+		st.mu.Lock()
+		st.magpieHub.sheetSaving = true
+		st.mu.Unlock()
+		saveCustomEndpoint(st)
+	})
+}
+
+func renderMagpiePersonasSheetFooter(c *ui.Context, st *SettingsState) {
+	st.mu.Lock()
+	e := st.endpoints
+	busy := e.saving || e.testing || e.personaTestBusy || e.toggling || e.deletingID != ""
+	personaTestBusy := e.personaTestBusy
+	saving := e.saving
+	st.mu.Unlock()
+
+	testLabel := "测试人设"
+	if personaTestBusy {
+		testLabel = "测试中…"
+	}
+	renderMagpieSheetFooter(c, st, "btn-hub-persona-test", testLabel, busy, saving, func() {
+		testMagpiePersonas(st)
+	}, func() {
+		saveCustomEndpoint(st)
+	})
 }

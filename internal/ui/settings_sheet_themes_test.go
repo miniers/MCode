@@ -28,7 +28,6 @@ func newThemesTester(t *testing.T) (*SettingsState, *ui.Tester) {
 	t.Cleanup(st.Close)
 	return st, ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Children(func() {
-			renderThemesHeader(c, st)
 			renderThemesSheet(c, st)
 			renderThemeActions(c, st, getThemesSheetState(st))
 		})

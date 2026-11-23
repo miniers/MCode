@@ -10,6 +10,10 @@ var sheetShortcuts = settingsSheet{
 	Body: func(c *ui.Context, st *SettingsState) {
 		renderShortcutTable(c, st, "")
 	},
+	Footer: func(c *ui.Context, st *SettingsState) {
+		ui.Spacer(c)
+		renderShortcutResetAll(c, st)
+	},
 }
 
 // 注册到面板树放在 init 里：包级变量不能引用面板的初始值，否则会和渲染链形成初始化循环。

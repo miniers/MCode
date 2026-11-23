@@ -242,7 +242,8 @@ func renderShortcutResetAll(c *ui.Context, st *SettingsState) {
 		Label("全部恢复默认").
 		Radius(RadiusSM).
 		Padding(settingsPillPadX, Space4).
-		Background(ThemeHover(c))
+		Background(ThemeHover(c)).
+		Cursor(ui.CursorPointer)
 	{
 		scale := motionPressScale(c, resetAll, "button-press-scale", resetAll.Pressed())
 		resetAll.Scale(scale, scale)
@@ -263,26 +264,25 @@ func renderShortcutResetAll(c *ui.Context, st *SettingsState) {
 	})
 }
 
-// renderShortcutTable 渲染完整快捷键表：恢复默认与各分组。导航页与「快捷键」面板共用；
-// hint 非空时在按钮左侧显示一句用法说明。
+// renderShortcutTable 渲染完整快捷键表：各分组卡片及全部恢复默认确认弹窗。
+// 「全部恢复默认」按钮已移至面板 Footer；hint 非空时在顶部显示一句用法说明。
 func renderShortcutTable(c *ui.Context, st *SettingsState, hint string) {
 	shortcuts := appShortcuts()
 	conflicts := shortcutConflicts(effectiveShortcutBindings())
 	groups, grouped := groupAppShortcuts(shortcuts)
 
-	ui.Row(c.Key("shortcuts-toolbar")).
-		Justify(ui.SpaceBetween).
-		AlignItems(ui.Center).
-		Margin(Space4, 0, Space1, 0).
-		Children(func() {
-			if hint != "" {
+	if hint != "" {
+		ui.Row(c.Key("shortcuts-toolbar")).
+			Justify(ui.SpaceBetween).
+			AlignItems(ui.Center).
+			Margin(Space4, 0, Space1, 0).
+			Children(func() {
 				ui.Text(c, hint).
 					FontSize(uiFont(TypeBody)).
 					TextColor(ThemeSecondaryText(c)).
 					Grow(1)
-			}
-			renderShortcutResetAll(c, st)
-		})
+			})
+	}
 
 	for _, grp := range groups {
 		renderShortcutGroup(c, st, grp, grouped[grp], conflicts)
@@ -358,7 +358,8 @@ func renderShortcutOverrideControl(c *ui.Context, st *SettingsState, sc appShort
 							Label("重置 "+sc.title).
 							Radius(RadiusSM).
 							Padding(settingsBadgePadY, settingsCompactPadX).
-							Background(ThemeOverlay(c, 0.06))
+							Background(ThemeOverlay(c, 0.06)).
+							Cursor(ui.CursorPointer)
 						{
 							scale := motionPressScale(c, reset, "button-press-scale", reset.Pressed())
 							reset.Scale(scale, scale)

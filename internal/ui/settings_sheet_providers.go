@@ -25,9 +25,19 @@ func init() {
 				renderAPIProviderSheetFooter(c, st, kind, id)
 			},
 		},
-		settingsSheet{ID: "provider-add", Width: 720, Title: "添加供应商", Body: func(c *ui.Context, st *SettingsState) {
-			renderProviderAddSheetBody(c, st, cliProviderListEntries(st, modelsPageLibrary(c, st)))
-		}},
+		settingsSheet{
+			ID:     "provider-add",
+			Width:  720,
+			Title:  "添加供应商",
+			Body:   func(c *ui.Context, st *SettingsState) { renderProviderAddSheetBody(c, st, cliProviderListEntries(st, modelsPageLibrary(c, st))) },
+			FooterVisible: func(st *SettingsState) bool {
+				st.mu.Lock()
+				kind := st.presets.addType
+				st.mu.Unlock()
+				return kind == 1 || kind == 2
+			},
+			Footer: renderProviderAddSheetFooter,
+		},
 	)
 	// 供应商面板用 Body 分发内容，Sections 只为搜索与跳转登记 agy 那几行的 ID。
 	registerAgyProviderSheetSections()

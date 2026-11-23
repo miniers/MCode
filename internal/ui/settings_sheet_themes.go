@@ -12,7 +12,7 @@ import (
 )
 
 var sheetThemes = settingsSheet{
-	ID: "themes", Title: "主题", Body: renderThemesSheet, Header: renderThemesHeader, Footer: func(c *ui.Context, st *SettingsState) { renderThemeActions(c, st, getThemesSheetState(st)) },
+	ID: "themes", Title: "主题", Body: renderThemesSheet, Footer: func(c *ui.Context, st *SettingsState) { renderThemeActions(c, st, getThemesSheetState(st)) },
 	Sections: []settingsSection{{ID: "themes.editor", Rows: []setting{{ID: "block-themes", Control: customFullWidth(renderThemesSheet)}}}},
 }
 
@@ -93,9 +93,8 @@ func themesPage(st *SettingsState, c *ui.Context) *themesSheetState {
 	return page
 }
 
-func renderThemesHeader(c *ui.Context, st *SettingsState) {
-	page := themesPage(st, c)
-	ui.Row(c.Key("theme-list")).Grow(1).Gap(Space3).Wrap().AlignItems(ui.Start).Children(func() {
+func renderThemeTiles(c *ui.Context, st *SettingsState, page *themesSheetState) {
+	ui.Row(c.Key("theme-list")).FillWidth().Gap(Space3).Wrap().AlignItems(ui.Start).Children(func() {
 		ids := []string{config.ThemeLight, config.ThemeDark}
 		for _, theme := range st.cfg.Appearance.Themes {
 			if !config.IsBuiltinTheme(theme.ID) {
@@ -105,7 +104,10 @@ func renderThemesHeader(c *ui.Context, st *SettingsState) {
 		for _, id := range ids {
 			renderThemeListItem(c, st, page, id)
 		}
-		trigger := ui.ButtonBase(c.Key("theme-add-menu")).Label("添加主题").OnClick(func() { page.menuOpen = true })
+		trigger := ui.ButtonBase(c.Key("theme-add-menu")).Label("添加主题").Radius(RadiusMD).Cursor(ui.CursorPointer).OnClick(func() { page.menuOpen = true })
+		if trigger.Hovered() {
+			trigger.Background(ThemeHover(c))
+		}
 		focusRing(c, trigger)
 		scale := motionPressScale(c, trigger, "button-press-scale", trigger.Pressed())
 		trigger.Scale(scale, scale)
@@ -134,13 +136,14 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 	colors := []ui.Color{palette.Canvas, palette.Main, palette.Card, palette.Raised, palette.Popover, palette.Text, palette.TextSecondary, palette.TextTertiary, palette.Accent, palette.Danger, palette.Warning, palette.Success, palette.Caution, palette.Plan, palette.Border, palette.Divider}
 	titles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "主文字", "次要文字", "辅助文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
 	ui.Column(c.Key("themes-editor")).FillWidth().Gap(settingsSectionGap).Children(func() {
+		renderThemeTiles(c, st, page)
 		if !config.IsBuiltinTheme(id) {
 			renderSettingsSection(c, "theme-name-section", "", func() { renderSettingRow(c, "row-theme-name", "名称", func() { renderThemeName(c, st, page, id) }) })
 		}
 		sections := []struct {
 			title      string
 			start, end int
-		}{{"背景", 0, 5}, {"文字", 5, 8}, {"强调", 8, 9}, {"状态", 9, 14}, {"线条", 14, 16}}
+		}{{"强调", 8, 9}, {"背景", 0, 5}, {"文字", 5, 8}, {"状态与线条", 9, 16}}
 		for _, section := range sections {
 			renderSettingsSection(c, "theme-section-"+config.ThemeColorKeys[section.start], section.title, func() {
 				for i := section.start; i < section.end; i++ {
@@ -189,7 +192,10 @@ func renderThemeListItem(c *ui.Context, st *SettingsState, page *themesSheetStat
 	name := st.cfg.Appearance.ThemeDisplayName(id)
 	palette := resolvePalette(st.cfg.Appearance, id)
 	selected := page.editingID == id
-	button := ui.ButtonBase(c.Key("theme-list-" + id)).Label(name).AccessSelected(selected).OnClick(func() { page.editingID = id; st.invalidate() }).Transition(motionFeedback(c))
+	button := ui.ButtonBase(c.Key("theme-list-" + id)).Label(name).AccessSelected(selected).Radius(RadiusMD).Cursor(ui.CursorPointer).OnClick(func() { page.editingID = id; st.invalidate() }).Transition(motionFeedback(c))
+	if button.Hovered() {
+		button.Background(ThemeHover(c))
+	}
 	focusRing(c, button)
 	button.Children(func() {
 		ui.Column(c).Gap(Space2).AlignItems(ui.Center).Children(func() {
@@ -263,7 +269,10 @@ func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, 
 		open = new(bool)
 		page.colorOpen[valueKey] = open
 	}
-	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + title).Disabled(follows).OnClick(func() { *open = true })
+	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + title).Disabled(follows).Radius(RadiusXS).Cursor(ui.CursorPointer).OnClick(func() { *open = true })
+	if !follows && trigger.Hovered() {
+		trigger.Background(ThemeHover(c))
+	}
 	focusRing(c, trigger)
 	scale := motionPressScale(c, trigger, "button-press-scale", !follows && trigger.Pressed())
 	trigger.Scale(scale, scale)

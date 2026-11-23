@@ -137,7 +137,7 @@ func openProvidersPageTest(t *testing.T, fake *FakeClient) (*ui.Tester, *Setting
 	return tt, st
 }
 
-// clickProviderDetailTabForTest 打开供应商面板；高级节需要先展开。
+// clickProviderDetailTabForTest 打开供应商面板；高级设置已全部直接展开。
 func clickProviderDetailTabForTest(t *testing.T, tt *ui.Tester, id, label string) {
 	t.Helper()
 	waitFor(t, tt, func() bool { return !tt.HasText("检查中…") })
@@ -146,10 +146,6 @@ func clickProviderDetailTabForTest(t *testing.T, tt *ui.Tester, id, label string
 		t.Fatalf("打开供应商 %q：%v", id, err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("关闭供应商") })
-	switch label {
-	case "命令行", "高级", "调度", "终端登录":
-		clickWhenSettled(t, tt, "展开高级")
-	}
 }
 
 // 面板测量值和拖动偏移是包级状态，不清掉会在测试之间泄漏。
@@ -2017,21 +2013,12 @@ func TestProviderSheetPrimaryAction(t *testing.T) {
 	}
 }
 
-// selectProviderSheetSectionForTest 确保指定节可见；常用节无需操作，高级节先展开。
+// selectProviderSheetSectionForTest 确认供应商面板已打开并刷新一帧；所有分节均已平铺展开。
 func selectProviderSheetSectionForTest(t *testing.T, tt *ui.Tester, st *SettingsState, sectionID string) {
 	t.Helper()
 	kind, id := currentProviderSheet(st)
 	if kind == "" || id == "" {
 		t.Fatalf("没有打开的供应商面板，无法切到节 %q", sectionID)
-	}
-	switch sectionID {
-	case "sec-provider-cli", "sec-agy-routing", "sec-agy-advanced-login":
-		if !providerSheetAdvancedOpen(st, kind, id) {
-			// 长面板的折叠按钮可能在可视区外，坐标点击会落到遮罩；点击行为由 Claude 面板测试单独覆盖。
-			setProviderSheetAdvancedOpen(st, kind, id, true)
-			tt.Frame()
-			waitFor(t, tt, func() bool { return tt.HasText("收起高级") })
-		}
 	}
 	tt.Frame()
 }
