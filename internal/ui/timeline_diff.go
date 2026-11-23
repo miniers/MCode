@@ -855,14 +855,19 @@ func renderTimelineReview(c *ui.Context, s *chatState, m Message) {
 			return
 		}
 		if entry.snapshot == nil || entry.failure != "" || entry.err != "" {
-			if raw := toolEmbeddedDiff(m.Text); raw != "" {
-				data, ok := s.toolDiffDataFor(m, "embedded", func() []git.FileDiff { files, _ := toolDiffParse([]byte(raw)); return files })
-				if ok {
-					for i, file := range data.files {
-						renderInlineToolDiffFileData(c, s, m.ID, i, file, data.stats[i], m.TurnID)
-					}
-					return
+			data, ok := s.toolDiffDataFor(m, "fallback", func() []git.FileDiff {
+				if raw := toolEmbeddedDiff(m.Text); raw != "" {
+					files, _ := toolDiffParse([]byte(raw))
+					return files
 				}
+				return toolInputFileDiff(m)
+			})
+			if ok {
+				for i, file := range data.files {
+					// 拿不到文件版本时改动面板同样打不开，不给「在改动中打开」
+					renderInlineToolDiffFileData(c, nil, m.ID, i, file, data.stats[i], m.TurnID)
+				}
+				return
 			}
 			reason := entry.failure
 			if entry.err != "" {
@@ -902,6 +907,68 @@ func renderTimelineReview(c *ui.Context, s *chatState, m Message) {
 			ui.Text(c, "这一步没有可显示的改动").FontSize(TypeFootnote)
 		}
 	})
+}
+
+// toolInputFileDiff 用这次调用的入参（Edit 的 old/new、Write 的 content）合成单文件 diff，
+// 供拿不到文件版本（如不在 git 仓库）时显示；公共首尾行作上下文。
+// shortcut: 行号相对片段本身，Write 覆盖旧文件时只显示新增；要真实行号需在写入前保存文件快照。
+func toolInputFileDiff(m Message) []git.FileDiff {
+	paths := toolEditedPaths(m)
+	if len(paths) != 1 {
+		return nil
+	}
+	fields := toolCallFields(m)
+	oldText, _ := toolFieldString(fields, toolCallOldTextKeys...)
+	newText, _ := toolFieldString(fields, toolCallNewTextKeys...)
+	oldLines, newLines := splitDiffLines(oldText), splitDiffLines(newText)
+	if len(oldLines)+len(newLines) == 0 {
+		return nil
+	}
+	prefix := 0
+	for prefix < len(oldLines) && prefix < len(newLines) && oldLines[prefix] == newLines[prefix] {
+		prefix++
+	}
+	_, dels := lineDiffStat(oldText, newText)
+	suffix := len(oldLines) - prefix - dels
+
+	hunk := git.Hunk{OldLines: len(oldLines), NewLines: len(newLines)}
+	oldNo, newNo := 0, 0
+	add := func(kind byte, text string) {
+		line := git.Line{Kind: kind, Text: text}
+		if kind != '+' {
+			oldNo++
+			line.OldNo = oldNo
+		}
+		if kind != '-' {
+			newNo++
+			line.NewNo = newNo
+		}
+		hunk.Lines = append(hunk.Lines, line)
+	}
+	for _, l := range oldLines[:prefix] {
+		add(' ', l)
+	}
+	for _, l := range oldLines[prefix : len(oldLines)-suffix] {
+		add('-', l)
+	}
+	for _, l := range newLines[prefix : len(newLines)-suffix] {
+		add('+', l)
+	}
+	for _, l := range oldLines[len(oldLines)-suffix:] {
+		add(' ', l)
+	}
+	if len(oldLines) > 0 {
+		hunk.OldStart = 1
+	}
+	if len(newLines) > 0 {
+		hunk.NewStart = 1
+	}
+	hunk.Header = fmt.Sprintf("@@ -%d,%d +%d,%d @@", hunk.OldStart, hunk.OldLines, hunk.NewStart, hunk.NewLines)
+	file := git.FileDiff{OldPath: paths[0], NewPath: paths[0], Status: "modified", Hunks: []git.Hunk{hunk}}
+	if len(oldLines) == 0 {
+		file.OldPath, file.Status = "", "added"
+	}
+	return []git.FileDiff{file}
 }
 
 func openReviewPath(s *chatState, turn, path string) {

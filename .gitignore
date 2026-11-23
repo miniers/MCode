@@ -44,3 +44,4 @@ internal/webassets/dist/*
 
 # graphify 生成的知识图谱与缓存（任意层级）
 graphify-out/
+/docs/superpowers/plans/2026-11-23-browser-annotate.md

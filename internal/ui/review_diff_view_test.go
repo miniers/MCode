@@ -470,3 +470,20 @@ func TestTimelineReviewOpensInspectorPath(t *testing.T) {
 		}
 	}
 }
+
+// 不在 git 仓库时拿不到文件版本，改用工具入参显示改动，且不给打不开的「在改动中打开」。
+func TestTimelineReviewFallsBackToToolInput(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetReviewSnapshot("t1", "turn", "turn-1", "", ReviewSnapshot{Unavailable: "not a git repository"})
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.mu.Unlock()
+	m := Message{ID: "tool", Role: "tool", ToolName: "Edit", ToolInput: `{"file_path":"/tmp/a.md","old_string":"keep\nOLD-LINE","new_string":"keep\nNEW-LINE"}`, TurnID: "turn-1"}
+	tt := ui.NewTester(func(c *ui.Context) { ui.Column(c).Fill().Children(func() { renderTimelineReview(c, s, m) }) }, 800, 600)
+	waitFor(t, tt, func() bool { return tt.HasText("NEW-LINE") })
+	if !tt.HasText("OLD-LINE") || tt.HasText("not a git repository") || tt.HasText("在改动中打开") {
+		t.Fatalf("应显示入参合成的改动: %q", tt.Texts())
+	}
+}
