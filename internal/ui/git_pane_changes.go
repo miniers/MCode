@@ -244,6 +244,25 @@ func gitFileMenu(m *ui.Menu, c *ui.Context, s *chatState, threadID string, ps *g
 // renderGitCommitComposer 是「未提交」改动底部的提交框：AI 生成提交信息、提交、提交并推送与修改上次提交。
 // ⌘⏎ 注册在 host 上；工作区干净且不在修改上次提交时只保留确认弹窗，有远端时原地换成同步按钮。
 func renderGitCommitComposer(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, host ui.Element) {
+	renderGitCommitComposerBody(c, s, threadID, ps, host, true)
+}
+
+func renderGitCommitComposerCard(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, host ui.Element) {
+	renderGitCommitComposerBody(c, s, threadID, ps, host, false)
+}
+
+func renderGitChangesDialogsFor(c *ui.Context, s *chatState, threadID string, ps *gitPaneState) {
+	client, ok := s.client.(gitChangesClient)
+	if !ok || ps == nil {
+		return
+	}
+	ps.mu.Lock()
+	entries := append([]git.StatusEntry(nil), ps.entries...)
+	ps.mu.Unlock()
+	renderGitChangesDialogs(c, ps, gitChangesStateFor(ps), client, threadID, gitChangesGroups(entries))
+}
+
+func renderGitCommitComposerBody(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, host ui.Element, withDialogs bool) {
 	ps.mu.Lock()
 	entries := append([]git.StatusEntry(nil), ps.entries...)
 	state, syncing := ps.state, ps.syncing
@@ -274,7 +293,9 @@ func renderGitCommitComposer(c *ui.Context, s *chatState, threadID string, ps *g
 	pending, pendingShown := st.pending, st.pendingShown
 	success := time.Now().Before(st.successUntil)
 	st.mu.Unlock()
-	defer renderGitChangesDialogs(c, ps, st, client, threadID, groups)
+	if withDialogs {
+		defer renderGitChangesDialogs(c, ps, st, client, threadID, groups)
+	}
 	generate := func() {
 		st.mu.Lock()
 		if st.cancel != nil {

@@ -70,20 +70,27 @@ func reviewCardLoading(c *ui.Context, key string) {
 	})
 }
 
-// renderReviewCards 把改动渲染为连续滚动的文件卡片：文件头吸顶，正文展开时才读取全文。
-func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, snapshot ReviewSnapshot, g *reviewGit, rh reviewHost) {
+type reviewCardsController struct {
+	renderRow func(relRow int)
+}
+
+// prepareReviewCards 准备审阅文件卡片列表的按行渲染与快捷键/滚动状态；可在独立列表或统一时间轴列表中按偏移量调用。
+func prepareReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, snapshot ReviewSnapshot, g *reviewGit, rh reviewHost, list *ui.ListState, rowOffset int, railWidth float32) reviewCardsController {
 	files := snapshot.Files
 	base := reviewKey(s, tid, snapshot, "")
+	scope := reviewScope(snapshot.Scope)
 	diffPanelMu.Lock()
 	selected, scrolled, split, width := dp.selectedPath, dp.scrolledPath, dp.preferSplit, dp.reviewWidth
 	readKeys := dp.readKeys
 	reads := make([]bool, len(files))
 	opens := make([]bool, len(files))
+	touched := make([]bool, len(files))
 	for i, file := range files {
 		key := base
 		key.path = file.Path
 		reads[i] = slices.Contains(readKeys, reviewReadKey(key, file))
 		opens[i] = reviewCardOpen(dp, file.Path)
+		touched[i] = scope == "all" && dp.sessionFiles[file.Path]
 	}
 	// 跟随、时间线或恢复的选中文件：滚到它的文件头并展开。
 	if selected != scrolled {
@@ -92,24 +99,30 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 			if file.Path == selected {
 				setReviewCardOpenLocked(dp, file.Path, true)
 				opens[i] = true
-				dp.rowsList.ScrollTo(2*i, ui.Start)
+				list.ScrollTo(rowOffset+2*i, ui.Start)
 				break
 			}
 		}
 	}
 	// 上一帧可见行加前后预建的余量；正文还在加载时每张卡片很矮，一屏能放下很多张。
-	first, last := dp.rowsList.Visible()
-	dp.cacheLimit = (last-first)/2 + 4
+	first, last := list.Visible()
+	visFirst := max(first, rowOffset)
+	visLast := min(last, rowOffset+2*len(files)-1)
+	if visLast < visFirst {
+		dp.cacheLimit = 4
+	} else {
+		dp.cacheLimit = (visLast-visFirst)/2 + 4
+	}
 	diffPanelMu.Unlock()
 
 	current := func() int {
-		first, _ := dp.rowsList.Visible()
+		first, _ := list.Visible()
 		for i, file := range files {
 			if file.Path == selected {
 				return i
 			}
 		}
-		return min(max(first/2, 0), len(files)-1)
+		return min(max((first-rowOffset)/2, 0), len(files)-1)
 	}
 	focus := func(i int) {
 		i = min(max(i, 0), len(files)-1)
@@ -117,7 +130,7 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 		diffPanelMu.Lock()
 		dp.scrolledPath = files[i].Path
 		diffPanelMu.Unlock()
-		dp.rowsList.ScrollTo(2*i, ui.Start)
+		list.ScrollTo(rowOffset+2*i, ui.Start)
 	}
 	toggleCard := func(i int) {
 		diffPanelMu.Lock()
@@ -138,7 +151,7 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 		diffPanelMu.Unlock()
 		rememberReviewPreference(s, dp, tid)
 		if !reads[i] {
-			dp.rowsList.ScrollTo(2*i, ui.Start)
+			list.ScrollTo(rowOffset+2*i, ui.Start)
 		}
 		s.invalidate()
 	}
@@ -155,36 +168,56 @@ func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.
 	if host.Shortcut(0, ui.KeyV) {
 		toggleRead(current())
 	}
-	if host.Shortcut(0, ui.KeyEnter) {
+	commitSelected := list.Selected != nil && *list.Selected >= rowOffset+2*len(files) && list.Focused(c)
+	if !commitSelected && host.Shortcut(0, ui.KeyEnter) {
 		toggleCard(current())
 	}
 	if g != nil && host.Shortcut(0, ui.KeySpace) {
 		g.toggleStage(s, files[current()].Path)
 	}
 
-	dp.rowsList.Key = func(i int) any { return reviewRowKey{files[i/2].Path, i%2 == 1} }
-	dp.rowsList.Header = func(i int) bool { return i%2 == 0 }
-	ui.List(c.Key("review-files"), &dp.rowsList, 2*len(files), func(row int) {
-		i := row / 2
-		file := files[i]
-		if row%2 == 0 {
-			renderReviewCardHead(c, s, dp, tid, file, opens[i], reads[i], file.Path == selected, g, rh, func() { toggleCard(i) }, func() { toggleRead(i) })
-			return
-		}
-		motionUnfoldBody(c, "review-card-body-"+file.Path, opens[i], func() {
-			renderReviewFile(c, s, dp, tid, snapshot, file, split, width)
-		})
-	}).Grow(1).MinHeight(0).FillWidth()
+	return reviewCardsController{
+		renderRow: func(relRow int) {
+			i := relRow / 2
+			file := files[i]
+			if relRow%2 == 0 {
+				renderReviewCardHead(c, s, dp, tid, file, opens[i], reads[i], touched[i], file.Path == selected, railWidth, g, rh, func() { toggleCard(i) }, func() { toggleRead(i) })
+				return
+			}
+			renderBody := func() {
+				motionUnfoldBody(c, "review-card-body-"+file.Path, opens[i], func() {
+					renderReviewFile(c, s, dp, tid, snapshot, file, split, max(0, width-railWidth))
+				})
+			}
+			if railWidth > 0 {
+				ui.Row(c.Key("git-all-file-body-row-"+file.Path)).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
+					renderGitTimelineRailLine(c, railWidth)
+					ui.Column(c.Key("git-all-file-body-content-"+file.Path)).Grow(1).MinWidth(0).Children(renderBody)
+				})
+				return
+			}
+			renderBody()
+		},
+	}
 }
 
-// renderReviewCardHead 渲染吸顶文件头：暂存勾选、开合箭头、状态、文件名与目录、增删行数、悬停操作与已查看。
-func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, open, read, selected bool, g *reviewGit, rh reviewHost, onToggle, onRead func()) {
+// renderReviewCards 把改动渲染为连续滚动的文件卡片：文件头吸顶，正文展开时才读取全文。
+func renderReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, snapshot ReviewSnapshot, g *reviewGit, rh reviewHost) {
+	files := snapshot.Files
+	ctrl := prepareReviewCards(c, s, dp, host, tid, snapshot, g, rh, &dp.rowsList, 0, 0)
+	dp.rowsList.Key = func(i int) any { return reviewRowKey{files[i/2].Path, i%2 == 1} }
+	dp.rowsList.Header = func(i int) bool { return i%2 == 0 }
+	ui.List(c.Key("review-files"), &dp.rowsList, 2*len(files), ctrl.renderRow).Grow(1).MinHeight(0).FillWidth()
+}
+
+// renderReviewCardHead 渲染吸顶文件头：暂存勾选、开合箭头、状态、本线程圆点、文件名与目录、增删行数、悬停操作与已查看。
+func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid string, file ReviewFile, open, read, threadTouched, selected bool, railWidth float32, g *reviewGit, rh reviewHost, onToggle, onRead func()) {
 	// 吸顶时下方正文会滚过，底色必须不透明。
 	bg := ThemeWindowBg(c)
 	if rh.dialog {
 		bg = ThemeSurface(c)
 	}
-	head := ui.Row(c.Key("review-card-head-"+file.Path)).Label(file.Path).FillWidth().Height(reviewCardHeadHeight).Padding(0, Space2, 0, Space1).Gap(Space1).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Focusable().OnClick(onToggle)
+	head := ui.Row(c.Key("review-card-head-"+file.Path)).Label(file.Path).FillWidth().Height(reviewCardHeadHeight).AlignItems(ui.Center).Focusable().OnClick(onToggle)
 	hovered := head.Hovered()
 	switch {
 	case selected:
@@ -195,7 +228,7 @@ func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	head.Background(bg)
 	menu := func(m *ui.Menu) { reviewFileMenu(m, c, s, dp, tid, file, g, rh) }
 	head.ContextMenu(menu)
-	head.Children(func() {
+	renderContent := func() {
 		if g != nil {
 			g.renderStageBox(c, s, file.Path)
 		}
@@ -212,6 +245,9 @@ func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 			ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeTertiaryText(c)).Rotate(90 * turn).Shrink(0)
 			letter, color := gitStatusPresentation(c, reviewStatusCode(file.Status))
 			ui.Text(c, letter).Font("monospace").FontSize(uiFont(TypeCaption)).FontWeight(600).TextColor(color).Width(Space3).Shrink(0)
+			if threadTouched {
+				ui.Box(c.Key("review-thread-dot-"+file.Path)).Label("本线程改动:"+file.Path).Size(Space2, Space2).Radius(RadiusPill).Background(ThemeAccent(c)).Shrink(0)
+			}
 			name := path.Base(file.Path)
 			nameColor := ThemePrimaryText(c)
 			if read {
@@ -236,7 +272,15 @@ func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 			more.Opacity(0)
 		}
 		renderReviewReadButton(c, file.Path, read, hovered, onRead)
-	})
+	}
+	if railWidth > 0 {
+		head.Gap(0).Children(func() {
+			renderGitTimelineRailLine(c, railWidth)
+			ui.Row(c.Key("review-card-head-content-"+file.Path)).Grow(1).MinWidth(0).Height(reviewCardHeadHeight).Padding(0, Space2, 0, Space1).Gap(Space1).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(renderContent)
+		})
+		return
+	}
+	head.Padding(0, Space2, 0, Space1).Gap(Space1).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(renderContent)
 }
 
 // renderReviewReadButton 是文件头末尾的「已查看」：未查看时只在悬停出现，已查看时常驻对勾。

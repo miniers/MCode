@@ -113,6 +113,8 @@ type diffPanelState struct {
 	// gitSig 是最近一次看到的 Git 改动路径签名（见 reviewGitSyncPaths）。
 	gitSig     string
 	gitSigSeen bool
+	// sessionFiles 缓存当前线程「会话」范围的改动文件路径集合，供「全部」视图标记本线程圆点。
+	sessionFiles map[string]bool
 }
 
 func getDiffPanelState(s *chatState) *diffPanelState {
@@ -218,6 +220,7 @@ func (s *chatState) loadDiff(threadID, turnID string) {
 		dp.files = nil
 		dp.worktreePath = ""
 		dp.worktreeResolved = false
+		dp.sessionFiles = nil
 		diffPanelMu.Unlock()
 		s.invalidate()
 		return

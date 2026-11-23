@@ -42,6 +42,9 @@ func (s *chatState) loadReview(dp *diffPanelState, client reviewClient, threadID
 	dp.scope = scope
 	dp.requestGen++
 	gen := dp.requestGen
+	if dp.threadID != threadID {
+		dp.sessionFiles = nil
+	}
 	dp.threadID, dp.turnID = threadID, turnID
 	dp.loading, dp.err = threadID != "", ""
 	// 旧正文请求不能阻止新批次重新取数。
@@ -53,11 +56,38 @@ func (s *chatState) loadReview(dp *diffPanelState, client reviewClient, threadID
 	if threadID == "" {
 		dp.snapshot = ReviewSnapshot{}
 		dp.selectedPath = ""
+		dp.sessionFiles = nil
 	}
 	diffPanelMu.Unlock()
 	s.invalidate()
 	if threadID == "" {
 		return
+	}
+	if scope == "all" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			sessSnap, sessErr := getReview(ctx, client, threadID, "session", "", 0, "")
+			var files map[string]bool
+			if sessErr == nil && sessSnap.Unavailable == "" {
+				files = make(map[string]bool, len(sessSnap.Files))
+				for _, f := range sessSnap.Files {
+					if f.Path != "" {
+						files[f.Path] = true
+					}
+				}
+			}
+			diffPanelMu.Lock()
+			valid := dp.requestGen == gen && dp.threadID == threadID && reviewScope(dp.scope) == "all"
+			changed := valid && (len(files) != len(dp.sessionFiles) || len(files) > 0)
+			if valid {
+				dp.sessionFiles = files
+			}
+			diffPanelMu.Unlock()
+			if changed {
+				s.invalidate()
+			}
+		}()
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -78,6 +108,15 @@ func (s *chatState) loadReview(dp *diffPanelState, client reviewClient, threadID
 			}
 			if scope == "turn" && snapshot.TurnID == "" {
 				snapshot.TurnID = turnID
+			}
+			if scope == "session" && snapshot.Unavailable == "" {
+				files := make(map[string]bool, len(snapshot.Files))
+				for _, f := range snapshot.Files {
+					if f.Path != "" {
+						files[f.Path] = true
+					}
+				}
+				dp.sessionFiles = files
 			}
 			dp.snapshot = snapshot
 			selected := dp.pendingPath

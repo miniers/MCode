@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -740,11 +741,83 @@ func renderGitPane(c *ui.Context, s *chatState) {
 	}
 }
 
+type gitTimelineRowKey string
+
+func renderGitTimelineWipHead(c *ui.Context, s *chatState, dp *diffPanelState, tid, turnID string, files []ReviewFile, entries []git.StatusEntry, graphWidth float32, g *reviewGit, connectDown bool) {
+	fileCount := len(files)
+	if fileCount == 0 {
+		fileCount = len(entries)
+	}
+	var totalAdd, totalDel int
+	for _, f := range files {
+		totalAdd += f.Additions
+		totalDel += f.Deletions
+	}
+	ui.Row(c.Key("git-all-wip-head")).FillWidth().Height(RowHeight).AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
+		renderGitTimelineRailNode(c, graphWidth, ThemeWindowBg(c), connectDown)
+		ui.Row(c.Key("git-all-wip-head-content")).Grow(1).MinWidth(0).FillHeight().Padding(0, Space2, 0, Space1).Gap(Space2).AlignItems(ui.Center).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
+			ui.Text(c, "未提交").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemePrimaryText(c)).SingleLine()
+			if fileCount > 0 {
+				ui.Text(c, fmt.Sprintf("%d 个文件", fileCount)).FontSize(uiFont(TypeCaption)).TextColor(ThemeTertiaryText(c)).SingleLine().Shrink(1).MinWidth(0)
+			}
+			if totalAdd > 0 {
+				ui.Text(c, "+"+strconv.Itoa(totalAdd)).Font("monospace").FontSize(uiFont(TypeCaption)).TextColor(ThemeSuccess(c)).Shrink(0)
+			}
+			if totalDel > 0 {
+				ui.Text(c, "−"+strconv.Itoa(totalDel)).Font("monospace").FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c)).Shrink(0)
+			}
+			ui.Spacer(c)
+			if g != nil {
+				groups := gitChangesGroups(entries)
+				if len(groups[2].entries) > 0 {
+					Button(c, ButtonOpts{
+						Key:      "git-all-stage-all",
+						Text:     "全部暂存",
+						Variant:  ButtonGhost,
+						Size:     ControlXS,
+						Disabled: g.busy,
+						OnClick: func() {
+							gitChangesRun(g.ps, g.st, "group:2", func(ctx context.Context) error {
+								return g.client.GitStageFiles(ctx, tid, gitChangesPaths(groups[2].entries))
+							})
+						},
+					})
+				} else if len(groups[1].entries) > 0 {
+					Button(c, ButtonOpts{
+						Key:      "git-all-unstage-all",
+						Text:     "全部取消暂存",
+						Variant:  ButtonGhost,
+						Size:     ControlXS,
+						Disabled: g.busy,
+						OnClick: func() {
+							gitChangesRun(g.ps, g.st, "group:1", func(ctx context.Context) error {
+								return g.client.GitUnstageFiles(ctx, tid, gitChangesPaths(groups[1].entries))
+							})
+						},
+					})
+				}
+			}
+			if len(files) > 0 || g != nil {
+				IconButton(c, IconButtonProps{
+					Key:     "git-all-wip-more",
+					Icon:    IconMoreHorizontal(),
+					Label:   "未提交操作",
+					Tooltip: "未提交操作",
+					Variant: ButtonGhost,
+					Size:    ControlXS,
+				}).Menu(func(m *ui.Menu) {
+					renderReviewHeaderMenu(m, s, dp, tid, reviewTurns(s), turnID)
+				})
+			}
+		})
+	})
+}
+
 func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *diffPanelState, host ui.Element, contentH float32, modern bool) {
 	tid := ps.threadID
 	var g *reviewGit
-	var detail string
-	var hasReviewUpper bool
+	var detail, errMsg, turnID string
+	var snapshot ReviewSnapshot
 	if modern {
 		diffPanelMu.Lock()
 		needLoad := dp.threadID != tid || dp.requestGen == 0
@@ -755,53 +828,248 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 		diffPanelMu.Lock()
 		diffLoading := dp.loading
 		detail = dp.gitDetail
-		hasReviewUpper = len(dp.snapshot.Files) > 0 || dp.err != "" || dp.snapshot.Unavailable != ""
+		snapshot = dp.snapshot
+		errMsg = dp.err
+		turnID = dp.turnID
 		diffPanelMu.Unlock()
 		g = reviewGitFor(s, "all")
 		if g != nil {
 			reviewGitSyncPaths(s, dp, g, tid, diffLoading)
 		}
 	}
-	inspectorFollowSurface(c, s, tid, "review-follow-surface").Children(func() {
-		if g != nil && detail != "" && gitPaneDiffView != nil {
+	surface := inspectorFollowSurface(c, s, tid, "review-follow-surface")
+	if g != nil && detail != "" && gitPaneDiffView != nil {
+		surface.Children(func() {
 			gitPaneDiffView(c, s, tid, g.ps, detail, false, func() {
 				diffPanelMu.Lock()
 				dp.gitDetail = ""
 				diffPanelMu.Unlock()
 				s.loadDiff(tid, "")
 			})
+		})
+		return
+	}
+
+	h := gitHistoryStateFor(ps)
+	histClient, hasHist := s.client.(gitHistoryClient)
+	var branch string
+	var width, height float32
+	var mode, sha, blamePath string
+	if hasHist {
+		branch, width, height, mode, sha, blamePath = syncGitHistoryState(c, s, ps, h, histClient, surface, contentH)
+	} else {
+		width = surface.Bounds().W
+		if width <= 0 {
+			width = inspectorSession(s).Width
+			if width <= 0 {
+				width, _ = c.Size()
+			}
+		}
+	}
+
+	surface.Children(func() {
+		if hasHist && mode == "blame" {
+			renderGitHistoryBlamePane(c, s, tid, ps, h, blamePath)
 			return
 		}
-		ps.mu.Lock()
-		hasEntries := len(ps.entries) > 0
-		ps.mu.Unlock()
-		showComposer := false
-		if g != nil {
-			g.st.mu.Lock()
-			showComposer = hasEntries || g.st.amend || time.Now().Before(g.st.successUntil)
-			g.st.mu.Unlock()
+		if hasHist && mode == "commit" && width < 640 {
+			renderGitHistoryNarrowCommitPane(c, s, ps, h, histClient, sha)
+			return
 		}
-		if hasReviewUpper || showComposer {
-			upperMax := max(float32(200), contentH*0.6)
-			ui.Column(c.Key("git-pane-uncommitted")).
-				FillWidth().
-				MaxHeight(upperMax).
-				Shrink(0).
-				BorderWidth(0, 0, Hairline, 0).
-				BorderColor(ThemeBorder(c)).
-				Children(func() {
-					if hasReviewUpper {
-						renderReviewBody(c, s, dp, host, tid, reviewHost{})
-					}
-					if showComposer {
-						renderGitCommitComposer(c, s, tid, g.ps, host)
-					}
-				})
+		if hasHist {
+			renderGitHistoryFilters(c, ps, h)
 		}
-		ui.Column(c.Key("git-pane-history-wrap")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-			renderGitPaneHistory(c, s, tid, ps)
+
+		listPane := ui.Column(c.Key("git-all-timeline-pane")).FillWidth().MinHeight(0)
+		if hasHist && mode == "commit" {
+			listPane.Height(max(RowHeight, height*.45)).Shrink(0)
+		} else {
+			listPane.Grow(1)
+		}
+		listPane.Children(func() {
+			ps.mu.Lock()
+			entries := append([]git.StatusEntry(nil), ps.entries...)
+			ps.mu.Unlock()
+			showComposer := false
+			if g != nil {
+				g.st.mu.Lock()
+				showComposer = len(entries) > 0 || g.st.amend || time.Now().Before(g.st.successUntil)
+				g.st.mu.Unlock()
+			}
+			var files []ReviewFile
+			if modern && errMsg == "" && snapshot.Unavailable == "" {
+				files = snapshot.Files
+			}
+			hasStatusErr := modern && (errMsg != "" || snapshot.Unavailable != "")
+			hasWorkspace := len(files) > 0 || showComposer || hasStatusErr
+
+			var commits []git.LogCommit
+			var graph []git.GraphRow
+			var loading, indicator, reset, more bool
+			var query string
+			if hasHist {
+				h.mu.Lock()
+				commits, graph, loading, indicator, query, reset, more = h.commits, h.graph, h.loading, h.showLoading, h.opts.Query, h.resetList, h.more
+				h.resetList = false
+				h.mu.Unlock()
+			}
+			if reset {
+				h.list = ui.ListState{}
+				h.selected = -1
+			}
+			if !hasWorkspace && len(commits) == 0 {
+				if indicator {
+					LoadingIndicator(c, "git-history-loading", "", IconSM)
+				} else if !loading {
+					label := "暂无提交"
+					if query != "" {
+						label = "没有匹配的提交"
+					}
+					renderGitPaneEmpty(c, label, IconGitBranch())
+				}
+				return
+			}
+
+			var nodeHeadRows, statusRowCount, composerRows int
+			if hasWorkspace {
+				nodeHeadRows = 1
+			}
+			if hasStatusErr && len(files) == 0 {
+				statusRowCount = 1
+			}
+			if showComposer {
+				composerRows = 1
+			}
+			filesOffset := nodeHeadRows + statusRowCount
+			fileRowCount := 2 * len(files)
+			composerOffset := filesOffset + fileRowCount
+			commitOffset := composerOffset + composerRows
+			totalRows := commitOffset + len(commits)
+			graphWidth := gitGraphWidth(graph)
+
+			if hasHist && len(commits) > 0 {
+				h.list.Selected = &h.selected
+			} else {
+				h.list.Selected = nil
+				h.selected = -1
+			}
+			h.list.Key = func(row int) any {
+				switch {
+				case nodeHeadRows == 1 && row == 0:
+					return gitTimelineRowKey("wip-head")
+				case statusRowCount == 1 && row == nodeHeadRows:
+					return gitTimelineRowKey("wip-status")
+				case row >= filesOffset && row < filesOffset+fileRowCount:
+					rel := row - filesOffset
+					return reviewRowKey{files[rel/2].Path, rel%2 == 1}
+				case composerRows == 1 && row == composerOffset:
+					return gitTimelineRowKey("composer")
+				default:
+					return commits[row-commitOffset].SHA
+				}
+			}
+			h.list.Header = func(row int) bool {
+				return row >= filesOffset && row < filesOffset+fileRowCount && (row-filesOffset)%2 == 0
+			}
+			h.list.Label = func(row int) string {
+				switch {
+				case nodeHeadRows == 1 && row == 0:
+					return "未提交"
+				case statusRowCount == 1 && row == nodeHeadRows:
+					if errMsg != "" {
+						return errMsg
+					}
+					return snapshot.Unavailable
+				case row >= filesOffset && row < filesOffset+fileRowCount:
+					rel := row - filesOffset
+					if rel%2 == 0 {
+						return files[rel/2].Path
+					}
+					return ""
+				case composerRows == 1 && row == composerOffset:
+					return "提交信息"
+				default:
+					return commits[row-commitOffset].Subject
+				}
+			}
+			if reduceMotion(c) {
+				h.list.MoveAnimation = nil
+			} else {
+				h.list.MoveAnimation = &springGentle
+			}
+
+			var ctrl reviewCardsController
+			if len(files) > 0 {
+				ctrl = prepareReviewCards(c, s, dp, host, tid, snapshot, g, reviewHost{}, &h.list, filesOffset, graphWidth)
+			}
+
+			list := ui.List(c.Key("git-all-timeline"), &h.list, totalRows, func(row int) {
+				switch {
+				case nodeHeadRows == 1 && row == 0:
+					renderGitTimelineWipHead(c, s, dp, tid, turnID, files, entries, graphWidth, g, totalRows > 1)
+				case statusRowCount == 1 && row == nodeHeadRows:
+					ui.Row(c.Key("git-all-wip-status")).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
+						if composerRows == 1 || len(commits) > 0 {
+							renderGitTimelineRailLine(c, graphWidth)
+						} else {
+							ui.Box(c).Width(graphWidth).Shrink(0)
+						}
+						ui.Column(c.Key("git-all-wip-status-content")).Grow(1).MinWidth(0).Padding(Space3).BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c)).Children(func() {
+							if errMsg != "" {
+								renderDiffStatusState(c, "review-error", IconOctagonAlert(), errMsg, "", func() { s.loadDiff(tid, "") })
+							} else {
+								renderDiffStatusState(c, "review-unavailable", iconFileSearch, snapshot.Unavailable, "", nil)
+							}
+						})
+					})
+				case row >= filesOffset && row < filesOffset+fileRowCount:
+					ctrl.renderRow(row - filesOffset)
+				case composerRows == 1 && row == composerOffset:
+					ui.Row(c.Key("git-all-composer-row")).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
+						renderGitTimelineRailLine(c, graphWidth)
+						col := ui.Column(c.Key("git-all-composer-content")).Grow(1).MinWidth(0)
+						if len(commits) > 0 {
+							col.BorderWidth(0, 0, Hairline, 0).BorderColor(ThemeBorder(c))
+						}
+						col.Children(func() {
+							renderGitCommitComposerCard(c, s, tid, g.ps, host)
+						})
+					})
+				default:
+					j := row - commitOffset
+					renderGitHistoryRow(c, s, ps, h, histClient, branch, width, graphWidth, commits[j], graph[j], row == h.selected, j == 0 && hasWorkspace)
+				}
+			}).FillWidth().Grow(1).MinHeight(0)
+
+			if h.selected >= 0 && h.selected < commitOffset {
+				h.selected = -1
+				c.Invalidate()
+			}
+			if hasHist && list.Submitted() && h.selected >= commitOffset && h.selected < commitOffset+len(commits) {
+				openGitCommitDetail(ps, commits[h.selected-commitOffset].SHA)
+			}
+			if hasHist {
+				_, last := h.list.Visible()
+				if more && !loading && len(commits) > 0 && last >= commitOffset+len(commits)-20 {
+					h.load(ps, histClient, false)
+				}
+				if indicator {
+					LoadingIndicator(c, "git-history-more", "", IconSM)
+				}
+			}
 		})
+
+		if hasHist && mode == "commit" {
+			ui.Column(c.Key("git-history-detail-pane")).FillWidth().Grow(1).MinHeight(0).BorderWidth(Hairline, 0, 0, 0).BorderColor(ThemeBorder(c)).Children(func() { renderGitHistoryDetail(c, s, ps, h, histClient) })
+		}
 	})
+
+	if hasHist {
+		renderGitHistoryDialog(c, s, ps, h, histClient)
+	}
+	if g != nil {
+		renderGitChangesDialogsFor(c, s, tid, g.ps)
+	}
 }
 
 func renderGitSyncSpin(c *ui.Context) {

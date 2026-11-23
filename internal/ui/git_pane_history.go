@@ -399,13 +399,7 @@ func gitHistoryRefs(refs []git.LogRef, branch string) ([]git.LogRef, int) {
 
 func gitHistoryTimeVisible(width float32) bool { return width >= 400 }
 
-func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitPaneState) {
-	client, ok := s.client.(gitHistoryClient)
-	if !ok {
-		renderGitPaneEmpty(c, "暂无提交", IconGitBranch())
-		return
-	}
-	h := gitHistoryStateFor(ps)
+func syncGitHistoryState(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient, pane ui.Element, fallbackH float32) (branch string, width, height float32, mode, sha, blamePath string) {
 	h.mu.Lock()
 	clipboardMessage := h.clipboardMessage
 	h.clipboardMessage = nil
@@ -435,16 +429,18 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 	if diffDirty && diffPath != "" {
 		h.openDiff(ps, client, diffPath)
 	}
-	pane := ui.Column(c.Key("git-history")).Fill().MinWidth(0).MinHeight(0)
-	width, height := pane.Bounds().W, pane.Bounds().H
+	width, height = pane.Bounds().W, pane.Bounds().H
 	if width <= 0 {
 		width = inspectorSession(s).Width
 		if width <= 0 {
 			width, _ = c.Size()
 		}
 	}
+	if height <= 0 {
+		height = fallbackH
+	}
 	h.mu.Lock()
-	mode, sha, blamePath := h.mode, h.sha, h.blamePath
+	mode, sha, blamePath = h.mode, h.sha, h.blamePath
 	dialog := h.dialog
 	searchOpen := h.searchOpen
 	h.mu.Unlock()
@@ -453,7 +449,6 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 		h.searchOpen = true
 		h.mode = ""
 		h.mu.Unlock()
-		searchOpen = true
 		mode = ""
 	}
 	if dialog == "" && (!searchOpen || mode == "blame" || (mode == "commit" && width < 640)) && mode != "" && c.Shortcut(0, ui.KeyEscape) {
@@ -462,27 +457,47 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 		mode = h.mode
 		h.mu.Unlock()
 	}
+	return branch, width, height, mode, sha, blamePath
+}
+
+func renderGitHistoryBlamePane(c *ui.Context, s *chatState, threadID string, ps *gitPaneState, h *gitHistoryState, blamePath string) {
+	gitHistoryBackButton(c, "git-history-blame-back", func() { h.back(ps) })
+	ui.Text(c, filepath.Base(blamePath)).FontSize(uiFont(TypeFootnote)).SingleLine()
+	if gitPaneBlameView != nil {
+		gitPaneBlameView(c, s, threadID, ps, blamePath, func(sha string) { openGitCommitDetail(ps, sha) })
+	} else {
+		renderGitPaneEmpty(c, "暂无提交", IconGitBranch())
+	}
+}
+
+func renderGitHistoryNarrowCommitPane(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient, sha string) {
+	ui.Column(c.Key("git-history-slide-" + sha)).Fill().MinHeight(0).Transition(motionSidePanel(c, false)).Children(func() {
+		h.mu.Lock()
+		diffActive := h.diffPath != ""
+		h.mu.Unlock()
+		if !diffActive {
+			gitHistoryBackButton(c, "git-history-detail-back", func() { h.back(ps) })
+		}
+		renderGitHistoryDetail(c, s, ps, h, client)
+	})
+}
+
+func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitPaneState) {
+	client, ok := s.client.(gitHistoryClient)
+	if !ok {
+		renderGitPaneEmpty(c, "暂无提交", IconGitBranch())
+		return
+	}
+	h := gitHistoryStateFor(ps)
+	pane := ui.Column(c.Key("git-history")).Fill().MinWidth(0).MinHeight(0)
+	branch, width, height, mode, sha, blamePath := syncGitHistoryState(c, s, ps, h, client, pane, 0)
 	pane.Children(func() {
 		if mode == "blame" {
-			gitHistoryBackButton(c, "git-history-blame-back", func() { h.back(ps) })
-			ui.Text(c, filepath.Base(blamePath)).FontSize(uiFont(TypeFootnote)).SingleLine()
-			if gitPaneBlameView != nil {
-				gitPaneBlameView(c, s, threadID, ps, blamePath, func(sha string) { openGitCommitDetail(ps, sha) })
-			} else {
-				renderGitPaneEmpty(c, "暂无提交", IconGitBranch())
-			}
+			renderGitHistoryBlamePane(c, s, threadID, ps, h, blamePath)
 			return
 		}
 		if mode == "commit" && width < 640 {
-			ui.Column(c.Key("git-history-slide-" + sha)).Fill().MinHeight(0).Transition(motionSidePanel(c, false)).Children(func() {
-				h.mu.Lock()
-				diffActive := h.diffPath != ""
-				h.mu.Unlock()
-				if !diffActive {
-					gitHistoryBackButton(c, "git-history-detail-back", func() { h.back(ps) })
-				}
-				renderGitHistoryDetail(c, s, ps, h, client)
-			})
+			renderGitHistoryNarrowCommitPane(c, s, ps, h, client, sha)
 			return
 		}
 		renderGitHistoryFilters(c, ps, h)
@@ -580,6 +595,51 @@ func renderGitHistoryFilters(c *ui.Context, ps *gitPaneState, h *gitHistoryState
 	})
 }
 
+func renderGitHistoryRow(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient, branch string, width, graphWidth float32, commit git.LogCommit, graphRow git.GraphRow, selected, connectTop bool) {
+	row := ui.Row(c.Key("git-history-row-"+commit.SHA)).FillWidth().Height(RowHeight).AlignItems(ui.Center).Gap(Space2).Padding(0, Space2, 0, 0).Transition(motionFeedback(c))
+	hovered := row.Hovered()
+	background := ThemeWindowBg(c)
+	if selected {
+		background = ThemeSelected(c)
+	} else if hovered {
+		background = ThemeHover(c)
+	}
+	row.Background(background)
+	menu := gitHistoryMenu(c, s, ps, h, client, commit)
+	row.ContextMenu(menu)
+	row.Children(func() {
+		renderGitGraphRow(c, graphRow, graphWidth, commit.Unpushed, background, connectTop)
+		ui.Text(c, commit.Subject).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine().Grow(1).MinWidth(0).Shrink(1)
+		refs, extra := gitHistoryRefs(commit.Refs, branch)
+		for n, ref := range refs {
+			ui.Row(c.Key(fmt.Sprintf("git-history-ref-%s-%d", commit.SHA, n))).Height(ControlXS).MaxWidth(TasksSearchWidth).MinWidth(0).Padding(0, Space1).Gap(Space1).AlignItems(ui.Center).Radius(RadiusXS).Background(ThemeHover(c)).Children(func() {
+				colors := gitLaneColors(c)
+				color := colors[0]
+				if ref.Kind == "tag" {
+					color = colors[2]
+				} else if ref.Kind == "remote" {
+					color = colors[1]
+				}
+				ui.Box(c).Size(Space2, Space2).Radius(RadiusPill).Background(color).Shrink(0)
+				ui.Text(c, ref.Name).FontSize(uiFont(TypeCaption)).SingleLine().Shrink(1).MinWidth(0)
+			})
+		}
+		if extra > 0 {
+			ui.Text(c, fmt.Sprintf("+%d", extra)).FontSize(uiFont(TypeCaption)).TextColor(ThemeTertiaryText(c))
+		}
+		if gitHistoryTimeVisible(width) {
+			timeText := ui.Text(c, formatRelativeTime(commit.AuthorTime)).FontSize(uiFont(TypeCaption)).Font("monospace").TextColor(ThemeTertiaryText(c)).Shrink(0)
+			if hovered {
+				timeText.Hidden(true)
+			}
+		}
+		more := IconButton(c, IconButtonProps{Key: "git-history-more-" + commit.SHA, Icon: IconMoreHorizontal(), Label: "提交操作", Tooltip: "提交操作", Variant: ButtonGhost, Size: ControlXS}).Menu(menu)
+		if !hovered {
+			more.Hidden(true)
+		}
+	})
+}
+
 func renderGitHistoryList(c *ui.Context, s *chatState, ps *gitPaneState, h *gitHistoryState, client gitHistoryClient, width float32, branch string) {
 	h.mu.Lock()
 	commits, graph, loading, indicator, query, reset, more := h.commits, h.graph, h.loading, h.showLoading, h.opts.Query, h.resetList, h.more
@@ -611,40 +671,7 @@ func renderGitHistoryList(c *ui.Context, s *chatState, ps *gitPaneState, h *gitH
 	}
 	graphWidth := gitGraphWidth(graph)
 	list := ui.List(c.Key("git-history-list"), &h.list, len(commits), func(i int) {
-		commit := commits[i]
-		row := ui.Row(c.Key("git-history-row-"+commit.SHA)).FillWidth().Height(RowHeight).AlignItems(ui.Center).Gap(Space2).Padding(0, Space2, 0, 0).Transition(motionFeedback(c))
-		background := ThemeWindowBg(c)
-		if i == h.selected {
-			background = ThemeSelected(c)
-		} else if row.Hovered() {
-			background = ThemeHover(c)
-		}
-		row.Background(background)
-		row.ContextMenu(gitHistoryMenu(c, s, ps, h, client, commit))
-		row.Children(func() {
-			renderGitGraphRow(c, graph[i], graphWidth, commit.Unpushed, background)
-			ui.Text(c, commit.Subject).FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c)).SingleLine().Grow(1).MinWidth(0).Shrink(1)
-			refs, extra := gitHistoryRefs(commit.Refs, branch)
-			for n, ref := range refs {
-				ui.Row(c.Key(fmt.Sprintf("git-history-ref-%s-%d", commit.SHA, n))).Height(ControlXS).MaxWidth(TasksSearchWidth).MinWidth(0).Padding(0, Space1).Gap(Space1).AlignItems(ui.Center).Radius(RadiusXS).Background(ThemeHover(c)).Children(func() {
-					colors := gitLaneColors(c)
-					color := colors[0]
-					if ref.Kind == "tag" {
-						color = colors[2]
-					} else if ref.Kind == "remote" {
-						color = colors[1]
-					}
-					ui.Box(c).Size(Space2, Space2).Radius(RadiusPill).Background(color).Shrink(0)
-					ui.Text(c, ref.Name).FontSize(uiFont(TypeCaption)).SingleLine().Shrink(1).MinWidth(0)
-				})
-			}
-			if extra > 0 {
-				ui.Text(c, fmt.Sprintf("+%d", extra)).FontSize(uiFont(TypeCaption)).TextColor(ThemeTertiaryText(c))
-			}
-			if gitHistoryTimeVisible(width) {
-				ui.Text(c, formatRelativeTime(commit.AuthorTime)).FontSize(uiFont(TypeCaption)).Font("monospace").TextColor(ThemeTertiaryText(c)).Shrink(0)
-			}
-		})
+		renderGitHistoryRow(c, s, ps, h, client, branch, width, graphWidth, commits[i], graph[i], i == h.selected, false)
 	}).FillWidth().Grow(1).MinHeight(0)
 	if list.Submitted() && h.selected >= 0 && h.selected < len(commits) {
 		openGitCommitDetail(ps, commits[h.selected].SHA)

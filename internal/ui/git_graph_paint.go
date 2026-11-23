@@ -5,7 +5,10 @@ import (
 	"mcode/internal/git"
 )
 
-const gitGraphLaneWidth = Space4
+const (
+	gitGraphLaneWidth  = Space4
+	gitGraphNodeRadius = float32(3.5)
+)
 
 // 坐标保留半个泳道的边距，让节点外圈不会被裁切。
 func gitGraphLaneX(lane int) float32 {
@@ -41,9 +44,21 @@ func gitGraphWidth(rows []git.GraphRow) float32 {
 	return float32(lanes)*gitGraphLaneWidth + Space1*2
 }
 
-func renderGitGraphRow(c *ui.Context, row git.GraphRow, width float32, unpushed bool, background ui.Color) {
+func renderGitGraphRow(c *ui.Context, row git.GraphRow, width float32, unpushed bool, background ui.Color, connectTop bool) {
 	colors := gitLaneColors(c)
 	ui.Box(c).Width(width).Height(RowHeight).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {
+		x, y := r.X+gitGraphLaneX(row.Lane), r.Y+r.H/2
+		if connectTop {
+			x0 := r.X + gitGraphLaneX(0)
+			var topPath ui.Path
+			topPath.MoveTo(x0, r.Y)
+			if x0 == x {
+				topPath.LineTo(x, y)
+			} else {
+				topPath.CubeTo(x0, (r.Y+y)/2, x, (r.Y+y)/2, x, y)
+			}
+			p.StrokePath(&topPath, Space0, colors[0])
+		}
 		for _, s := range gitGraphSegments(row) {
 			x1, x2 := r.X+gitGraphLaneX(s.from), r.X+gitGraphLaneX(s.to)
 			y1, y2 := r.Y, r.Y+r.H/2
@@ -59,17 +74,46 @@ func renderGitGraphRow(c *ui.Context, row git.GraphRow, width float32, unpushed 
 			}
 			p.StrokePath(&path, Space0, colors[s.color%len(colors)])
 		}
-		x, y := r.X+gitGraphLaneX(row.Lane), r.Y+r.H/2
-		radius := float32(3.5)
 		var halo, node ui.Path
-		halo.Circle(x, y, radius+Space0)
+		halo.Circle(x, y, gitGraphNodeRadius+Space0)
 		p.FillPath(&halo, background)
 		if unpushed {
-			node.Circle(x, y, radius-Space0/2)
+			node.Circle(x, y, gitGraphNodeRadius-Space0/2)
 			p.StrokePath(&node, Space0, colors[row.Color%len(colors)])
 		} else {
-			node.Circle(x, y, radius)
+			node.Circle(x, y, gitGraphNodeRadius)
 			p.FillPath(&node, colors[row.Color%len(colors)])
 		}
+	})
+}
+
+func renderGitTimelineRailNode(c *ui.Context, width float32, background ui.Color, connectDown bool) {
+	colors := gitLaneColors(c)
+	laneColor := colors[0]
+	ui.Box(c).Width(width).AlignSelf(ui.Stretch).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {
+		if r.H <= 0 {
+			return
+		}
+		x, y := r.X+gitGraphLaneX(0), r.Y+r.H/2
+		if connectDown {
+			p.Line(x, y, x, r.Y+r.H, Space0, laneColor)
+		}
+		var halo, node ui.Path
+		halo.Circle(x, y, gitGraphNodeRadius+Space0)
+		p.FillPath(&halo, background)
+		node.Circle(x, y, gitGraphNodeRadius-Space0/2)
+		p.StrokePath(&node, Space0, laneColor)
+	})
+}
+
+func renderGitTimelineRailLine(c *ui.Context, width float32) {
+	colors := gitLaneColors(c)
+	laneColor := colors[0]
+	ui.Box(c).Width(width).AlignSelf(ui.Stretch).Shrink(0).Draw(func(p *ui.Painter, r ui.Rect) {
+		if r.H <= 0 {
+			return
+		}
+		x := r.X + gitGraphLaneX(0)
+		p.Line(x, r.Y, x, r.Y+r.H, Space0, laneColor)
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,9 +210,15 @@ func TestReviewScopeSwitchKeepsOldUntilReady(t *testing.T) {
 	fake := NewFakeClient()
 	list, _ := reviewFixture()
 	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var sessionOnce sync.Once
 	client := reviewHookClient{Client: fake, get: func(ctx context.Context, tid, scope, turn, path string) (ReviewSnapshot, error) {
 		switch scope {
 		case "session":
+			blocked := false
+			sessionOnce.Do(func() { blocked = true })
+			if !blocked {
+				return ReviewSnapshot{Scope: scope}, nil
+			}
 			close(started)
 			select {
 			case <-release:
