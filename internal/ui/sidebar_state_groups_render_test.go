@@ -51,8 +51,8 @@ func buildSidebarStateGroupsFixture(t *testing.T) (*ui.Tester, *chatState) {
 	return tt, state
 }
 
-// TestSidebarStateGroupsRenderWithPagination 验证顶部聚焦区按等你处理在前、运行中在后渲染，
-// 项目内不再渲染状态分组头，且分页只作用于项目内的其余会话。
+// TestSidebarStateGroupsRenderWithPagination 验证顶部聚焦区仅渲染等你处理会话，
+// 运行中会话留在所属项目文件夹内原位，项目内不再渲染状态分组头，且分页作用于项目内会话。
 func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 	tt, _ := buildSidebarStateGroupsFixture(t)
 
@@ -62,7 +62,10 @@ func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 	}
 	runningRow, ok := tt.Find("打开会话 A-运行中")
 	if !ok {
-		t.Fatalf("聚焦区应展示运行中会话，texts: %q", tt.Texts())
+		t.Fatalf("项目 A 内应展示运行中会话，texts: %q", tt.Texts())
+	}
+	if n := countExactSidebarText(tt, "打开会话 A-运行中"); n != 1 {
+		t.Fatalf("运行中会话应只渲染 1 次，got %d", n)
 	}
 	projAHeader, ok := tt.Find("收起项目 A")
 	if !ok {
@@ -72,11 +75,11 @@ func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 	if !ok {
 		t.Fatalf("项目 A 应展示其余会话，texts: %q", tt.Texts())
 	}
-	if pendingRow.Y >= runningRow.Y {
-		t.Fatalf("聚焦区顺序应为等你处理在上、运行中在下: %v >= %v", pendingRow.Y, runningRow.Y)
+	if pendingRow.Y >= projAHeader.Y {
+		t.Fatalf("聚焦区待审批会话应在项目列表上方: pending=%v, projA=%v", pendingRow.Y, projAHeader.Y)
 	}
-	if runningRow.Y >= projAHeader.Y || projAHeader.Y >= firstRest.Y {
-		t.Fatalf("聚焦区应在项目列表上方: running=%v, projA=%v, rest=%v", runningRow.Y, projAHeader.Y, firstRest.Y)
+	if projAHeader.Y >= runningRow.Y || runningRow.Y >= firstRest.Y {
+		t.Fatalf("运行中会话应留在项目 A 内且按时间排在空闲会话前: projA=%v, running=%v, rest=%v", projAHeader.Y, runningRow.Y, firstRest.Y)
 	}
 
 	// 项目内不再出现状态组头。
@@ -91,18 +94,21 @@ func TestSidebarStateGroupsRenderWithPagination(t *testing.T) {
 		t.Fatalf("聚焦区待审批行应显示「等你审批」，texts: %q", tt.Texts())
 	}
 
-	// 其余按初始分页窗口（8 条）折叠。
-	if _, ok := tt.Find("打开会话 A-空闲8"); !ok {
-		t.Fatalf("其余会话应展示分页初始数（A-空闲8 可见），texts: %q", tt.Texts())
+	// 项目内按初始分页窗口（8 条：A-运行中 + A-空闲1..7）折叠。
+	if _, ok := tt.Find("打开会话 A-空闲7"); !ok {
+		t.Fatalf("项目内应展示分页初始数（A-空闲7 可见），texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("打开会话 A-空闲8"); ok {
+		t.Fatalf("A-空闲8 应被初始分页隐藏")
 	}
 	if _, ok := tt.Find("打开会话 A-空闲9"); ok {
 		t.Fatalf("A-空闲9 应被初始分页隐藏")
 	}
 	if !tt.HasText("加载更多") {
-		t.Fatalf("其余会话超过一页时应出现「加载更多」")
+		t.Fatalf("项目内会话超过一页时应出现「加载更多」")
 	}
 
-	// 加载更多只展开其余会话，聚焦区会话仍留在顶部且不重复。
+	// 加载更多展开项目内剩余会话，聚焦区与项目内会话都不重复。
 	if err := tt.Click("加载更多"); err != nil {
 		t.Fatalf("click 加载更多 failed: %v", err)
 	}
@@ -143,8 +149,8 @@ func TestSidebarStateGroupsLatchHoverKeepsRowInPlace(t *testing.T) {
 	tt.Move(rect.X+rect.W/2, rect.Y+rect.H/2)
 	tt.Frame()
 
-	// 指针停在行上时，会话从空闲变为运行中。
-	state.applyThreadSummary(Thread{ID: "a-idle-2", ProjectID: "pa", IsRunning: true})
+	// 指针停在行上时，会话从空闲变为待审批。
+	state.applyThreadSummary(Thread{ID: "a-idle-2", ProjectID: "pa", HasPendingRequest: true})
 	tt.Frame()
 
 	held, ok := tt.Find("打开会话 A-空闲2")
@@ -213,7 +219,7 @@ func TestSidebarStateGroupsSearchFlattens(t *testing.T) {
 func TestSidebarVisibleThreadsMatchRenderedOrder(t *testing.T) {
 	tt, state := buildSidebarStateGroupsFixture(t)
 	got := state.visibleThreads()
-	if len(got) != 11 {
+	if len(got) != 10 {
 		t.Fatalf("可见会话数 = %d", len(got))
 	}
 	var prev float32 = -1
@@ -231,7 +237,7 @@ func TestSidebarVisibleThreadsMatchRenderedOrder(t *testing.T) {
 	state.invalidate()
 	tt.Frame()
 	got = state.visibleThreads()
-	if len(got) != 3 || got[0].ID != "a-pending" || got[1].ID != "a-running" || got[2].ID != "b-idle" {
+	if len(got) != 2 || got[0].ID != "a-pending" || got[1].ID != "b-idle" {
 		t.Fatalf("折叠项目后聚焦区与未折叠项目可见会话列表不符: %+v", got)
 	}
 }

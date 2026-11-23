@@ -13,79 +13,22 @@ func resetSidebarStateGroupLatch() {
 	l.mu.Unlock()
 }
 
-// stateGroupBusy 返回按 ID 集合判定「忙」的回调，模拟 threadStillBusy。
-func stateGroupBusy(ids ...string) func(Thread) bool {
-	set := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		set[id] = true
-	}
-	return func(th Thread) bool { return set[th.ID] }
-}
-
-// TestSidebarStateGroupOfPriority 验证归类优先级：待处理优先于运行中，运行中优先于空闲。
+// TestSidebarStateGroupOfPriority 验证归类规则：仅 HasPendingRequest 归入等你处理，其余（含运行中）留在原位。
 func TestSidebarStateGroupOfPriority(t *testing.T) {
 	cases := []struct {
 		name string
 		th   Thread
-		busy bool
 		want sidebarStateGroup
 	}{
-		{"待处理且仍在跑", Thread{ID: "t1", HasPendingRequest: true, IsRunning: true}, true, sidebarStateGroupNeedsYou},
-		{"待处理但没跑", Thread{ID: "t2", HasPendingRequest: true}, false, sidebarStateGroupNeedsYou},
-		{"仅运行中", Thread{ID: "t3", IsRunning: true}, true, sidebarStateGroupRunning},
-		{"子代理还在跑", Thread{ID: "t4"}, true, sidebarStateGroupRunning},
-		{"完全空闲", Thread{ID: "t5"}, false, sidebarStateGroupNone},
+		{"待处理且仍在跑", Thread{ID: "t1", HasPendingRequest: true, IsRunning: true}, sidebarStateGroupNeedsYou},
+		{"待处理但没跑", Thread{ID: "t2", HasPendingRequest: true}, sidebarStateGroupNeedsYou},
+		{"仅运行中", Thread{ID: "t3", IsRunning: true}, sidebarStateGroupNone},
+		{"完全空闲", Thread{ID: "t4"}, sidebarStateGroupNone},
 	}
 	for _, tc := range cases {
-		if got := sidebarStateGroupOf(tc.th, tc.busy); got != tc.want {
+		if got := sidebarStateGroupOf(tc.th); got != tc.want {
 			t.Fatalf("%s: group = %v, want %v", tc.name, got, tc.want)
 		}
-	}
-}
-
-// TestSplitSidebarStateGroupsKeepsOrder 验证三段各自保持 active 的原顺序，且不修改入参。
-func TestSplitSidebarStateGroupsKeepsOrder(t *testing.T) {
-	active := []Thread{
-		{ID: "a", HasPendingRequest: true},
-		{ID: "b"},
-		{ID: "c"},
-		{ID: "d", HasPendingRequest: true},
-		{ID: "e"},
-		{ID: "f"},
-	}
-	original := append([]Thread(nil), active...)
-
-	needsYou, running, rest := splitSidebarStateGroups(active, stateGroupBusy("b", "e"))
-
-	assertStateGroupIDs(t, "等你处理", needsYou, []string{"a", "d"})
-	assertStateGroupIDs(t, "运行中", running, []string{"b", "e"})
-	assertStateGroupIDs(t, "其余", rest, []string{"c", "f"})
-
-	if len(active) != len(original) {
-		t.Fatalf("active 长度被修改: %d, want %d", len(active), len(original))
-	}
-	for i := range original {
-		if active[i].ID != original[i].ID || active[i].HasPendingRequest != original[i].HasPendingRequest {
-			t.Fatalf("active[%d] 被修改: %+v, want %+v", i, active[i], original[i])
-		}
-	}
-}
-
-// TestSplitSidebarStateGroupsNoPending 验证没有待处理会话时「等你处理」段为空。
-func TestSplitSidebarStateGroupsNoPending(t *testing.T) {
-	active := []Thread{{ID: "a"}, {ID: "b"}}
-
-	needsYou, running, rest := splitSidebarStateGroups(active, stateGroupBusy("a"))
-	if len(needsYou) != 0 {
-		t.Fatalf("等你处理段应为空, got %d", len(needsYou))
-	}
-	assertStateGroupIDs(t, "运行中", running, []string{"a"})
-	assertStateGroupIDs(t, "其余", rest, []string{"b"})
-
-	// 空列表不产生任何分段。
-	needsYou, running, rest = splitSidebarStateGroups(nil, nil)
-	if len(needsYou)+len(running)+len(rest) != 0 {
-		t.Fatalf("空列表不应产生分组: %d/%d/%d", len(needsYou), len(running), len(rest))
 	}
 }
 
@@ -94,41 +37,41 @@ func TestSplitSidebarStateGroupsNoPending(t *testing.T) {
 func TestSidebarStateGroupLatchHoldsRowWhilePointerInside(t *testing.T) {
 	resetSidebarStateGroupLatch()
 	latch := &sidebarStateGroupLatchState
-	active := []Thread{{ID: "t1", Title: "正在跑的会话"}}
+	active := []Thread{{ID: "t1", Title: "空闲会话"}}
 
-	// 第一帧：会话在运行中，指针落在行上。
+	// 第一帧：会话不在等你处理组，指针落在行上。
 	latch.beginFrame()
-	_, running, _ := latch.split(active, stateGroupBusy("t1"))
+	needsYou, rest := latch.split(active)
 	latch.markRowHovered()
 	latch.endFrame()
-	if len(running) != 1 {
-		t.Fatalf("第一帧应归入运行中, got %d", len(running))
+	if len(needsYou) != 0 || len(rest) != 1 {
+		t.Fatalf("第一帧应归入其余: 等你处理 %d, 其余 %d", len(needsYou), len(rest))
 	}
 
 	// 第二帧：会话变为待处理，但指针仍在行上，沿用旧归属。
 	active[0].HasPendingRequest = true
 	latch.beginFrame()
-	needsYou, running, _ := latch.split(active, stateGroupBusy("t1"))
+	needsYou, rest = latch.split(active)
 	latch.markRowHovered()
 	latch.endFrame()
-	if len(needsYou) != 0 || len(running) != 1 {
-		t.Fatalf("指针悬停时应留在运行中: 等你处理 %d, 运行中 %d", len(needsYou), len(running))
+	if len(needsYou) != 0 || len(rest) != 1 {
+		t.Fatalf("指针悬停时应留在原组: 等你处理 %d, 其余 %d", len(needsYou), len(rest))
 	}
 
 	// 第三帧：指针离开列表（本帧没有 markRowHovered），本帧仍沿用旧归属。
 	latch.beginFrame()
-	_, running, _ = latch.split(active, stateGroupBusy("t1"))
+	needsYou, rest = latch.split(active)
 	latch.endFrame()
-	if len(running) != 1 {
-		t.Fatalf("指针刚离开的那一帧仍应沿用旧归属, got %d", len(running))
+	if len(needsYou) != 0 || len(rest) != 1 {
+		t.Fatalf("指针刚离开的那一帧仍应沿用旧归属: 等你处理 %d, 其余 %d", len(needsYou), len(rest))
 	}
 
 	// 第四帧：恢复正常重算，会话归位到等你处理。
 	latch.beginFrame()
-	needsYou, running, rest := latch.split(active, stateGroupBusy("t1"))
+	needsYou, rest = latch.split(active)
 	latch.endFrame()
-	if len(needsYou) != 1 || len(running) != 0 || len(rest) != 0 {
-		t.Fatalf("指针离开后应归位到等你处理: %d/%d/%d", len(needsYou), len(running), len(rest))
+	if len(needsYou) != 1 || len(rest) != 0 {
+		t.Fatalf("指针离开后应归位到等你处理: %d/%d", len(needsYou), len(rest))
 	}
 }
 
@@ -141,18 +84,18 @@ func TestSidebarStateGroupLatchRequestsRegroupFrame(t *testing.T) {
 
 	// 第一帧：空闲，指针落在行上；没有待归位，不请求重绘。
 	latch.beginFrame()
-	latch.split(active, stateGroupBusy())
+	latch.split(active)
 	latch.markRowHovered()
 	if latch.endFrame() {
 		t.Fatal("没有待归位时不应要求重绘")
 	}
 
-	// 第二帧：悬停中变为运行中，沿用旧归属并记下待归位；指针还在列表内，不请求。
-	active[0].IsRunning = true
+	// 第二帧：悬停中变为待处理，沿用旧归属并记下待归位；指针还在列表内，不请求。
+	active[0].HasPendingRequest = true
 	latch.beginFrame()
-	_, running, _ := latch.split(active, stateGroupBusy("t1"))
-	if len(running) != 0 {
-		t.Fatalf("悬停期间应保持旧归属, got 运行中 %d", len(running))
+	needsYou, rest := latch.split(active)
+	if len(needsYou) != 0 || len(rest) != 1 {
+		t.Fatalf("悬停期间应保持旧归属, got 等你处理 %d, 其余 %d", len(needsYou), len(rest))
 	}
 	latch.markRowHovered()
 	if latch.endFrame() {
@@ -161,16 +104,16 @@ func TestSidebarStateGroupLatchRequestsRegroupFrame(t *testing.T) {
 
 	// 第三帧：指针离开，本帧仍冻结；本帧结束应要求再重绘一帧。
 	latch.beginFrame()
-	latch.split(active, stateGroupBusy("t1"))
+	latch.split(active)
 	if !latch.endFrame() {
 		t.Fatal("有待归位时指针离开应要求重绘")
 	}
 
 	// 第四帧：重绘帧完成归位，不再重复请求。
 	latch.beginFrame()
-	_, running, _ = latch.split(active, stateGroupBusy("t1"))
-	if len(running) != 1 {
-		t.Fatalf("重绘帧应把会话归入运行中, got %d", len(running))
+	needsYou, rest = latch.split(active)
+	if len(needsYou) != 1 || len(rest) != 0 {
+		t.Fatalf("重绘帧应把会话归入等你处理, got %d/%d", len(needsYou), len(rest))
 	}
 	if latch.endFrame() {
 		t.Fatal("归位后不应继续要求重绘")
@@ -183,19 +126,19 @@ func TestSidebarStateGroupLatchDropsVanishedThreads(t *testing.T) {
 	resetSidebarStateGroupLatch()
 	latch := &sidebarStateGroupLatchState
 
-	// 第一帧：t1 在运行中，指针落在行上。
+	// 第一帧：t1 在等你处理中，指针落在行上。
 	latch.beginFrame()
-	latch.split([]Thread{{ID: "t1"}}, stateGroupBusy("t1"))
+	latch.split([]Thread{{ID: "t1", HasPendingRequest: true}})
 	latch.markRowHovered()
 	latch.endFrame()
 
-	// 第二帧：指针继续悬停，t1 消失、t2 新出现；t2 按当前状态归入运行中。
+	// 第二帧：指针继续悬停，t1 消失、t2 新出现；t2 按当前状态归入等你处理。
 	latch.beginFrame()
-	_, running, _ := latch.split([]Thread{{ID: "t2"}}, stateGroupBusy("t2"))
+	needsYou, _ := latch.split([]Thread{{ID: "t2", HasPendingRequest: true}})
 	latch.markRowHovered()
 	latch.endFrame()
-	if len(running) != 1 {
-		t.Fatalf("新出现的会话应按当前状态归入运行中, got %d", len(running))
+	if len(needsYou) != 1 {
+		t.Fatalf("新出现的会话应按当前状态归入等你处理, got %d", len(needsYou))
 	}
 
 	latch.mu.Lock()
@@ -213,28 +156,15 @@ func TestSidebarStateGroupLatchDropsVanishedThreads(t *testing.T) {
 		t.Fatalf("归属表应只剩 1 个会话, got %d", size)
 	}
 
-	// 指针离开后，t2 变为待处理即归位到等你处理。
+	// 指针离开后，t2 结束待处理即归位到其余。
 	latch.beginFrame()
-	latch.split([]Thread{{ID: "t2", HasPendingRequest: true}}, stateGroupBusy("t2"))
+	latch.split([]Thread{{ID: "t2", HasPendingRequest: false}})
 	latch.endFrame()
 
 	latch.beginFrame()
-	needsYou, running, _ := latch.split([]Thread{{ID: "t2", HasPendingRequest: true}}, stateGroupBusy("t2"))
+	needsYou, rest := latch.split([]Thread{{ID: "t2", HasPendingRequest: false}})
 	latch.endFrame()
-	if len(needsYou) != 1 || len(running) != 0 {
-		t.Fatalf("指针离开后应归位到等你处理: %d/%d", len(needsYou), len(running))
-	}
-}
-
-// assertStateGroupIDs 按顺序比对一段会话的 ID。
-func assertStateGroupIDs(t *testing.T, name string, got []Thread, want []string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: 长度 = %d, want %d", name, len(got), len(want))
-	}
-	for i := range want {
-		if got[i].ID != want[i] {
-			t.Fatalf("%s: 第 %d 个 = %s, want %s", name, i, got[i].ID, want[i])
-		}
+	if len(needsYou) != 0 || len(rest) != 1 {
+		t.Fatalf("指针离开后应归位到其余: %d/%d", len(needsYou), len(rest))
 	}
 }

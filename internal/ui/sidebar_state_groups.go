@@ -8,40 +8,18 @@ type sidebarStateGroup int
 const (
 	sidebarStateGroupNone sidebarStateGroup = iota
 	sidebarStateGroupNeedsYou
-	sidebarStateGroupRunning
 )
 
 // sidebarThreadTitleOffset 是会话行标题相对行左边缘的偏移：状态图标 14 + 行内 Gap 8。
 // 组头与分页栏的左内边距都追加这个偏移，让文字与会话标题对齐。
 const sidebarThreadTitleOffset float32 = 22
 
-// sidebarStateGroupOf 按优先级给会话归类：等你处理优先于运行中。
-// busy 由调用方预先判定（侧栏用 threadStillBusy），这里只做纯逻辑分流。
-func sidebarStateGroupOf(th Thread, busy bool) sidebarStateGroup {
+// sidebarStateGroupOf 按状态给会话归类：有待处理请求时归入「等你处理」，其余留原位。
+func sidebarStateGroupOf(th Thread) sidebarStateGroup {
 	if th.HasPendingRequest {
 		return sidebarStateGroupNeedsYou
 	}
-	if busy {
-		return sidebarStateGroupRunning
-	}
 	return sidebarStateGroupNone
-}
-
-// splitSidebarStateGroups 把 active 按状态保序切成三段：等你处理、运行中、其余。
-// 只追加到新切片，不修改入参，也不重新排序。
-func splitSidebarStateGroups(active []Thread, busy func(Thread) bool) (needsYou, running, rest []Thread) {
-	for _, th := range active {
-		isBusy := busy != nil && busy(th)
-		switch sidebarStateGroupOf(th, isBusy) {
-		case sidebarStateGroupNeedsYou:
-			needsYou = append(needsYou, th)
-		case sidebarStateGroupRunning:
-			running = append(running, th)
-		default:
-			rest = append(rest, th)
-		}
-	}
-	return needsYou, running, rest
 }
 
 // sidebarStateGroupLatch 是「指针停在列表里时不挪行」的悬停闩锁：
@@ -92,11 +70,10 @@ func (l *sidebarStateGroupLatch) endFrame() bool {
 // split 按闩锁规则切分 active：
 // 上一帧指针在列表内时，仍在 active 中的会话沿用归属表里的旧分组，新出现的会话按当前
 // 状态归类；否则全部按当前状态重新归类。归属表只保留本次 active 中的会话。
-// busy 在锁外调用，避免回调里再取 UI 锁造成反向加锁。
-func (l *sidebarStateGroupLatch) split(active []Thread, busy func(Thread) bool) (needsYou, running, rest []Thread) {
+func (l *sidebarStateGroupLatch) split(active []Thread) (needsYou, rest []Thread) {
 	current := make([]sidebarStateGroup, len(active))
 	for i, th := range active {
-		current[i] = sidebarStateGroupOf(th, busy != nil && busy(th))
+		current[i] = sidebarStateGroupOf(th)
 	}
 
 	l.mu.Lock()
@@ -116,16 +93,13 @@ func (l *sidebarStateGroupLatch) split(active []Thread, busy func(Thread) bool) 
 			}
 		}
 		next[th.ID] = group
-		switch group {
-		case sidebarStateGroupNeedsYou:
+		if group == sidebarStateGroupNeedsYou {
 			needsYou = append(needsYou, th)
-		case sidebarStateGroupRunning:
-			running = append(running, th)
-		default:
+		} else {
 			rest = append(rest, th)
 		}
 	}
 	l.groups = next
 	l.pendingRegroup = l.pointerInside && pending
-	return needsYou, running, rest
+	return needsYou, rest
 }

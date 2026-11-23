@@ -1092,7 +1092,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	// 聚焦区拆分：仅在无搜索、过滤「全部」且非动态视图时启用；
 	// 整帧把「对话」段与全部项目的顶层活跃会话交给全局闩锁切分一次，聚焦区与下方列表共用同一份结果。
 	var stateGroups map[string]sidebarStateGroup
-	var needsYouAll, runningAll []Thread
+	var needsYouAll []Thread
 	var focusThreadProjID map[string]string
 	var resolvedTopByProj map[string][]Thread
 	var resolvedBeesByProj map[string]map[string][]Thread
@@ -1125,17 +1125,14 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			}
 		}
 
-		needsYouAll, runningAll, _ = sidebarStateGroupLatchState.split(frameActive, s.threadStillBusy)
-		stateGroups = make(map[string]sidebarStateGroup, len(needsYouAll)+len(runningAll))
+		needsYouAll, _ = sidebarStateGroupLatchState.split(frameActive)
+		stateGroups = make(map[string]sidebarStateGroup, len(needsYouAll))
 		for _, th := range needsYouAll {
 			stateGroups[th.ID] = sidebarStateGroupNeedsYou
 		}
-		for _, th := range runningAll {
-			stateGroups[th.ID] = sidebarStateGroupRunning
-		}
 	} else {
 		// 回落态（搜索/过滤/动态视图）：清空归属表，退出回落态后不沿用旧归属。
-		sidebarStateGroupLatchState.split(nil, nil)
+		sidebarStateGroupLatchState.split(nil)
 	}
 
 	ui.Column(c.Key("sidebar-column")).Fill().Background(ThemeSidebarBg(c)).Children(func() {
@@ -1282,7 +1279,6 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			if focusZoneActive {
 				renderSidebarFocusZone(c, s, sidebarFocusZoneOptions{
 					needsYou:     needsYouAll,
-					running:      runningAll,
 					threadProjID: focusThreadProjID,
 					beesByProj:   resolvedBeesByProj,
 					projectNames: projectNames,
@@ -1323,6 +1319,17 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				// 过滤后没有命中会话的项目不再占位；关闭过滤时空项目仍保留，方便直接新建会话。
 				if filter != sidebarFilterAll && len(ths) == 0 {
 					return false
+				}
+
+				// 折叠状态下项目内有非休眠会话仍在运行时，用点阵运行图标替换文件夹图标（在不持锁处判定一次）。
+				projectRunning := false
+				if isCollapsed {
+					for _, th := range ths {
+						if !th.Dormant && s.threadStillBusy(th) {
+							projectRunning = true
+							break
+						}
+					}
 				}
 
 				// 项目标题行：文件夹图标 + 名称（13 号 medium），右侧是会话数与“+”图标按钮
@@ -1521,14 +1528,18 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							nameColor = secondaryText.Alpha(0.5)
 						}
 
-						// 文件夹图标
-						folderIcon := IconFolderOpen()
-						if isCollapsed {
-							folderIcon = IconFolder()
+						// 文件夹图标：折叠且有非休眠运行中会话时显示点阵运行图标，保持 12×12 尺寸不变。
+						if projectRunning {
+							renderRunningGlyph(c, "proj-run-"+pVal.ID, 12, ThemeAccent(c))
+						} else {
+							folderIcon := IconFolderOpen()
+							if isCollapsed {
+								folderIcon = IconFolder()
+							}
+							ui.Icon(c, folderIcon).
+								Size(12, 12).
+								TextColor(iconColor)
 						}
-						ui.Icon(c, folderIcon).
-							Size(12, 12).
-							TextColor(iconColor)
 
 						name := pVal.Name
 						if name == "" {
@@ -1621,7 +1632,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							FontSize(sidebarFont(TypeFootnote)).
 							Padding(Space1, Space8)
 					} else {
-						// 启用聚焦区时，已进聚焦区的「等你处理」「运行中」会话从下方项目树去重；
+						// 启用聚焦区时，已进聚焦区的「等你处理」会话从下方项目树去重；
 						// 搜索/过滤回落态保持单一列表，不再按状态拆分。
 						restThs := activeThs
 						if focusZoneActive && len(stateGroups) > 0 {
@@ -1646,7 +1657,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						}
 
 						// 搜索时不分页（结果本身就是筛选后的全集），只有默认状态下超过一页才给操作栏；
-						// 分页只覆盖其余会话，两个状态组始终全量显示。
+						// 分页只覆盖其余会话，等你处理会话始终全量显示。
 						if lowerQuery == "" && len(restThs) > sidebarThreadPageInit {
 							// 分页栏文字左边缘要与会话标题文字对齐：会话行是「状态图标 14 + Gap 8」之后再放标题
 							// （见 renderSidebarThreadRow），这里把同样的偏移追加到左内边距上。
@@ -1841,7 +1852,6 @@ func renderSidebar(c *ui.Context, s *chatState) {
 // sidebarFocusZoneOptions 是顶部聚焦区渲染所需的只读切片与映射。
 type sidebarFocusZoneOptions struct {
 	needsYou     []Thread
-	running      []Thread
 	threadProjID map[string]string
 	beesByProj   map[string]map[string][]Thread
 	projectNames map[string]string
@@ -1854,10 +1864,10 @@ type sidebarFocusZoneOptions struct {
 }
 
 // renderSidebarFocusZone 渲染搜索栏下方的唯一聚焦区：首行是总管/待处理入口，
-// 其下依次列出全部项目（含对话段）里「等你处理」和「运行中」的会话，底部用中性细线与列表隔开。
+// 其下依次列出全部项目（含对话段）里「等你处理」的会话，底部用中性细线与列表隔开。
 func renderSidebarFocusZone(c *ui.Context, s *chatState, o sidebarFocusZoneOptions) {
 	stewardVisible := sidebarStewardSectionVisible(s)
-	focusedCount := len(o.needsYou) + len(o.running)
+	focusedCount := len(o.needsYou)
 	if !stewardVisible && focusedCount == 0 {
 		return
 	}
@@ -1867,19 +1877,15 @@ func renderSidebarFocusZone(c *ui.Context, s *chatState, o sidebarFocusZoneOptio
 	var focusShowAllBees map[string]bool
 	if focusedCount > 0 {
 		rawBees := make(map[string][]Thread, focusedCount)
-		collectBees := func(list []Thread) {
-			for _, th := range list {
-				pid := o.threadProjID[th.ID]
-				if pid == "" {
-					pid = th.ProjectID
-				}
-				if bees := o.beesByProj[pid][th.ID]; len(bees) > 0 {
-					rawBees[th.ID] = bees
-				}
+		for _, th := range o.needsYou {
+			pid := o.threadProjID[th.ID]
+			if pid == "" {
+				pid = th.ProjectID
+			}
+			if bees := o.beesByProj[pid][th.ID]; len(bees) > 0 {
+				rawBees[th.ID] = bees
 			}
 		}
-		collectBees(o.needsYou)
-		collectBees(o.running)
 		if len(rawBees) > 0 {
 			focusBees, focusAllBees, focusHiddenBeeCount, focusShowAllBees = filterSidebarBeesForAutoHide(s, rawBees, o.selectedID)
 		}
@@ -1923,9 +1929,6 @@ func renderSidebarFocusZone(c *ui.Context, s *chatState, o sidebarFocusZoneOptio
 				renderSidebarStewardSection(c, s)
 			}
 			for _, th := range o.needsYou {
-				renderFocusRow(th)
-			}
-			for _, th := range o.running {
 				renderFocusRow(th)
 			}
 		})
