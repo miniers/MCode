@@ -1488,7 +1488,6 @@ func renderPreviewAnnotateThumb(c *ui.Context, s *chatState, item previewAnnotat
 func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapshot) {
 	items := append([]previewAnnotation(nil), snap.annotations...)
 	var removeID, hoveredPID uint64
-	clearItems := false
 	sending := snap.annotSending || snap.feedbackSending
 	submit := func(send bool) {
 		if previewCommitAnnotationEdits(s, snap.token, items, 0, false) {
@@ -1543,7 +1542,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				ui.Text(c, fmt.Sprintf("标注 %d", len(items))).FontSize(uiFont(TypeFootnote)).FontWeight(weightFor(c, 600)).FontFeatures("tnum").TextColor(ThemePrimaryText(c))
 			})
 			ui.Spacer(c)
-			IconButton(c, IconButtonProps{Key: "preview-annotate-clear", Icon: IconTrash2(), Label: "清空", Tooltip: "清空所有标注", Size: ControlXS, Variant: ButtonGhost, Disabled: sending, OnClick: func() { clearItems = true }})
+			IconButton(c, IconButtonProps{Key: "preview-annotate-clear", Icon: IconTrash2(), Label: "清空", Tooltip: "清空所有标注", Size: ControlXS, Variant: ButtonGhost, Disabled: sending, OnClick: func() { previewCommitAnnotationEdits(s, snap.token, items, 0, true) }})
 			Button(c, ButtonOpts{
 				Key:      "preview-annotate-send",
 				Text:     "添加到对话",
@@ -1674,7 +1673,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 				})
 		}
 	})
-	if !previewCommitAnnotationEdits(s, snap.token, items, removeID, clearItems) {
+	if !previewCommitAnnotationEdits(s, snap.token, items, removeID, false) {
 		return
 	}
 	previewHighlightAnnotation(s, snap.token, hoveredPID)

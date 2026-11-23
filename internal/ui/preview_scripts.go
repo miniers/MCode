@@ -694,6 +694,11 @@ const previewAnnotateInstallJS = `(function () {
         el = fallbackTarget;
       }
       if (!el || el.nodeType !== 1 || el === host) { return; }
+      var dup = false;
+      marks.forEach(function (mark) {
+        if (mark.kind === "element" && mark.element === el) { dup = true; }
+      });
+      if (dup) { return; }
       var er = el.getBoundingClientRect();
       var epid = ++state.nextPID;
       var vp = viewportSize();

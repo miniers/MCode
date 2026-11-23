@@ -541,6 +541,54 @@ func TestBrowserAnnotationDrawerAndToolbar(t *testing.T) {
 	}
 }
 
+func TestBrowserAnnotationClearButton(t *testing.T) {
+	s := sidePaneTestState(t)
+	defer s.close()
+	tab := getPreviewState(s)
+	scripts := make(chan string, 8)
+	page := &previewTestPage{eval: func(script string) (any, error) { scripts <- script; return `null`, nil }}
+	previewMu.Lock()
+	tab.page, tab.web, tab.visible, tab.annotating = page, &mygo.WebView{}, true, true
+	tab.annotations = []previewAnnotation{
+		{id: 1, PageID: 8, Selector: "#app"},
+		{id: 2, PageID: 9, Selector: "#nav"},
+	}
+	previewMu.Unlock()
+	tester := ui.NewTester(func(c *ui.Context) { renderPreviewPanel(c, s) }, 1100, 600)
+	tester.Advance(time.Second)
+	if err := tester.Click("清空"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	annotationScript(t, scripts, "clearMarks")
+	previewMu.Lock()
+	remaining := len(tab.annotations)
+	previewMu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("点击清空后 annotations 应为空，实际=%d", remaining)
+	}
+}
+
+func TestBrowserAnnotationScriptDedupesElement(t *testing.T) {
+	start := strings.Index(previewAnnotateInstallJS, `window.addEventListener("pointerup"`)
+	if start < 0 {
+		t.Fatal("脚本缺少 pointerup 监听")
+	}
+	elseIdx := strings.Index(previewAnnotateInstallJS[start:], "} else {")
+	if elseIdx < 0 {
+		t.Fatal("pointerup 缺少非拖拽分支")
+	}
+	branch := previewAnnotateInstallJS[start+elseIdx:]
+	nextPIDIdx := strings.Index(branch, "++state.nextPID")
+	if nextPIDIdx < 0 {
+		t.Fatal("非拖拽分支缺少 ++state.nextPID")
+	}
+	beforeNewMark := branch[:nextPIDIdx]
+	if !strings.Contains(beforeNewMark, `mark.kind === "element" && mark.element === el`) {
+		t.Fatalf("非拖拽分支在 ++state.nextPID 之前缺少同元素去重检查: %s", beforeNewMark)
+	}
+}
+
 func TestBrowserAnnotationMotionSettles(t *testing.T) {
 	for _, reduced := range []bool{false, true} {
 		t.Run(fmt.Sprint(reduced), func(t *testing.T) {
