@@ -503,7 +503,8 @@ func TestLeadPolicyPlansOnlyPlanDocs(t *testing.T) {
 		got := LeadPolicy(true, "off", delegateTool)
 		for _, want := range []string{
 			"Every code change is sent to a bee.",
-			"write it yourself as markdown and tick its items yourself as bees merge",
+			"keep this session's steps in your native todo tool",
+			"also write the plan as a markdown file and tick its items as bees merge",
 			"the briefs are the plan",
 		} {
 			if !strings.Contains(got, want) {
@@ -515,8 +516,8 @@ func TestLeadPolicyPlansOnlyPlanDocs(t *testing.T) {
 		}
 	}
 	nonPlanOnly := LeadPolicy(false, "off", false)
-	if strings.Contains(nonPlanOnly, "Plan documents are yours") {
-		t.Fatalf("plansOnly=false 的策略不应包含 %q:\n%s", "Plan documents are yours", nonPlanOnly)
+	if strings.Contains(nonPlanOnly, "keep this session's steps in your native todo tool") {
+		t.Fatalf("plansOnly=false 的策略不应包含 %q:\n%s", "keep this session's steps in your native todo tool", nonPlanOnly)
 	}
 }
 
