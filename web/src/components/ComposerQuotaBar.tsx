@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRemoteStatic } from '../context/RemoteContext';
-import type { ComposerQuotaScope, RemoteQuotaBudget, RemoteQuotaWindow } from '../types/quota';
-import { periodMinutes } from '../utils/quotaPace';
+import type { ComposerQuotaScope, RemoteQuotaBudget } from '../types/quota';
+import {
+  FALLBACK_SORT_MINUTES,
+  fallbackWindowLabel,
+  isAuxiliaryWindow,
+  periodMinutes,
+  periodShortLabel
+} from '../utils/quotaPace';
 import { ProviderIcon } from './ProviderIcon';
 import { ComposerQuotaSheet, formatQuotaPercent, quotaWindowContent, usageColor, usagePercentColor } from './ComposerQuotaSheet';
 
@@ -51,34 +57,7 @@ function isRenderableBudget(budget: RemoteQuotaBudget): boolean {
   return false;
 }
 
-/** 周期短标签：5h → 5h、7d → 周、1d → 日、30d → 月，其余 Nd/Nh 原样返回，认不出为 null。 */
-export function periodShortLabel(period: string | null | undefined): string | null {
-  const text = (period ?? '').trim().toLowerCase();
-  if (!text) return null;
-  switch (text) {
-    case '5h':
-      return '5h';
-    case '7d':
-      return '周';
-    case '1d':
-      return '日';
-    case '30d':
-      return '月';
-    default:
-      break;
-  }
-  return /^\d+[dh]$/.test(text) ? text : null;
-}
-
-/** 附加用量窗口（MCP tools、按需附加用量、预付费余额占位）不是订阅额度，不进额度条。 */
-export function isAuxiliaryWindow(quotaWindow: RemoteQuotaWindow): boolean {
-  const id = (quotaWindow.id ?? '').trim().toLowerCase();
-  if (id) {
-    return id === 'ai-credits' || id.includes('extra-usage') || id.startsWith('tools-');
-  }
-  const title = (quotaWindow.title ?? '').toLowerCase();
-  return title.includes('mcp tools') || title.includes('extra usage');
-}
+export { fallbackWindowLabel, isAuxiliaryWindow, periodShortLabel };
 
 /** 同周期窗口排序用：0 = 全模型/账户窗口，1 = 按模型限定的窗口。 */
 function windowScopeRank(title: string): number {
@@ -88,18 +67,6 @@ function windowScopeRank(title: string): number {
   if (idx >= 0 && title.slice(idx + 3).trim() !== '') return 1;
   return 0;
 }
-
-/** 认不出周期时的窗口短标签，与桌面 trayQuotaFallbackLabel 同口径（credits → 额度，超过 8 个字截断）。 */
-export function fallbackWindowLabel(quotaWindow: RemoteQuotaWindow): string {
-  const raw = (quotaWindow.label ?? '').trim() || (quotaWindow.title ?? '').trim();
-  if (!raw) return '额度';
-  if (raw.toLowerCase() === 'credits') return '额度';
-  const runes = Array.from(raw);
-  return runes.length > 8 ? `${runes.slice(0, 8).join('')}…` : raw;
-}
-
-/** 认不出周期的窗口排到最后，与桌面 trayQuotaFallbackSortMinutes 同义。 */
-const FALLBACK_SORT_MINUTES = Number.MAX_SAFE_INTEGER;
 
 /**
  * 把一条 budget 折算成额度条上的若干读数：先剔除附加窗口，再按周期从短到长排序
