@@ -156,7 +156,7 @@ func renderQuotaRowHoverTip(c *ui.Context, tipKey string, anchor ui.Element, lef
 			Role(ui.RoleTooltip).
 			AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).
 			Margin(0, 0, Space1, 0).
-			Padding(Space1+2, Space3).
+			Padding(Space2, Space3).
 			Radius(RadiusMD).
 			Background(ThemeSurfaceRaised(c)).
 			Border(Hairline, ThemeBorder(c)).
@@ -236,7 +236,7 @@ func renderQuotaRadioRing(c *ui.Context, key string, selected, disabled, rowHove
 	}
 
 	ring := ui.Box(c.Key(key)).
-		Size(14, 14).
+		Size(IconSM, IconSM).
 		Radius(RadiusPill).
 		Border(1.5, borderColor).
 		Background(bgColor).
@@ -267,8 +267,8 @@ func renderQuotaRadioRing(c *ui.Context, key string, selected, disabled, rowHove
 // renderQuotaActiveBadge 渲染自动选号模式下当前在用账号的「在用」微标。
 func renderQuotaActiveBadge(c *ui.Context, key string) {
 	ui.Row(c.Key(key)).
-		Height(16).
-		Padding(0, 5).
+		Height(Space5).
+		Padding(0, Space2).
 		Radius(RadiusPill).
 		Background(ThemeAccentSubtle(c)).
 		AlignItems(ui.Center).
@@ -532,7 +532,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								curWin := win
 								row := ui.Row(c.Key(winKey)).
 									FillWidth().
-									Height(30).
+									Height(RowHeight).
 									Margin(0, Space2).
 									Padding(0, Space2).
 									Radius(RadiusSM).
@@ -618,7 +618,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								}
 								ui.Row(c.Key(groupKey+"-col-head")).
 									FillWidth().
-									Height(18).
+									Height(ControlKbd).
 									Padding(0, Space4).
 									AlignItems(ui.Center).
 									Gap(colGap).
@@ -694,7 +694,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									btn := ui.ButtonBase(c.Key(accKey+"-btn")).
 										Label(curAcc.DisplayName).
 										FillWidth().
-										Height(30).
+										Height(RowHeight).
 										Margin(0, Space2).
 										Padding(0, Space2).
 										Radius(RadiusSM).
@@ -724,7 +724,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								} else {
 									row := ui.Row(c.Key(accKey+"-row")).
 										FillWidth().
-										Height(30).
+										Height(RowHeight).
 										Margin(0, Space2).
 										Padding(0, Space2).
 										Radius(RadiusSM).
@@ -822,7 +822,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										FillWidth().
 										Height(ControlSM).
 										Margin(0, Space2).
-										Padding(0, Space2, 0, Space2+Space4).
+										Padding(0, Space2, 0, Space6).
 										AlignItems(ui.Center).
 										Gap(Space2).
 										Children(func() {
@@ -875,13 +875,13 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 							discLabel := fmt.Sprintf("%d 项无读数", len(g.NoReadings))
 							ui.Column(c.Key(groupKey+"-disclosure")).
 								FillWidth().
-								Padding(2, Space4, 0, Space4).
+								Padding(Space0, Space4, 0, Space4).
 								Gap(Space1).
 								Children(func() {
 									discBtn := ui.ButtonBase(c.Key(groupKey+"-no-readings-btn")).
 										Label(discLabel).
 										AlignSelf(ui.Start).
-										Padding(2, Space2).
+										Padding(Space0, Space2).
 										Radius(RadiusXS).
 										AlignItems(ui.Center).
 										Gap(Space1).
