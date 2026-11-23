@@ -578,7 +578,7 @@ func handleTerminalOpenLink(s *chatState, dir, link string) bool {
 }
 
 // openTerminalLinkTarget 打开终端里点到的文件：通过统一跳转总线优先使用外部编辑器（带行号直接跳行），
-// 不可用或失败时，工作目录内退回内置文件面板并保留行号高亮，目录外退回源码编辑器窗口。
+// 不可用或失败时，工作目录内退回内置文件面板并保留行号高亮，目录外退回系统默认应用打开。
 func openTerminalLinkTarget(s *chatState, path string, line, col int) {
 	if s == nil || path == "" {
 		return

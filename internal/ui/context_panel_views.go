@@ -493,7 +493,7 @@ func renderContextDocDetails(c *ui.Context, s *chatState, snap contextPanelSnaps
 				Label: "在编辑器中打开",
 				OnClick: func() {
 					if filePath != "" {
-						openContextDocInEditor(filePath)
+						openContextDocInEditor(s, filePath)
 					}
 				},
 				Variant: ButtonGhost,

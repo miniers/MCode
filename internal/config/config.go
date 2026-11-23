@@ -964,7 +964,6 @@ type WorkbenchConfig struct {
 	AutoRescueStuck         *bool  `json:"auto_rescue_stuck,omitempty"`  // 卡死任务自动救援，nil 视为开启
 	StuckNudgeTimeout       int    `json:"stuck_nudge_timeout"`          // 无活动提醒阈值（秒），默认 600
 	StuckInterruptTimeout   int    `json:"stuck_interrupt_timeout"`      // 无活动强制中断阈值（秒），默认 1800
-	EditorAutoSave          *bool  `json:"editor_auto_save,omitempty"`   // 编辑器自动保存，nil 视为开启
 	TerminalScrollbackLines int    `json:"terminal_scrollback_lines"`    // 终端缓冲区行数，默认 1000
 	TerminalShell           string `json:"terminal_shell"`               // 默认终端 shell，空表示跟随系统 SHELL
 	CommandShell            string `json:"command_shell"`                // Windows 命令 shell，空表示自动
@@ -1001,14 +1000,6 @@ func (w WorkbenchConfig) AutoRescueStuckEnabled() bool {
 		return true
 	}
 	return *w.AutoRescueStuck
-}
-
-// EditorAutoSaveEnabled 返回编辑器自动保存是否开启，nil 视为开启。
-func (w WorkbenchConfig) EditorAutoSaveEnabled() bool {
-	if w.EditorAutoSave == nil {
-		return true
-	}
-	return *w.EditorAutoSave
 }
 
 // AutoMergeTaskWorktree 返回看板验收后是否自动合并 worktree，nil 时默认开启。
@@ -2354,7 +2345,6 @@ func Defaults() Config {
 			AutoRescueStuck:            boolPtr(true),
 			StuckNudgeTimeout:          DefaultStuckNudgeTimeout,
 			StuckInterruptTimeout:      DefaultStuckInterruptTimeout,
-			EditorAutoSave:             boolPtr(true),
 			TerminalScrollbackLines:    DefaultTerminalScrollback,
 			KanbanAutoReview:           boolPtr(true),
 			KanbanAutoStartOnCreate:    false,

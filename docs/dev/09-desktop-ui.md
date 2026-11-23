@@ -7,7 +7,7 @@
 | 文件 | 内容 |
 |---|---|
 | `root.go` | `buildRoot`，整体布局和侧栏过渡 |
-| `windows.go` | `OpenThreadWindow`、`OpenNewThreadWindow`、`ActivateThread`、`OpenMiniEditor` |
+| `windows.go` | `OpenThreadWindow`、`OpenNewThreadWindow`、`ActivateThread` |
 | `client.go` | `Client` 接口和 UI 数据类型；可选接口 `AttentionClient`、`StewardClient`、`ForegroundThreadReporter` |
 | `model.go` | `chatState`（`s.mu` 保护）、`UpsertMessages` |
 | `theme.go`、`motion.go`、`text_scale.go` | 主题、动效 token、字号缩放 `scaledFont` |
@@ -92,8 +92,8 @@
 | ⌘K | 命令面板 | ⌘, | 设置 |
 | ⌘D | 改动 | ⌘J | 终端 |
 | ⇧⌘B | 预览 | ⇧⌘F | 文件 |
-| ⇧⌘E | 编辑器 | ⌥⌘U | 动态 |
-| ⇧⌘O | 添加项目 | ⇧⌘K | 项目文档 |
+| ⌥⌘U | 动态 | ⇧⌘O | 添加项目 |
+| ⇧⌘K | 项目文档 | | |
 
 ## 必须遵守的 UI 规则
 

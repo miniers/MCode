@@ -110,10 +110,6 @@ func openExternalFallbackPath(absPath string) bool {
 	if absPath == "" {
 		return false
 	}
-	if openMiniEditorWindowFn != nil {
-		openMiniEditorPath(absPath)
-		return true
-	}
 	fileJumpOpenLocalFn(absPath)
 	return true
 }

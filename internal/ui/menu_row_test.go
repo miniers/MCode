@@ -83,17 +83,17 @@ func TestMenuRow(t *testing.T) {
 		tt := newMenuRowTester(func(c *ui.Context) {
 			menuRow(c, menuRowProps{
 				Key:      "row-trailing",
-				Title:    "源码编辑器",
-				Trailing: "⇧⌘E",
+				Title:    "命令面板",
+				Trailing: "⌘K",
 				Icon:     IconSettings(),
 				Checked:  true,
 			})
 		})
-		if !tt.HasText("源码编辑器") {
+		if !tt.HasText("命令面板") {
 			t.Fatalf("标题文字应可见，实际 Texts=%v", tt.Texts())
 		}
-		if !tt.HasText("⇧⌘E") {
-			t.Fatalf("Trailing 文字「⇧⌘E」应可见，实际 Texts=%v", tt.Texts())
+		if !tt.HasText("⌘K") {
+			t.Fatalf("Trailing 文字「⌘K」应可见，实际 Texts=%v", tt.Texts())
 		}
 	})
 }

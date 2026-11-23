@@ -12,25 +12,10 @@ func TestSidebarFooterLabels(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
-	for _, label := range []string{"添加项目", "任务", "自动化", "设置", "源码编辑器 " + shortcutDisplay("⇧⌘E")} {
+	for _, label := range []string{"添加项目", "任务", "自动化", "设置"} {
 		if _, ok := tt.Find(label); !ok {
 			t.Errorf("找不到底栏按钮 %q", label)
 		}
-	}
-}
-
-func TestUIReview1SidebarFooterSourceEditorButton(t *testing.T) {
-	s := newChatState(NewFakeClient())
-	t.Cleanup(s.close)
-	tt := ui.NewTester(func(c *ui.Context) { renderSidebarBottomBar(c, s) }, 500, 100)
-	tt.Frame()
-
-	want := "源码编辑器 " + shortcutDisplay("⇧⌘E")
-	if _, ok := tt.Find(want); !ok {
-		t.Fatalf("底栏应渲染源码编辑器图标按钮 %q，当前文本: %q", want, tt.Texts())
-	}
-	if _, ok := tt.Find("更多"); ok {
-		t.Fatalf("底栏不应再有「更多」菜单，当前文本: %q", tt.Texts())
 	}
 }
 

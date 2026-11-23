@@ -300,17 +300,16 @@ func TestThemeRuntimeMarkdownRefresh(t *testing.T) {
 	resetRuntimeTheme(t)
 	setAppReduceMotion(t, true)
 	chat := newChatState(nil)
-	mini := &miniEditorState{path: "test.md", text: "# Test", baseline: "# Test", preview: true}
-	tt := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat); mini.view(c) }, 600, 400)
+	tt := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat) }, 600, 400)
 	appReduceMotion.Store(true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
 	for _, key := range []string{"accent", "card", "border", "text_secondary"} {
-		oldChat, oldMini := chat.mdOpts.Theme, mini.mdOpts.Theme
+		oldChat := chat.mdOpts.Theme
 		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
 		appReduceMotion.Store(true)
 		tt.Frame()
-		if chat.mdOpts.Theme == oldChat || mini.mdOpts.Theme == oldMini || chat.mdStaticOpts.Theme != chat.mdOpts.Theme {
+		if chat.mdOpts.Theme == oldChat || chat.mdStaticOpts.Theme != chat.mdOpts.Theme {
 			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
 		}
 		tt.Frame()
@@ -318,9 +317,9 @@ func TestThemeRuntimeMarkdownRefresh(t *testing.T) {
 			t.Fatal("Markdown 主题为空")
 		}
 	}
-	oldChat, oldMini := chat.mdOpts.Theme, mini.mdOpts.Theme
+	oldChat := chat.mdOpts.Theme
 	tt.Frame()
-	if chat.mdOpts.Theme != oldChat || mini.mdOpts.Theme != oldMini {
+	if chat.mdOpts.Theme != oldChat {
 		t.Fatal("颜色不变时不应重建 Markdown 主题")
 	}
 }

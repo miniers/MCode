@@ -1216,7 +1216,7 @@ func closeContextPanel(s *chatState) {
 // 在项目内打开项目文档目录或文档（Finder / 外部编辑器）。测试可替换。
 var (
 	revealContextItem      = openItemInFinder
-	openContextDocInEditor = openMiniEditorPath
+	openContextDocInEditor = openInDefaultEditor
 )
 
 // mapContextIcon 把 projctx 的图标 id 映射到 icons.go 中已有的图标。

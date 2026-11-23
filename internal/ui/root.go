@@ -245,9 +245,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 					if view == "chat" {
 						state.toggleInteractionMode()
 					}
-				case "open-editor":
-					// ⇧⌘E 打开迷你源码编辑器（从文件选择器选文件）
-					openMiniEditorFromPicker(state)
 				case "toggle-activity":
 					// A-WS：动态视图开关由 sidebar_activity.go 的 toggleActivityView 实现。
 					state.toggleActivityView()

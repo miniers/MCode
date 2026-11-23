@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -840,4 +841,13 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 			})
 		}
 	}
+}
+
+// isMarkdownPath 判断文件是否为 Markdown（决定是否提供源码/预览切换）。
+func isMarkdownPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown", ".mdx":
+		return true
+	}
+	return false
 }

@@ -100,7 +100,6 @@
 | row-terminal-scrollback-lines | 回滚行数 | 内嵌终端最多保留的历史输出行数。 |
 | row-browser-console-capture | 捕获控制台输出 | 打开后，网页预览记录网页的控制台日志和报错。 |
 | row-browser-quick-ports | 快捷端口 | 常用的本地端口，用逗号分隔。网页预览里可以一键打开。 |
-| row-editor-auto-save | 自动保存 | 停止输入后，内置编辑器自动保存文件。 |
 
 ### 版本控制
 

@@ -775,3 +775,45 @@ func TestContextPanel_GlobalPathUnavailable(t *testing.T) {
 	tt := ui.NewTester(view, 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText(contextGlobalPathErr) })
 }
+
+// 点「在编辑器中打开」时通过 openContextDocInEditor 传入当前 *chatState 与文档绝对路径。
+func TestContextPanel_OpenDocInDefaultEditor(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetContextDoc("instructions.md", "# Rules")
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.projects = []Project{{ID: "p1", Name: "demo", Path: fakeProjectPath}}
+	if err := loadContextDocsSync(s, fakeProjectPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := selectContextDocSync(s, "instructions.md"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotState *chatState
+	var gotPath string
+	origOpen := openContextDocInEditor
+	openContextDocInEditor = func(st *chatState, path string) {
+		gotState = st
+		gotPath = path
+	}
+	t.Cleanup(func() { openContextDocInEditor = origOpen })
+
+	cp := getContextPanelState(s)
+	contextPanelMu.Lock()
+	cp.open = true
+	contextPanelMu.Unlock()
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		applyAppTheme(c)
+		renderContextDocView(c, s)
+	}, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	if err := tt.Click("在编辑器中打开"); err != nil {
+		t.Fatalf("点击「在编辑器中打开」失败: %v", err)
+	}
+
+	wantPath := filepath.Join(fakeProjectPath, ".mcode", "context", "instructions.md")
+	if gotState != s || gotPath != wantPath {
+		t.Fatalf("openContextDocInEditor 调用参数 = (%p, %q), 期望 (%p, %q)", gotState, gotPath, s, wantPath)
+	}
+}

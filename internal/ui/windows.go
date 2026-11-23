@@ -1,7 +1,6 @@
 package mcodeui
 
 import (
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -414,40 +413,6 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 	})
 
 	return win, state
-}
-
-// OpenMiniEditor 创建迷你源码编辑器独立窗口：860×640，行号列 + 多行编辑区，
-// 停止输入约 800ms 后自动保存（写前检测外部改动），Markdown 文件可在源码/预览之间切换。
-// 关闭窗口前立即落盘未保存的编辑。
-func OpenMiniEditor(path string) *mygo.Window {
-	state := newMiniEditorState(path)
-	var win *mygo.Window
-
-	mygo.RunOnMain(func() {
-		title := filepath.Base(path)
-		if title == "" || title == "." || title == string(filepath.Separator) {
-			title = "源码编辑器"
-		}
-		win = mygo.NewWindow(mygo.WindowOptions{
-			Title:                title,
-			Width:                MiniEditorDefaultWidth,
-			Height:               MiniEditorDefaultHeight,
-			MinWidth:             MiniEditorMinWidth,
-			MinHeight:            MiniEditorMinHeight,
-			TitleBarStyle:        mygo.TitleBarHiddenInset,
-			TrafficLightPosition: &mygo.Point{X: 18, Y: 16},
-			StateKey:             "mini-editor",
-			Content: ui.View(func(c *ui.Context) {
-				applyAppTheme(c)
-				state.view(c)
-			}),
-		})
-		win.OnClose(func(e *mygo.CloseEvent) {
-			state.onClose(e)
-		})
-	})
-
-	return win
 }
 
 func (s *chatState) close() {

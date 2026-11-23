@@ -193,18 +193,6 @@ var pageWorkbench = settingsPage{
 			},
 		},
 		{
-			ID:    "workbench.editor",
-			Title: "编辑器与文件树",
-			Rows: []setting{
-				{
-					ID:      "row-editor-auto-save",
-					Title:   "自动保存",
-					Aliases: []string{"编辑器", "保存", "autosave", "代码"},
-					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Workbench.EditorAutoSave }, true)),
-				},
-			},
-		},
-		{
 			ID:    "workbench.openIn",
 			Title: "",
 			Rows: []setting{

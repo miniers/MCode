@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 
@@ -85,10 +84,8 @@ func TestFileJumpBusBuiltInAndExternalFallback(t *testing.T) {
 	// 2. 路径穿越工作区外不得误判为工作区内。
 	var localOpened []string
 	origLocalFn := fileJumpOpenLocalFn
-	origMiniFn := openMiniEditorWindowFn
 	t.Cleanup(func() {
 		fileJumpOpenLocalFn = origLocalFn
-		openMiniEditorWindowFn = origMiniFn
 	})
 	fileJumpOpenLocalFn = func(p string) { localOpened = append(localOpened, p) }
 	withOpenLineStubs(t, nil, func(string) error { return nil })
@@ -120,15 +117,11 @@ func TestFileJumpBusBuiltInAndExternalFallback(t *testing.T) {
 	openTerminalLinkTarget(s, inWorkFile, 27, 4)
 	assertFileManagerTabHighlight(t, s, "src/main.go", 27, 27)
 
-	// 4. 外部跳行失败且不在工作区内时，回退 openMiniEditorPath。
-	var miniOpened []string
-	openMiniEditorWindowFn = func(path string) *mygo.Window {
-		miniOpened = append(miniOpened, path)
-		return nil
-	}
+	// 4. 外部跳行失败且不在工作区内时，回退 fileJumpOpenLocalFn。
+	localOpened = nil
 	openTerminalLinkTarget(s, outsideFile, 15, 2)
-	if len(miniOpened) != 1 || miniOpened[0] != outsideFile {
-		t.Fatalf("工作区外外部跳行失败应回退 openMiniEditorPath(%q)，实际 %v", outsideFile, miniOpened)
+	if len(localOpened) != 1 || localOpened[0] != outsideFile {
+		t.Fatalf("工作区外外部跳行失败应回退 fileJumpOpenLocalFn(%q)，实际 %v", outsideFile, localOpened)
 	}
 }
 

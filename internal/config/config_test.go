@@ -1712,9 +1712,6 @@ func TestLoadOldConfigWithoutNewSectionsGetsDefaults(t *testing.T) {
 	if cfg.Workbench.StuckInterruptTimeout != DefaultStuckInterruptTimeout {
 		t.Errorf("expected Workbench.StuckInterruptTimeout %d, got %d", DefaultStuckInterruptTimeout, cfg.Workbench.StuckInterruptTimeout)
 	}
-	if !cfg.Workbench.EditorAutoSaveEnabled() {
-		t.Errorf("expected Workbench.EditorAutoSaveEnabled() true, got false")
-	}
 	if cfg.Workbench.TerminalScrollbackLines != DefaultTerminalScrollback {
 		t.Errorf("expected Workbench.TerminalScrollbackLines %d, got %d", DefaultTerminalScrollback, cfg.Workbench.TerminalScrollbackLines)
 	}
@@ -3599,6 +3596,24 @@ func TestLoadIgnoresRemovedBrowserStartURL(t *testing.T) {
 	}
 	data, err := json.Marshal(cfg)
 	if err != nil || strings.Contains(string(data), "browser_start_url") {
+		t.Fatalf("废弃设置仍被序列化：%v", err)
+	}
+}
+
+func TestLoadIgnoresRemovedLegacyAutoSave(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(ConfigPath(dir), []byte(`{"workbench":{"editor_auto_save":false,"browser_console_capture":false}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warnings, err := LoadWithWarnings(dir)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("旧编辑器自动保存设置未被忽略：warnings=%v err=%v", warnings, err)
+	}
+	if cfg.Workbench.BrowserConsoleCaptureEnabled() {
+		t.Fatal("保留的控制台设置没有加载")
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil || strings.Contains(string(data), "editor_auto_save") {
 		t.Fatalf("废弃设置仍被序列化：%v", err)
 	}
 }

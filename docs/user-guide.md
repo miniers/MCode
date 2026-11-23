@@ -376,6 +376,5 @@ curl -fsSL https://usemagpie.ai/install.sh | sh -s -- --uninstall
 | ⌘J | 显示或隐藏终端 |
 | ⇧⌘B | 显示或隐藏预览 |
 | ⇧⌘F | 显示或隐藏文件面板 |
-| ⇧⌘E | 源码编辑器 |
 | ⌥⌘U | 动态视图 |
 | ⇧⌘O | 添加项目 |

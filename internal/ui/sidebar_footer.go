@@ -61,7 +61,7 @@ func renderUnreadDot(c *ui.Context, key string) ui.Element {
 
 // renderSidebarBottomBar 渲染底部常驻工具栏：
 // 添加项目（浮层：选择文件夹 / 从 GitHub 克隆）、
-// 任务与看板（带待审阅圆点）、自动化、设置齿轮与源码编辑器图标按钮。
+// 任务与看板（带待审阅圆点）、自动化与设置齿轮图标按钮。
 func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -173,20 +173,6 @@ func renderSidebarBottomBar(c *ui.Context, s *chatState) {
 				}
 				fs.updateVisible = status.Available
 			}
-
-			// 源码编辑器图标按钮（与 ⇧⌘E 快捷键同一入口）。
-			IconButton(c, IconButtonProps{
-				Key:     "sidebar-editor-btn",
-				Icon:    IconPencilLine(),
-				Size:    ControlSM,
-				Variant: ButtonGhost,
-				Label:   "源码编辑器 " + shortcutDisplay("⇧⌘E"),
-				Tooltip: "源码编辑器 " + shortcutDisplay("⇧⌘E"),
-				OnClick: func() {
-					openMiniEditorFromPicker(s)
-					s.invalidate()
-				},
-			})
 		})
 }
 

@@ -87,7 +87,6 @@ func TestBuildAppMenu(t *testing.T) {
 	requireMenuItem(t, viewMenu, "显示/隐藏文件", "Shift+CmdOrCtrl+F")
 	requireMenuItem(t, viewMenu, "显示/隐藏右栏", "Alt+CmdOrCtrl+B")
 	requireMenuItem(t, viewMenu, "项目文档", "Shift+CmdOrCtrl+K")
-	requireMenuItem(t, viewMenu, "源码编辑器…", "Shift+CmdOrCtrl+E")
 	requireMenuItem(t, viewMenu, "动态视图", "Alt+CmdOrCtrl+U")
 	requireMenuRole(t, viewMenu, mygo.RoleToggleFullScreen)
 

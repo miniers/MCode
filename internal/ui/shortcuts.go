@@ -93,9 +93,7 @@ var shortcutDefaultsOnce = sync.OnceValue(func() []appShortcut {
 		{id: "toggle-context", title: "项目文档", group: "窗口", keys: "⇧⌘K", mods: ui.Cmd | ui.Shift, key: ui.KeyK, bound: true, registered: true},
 		{id: "toggle-terminal", title: "显示/隐藏终端", group: "窗口", keys: "⌘J", mods: ui.Cmd, key: ui.KeyJ, bound: true, customizable: true, registered: true},
 		{id: "toggle-preview", title: "显示/隐藏浏览器", group: "窗口", keys: "⇧⌘B", mods: ui.Cmd | ui.Shift, key: ui.KeyB, bound: true, customizable: true, registered: true},
-		// ⇧⌘E 已被源码编辑器占用，文件面板改用 ⇧⌘F，菜单 Accelerator 同源。
 		{id: "toggle-file-manager", title: "显示/隐藏文件", group: "窗口", keys: "⇧⌘F", mods: ui.Cmd | ui.Shift, key: ui.KeyF, bound: true, customizable: true, registered: true},
-		{id: "open-editor", title: "源码编辑器", group: "窗口", keys: "⇧⌘E", mods: ui.Cmd | ui.Shift, key: ui.KeyE, bound: true, customizable: true, registered: true},
 		{id: "toggle-activity", title: "动态视图", group: "窗口", keys: "⌥⌘U", mods: ui.Cmd | ui.Alt, key: ui.KeyU, bound: true, customizable: true, registered: true},
 		{id: "add-project", title: "添加项目", group: "窗口", keys: "⇧⌘O", mods: ui.Cmd | ui.Shift, key: ui.KeyO, bound: true, customizable: true, registered: true},
 	}

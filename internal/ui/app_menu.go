@@ -422,13 +422,6 @@ func buildViewMenuItems() []*mygo.MenuItem {
 			},
 		},
 		&mygo.MenuItem{
-			Label:       "源码编辑器…",
-			Accelerator: menuAccelerator("open-editor", "Shift+CmdOrCtrl+E"),
-			Click: func(*mygo.MenuItem, *mygo.Window) {
-				DispatchMenuAction("open-editor", 0)
-			},
-		},
-		&mygo.MenuItem{
 			Label:       "动态视图",
 			Accelerator: menuAccelerator("toggle-activity", "Alt+CmdOrCtrl+U"),
 			Click: func(*mygo.MenuItem, *mygo.Window) {

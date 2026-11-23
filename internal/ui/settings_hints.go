@@ -68,7 +68,6 @@ var settingHints = map[string]string{
 	"row-terminal-scrollback-lines":      "内嵌终端最多保留的历史输出行数。",
 	"row-browser-console-capture":        "打开后，网页预览记录网页的控制台日志和报错。",
 	"row-browser-quick-ports":            "常用的本地端口，用逗号分隔。网页预览里可以一键打开。",
-	"row-editor-auto-save":               "停止输入后，内置编辑器自动保存文件。",
 
 	// 版本控制
 	"row-sc-generate-commit-msg":    "打开后，AI 根据改动写提交信息和 PR 描述。",

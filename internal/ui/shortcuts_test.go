@@ -29,7 +29,6 @@ func TestMatchShortcut_TableDriven(t *testing.T) {
 		{name: "⌘J toggle-terminal", mods: ui.Cmd, key: ui.KeyJ, wantID: "toggle-terminal", wantOK: true},
 		{name: "^` toggle-terminal (fallback)", mods: ui.Ctrl, key: ui.KeyBackquote, wantID: "toggle-terminal", wantOK: true},
 		{name: "⇧⌘B toggle-preview", mods: ui.Cmd | ui.Shift, key: ui.KeyB, wantID: "toggle-preview", wantOK: true},
-		{name: "⇧⌘E open-editor", mods: ui.Cmd | ui.Shift, key: ui.KeyE, wantID: "open-editor", wantOK: true},
 		{name: "⇧⌘F toggle-file-manager", mods: ui.Cmd | ui.Shift, key: ui.KeyF, wantID: "toggle-file-manager", wantOK: true},
 		{name: "⌥⌘U toggle-activity", mods: ui.Cmd | ui.Alt, key: ui.KeyU, wantID: "toggle-activity", wantOK: true},
 		{name: "⌘, open-settings", mods: ui.Cmd, key: ui.KeyComma, wantID: "open-settings", wantOK: true},
@@ -254,7 +253,6 @@ func TestAppShortcuts_UniqueIDs(t *testing.T) {
 	requiredIDs := []string{
 		"toggle-terminal",
 		"toggle-preview",
-		"open-editor",
 		"toggle-activity",
 		"run-script",
 		"select-thread-1-9",
@@ -753,5 +751,23 @@ func TestUIReview26_ToggleContextInAppShortcuts(t *testing.T) {
 	}
 	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyK); !ok || id != "toggle-context" {
 		t.Fatalf("⇧⌘K 应继续命中 toggle-context: id=%q ok=%v", id, ok)
+	}
+}
+
+// TestShortcutOverridesIgnoreUnknownID 验证自定义快捷键覆盖里包含已删除的未知 id 时会被静默忽略。
+func TestShortcutOverridesIgnoreUnknownID(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	setShortcutOverrides(map[string]string{
+		"removed-legacy-shortcut": "Shift+Cmd+E",
+	})
+	t.Cleanup(func() { setShortcutOverrides(nil) })
+
+	if id, _, ok := matchShortcut(ui.Cmd|ui.Shift, ui.KeyE); ok {
+		t.Fatalf("已移除的快捷键 id 不应被绑定或匹配，got id=%q", id)
+	}
+	for _, sc := range appShortcuts() {
+		if sc.id == "removed-legacy-shortcut" {
+			t.Fatalf("未知快捷键 id 不应出现在 appShortcuts() 中")
+		}
 	}
 }
