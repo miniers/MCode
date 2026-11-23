@@ -30,9 +30,10 @@ var previewConsolePollInterval = 700 * time.Millisecond
 // previewViewportMode 是 Web 预览的视口模式。
 type previewViewportMode string
 
-// 预览面板的固定尺寸：顶栏高度与控制台抽屉高度。
+// 预览面板的固定尺寸：顶栏高度、导航胶囊高度与控制台抽屉高度。
 const (
 	previewToolbarHeight       float32 = 38
+	previewNavCapsuleHeight    float32 = ControlSM + Space0
 	previewConsoleDrawerHeight float32 = 160
 )
 
@@ -843,7 +844,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					capsule := ui.Row(c.Key("preview-nav-capsule")).
 						Grow(1).
 						MinWidth(0).
-						Height(26).
+						Height(previewNavCapsuleHeight).
 						Padding(0, Space2, 0, Space1).
 						Gap(Space1).
 						AlignItems(ui.Center).
@@ -857,7 +858,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 							Children(func() {
 								renderBrowserHistory(c, s, st, snap)
 							})
-						ui.Box(c).Width(Hairline).Height(14).Background(ThemeHairline(c)).Shrink(0)
+						ui.Box(c).Width(Hairline).Height(IconSM).Background(ThemeHairline(c)).Shrink(0)
 						statusColor := ThemeTertiaryText(c)
 						switch {
 						case snap.err != "":
@@ -903,7 +904,7 @@ func renderPreviewPanel(c *ui.Context, s *chatState) {
 					}
 					capsule.Background(capsuleBg).Border(Hairline, capsuleBorder)
 
-					ui.Box(c).Width(Hairline).Height(14).Background(ThemeHairline(c)).Shrink(0)
+					ui.Box(c).Width(Hairline).Height(IconSM).Background(ThemeHairline(c)).Shrink(0)
 
 					background := ThemeSurfacePopover(c)
 					native := flyoutHostWindow(c.Services()) != nil

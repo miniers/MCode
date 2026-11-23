@@ -551,7 +551,7 @@ func renderBrowserTabs(c *ui.Context, s *chatState, st *previewState) {
 						Left(Space2).
 						Right(Space2).
 						Bottom(0).
-						Height(1.5).
+						Height(Space0).
 						Radius(RadiusPill).
 						Background(ThemeAccent(c).Alpha(ink))
 				})

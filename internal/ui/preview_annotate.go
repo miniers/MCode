@@ -36,9 +36,10 @@ const (
 	previewAnnotationUntrustedName = "untrusted-annotations"
 )
 
-// 标注抽屉的固定尺寸：抽屉高度、缩略图尺寸与徽章/删除按钮尺寸。
+// 标注抽屉的固定尺寸：抽屉高度、内容区高度、缩略图尺寸与徽章/删除按钮尺寸。
 const (
 	previewAnnotateDrawerHeight   float32 = 200
+	previewAnnotateBodyHeight     float32 = previewAnnotateDrawerHeight - ControlMD
 	previewAnnotateRemoveIconSize float32 = 11
 	previewAnnotateThumbWidth     float32 = 52
 	previewAnnotateThumbHeight    float32 = 36
@@ -1565,7 +1566,7 @@ func renderPreviewAnnotateDrawer(c *ui.Context, s *chatState, snap previewSnapsh
 		if !snap.annotCollapsed {
 			ui.Column(c.Key("preview-annotate-body")).
 				Transition(motionCollapse(c)).
-				Height(previewAnnotateDrawerHeight - ControlMD).
+				Height(previewAnnotateBodyHeight).
 				FillWidth().
 				Children(func() {
 					ui.Scroll(c.Key("preview-annotate-scroll")).Grow(1).FillWidth().Padding(Space1, Space2).Gap(Space1).Children(func() {
