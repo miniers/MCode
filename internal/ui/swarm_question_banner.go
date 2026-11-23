@@ -59,6 +59,7 @@ func renderSwarmQuestionBanner(c *ui.Context, s *chatState) {
 		return
 	}
 
+	f := swarmFloatFrameFor(c, s)
 	pending := bees[:0]
 	var answeredKeys []string
 	for _, h := range bees {
@@ -66,6 +67,9 @@ func renderSwarmQuestionBanner(c *ui.Context, s *chatState) {
 			if h.PendingQuestion != nil {
 				answeredKeys = append(answeredKeys, swarmQuestionBannerKey(leadID, h.ThreadID)+"/"+h.PendingQuestion.RequestID)
 			}
+			continue
+		}
+		if beeQuestionShownInFloat(s, f, h) {
 			continue
 		}
 		pending = append(pending, h)
@@ -137,6 +141,49 @@ func beeQuestionAnsweredInChild(parent *chatState, h SwarmBee) bool {
 	defer child.mu.Unlock()
 	for _, aq := range child.answeredQuestions[h.ThreadID] {
 		if aq.ID == reqID {
+			return true
+		}
+	}
+	return false
+}
+
+// beeQuestionShownInFloat 避免浮窗已展示同一提问卡时在提示条重复显示。
+func beeQuestionShownInFloat(s *chatState, f swarmFloatFrame, h SwarmBee) bool {
+	if s == nil || h.PendingQuestion == nil || strings.TrimSpace(h.PendingQuestion.RequestID) == "" || !f.scene.has() {
+		return false
+	}
+	shown := false
+	for _, ab := range f.scene.autoBees {
+		if ab.ThreadID == h.ThreadID {
+			shown = true
+			break
+		}
+	}
+	if !shown && f.scene.showsTeam {
+		if cur := getSelectedSwarmBee(f.leadID, f.scene.teamBees); cur != nil && cur.ThreadID == h.ThreadID {
+			shown = true
+		}
+	}
+	if !shown {
+		return false
+	}
+
+	embeddedMu.Lock()
+	entry := embeddedBees[embeddedBeeKey{s, h.ThreadID}]
+	var child *chatState
+	if entry != nil {
+		child = entry.state
+	}
+	embeddedMu.Unlock()
+	if child == nil {
+		return false
+	}
+
+	reqID := h.PendingQuestion.RequestID
+	child.mu.Lock()
+	defer child.mu.Unlock()
+	for _, a := range child.approvals {
+		if a.Kind == ApprovalKindQuestion && a.RequestID == reqID {
 			return true
 		}
 	}

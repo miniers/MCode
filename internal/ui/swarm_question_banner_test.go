@@ -10,6 +10,15 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// closeSwarmFloatForBannerTest 在只渲染提示条的测试里收起浮窗状态，并在测试结束时清理全局记录。
+func closeSwarmFloatForBannerTest(t *testing.T, leadID string, bees []SwarmBee) {
+	t.Helper()
+	dismissSwarmFloatPanel(leadID, bees)
+	t.Cleanup(func() {
+		resetSwarmAutoHideFor(leadID)
+	})
+}
+
 // swarmQuestionBannerState 构造主会话 lead 的 Swarm 状态，其中一个运行中的 bee 正在提问。
 func swarmQuestionBannerState(forwarded bool) SwarmState {
 	return SwarmState{
@@ -51,6 +60,7 @@ func TestSwarmQuestionBannerShowsPendingQuestion(t *testing.T) {
 	hp.loadedFor = "lead"
 	hp.setStateLocked(st)
 	swarmPanelMu.Unlock()
+	closeSwarmFloatForBannerTest(t, "lead", st.Bees)
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		s.init(c)
@@ -99,6 +109,7 @@ func TestSwarmQuestionBannerForwarded(t *testing.T) {
 	hp.loadedFor = "lead"
 	hp.setStateLocked(st)
 	swarmPanelMu.Unlock()
+	closeSwarmFloatForBannerTest(t, "lead", st.Bees)
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		s.init(c)
@@ -206,6 +217,7 @@ func TestUIReview4_SwarmQuestionCountdownNextChange(t *testing.T) {
 		hp.setStateLocked(st)
 		swarmPanelMu.Unlock()
 	}
+	closeSwarmFloatForBannerTest(t, "lead", swarmQuestionBannerState(false).Bees)
 
 	builds := 0
 	tt := ui.NewTesterWith(func(c *ui.Context) {
@@ -339,6 +351,7 @@ func TestSwarmQuestionBannerNarrowWrap(t *testing.T) {
 			})
 			s.selectedThreadID = "lead"
 			hp := getSwarmPanelState(s)
+			closeSwarmFloatForBannerTest(t, "lead", makeState(time.Time{}).Bees)
 
 			var (
 				baseTime    time.Time
@@ -507,7 +520,6 @@ func TestSwarmQuestionBannerInlineAnswer(t *testing.T) {
 		t.Cleanup(func() {
 			closeEmbeddedBees(s)
 			s.close()
-			resetSwarmAutoHideFor("lead")
 			resetSwarmQuestionPopFor("lead")
 		})
 		s.selectedThreadID = "lead"
@@ -516,6 +528,7 @@ func TestSwarmQuestionBannerInlineAnswer(t *testing.T) {
 		hp.loadedFor = "lead"
 		hp.setStateLocked(st)
 		swarmPanelMu.Unlock()
+		closeSwarmFloatForBannerTest(t, "lead", st.Bees)
 
 		tt := ui.NewTester(func(c *ui.Context) {
 			s.init(c)
@@ -596,6 +609,7 @@ func TestSwarmQuestionBannerInlineAnswer(t *testing.T) {
 				hp.loadedFor = "lead"
 				hp.setStateLocked(st)
 				swarmPanelMu.Unlock()
+				closeSwarmFloatForBannerTest(t, "lead", st.Bees)
 
 				builds := 0
 				tt := ui.NewTesterWith(func(c *ui.Context) {
@@ -651,4 +665,120 @@ func TestSwarmQuestionBannerInlineAnswer(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestSwarmQuestionBannerSkipsBeeShownInFloat(t *testing.T) {
+	const leadID = "lead-float-skip"
+	setAppReduceMotion(t, true)
+	resetSwarmAutoHideFor(leadID)
+	resetSwarmQuestionPopFor(leadID)
+
+	fake := NewFakeClient()
+	st := SwarmState{
+		LeadThreadID: leadID,
+		Available:    true,
+		Enabled:      true,
+		Bees: []SwarmBee{
+			{
+				ThreadID: "h1",
+				Name:     "快手",
+				Status:   "running",
+				PendingQuestion: &SwarmBeeQuestion{
+					RequestID: "req-1",
+					Questions: []ApprovalQuestion{
+						{
+							ID:     "q1",
+							Prompt: "要不要删掉旧配置？",
+							Choices: []ApprovalQuestionChoice{
+								{Label: "保留"},
+								{Label: "删除"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	appr := Approval{
+		ThreadID:  "h1",
+		RequestID: "req-1",
+		Kind:      ApprovalKindQuestion,
+		Questions: st.Bees[0].PendingQuestion.Questions,
+	}
+	fake.SetSwarmState(leadID, st)
+	fake.TriggerApprovals("h1", []Approval{appr})
+
+	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		s.close()
+		resetSwarmAutoHideFor(leadID)
+		resetSwarmQuestionPopFor(leadID)
+		swarmFloatMu.Lock()
+		delete(swarmMenuOpen, leadID+"|"+string(teamPanelID))
+		delete(swarmMenuOpen, leadID+"|"+string(autoPanelID("h1")))
+		swarmFloatMu.Unlock()
+	})
+	s.selectedThreadID = leadID
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.loadedFor = leadID
+	hp.setStateLocked(st)
+	swarmPanelMu.Unlock()
+	dismissSwarmFloatPanel(leadID, st.Bees)
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		s.init(c)
+		renderSwarmBeeFloats(c, s)
+		renderSwarmQuestionBanner(c, s)
+	}, 1600, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+
+	// a. 浮窗未打开时，提示条显示待答提问。
+	tt.Frame()
+	if !tt.HasText("快手 在提问") || !tt.HasText("交给主线程回答") || !tt.HasText("要不要删掉旧配置？") {
+		t.Fatalf("浮窗未打开时提示条应显示提问内容，got %v", tt.Texts())
+	}
+	// 等子会话完成首次线程加载，避免后续异步回调覆盖测试注入的审批列表。
+	waitFor(t, tt, func() bool {
+		embeddedMu.Lock()
+		entry := embeddedBees[embeddedBeeKey{s, "h1"}]
+		var child *chatState
+		if entry != nil {
+			child = entry.state
+		}
+		embeddedMu.Unlock()
+		if child == nil {
+			return false
+		}
+		child.mu.Lock()
+		ready := child.watchStop != nil
+		child.mu.Unlock()
+		return ready
+	})
+
+	// b. 打开浮窗且子会话 approvals 含同一 RequestID 的提问时，提示条不再重复显示。
+	openSwarmFloatForBee(leadID, "h1")
+	fake.TriggerApprovals("h1", []Approval{appr})
+	s.invalidate()
+	tt.Frame()
+	if tt.HasText("快手 在提问") || tt.HasText("交给主线程回答") {
+		t.Fatalf("浮窗已显示该提问时提示条不应再渲染该 bee，got %v", tt.Texts())
+	}
+	promptCount := 0
+	for _, txt := range tt.Texts() {
+		if txt == "要不要删掉旧配置？" {
+			promptCount++
+		}
+	}
+	if promptCount != 1 {
+		t.Fatalf("同一提问文本应只出现在浮窗中一次，got %d in %v", promptCount, tt.Texts())
+	}
+
+	// c. 关闭浮窗后，提示条重新显示该提问。
+	dismissSwarmFloatPanel(leadID, st.Bees)
+	s.invalidate()
+	tt.Frame()
+	if !tt.HasText("快手 在提问") || !tt.HasText("交给主线程回答") || !tt.HasText("要不要删掉旧配置？") {
+		t.Fatalf("关闭浮窗后提示条应重新显示提问，got %v", tt.Texts())
+	}
 }
