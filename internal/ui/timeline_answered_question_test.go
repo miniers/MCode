@@ -489,6 +489,30 @@ func TestUnreadCountedMessageExcludesQuestionAnswer(t *testing.T) {
 	}
 }
 
+// TestAnsweredQuestionPromptTextDedup 覆盖题头与题面拼接：相同时（含首尾空白差异）只保留一份，不同时用空格连接，仅有其一时返回它。
+func TestAnsweredQuestionPromptTextDedup(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		prompt string
+		want   string
+	}{
+		{name: "题头题面相同", header: "要继续吗？", prompt: "要继续吗？", want: "要继续吗？"},
+		{name: "首尾空白不同但内容相同", header: "  要继续吗？ ", prompt: "\t要继续吗？\n", want: "要继续吗？"},
+		{name: "题头题面不同用空格连接", header: "范围", prompt: "先做哪一项？", want: "范围 先做哪一项？"},
+		{name: "只有题头", header: "  范围  ", prompt: "", want: "范围"},
+		{name: "只有题面", header: "   ", prompt: "  补充说明 ", want: "补充说明"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := answeredQuestionPromptText(ApprovalQuestion{Header: tc.header, Prompt: tc.prompt})
+			if got != tc.want {
+				t.Fatalf("answeredQuestionPromptText(%q, %q) = %q, want %q", tc.header, tc.prompt, got, tc.want)
+			}
+		})
+	}
+}
+
 // countExactTexts 统计当前帧里文本恰好等于 want 的标签个数。
 func countExactTexts(texts []string, want string) int {
 	n := 0

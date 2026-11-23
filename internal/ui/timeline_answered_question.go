@@ -69,14 +69,14 @@ func newAnsweredQuestion(a Approval, answers map[string][]string, skip bool) ans
 	return q
 }
 
-// answeredQuestionPromptText 拼出题目文本：题头（Header）与题面（Prompt）都可能存在，两者用空格连接。
+// answeredQuestionPromptText 拼出题目文本：题头（Header）与题面（Prompt）都可能存在，相同时只保留一份，不同时用空格连接。
 func answeredQuestionPromptText(q ApprovalQuestion) string {
 	header := strings.TrimSpace(q.Header)
 	prompt := strings.TrimSpace(q.Prompt)
 	switch {
 	case header == "":
 		return prompt
-	case prompt == "":
+	case prompt == "" || prompt == header:
 		return header
 	default:
 		return header + " " + prompt
