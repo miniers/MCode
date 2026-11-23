@@ -241,3 +241,97 @@ func TestCommandActivityBackgroundCandidate(t *testing.T) {
 	}
 	t.Fatal("后台命令未采样")
 }
+
+func TestRunningCommandCopyButton(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+	}{
+		{name: "single-step", cmd: "go test ./..."},
+		{name: "multi-step", cmd: "bash -lc 'go build ./... && go test ./...'"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := Message{
+				ID: "copy-" + tc.name, Role: "tool", ToolName: "Bash", ToolStatus: "running",
+				ToolInput: `{"command":"` + tc.cmd + `"}`,
+				Text:      `Bash {"command":"` + tc.cmd + `"}` + "\noutput",
+				CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
+			}
+			s := newChatState(NewFakeClient())
+			s.selectedThreadID = "t1"
+			s.expandedTool[m.ID] = true
+			tt := ui.NewTester(func(c *ui.Context) {
+				renderToolDetail(c, s, m)
+			}, 900, 500)
+			for i := 0; i < 2; i++ {
+				tt.Frame()
+			}
+			if _, ok := tt.Find("复制命令"); !ok {
+				t.Fatalf("%s 应显示「复制命令」按钮", tc.name)
+			}
+			if err := tt.Click("复制命令"); err != nil {
+				t.Fatalf("%s 点击「复制命令」失败: %v", tc.name, err)
+			}
+			tt.Frame()
+			if got := tt.Clipboard(); got != tc.cmd {
+				t.Fatalf("%s 剪贴板 = %q, want %q", tc.name, got, tc.cmd)
+			}
+		})
+	}
+}
+
+func TestRunningCommandStepsCollapse(t *testing.T) {
+	longStep := strings.Repeat("flag-value ", 200) + "UNIQUE_STEP_END_MARKER"
+	longCmd := "go build ./... && echo " + longStep
+	mLong := Message{
+		ID: "collapse-long", Role: "tool", ToolName: "Bash", ToolStatus: "running",
+		ToolInput: `{"command":"` + longCmd + `"}`,
+		Text:      `Bash {"command":"` + longCmd + `"}` + "\noutput",
+		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
+	}
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.expandedTool[mLong.ID] = true
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderToolDetail(c, s, mLong)
+	}, 900, 500)
+	for i := 0; i < 2; i++ {
+		tt.Frame()
+	}
+	if _, ok := tt.Find("展开命令"); !ok {
+		t.Fatal("超三行步骤应默认显示「展开命令」按钮")
+	}
+	if err := tt.Click("展开命令"); err != nil {
+		t.Fatalf("点击「展开命令」失败: %v", err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("收起命令"); !ok {
+		t.Fatal("展开后应显示「收起命令」按钮")
+	}
+	s.mu.Lock()
+	expanded := s.expandedCommandSteps[mLong.ID]
+	s.mu.Unlock()
+	if !expanded {
+		t.Fatal("点击展开后 s.expandedCommandSteps[m.ID] 应为 true")
+	}
+
+	mShort := Message{
+		ID: "collapse-short", Role: "tool", ToolName: "Bash", ToolStatus: "running",
+		ToolInput: `{"command":"go build ./... && go test ./..."}`,
+		Text:      `Bash {"command":"go build ./... && go test ./..."}` + "\noutput",
+		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
+	}
+	sShort := newChatState(NewFakeClient())
+	sShort.selectedThreadID = "t1"
+	sShort.expandedTool[mShort.ID] = true
+	ttShort := ui.NewTester(func(c *ui.Context) {
+		renderToolDetail(c, sShort, mShort)
+	}, 900, 500)
+	for i := 0; i < 2; i++ {
+		ttShort.Frame()
+	}
+	if _, ok := ttShort.Find("展开命令"); ok {
+		t.Fatal("短两步命令不应显示「展开命令」按钮")
+	}
+}

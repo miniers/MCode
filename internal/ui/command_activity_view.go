@@ -53,8 +53,8 @@ func renderCommandActivityView(c *ui.Context, s *chatState, m Message) {
 				fill := ui.Box(c.Key(fmt.Sprintf("command-fill-%s-%d", m.ID, i))).Absolute().Left(0).Top(0).Bottom(0).Radius(RadiusXS).Background(ThemeAccent(c).Alpha(0.08)).PassThrough()
 				width := commandActivityFillWidth(row.LayoutBounds().W, p.cpu)
 				fill.Width(fill.AnimateTo("width", width, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut}))
-				ui.Text(c, p.name).FontSize(scaledFont(TypeCaption)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine()
-				ui.Text(c, p.object).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…")
+				ui.Text(c, p.name).FontSize(scaledFont(TypeCaption)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Selectable()
+				ui.Text(c, p.object).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(p.object).Selectable()
 				cpuColor := ThemeSecondaryText(c)
 				if stalled {
 					cpuColor = ThemeWarning(c)

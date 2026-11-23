@@ -514,6 +514,7 @@ type chatState struct {
 	editGeneration        uint64
 	expandedReasoning     map[string]bool
 	expandedTool          map[string]bool
+	expandedCommandSteps  map[string]bool
 	// 助手正文是否已完全显示的登记表（由 s.mu 保护）：revealedMsgs 按消息 ID 记录本帧
 	// markdown.Revealed 的结果；streamedRevealMsgs 记录本会话里以流式状态渲染过的消息，
 	// 只有它们才等正文显示完再露出时间与操作栏，打开历史会话时已有的消息不受影响。
@@ -652,8 +653,9 @@ func newChatState(client Client) *chatState {
 		expandedDormantProj: make(map[string]bool),
 		visibleThreadsProj:  make(map[string]int),
 		bulkRangeDays:       7,
-		expandedReasoning:   make(map[string]bool),
-		expandedTool:        make(map[string]bool),
+		expandedReasoning:    make(map[string]bool),
+		expandedTool:         make(map[string]bool),
+		expandedCommandSteps: make(map[string]bool),
 		revealedMsgs:        make(map[string]bool),
 		streamedRevealMsgs:  make(map[string]struct{}),
 		seenMsgIDs:          make(map[string]struct{}),

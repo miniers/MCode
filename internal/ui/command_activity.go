@@ -524,37 +524,94 @@ func renderRunningCommandHeader(c *ui.Context, s *chatState, m Message, fontFam 
 	s.mu.Lock()
 	ensureCommandActivityLocked(s, m)
 	killing := s.killingTools[m.ID]
+	expanded := s.expandedCommandSteps[m.ID]
 	s.mu.Unlock()
 	st := commandActivitySnapshot(s, m.ID)
+	rawCmd := commandActivityCommand(m)
+	hasOverflow := false
 	ui.Row(c.Key("command-header-" + m.ID)).FillWidth().Gap(Space2).AlignItems(ui.Start).Children(func() {
 		ui.Column(c.Key("command-steps-" + m.ID)).Grow(1).MinWidth(0).Gap(Space1).Children(func() {
 			if len(st.steps) < 2 || !isToolRunning(m) {
 				return
 			}
+			fontSize := scaledFont(TypeCaption)
 			for i, step := range st.steps {
 				status := commandStepStatus(i, st.maxStep)
-				ui.Row(c.Key(fmt.Sprintf("command-step-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-					renderTodoStatusIcon(c, fmt.Sprintf("command-step-icon-%s-%d", m.ID, i), status, isToolRunning(m))
+				ui.Row(c.Key(fmt.Sprintf("command-step-%s-%d", m.ID, i))).FillWidth().Gap(Space2).AlignItems(ui.Start).Children(func() {
+					ui.Box(c.Key(fmt.Sprintf("command-step-icon-wrap-%s-%d", m.ID, i))).Padding(Space0, 0, 0, 0).Shrink(0).Children(func() {
+						renderTodoStatusIcon(c, fmt.Sprintf("command-step-icon-%s-%d", m.ID, i), status, isToolRunning(m))
+					})
 					color := ThemeSecondaryText(c)
 					if status == "completed" {
 						color = color.Alpha(0.75)
 					} else if status == "in_progress" {
 						color = ThemePrimaryText(c)
 					}
-					label := ui.Text(c, step).Font(fontFam).FontSize(scaledFont(TypeCaption)).SingleLine().Grow(1).MinWidth(0).TextColor(color)
+					label := ui.Text(c.Key(fmt.Sprintf("command-step-text-%s-%d", m.ID, i)), step).Font(fontFam).FontSize(fontSize).Grow(1).MinWidth(0).TextColor(color).Selectable()
+					if !expanded {
+						label.MaxLines(3).Ellipsis("…")
+					}
+					weight := 0
 					if status == "in_progress" {
+						weight = 500
 						label.FontWeight(500)
+					}
+					if !hasOverflow {
+						if w := label.LayoutBounds().W; w > 0 {
+							_, stepH := cachedMeasureText(c, w, ui.Span{Text: step, Font: fontFam, Size: fontSize, Weight: weight})
+							_, threeLineH := cachedMeasureText(c, 0, ui.Span{Text: "A\nA\nA", Font: fontFam, Size: fontSize, Weight: weight})
+							if stepH > threeLineH+Hairline {
+								hasOverflow = true
+							}
+						}
 					}
 					if i == st.maxStep-1 && !st.stepStartedAt.IsZero() {
 						elapsed := c.Now().Sub(st.stepStartedAt)
 						if elapsed < 0 {
 							elapsed = 0
 						}
-						ui.Text(c, formatDuration(elapsed)).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Shrink(0)
+						ui.Text(c, formatDuration(elapsed)).FontSize(fontSize).TextColor(ThemeSecondaryText(c)).Shrink(0)
 					}
 				})
 			}
 		})
+		if hasOverflow {
+			toggleIcon := IconChevronRight()
+			toggleLabel := "展开命令"
+			if expanded {
+				toggleIcon = IconChevronDown()
+				toggleLabel = "收起命令"
+			}
+			IconButton(c, IconButtonProps{
+				Key:     "command-steps-toggle-" + m.ID,
+				Icon:    toggleIcon,
+				Label:   toggleLabel,
+				Tooltip: toggleLabel,
+				Size:    ControlXS,
+				Variant: ButtonGhost,
+				OnClick: func() {
+					s.mu.Lock()
+					if s.expandedCommandSteps == nil {
+						s.expandedCommandSteps = make(map[string]bool)
+					}
+					s.expandedCommandSteps[m.ID] = !expanded
+					s.mu.Unlock()
+					s.invalidate()
+				},
+			}).Shrink(0)
+		}
+		copyKey := "command-copy-" + m.ID
+		copied := copyFeedbackActive(copyKey, time.Now())
+		CopyButton(c, CopyButtonProps{
+			Key:      copyKey,
+			Label:    "复制命令",
+			Tooltip:  "复制命令",
+			Mode:     CopyIcon,
+			Copied:   copied,
+			Disabled: rawCmd == "",
+			Value:    func() string { return rawCmd },
+			OnCopy:   func() { markCopyFeedback(s, copyKey) },
+		}).Shrink(0)
 		IconButton(c, IconButtonProps{Key: "tool-kill-" + m.ID, Icon: IconCircleStop(), Label: "终止此命令", Tooltip: "终止此命令", Size: ControlXS, Variant: ButtonGhost, Loading: killing, Disabled: killing, OnClick: func() { s.killRunningCommand(m.ID) }}).Shrink(0)
 	})
 }
