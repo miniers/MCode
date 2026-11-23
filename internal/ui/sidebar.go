@@ -690,6 +690,21 @@ func sidebarTopBarHeight(topOffset float32) float32 {
 	return 0
 }
 
+// applySidebarHeaderAddReveal 控制段/项目标题行右侧「+」按钮的悬停与键盘焦点显隐：
+// 未悬停且无焦点时透明度为 0，悬停所在标题行或按钮获焦时以短时长过渡显现；ReduceMotion 时直达终点。
+func applySidebarHeaderAddReveal(c *ui.Context, btn ui.Element, animKey string, visible bool) {
+	target := float32(0)
+	if visible {
+		target = 1
+	}
+	if reduceMotion(c) {
+		btn.Jump(animKey, target)
+		btn.Opacity(target)
+		return
+	}
+	btn.Opacity(btn.AnimateTo(animKey, target, ui.Animation{Duration: motionFast, Ease: motionEaseStandard}))
+}
+
 type sidebarMetrics struct {
 	compact      bool
 	rowHeight    float32
@@ -1139,17 +1154,21 @@ func renderSidebar(c *ui.Context, s *chatState) {
 	}
 
 	ui.Column(c.Key("sidebar-column")).Fill().Background(ThemeSidebarBg(c)).Children(func() {
-		// 1. 顶部避让系统窗口按钮：macOS 是交通灯（30pt 占位），Windows 的按钮在右侧，占位为 0。
-		ui.Box(c.Key("traffic-light-pad")).Height(titleBarTopOffset(c)).DragWindow()
+		// 1. 顶部避让系统窗口按钮：macOS 在交通灯占位基础上额外加 Space2 留白，Windows 按钮在右侧，占位为 0。
+		topOffset := titleBarTopOffset(c)
+		padHeight := topOffset
+		if topOffset > 0 {
+			padHeight = topOffset + Space2
+		}
+		ui.Box(c.Key("traffic-light-pad")).Height(padHeight).DragWindow()
 
-		// 2. 顶部工具栏：搜索输入框占满剩余宽度，右侧是动态视图开关。
-		// 顶部无占位时与聊天标题栏等高，行内空白处仍能拖动窗口。
+		// 2. 顶部工具栏：搜索输入框占满整行，内部右侧嵌入过滤与动态视图按钮，行内空白处仍能拖动窗口。
 		topBar := ui.Row(c.Key("sidebar-top-bar")).
 			DragWindow().
 			Padding(Space1, ListInset, Space1, ListInset).
 			Gap(Space2).
 			AlignItems(ui.Center)
-		if height := sidebarTopBarHeight(titleBarTopOffset(c)); height > 0 {
+		if height := sidebarTopBarHeight(topOffset); height > 0 {
 			topBar.Height(height)
 		}
 		topBar.Children(func() {
@@ -1168,7 +1187,8 @@ func renderSidebar(c *ui.Context, s *chatState) {
 			}
 			s.mu.Unlock()
 
-			// 搜索输入框（根据标题即时过滤，上下键移动高亮，回车打开会话）
+			// 搜索输入框（根据标题即时过滤，上下键移动高亮，回车打开会话）；
+			// 右侧内嵌过滤与动态视图按钮，搜索框占满整行。
 			SearchField(c.Key("sidebar-search-field"), TextFieldProps{
 				Value:       searchQueryPtr,
 				Placeholder: "搜索对话...",
@@ -1185,26 +1205,27 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				OnKeyDown: func(k ui.TextKey) bool {
 					return s.handleSearchKey(k, matchingThreads)
 				},
-			}).Grow(1)
-
-			// 过滤入口固定放在搜索框右侧、动态视图开关旁，保证任意视图下过滤状态都可见、可清除。
-			renderSidebarFilterControl(c, s)
-			// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
-			activityOn := s.activityViewEnabled()
-			activityTip := "开启动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
-			if activityOn {
-				activityTip = "关闭动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
-			}
-			IconButton(c.Key("sidebar-activity-btn"), IconButtonProps{
-				Icon:    IconBell(),
-				Size:    ControlMD,
-				Variant: ButtonGhost,
-				Label:   activityTip,
-				Active:  activityOn,
-				OnClick: func() {
-					s.toggleActivityView()
+				Trailing: func() {
+					// 过滤入口固定放在搜索框内右侧、动态视图开关旁，保证任意视图下过滤状态都可见、可清除。
+					renderSidebarFilterControl(c, s)
+					// 动态视图开关：铃铛图标按钮（开启时用强调色高亮底），与 ⌥⌘U 共用入口
+					activityOn := s.activityViewEnabled()
+					activityTip := "开启动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
+					if activityOn {
+						activityTip = "关闭动态视图 (" + shortcutDisplay("⌥⌘U") + ")"
+					}
+					IconButton(c.Key("sidebar-activity-btn"), IconButtonProps{
+						Icon:    IconBell(),
+						Size:    ControlXS,
+						Variant: ButtonGhost,
+						Label:   activityTip,
+						Active:  activityOn,
+						OnClick: func() {
+							s.toggleActivityView()
+						},
+					})
 				},
-			})
+			}).Grow(1).Label("侧栏搜索框")
 		})
 
 		// 回落态（搜索/过滤/动态视图）没有顶部聚焦区，总管段留在列表上方保持可达；
@@ -1544,7 +1565,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							Margin(0, Space1, 0, 0)
 					}
 
-					IconButton(c.Key("proj-add-thread-"+pVal.ID), IconButtonProps{
+					addBtn := IconButton(c.Key("proj-add-thread-"+pVal.ID), IconButtonProps{
 						Icon:    IconPlus(),
 						Size:    ControlMD,
 						Variant: ButtonGhost,
@@ -1559,6 +1580,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							s.createThread(pVal.ID)
 						},
 					})
+					applySidebarHeaderAddReveal(c, addBtn, "proj-add-reveal-"+pVal.ID, headerRow.Hovered() || addBtn.Focused())
 				})
 
 				// 展开状态下展示该项目的会话列表与已休眠折叠组

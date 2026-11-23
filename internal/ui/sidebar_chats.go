@@ -215,7 +215,7 @@ func renderSidebarChatsSection(
 
 	m := currentSidebarMetrics(c, s)
 
-	// 一行段标题：左侧文字「对话」，右侧「+」图标按钮，不挂载项目右键菜单。
+	// 一行段标题：左侧弱化段标签「对话」，右侧悬停或聚焦显现的「+」图标按钮，不挂载项目右键菜单。
 	headerRow := ui.Row(c.Key("chats-section-header")).
 		Height(m.rowHeight).
 		Padding(0, m.padX).
@@ -226,15 +226,15 @@ func renderSidebarChatsSection(
 
 	headerRow.Children(func() {
 		ui.Text(c, "对话").
-			FontSize(sidebarFont(FontSizeThreadTitle)).
-			FontWeight(500).
-			TextColor(ThemePrimaryText(c)).
+			FontSize(sidebarFont(TypeCaption)).
+			FontWeight(600).
+			TextColor(ThemeTertiaryText(c)).
 			Grow(1).
 			SingleLine()
 
-		IconButton(c.Key("chats-add-thread"), IconButtonProps{
+		addBtn := IconButton(c.Key("chats-add-thread"), IconButtonProps{
 			Icon:    IconPlus(),
-			Size:    ControlMD,
+			Size:    ControlXS,
 			Variant: ButtonGhost,
 			Label:   "新建对话",
 			OnClick: func() {
@@ -247,6 +247,7 @@ func renderSidebarChatsSection(
 				s.createThread(chatsProjID)
 			},
 		})
+		applySidebarHeaderAddReveal(c, addBtn, "chats-add-reveal", headerRow.Hovered() || addBtn.Focused())
 	})
 
 	for _, th := range topThs {
@@ -271,12 +272,12 @@ func renderSidebarChatsSection(
 	ui.Box(c.Key("chats-section-gap")).Height(m.projectGap)
 }
 
-// renderSidebarFilterControl 渲染过滤按钮与下拉框，固定置于侧栏顶栏搜索框右侧，
+// renderSidebarFilterControl 渲染过滤按钮与下拉框，内嵌置于侧栏搜索框右侧，
 // 确保任何视图下过滤状态都可见、可清除。
 func renderSidebarFilterControl(c *ui.Context, s *chatState) {
 	trigger := IconButton(c.Key("chats-filter"), IconButtonProps{
 		Icon:    IconFilter(),
-		Size:    ControlMD,
+		Size:    ControlXS,
 		Variant: ButtonGhost,
 		Label:   "过滤对话",
 		Tooltip: "过滤对话 · " + sidebarFilterLabel(s.sidebarFilter),

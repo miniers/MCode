@@ -367,11 +367,15 @@ func TestSidebarFocusZoneHoverLatchAndSettle(t *testing.T) {
 	})
 }
 
-// TestSidebarFocusZoneFilterControlInTopBar 验证过滤控件固定在顶栏搜索框行里，
-// 不在「对话」段标题行里，且开启或关闭动态视图都在顶栏。
+// TestSidebarFocusZoneFilterControlInTopBar 验证过滤控件内嵌在顶栏搜索框里，
+// 不在「对话」段标题行里，且开启或关闭动态视图都在顶栏搜索框内。
 func TestSidebarFocusZoneFilterControlInTopBar(t *testing.T) {
 	tt, state := buildSidebarFocusZoneFixture(t, true)
 
+	searchOuter, ok := tt.Find("侧栏搜索框")
+	if !ok {
+		t.Fatalf("找不到侧栏搜索框: %q", tt.Texts())
+	}
 	searchBox, ok := tt.Find("搜索对话...")
 	if !ok {
 		t.Fatalf("找不到搜索输入框: %q", tt.Texts())
@@ -393,12 +397,13 @@ func TestSidebarFocusZoneFilterControlInTopBar(t *testing.T) {
 		t.Fatalf("找不到「新建对话」按钮: %q", tt.Texts())
 	}
 
-	// 过滤按钮与搜索框、铃铛按钮在同一行，且位于「对话」段标题行上方。
+	// 过滤按钮与铃铛按钮内嵌在搜索框内部（输入区右侧），且位于「对话」段标题行上方。
 	if filterBtn.X < searchBox.X+searchBox.W || filterBtn.X+filterBtn.W > bellBtn.X+1 {
-		t.Fatalf("过滤按钮应位于搜索框右侧与铃铛按钮左侧之间: search=%+v, filter=%+v, bell=%+v", searchBox, filterBtn, bellBtn)
+		t.Fatalf("过滤按钮应位于搜索输入右侧与铃铛按钮左侧之间: search=%+v, filter=%+v, bell=%+v", searchBox, filterBtn, bellBtn)
 	}
-	if filterBtn.Y+filterBtn.H <= searchBox.Y || filterBtn.Y >= searchBox.Y+searchBox.H {
-		t.Fatalf("过滤按钮应与搜索框处于同一顶栏行: search=%+v, filter=%+v", searchBox, filterBtn)
+	if filterBtn.X < searchOuter.X || filterBtn.Y < searchOuter.Y ||
+		bellBtn.X+bellBtn.W > searchOuter.X+searchOuter.W || bellBtn.Y+bellBtn.H > searchOuter.Y+searchOuter.H {
+		t.Fatalf("过滤与铃铛按钮应落在搜索框容器内部: outer=%+v, filter=%+v, bell=%+v", searchOuter, filterBtn, bellBtn)
 	}
 	if filterBtn.Y+filterBtn.H > addChatBtn.Y || addChatBtn.Y > chatsHeader.Y || addChatBtn.Y+addChatBtn.H < chatsHeader.Y+chatsHeader.H {
 		t.Fatalf("过滤按钮不应在「对话」段标题行里: filter=%+v, chatsHeader=%+v, addChat=%+v", filterBtn, chatsHeader, addChatBtn)

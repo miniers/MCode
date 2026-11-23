@@ -32,6 +32,8 @@ type TextFieldProps struct {
 	// OnFocusChange 每帧报告输入框是否持有焦点，供调用方跟踪失焦时机。
 	OnFocusChange func(bool)
 	OnKeyDown     func(k ui.TextKey) bool
+	// Trailing 渲染在输入框行内、清空按钮之后的附加控件。
+	Trailing func()
 }
 
 type inputColors struct {
@@ -121,8 +123,32 @@ func renderTextField(c *ui.Context, p TextFieldProps, search bool) ui.Element {
 		if p.ReadOnly {
 			in.ReadOnly(true)
 		}
+		overAccessory := false
+		if p.Clearable && *value != "" {
+			clearLabel := p.ClearLabel
+			if clearLabel == "" {
+				clearLabel = "清空"
+			}
+			clearBtn := IconButton(ctx, IconButtonProps{
+				Key: "clear", Icon: IconX(), Label: clearLabel, Size: ControlXS,
+				Variant: ButtonGhost, Disabled: p.Disabled,
+				OnClick: func() {
+					*value = ""
+					if p.OnChange != nil {
+						p.OnChange("")
+					}
+				},
+			})
+			overAccessory = overAccessory || clearBtn.Hovered()
+		}
+		if p.Trailing != nil {
+			trailing := ui.Row(ctx.Key("trailing")).Gap(Space1).AlignItems(ui.Center).Shrink(0)
+			trailing.Children(p.Trailing)
+			overAccessory = overAccessory || trailing.Hovered()
+		}
 		if !p.Disabled {
-			if row.Clicked() || p.Focused {
+			// 点击清空或尾部内嵌控件时，不让外层 row.Clicked() 把焦点抢回输入框。
+			if (row.Clicked() && !overAccessory) || p.Focused {
 				in.Focus()
 			}
 			if p.AutoFocus {
@@ -134,22 +160,6 @@ func renderTextField(c *ui.Context, p TextFieldProps, search bool) ui.Element {
 		row.Border(1, inputBorderColor(in.Focused(), row.Hovered(), p.Disabled, windowActiveFor(c), inputColors{
 			border: ThemeBorder(c), strong: ThemeOverlay(c, inputBorderStrongOpacity), accent: ThemeAccent(c),
 		}))
-		if p.Clearable && *value != "" {
-			clearLabel := p.ClearLabel
-			if clearLabel == "" {
-				clearLabel = "清空"
-			}
-			IconButton(ctx, IconButtonProps{
-				Key: "clear", Icon: IconX(), Label: clearLabel, Size: ControlXS,
-				Variant: ButtonGhost, Disabled: p.Disabled,
-				OnClick: func() {
-					*value = ""
-					if p.OnChange != nil {
-						p.OnChange("")
-					}
-				},
-			})
-		}
 	})
 	return row
 }
