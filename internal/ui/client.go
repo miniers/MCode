@@ -100,6 +100,9 @@ type ModelInfo struct {
 type ProviderInfo struct {
 	ID, Name  string
 	Available bool
+	// ACP 表示该 provider 按 ACP 协议通信：它的 usage_update.cost 是整次会话的累计花费，
+	// 会话费用只能取最后一轮的值，不能逐轮相加。
+	ACP bool
 	// UnavailableReason 说明供应商可用但模型目录为空的原因（例如 CLI 未安装）；空表示没有说明。
 	UnavailableReason string
 	Models            []ModelInfo
@@ -476,18 +479,20 @@ type SwarmCredibility struct {
 
 // SwarmBee 表示一个 Swarm 子 Bee 的执行状态与信息。
 type SwarmBee struct {
-	ThreadID      string
-	Name          string
-	Task          string
-	Status        string
-	Summary       string
-	Activity      string
-	Provider      string
-	Model         string
-	MergeError    string
-	Index         int
-	ToolCalls     int
-	Tokens        int
+	ThreadID   string
+	Name       string
+	Task       string
+	Status     string
+	Summary    string
+	Activity   string
+	Provider   string
+	Model      string
+	MergeError string
+	Index      int
+	ToolCalls  int
+	Tokens     int
+	// CostUSD 是该 bee 会话的累计花费（美元），0 表示 provider 未上报。
+	CostUSD       float64
 	StartedAt     time.Time
 	FinishedAt    *time.Time
 	Merged        bool

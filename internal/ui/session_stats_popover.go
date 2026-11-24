@@ -140,6 +140,10 @@ type sessionStatsSummary struct {
 	beeToolCalls int
 	costUSD      float64
 	hasCost      bool
+	// costReported 表示累计花费来自后端按轮上报的金额；为假时是按目录参考价估算。
+	costReported bool
+	// beeCostUSD 是各 bee 会话自己上报的花费合计（美元）。
+	beeCostUSD float64
 }
 
 // collectSessionStats 汇总会话统计：用量来自 ThreadUsage，时长优先取后端记录的每轮耗时、
@@ -210,18 +214,80 @@ func collectSessionStats(s *chatState, threadID string, now time.Time) sessionSt
 			st.bees++
 			st.beeTokens += h.Tokens
 			st.beeToolCalls += h.ToolCalls
+			st.beeCostUSD += h.CostUSD
 		}
 		swarmPanelMu.Unlock()
 	}
 
-	if st.usage.Total.Input > 0 || st.usage.Total.Output > 0 {
-		if prov, ok := findProviderInfo(providers, provider); ok {
-			if info, found := findModelInfo(prov.Models, model); found && info.Cost != nil {
-				st.costUSD, st.hasCost = estimateThreadCost(st.usage.Total, *info.Cost)
-			}
-		}
+	st.costUSD, st.costReported, st.hasCost = sessionStatsCost(st.usage, providers, provider, model)
+	// bee 是独立会话，各自上报自己的花费，不并入主会话的累计值；有上报时加进总计。
+	if st.beeCostUSD > 0 {
+		st.costUSD += st.beeCostUSD
+		st.costReported = true
+		st.hasCost = true
 	}
 	return st
+}
+
+// sessionStatsCost 算整场会话的累计花费（美元）。上报金额的语义按协议分两种：
+// ACP（含内置 droid 与自定义 agent）与 claude 报的是整次会话的累计花费，每轮落库的是
+// 同一个递增数字（见 ACP 规范 "Session Context Size and Cost"），逐轮相加会重复计费——
+// 实测一个 11 轮的 maki 会话真实约 7.4 美元会被算成 44.5；pi、omp 报的是本轮内各请求
+// 之和，可以相加。两种都拿不到时退回按模型目录参考价估算合计用量。
+// reported 表示金额来自后端上报而非估算。
+func sessionStatsCost(usage ThreadUsage, providers []ProviderInfo, provider, model string) (cost float64, reported, ok bool) {
+	if turnCost, found := latestReportedCost(usage); found {
+		if sessionCostIsCumulative(providers, provider) {
+			return turnCost, true, true
+		}
+		for _, turn := range usage.Turns {
+			if turn.CostUSD > 0 {
+				cost += turn.CostUSD
+			}
+		}
+		return cost, true, true
+	}
+	if usage.Total.Input <= 0 && usage.Total.Output <= 0 {
+		return 0, false, false
+	}
+	prov, found := findProviderInfo(providers, provider)
+	if !found {
+		return 0, false, false
+	}
+	info, isFound := findModelInfo(prov.Models, model)
+	if !isFound || info.Cost == nil {
+		return 0, false, false
+	}
+	cost, ok = estimateThreadCost(usage.Total, *info.Cost)
+	return cost, false, ok
+}
+
+// latestReportedCost 取轮次索引最大且带上报金额的那一轮的 CostUSD；按索引比较而不是
+// 依赖 map 迭代顺序。没有任何轮次上报时返回 false。
+func latestReportedCost(usage ThreadUsage) (float64, bool) {
+	latestIndex := 0
+	latest := 0.0
+	found := false
+	for index, turn := range usage.Turns {
+		if turn.CostUSD <= 0 {
+			continue
+		}
+		if !found || index > latestIndex {
+			latestIndex, latest, found = index, turn.CostUSD, true
+		}
+	}
+	return latest, found
+}
+
+// sessionCostIsCumulative 判断 provider 上报的花费是否为整次会话的累计值：
+// ACP agent 按规范上报会话累计；claude 的 result.total_cost_usd 同样是整次会话累计。
+// ACP 标记由后端按 harness 能力下发，自定义 agent 无需枚举。
+func sessionCostIsCumulative(providers []ProviderInfo, provider string) bool {
+	if provider == "claude" {
+		return true
+	}
+	prov, ok := findProviderInfo(providers, provider)
+	return ok && prov.ACP
 }
 
 // sessionLiveTurn 是当前运行主回合的定位：轮次索引、TurnID（可能为空）与可解析的起点。
@@ -465,6 +531,9 @@ func renderSessionStatsPopover(c *ui.Context, s *chatState, threadID, key string
 		if st.beeTokens > 0 {
 			beeRows = append(beeRows, [2]string{"tokens", formatTokenCount(int64(st.beeTokens))})
 		}
+		if st.beeCostUSD > 0 {
+			beeRows = append(beeRows, [2]string{"累计花费", fmt.Sprintf("$%.2f", st.beeCostUSD)})
+		}
 	}
 
 	card := ui.Column(c.Key(key+"-stats-card")).
@@ -487,7 +556,16 @@ func renderSessionStatsPopover(c *ui.Context, s *chatState, threadID, key string
 		sessionStatsGroup(c, key+"-change", "改动", changeRows)
 		sessionStatsGroup(c, key+"-bees", "子代理", beeRows)
 		if st.hasCost {
-			sessionStatsGroup(c, key+"-cost", "", [][2]string{{"估算费用", fmt.Sprintf("≈ $%.2f", st.costUSD)}})
+			label := "估算费用"
+			value := fmt.Sprintf("≈ $%.2f", st.costUSD)
+			if st.costReported {
+				label = "累计花费"
+				if st.beeCostUSD > 0 {
+					label = "含子代理累计花费"
+				}
+				value = fmt.Sprintf("$%.2f", st.costUSD)
+			}
+			sessionStatsGroup(c, key+"-cost", "", [][2]string{{label, value}})
 		}
 		if len(tokenRows)+len(activityRows)+len(toolRows)+len(timeRows)+len(changeRows)+len(beeRows) == 0 {
 			ui.Text(c, "暂无统计数据").
