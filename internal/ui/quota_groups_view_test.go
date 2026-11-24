@@ -728,3 +728,75 @@ func TestQuotaGroupList_TableColumnsAlign(t *testing.T) {
 		}
 	}
 }
+
+func TestQuotaRowHoverTooltip(t *testing.T) {
+	// (a) 验证 quotaRowTooltipText 的三种分支及空值回退。
+	if got := quotaRowTooltipText("5h 13% · 3 小时 7 分钟后重置", "周 20% · 周四 18:00 重置", "ignored"); got != "5h 13% · 3 小时 7 分钟后重置 · 周 20% · 周四 18:00 重置" {
+		t.Fatalf("双侧非空分支 = %q", got)
+	}
+	if got := quotaRowTooltipText("5h 13%", "", "5h 13% · 3 小时 7 分钟后重置"); got != "5h 13% · 3 小时 7 分钟后重置" {
+		t.Fatalf("HoverDetail 优先分支 = %q", got)
+	}
+	if got := quotaRowTooltipText("5h 13%", "", ""); got != "5h 13%" {
+		t.Fatalf("回退 hoverLeft 分支 = %q", got)
+	}
+	if got := quotaRowTooltipText("", "", ""); got != "" {
+		t.Fatalf("全空分支应返回空串，实际 %q", got)
+	}
+
+	// (b) 悬停账号行后不再立即出现自绘浮层，停留过原生 tooltip 延迟后才出现 RoleTooltip。
+	setAppReduceMotion(t, true)
+	const left = "5h 13% · 3 小时 7 分钟后重置"
+	const right = "周 20% · 周四 18:00 重置"
+	wantTip := left + " · " + right
+	groups := []trayQuotaGroupModel{{
+		Title:        "Codex",
+		MultiAccount: true,
+		Accounts: []trayQuotaAccountModel{{
+			Account:     "work@example.com",
+			DisplayName: "work@example.com",
+			Windows: []trayQuotaWindowModel{
+				{ShortLabel: "5h", UsedPercent: 13},
+				{ShortLabel: "周", UsedPercent: 20},
+			},
+			hoverLeft:  left,
+			hoverRight: right,
+		}},
+	}}
+
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderQuotaGroupList(c, "tooltip-test-", groups, quotaGroupListOptions{})
+	}, 456, 300, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+	tt.Frame()
+
+	hasDesc := false
+	for _, node := range tt.AccessAll() {
+		if node.Description == wantTip {
+			hasDesc = true
+			break
+		}
+	}
+	if !hasDesc {
+		t.Fatalf("渲染出的账号行应带有期望的 Tooltip 描述 %q", wantTip)
+	}
+
+	rowRect, ok := tt.Find("work@example.com")
+	if !ok {
+		t.Fatalf("找不到账号行: %v", tt.Texts())
+	}
+	tt.Move(rowRect.X+rowRect.W/2, rowRect.Y+rowRect.H/2)
+	tt.Frame()
+	if tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, ""); ok {
+		t.Fatalf("悬停行后不应立即出现 RoleTooltip: %+v", tipAcc)
+	}
+	if tt.HasText(wantTip) {
+		t.Fatalf("悬停行后不应立即出现提示文本: %v", tt.Texts())
+	}
+
+	tt.Advance(650 * time.Millisecond)
+	tt.Frame()
+	tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, "")
+	if !ok || tipAcc.Name != wantTip {
+		t.Fatalf("停留 0.6s 后应出现原生 RoleTooltip %q, got ok=%v node=%+v", wantTip, ok, tipAcc)
+	}
+}

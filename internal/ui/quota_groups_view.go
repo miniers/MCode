@@ -144,80 +144,15 @@ func quotaRowAllocateColumns(windows []trayQuotaWindowModel, cols []trayQuotaCol
 	return cells, extra
 }
 
-// renderQuotaRowHoverTip 在 Overlay 层渲染紧贴行上方（放不下时由 AttachTo 自动翻到下方）的详情浮条。
-func renderQuotaRowHoverTip(c *ui.Context, tipKey string, anchor ui.Element, left, right, detail string, tone quotaStatusTone) {
-	if left == "" && right == "" && detail == "" {
-		return
+// quotaRowTooltipText 组合额度行的原生 Tooltip 文案。
+func quotaRowTooltipText(left, right, detail string) string {
+	if left != "" && right != "" {
+		return left + " · " + right
 	}
-	ui.Overlay(c, func() {
-		tip := ui.Row(c.Key(tipKey)).
-			Absolute().
-			IgnoreInput(true).
-			Role(ui.RoleTooltip).
-			AttachTo(anchor, ui.AnchorTopLeft, ui.AnchorBottomLeft).
-			Margin(0, 0, Space1, 0).
-			Padding(Space2, Space3).
-			Radius(RadiusMD).
-			Background(ThemeSurfaceRaised(c)).
-			Border(Hairline, ThemeBorder(c)).
-			AlignItems(ui.Center).
-			Gap(Space3).
-			Transition(motionTransition(c, ui.ElementTransition{
-				Duration:     DurFast,
-				Ease:         EaseOut,
-				ExitDuration: DurFast,
-				ExitEase:     EaseOut,
-				Colors:       true,
-				Enter:        &ui.Motion{Y: 3, Opacity: 0},
-				Exit:         &ui.Motion{Y: 3, Opacity: 0},
-			}))
-		if ab := anchor.Bounds(); ab.W > 0 {
-			tip.Width(ab.W)
-		}
-		applyElevation(c, tip, ElevFloat)
-
-		toneColor := ThemeSecondaryText(c)
-		switch tone {
-		case quotaStatusDanger:
-			toneColor = ThemeDanger(c)
-		case quotaStatusWarn:
-			toneColor = ThemeWarning(c)
-		}
-
-		tip.Children(func() {
-			if left != "" && right != "" {
-				ui.Text(c, left).
-					FontSize(uiFont(TypeCaption)).
-					TextColor(ThemeSecondaryText(c)).
-					SingleLine().
-					Ellipsis("…").
-					Shrink(1).
-					MinWidth(0)
-				ui.Spacer(c)
-				rt := ui.Text(c, right).
-					FontSize(uiFont(TypeCaption)).
-					TextColor(toneColor).
-					SingleLine().
-					Shrink(0)
-				if tone != quotaStatusNormal {
-					rt.FontWeight(500)
-				}
-				return
-			}
-			text := detail
-			if text == "" {
-				text = left
-			}
-			dt := ui.Text(c, text).
-				FontSize(uiFont(TypeCaption)).
-				TextColor(toneColor).
-				SingleLine().
-				Ellipsis("…")
-			if tone != quotaStatusNormal {
-				dt.FontWeight(500)
-			}
-		})
-	})
+	if detail != "" {
+		return detail
+	}
+	return left
 }
 
 // renderQuotaRadioRing 渲染 14×14 单选圈，选中切换带 DurFast 过渡，尊重 ReduceMotion。
@@ -540,6 +475,9 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									row.Background(ThemeOverlayHover(c))
 								}
 								focusRing(c, row)
+								if tip := quotaRowTooltipText(curWin.hoverLeft, curWin.hoverRight, curWin.HoverDetail); tip != "" {
+									row.Tooltip(tip)
+								}
 								row.Children(func() {
 									ui.Text(c, curWin.ShortLabel).
 										FontSize(uiFont(TypeFootnote)).
@@ -589,9 +527,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										renderStatusText(winKey+"-status", curWin.CompactStatus, curWin.statusTone)
 									}
 								})
-								if rowActive && (curWin.HoverDetail != "" || curWin.hoverLeft != "") {
-									renderQuotaRowHoverTip(c, winKey+"-tip", row, curWin.hoverLeft, curWin.hoverRight, curWin.HoverDetail, curWin.hoverTone)
-								}
 							}
 						} else {
 							cols := quotaGroupColumnsResolved(g)
@@ -732,6 +667,9 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 									focusRing(c, row)
 									rowEl = row
 								}
+								if tip := quotaRowTooltipText(curAcc.hoverLeft, curAcc.hoverRight, curAcc.HoverDetail); tip != "" {
+									rowEl.Tooltip(tip)
+								}
 
 								rowEl.Children(func() {
 									ui.Row(c.Key(accKey+"-acc-cell")).
@@ -803,10 +741,6 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										renderStatusText(accKey+"-status", curAcc.CompactStatus, curAcc.statusTone)
 									}
 								})
-
-								if rowActive && (curAcc.HoverDetail != "" || curAcc.hoverLeft != "") {
-									renderQuotaRowHoverTip(c, accKey+"-tip", rowEl, curAcc.hoverLeft, curAcc.hoverRight, curAcc.HoverDetail, curAcc.hoverTone)
-								}
 
 								for exIdx, ex := range extra {
 									exKey := fmt.Sprintf("%s-ex-%d", accKey, exIdx)
