@@ -126,10 +126,12 @@ func localFileLinkPreview(c *ui.Context, dest string) func(tip ui.Element) {
 							row.Background(ThemeAccentSubtle(c))
 						}
 						row.Children(func() {
+							// 按字符截到 72 仍可能比卡片宽（中文与 ASCII 宽度不同），
+							// SingleLine 在布局宽度处再截一次并补省略号。
 							ui.Text(c, line).
 								Font("monospace").
 								FontSize(codeFontSize()).
-								NoWrap().
+								SingleLine().
 								TextColor(ThemePrimaryText(c))
 						})
 					}

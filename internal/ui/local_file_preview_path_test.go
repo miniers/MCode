@@ -137,3 +137,39 @@ func TestLocalFilePreviewPath(t *testing.T) {
 		})
 	}
 }
+
+// TestLocalFilePreviewLongLineFitsCard 校验预览里的代码行不超过卡片宽度：
+// 72 个字符的行在等宽字体下可能比卡片宽，必须按渲染宽度截断而不是横向溢出。
+func TestLocalFilePreviewLongLineFitsCard(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "sample.md")
+	line := "`turnPaths` 改为返回 `([]string, known bool)`：该轮 numstat 为空是「已知为空集合」，不再被"
+	if err := os.WriteFile(file, []byte("- 第一行\n- "+line+"\n"), 0o644); err != nil {
+		t.Fatalf("写入测试文件失败: %v", err)
+	}
+	tt := renderPreviewTester(file+"#L2", 800, 600)
+	var rect ui.Rect
+	found := false
+	for _, text := range tt.Texts() {
+		if strings.HasPrefix(text, "- `turnPaths`") {
+			rect, found = tt.Find(text)
+		}
+	}
+	if !found {
+		t.Fatalf("未找到预览行，所有文本: %v", tt.Texts())
+	}
+	if rect.W > localPreviewMaxWidth-2*Space2 {
+		t.Fatalf("预览行宽度 %v 超过卡片内容宽度 %v", rect.W, localPreviewMaxWidth-2*Space2)
+	}
+	if rect.H > shortLineHeight(t, tt) {
+		t.Fatalf("预览行高度 %v 超过单行高度，行被折行", rect.H)
+	}
+}
+
+func shortLineHeight(t *testing.T, tt *ui.Tester) float32 {
+	t.Helper()
+	rect, ok := tt.Find("- 第一行")
+	if !ok {
+		t.Fatalf("未找到短预览行，所有文本: %v", tt.Texts())
+	}
+	return rect.H
+}
