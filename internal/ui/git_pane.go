@@ -33,15 +33,6 @@ var gitPaneRemotesDialog func(c *ui.Context, s *chatState, threadID string, open
 
 const gitSwitchStashMarker = "mcode 切换前自动贮藏"
 
-var gitPaneFetchThrottle = struct {
-	sync.Mutex
-	last map[string]time.Time
-}{last: make(map[string]time.Time)}
-
-func gitPaneFetchDue(last, now time.Time) bool {
-	return last.IsZero() || now.Sub(last) >= 5*time.Minute
-}
-
 func gitPaneSwitchStash(entries []git.StashEntry, branch string) *git.StashEntry {
 	if branch == "" {
 		return nil
@@ -314,21 +305,19 @@ func (ps *gitPaneState) requestBackgroundFetch() {
 }
 
 func (ps *gitPaneState) backgroundFetch() {
+	if !gitAutoFetchEnabled(ps.owner) {
+		return
+	}
 	ps.mu.Lock()
 	if ps.disposed || !ps.visible || ps.syncing || ps.state.WorkDir == "" || ps.state.Detached || ps.lifeCtx == nil || ps.lifeCtx.Err() != nil {
 		ps.mu.Unlock()
 		return
 	}
 	root, lifeCtx := gitPaneWatchRoot(ps.state), ps.lifeCtx
-	gitPaneFetchThrottle.Lock()
-	now := time.Now()
-	if !gitPaneFetchDue(gitPaneFetchThrottle.last[root], now) {
-		gitPaneFetchThrottle.Unlock()
+	if !gitAutoFetchClaim(root, time.Now()) {
 		ps.mu.Unlock()
 		return
 	}
-	gitPaneFetchThrottle.last[root] = now
-	gitPaneFetchThrottle.Unlock()
 	ps.mu.Unlock()
 	go func() {
 		ctx, cancel := context.WithTimeout(lifeCtx, 30*time.Second)

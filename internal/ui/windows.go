@@ -387,7 +387,9 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 		// 维护窗口激活状态，供界面内的交互逻辑使用。
 		win.OnFocus(func() {
 			state.setWindowActive(true)
+			state.gitAutoFetch()
 		})
+		stopGitAutoFetch := startGitAutoFetch(state)
 		win.OnBlur(func() {
 			state.setWindowActive(false)
 		})
@@ -408,6 +410,7 @@ func openThreadWindow(client Client, threadID, title string, opts ...Option) (*m
 
 		win.OnClosed(func() {
 			unregisterChatWindow(win)
+			stopGitAutoFetch()
 			state.close()
 		})
 	})

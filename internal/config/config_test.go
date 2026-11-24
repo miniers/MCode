@@ -2707,6 +2707,20 @@ func TestLoadResetsInvalidFields(t *testing.T) {
 	}
 }
 
+// TestSourceControlAutoFetchEnabled 覆盖自动抓取开关 nil / true / false 三种取值。
+func TestSourceControlAutoFetchEnabled(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name string
+		val  *bool
+		want bool
+	}{{"nil", nil, true}, {"true", &on, true}, {"false", &off, false}} {
+		if got := (SourceControlConfig{AutoFetch: tc.val}).AutoFetchEnabled(); got != tc.want {
+			t.Errorf("%s: AutoFetchEnabled() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestSourceControlCloneIgnored 覆盖克隆依赖目录开关与名单的默认值、解析与去重。
 func TestSourceControlCloneIgnored(t *testing.T) {
 	var nilCfg SourceControlConfig

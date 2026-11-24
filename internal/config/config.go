@@ -1195,7 +1195,8 @@ type SourceControlConfig struct {
 	DefaultWorkspaceMode         string               `json:"default_workspace_mode"`                     // 默认新会话工作区模式：local | worktree，默认 local
 	GenerateCommitMessage        *bool                `json:"generate_commit_message,omitempty"`          // 提交信息由 AI 生成，nil 视为开启
 	ShowChangeBadge              *bool                `json:"show_change_badge,omitempty"`                // Git 按钮上叠改动数角标，nil 视为显示
-	CommitInstructions           string               `json:"commit_instructions"`                        // 提交信息附加说明
+	AutoFetch                    *bool                `json:"auto_fetch,omitempty"`                       // 后台定期抓取远端，nil 视为开启
+	CommitInstructions           string               `json:"commit_instructions"`                       // 提交信息附加说明
 	CommitMessageModel           ModelSelectionConfig `json:"commit_message_model,omitempty"`             // 提交信息与会话标题生成模型；Provider 为空时沿用 utility 角色模型
 }
 
@@ -1271,6 +1272,14 @@ func (s SourceControlConfig) ShowChangeBadgeEnabled() bool {
 		return true
 	}
 	return *s.ShowChangeBadge
+}
+
+// AutoFetchEnabled 返回是否后台定期抓取远端，nil 视为开启。
+func (s SourceControlConfig) AutoFetchEnabled() bool {
+	if s.AutoFetch == nil {
+		return true
+	}
+	return *s.AutoFetch
 }
 
 // MemoryConfig Nowledge Mem 记忆集成设置。

@@ -139,6 +139,7 @@ row row-sc-auto-cleanup-merged 自动清理已合并的工作树
 row row-sc-worktree-cleanup Worktree 清理
 section sourceControl.toolbar 工具栏
 row row-sc-show-change-badge 显示改动数角标
+row row-sc-auto-fetch 自动抓取
 section advanced.sourceControl 版本控制高级
 row row-sc-init-submodules 新建工作树时初始化子模块
 row row-sc-clone-ignored 新建工作树时克隆依赖目录

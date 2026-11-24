@@ -173,6 +173,12 @@ var pageSourceControl = settingsPage{
 					Aliases: []string{"角标", "徽标", "badge", "改动数", "Git 按钮", "数量"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.SourceControl.ShowChangeBadge }, true)),
 				},
+				{
+					ID:      "row-sc-auto-fetch",
+					Title:   "自动抓取",
+					Aliases: []string{"fetch", "抓取", "远端", "同步", "git"},
+					Control: toggle(ptr(func(c *config.Config) **bool { return &c.SourceControl.AutoFetch }, true)),
+				},
 			},
 		},
 		advancedSourceControl,
