@@ -448,7 +448,7 @@ func TestQuotaSoleAccountReadouts(t *testing.T) {
 			t.Fatalf("应显示无名窗口的读数，texts: %q", tt.Texts())
 		}
 		// 弹层同样视为在用：不提示未知，窗口名照常列出。
-		if err := tt.Click("额度 workbuddy"); err != nil {
+		if err := tt.Click("额度 " + s.providerDisplayName("workbuddy")); err != nil {
 			t.Fatalf("点击额度组失败：%v", err)
 		}
 		if _, ok := tt.Find("额度详情"); !ok || !tt.HasText("额度") || !tt.HasText("40%") || !tt.HasText("60%") {
@@ -482,7 +482,7 @@ func TestQuotaSoleAccountReadouts(t *testing.T) {
 		if len(plans) != 1 || plans[0].account != email || plans[0].recent || len(plans[0].windows) != 1 {
 			t.Fatalf("单账号应直接当作用在账号且不标最近使用：%+v", plans)
 		}
-		if err := tt.Click("额度 codex"); err != nil {
+		if err := tt.Click("额度 " + s.providerDisplayName("codex")); err != nil {
 			t.Fatalf("点击额度组失败：%v", err)
 		}
 		if _, ok := tt.Find("额度详情"); !ok || !tt.HasText("85%") {

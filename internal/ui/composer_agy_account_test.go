@@ -94,7 +94,7 @@ func TestComposerAgyAccountPopoverListsAutoAndAccounts(t *testing.T) {
 		t.Fatalf("自动模式额度条应显示当前在用账号读数，texts=%q", tt.Texts())
 	}
 
-	if err := tt.Click("额度 agy"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 		t.Fatalf("打开 agy 额度弹层失败: %v", err)
 	}
 	// 等 PopoverCard 入场淡入动画（DurBase）结束后再取像素断言勾选图标。
@@ -126,7 +126,7 @@ func TestComposerAgyAccountSelectSwitchesAccountAndStripReadout(t *testing.T) {
 		})
 	}, 520, 480)
 
-	if err := tt.Click("额度 agy"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 		t.Fatalf("打开 agy 额度弹层失败: %v", err)
 	}
 	if err := tt.Click("工作账号"); err != nil {
@@ -154,7 +154,7 @@ func TestComposerAgyAccountHiddenForSingleAccountOrNonAgy(t *testing.T) {
 		}
 		_, s := newAgyAccountTestState(t, th, windows)
 		tt := quotaPopoverTester(s, &th, 480, 400)
-		if err := tt.Click("额度 agy"); err != nil {
+		if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 			t.Fatalf("打开弹层失败: %v", err)
 		}
 		if tt.HasText("自动选号") {
@@ -170,7 +170,7 @@ func TestComposerAgyAccountHiddenForSingleAccountOrNonAgy(t *testing.T) {
 		}
 		_, s := newAgyAccountTestState(t, th, windows)
 		tt := quotaPopoverTester(s, &th, 480, 400)
-		if err := tt.Click("额度 claude"); err != nil {
+		if err := tt.Click("额度 " + s.providerDisplayName("claude")); err != nil {
 			t.Fatalf("打开弹层失败: %v", err)
 		}
 		if tt.HasText("自动选号") {

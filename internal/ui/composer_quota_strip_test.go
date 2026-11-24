@@ -78,7 +78,7 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 	}
 
 	// 每个供应商组各自可点击（可访问标签为「额度 <provider>」）：点击时记录被点的组 key 并打开只含该 provider 的弹层。
-	if err := tt.Click("额度 agy"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 		t.Fatalf("click quota provider group failed: %v", err)
 	}
 	if !s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "agy" {
@@ -115,7 +115,7 @@ func TestRenderComposerQuotaStrip_WithWindows(t *testing.T) {
 	}
 
 	// 再次点击同一组关闭弹层并清空锚定的组 key。
-	if err := tt.Click("额度 agy"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 		t.Fatalf("click quota provider group again failed: %v", err)
 	}
 	if s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "" {
@@ -161,15 +161,15 @@ func TestRenderComposerQuotaStrip_MultipleAccounts(t *testing.T) {
 		t.Fatalf("expected one group per provider separated by '｜', texts: %q", tt.Texts())
 	}
 	// 竖线是组外的独立文本（HasText 已断言），每个供应商组按可访问标签「额度 <provider>」查找。
-	if _, ok := tt.Find("额度 agy"); !ok {
+	if _, ok := tt.Find("额度 " + s.providerDisplayName("agy")); !ok {
 		t.Fatalf("expected clickable group for agy, texts: %q", tt.Texts())
 	}
-	if _, ok := tt.Find("额度 claude"); !ok {
+	if _, ok := tt.Find("额度 " + s.providerDisplayName("claude")); !ok {
 		t.Fatalf("expected clickable group for claude, texts: %q", tt.Texts())
 	}
 
 	// 点击 claude 组只打开 claude 的弹层：标题与窗口都归属 claude，agy 的窗口不出现。
-	if err := tt.Click("额度 claude"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("claude")); err != nil {
 		t.Fatalf("click claude group failed: %v", err)
 	}
 	if s.composerView.quotaPopoverKey != "claude" {
@@ -311,7 +311,7 @@ func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
 
 	if tt := render(); !tt.HasText("11%") || tt.HasText("77%") {
 		t.Fatalf("swarm off: want only lead quota, texts: %q", tt.Texts())
-	} else if _, ok := tt.Find("claude"); ok {
+	} else if _, ok := tt.Find(s.providerDisplayName("claude")); ok {
 		t.Fatal("单供应商不应显示图标")
 	}
 	setSwarmEnabledForTest(s, true)
@@ -319,7 +319,7 @@ func TestRenderComposerQuotaStrip_SwarmOffHidesBeeGroup(t *testing.T) {
 		t.Fatalf("swarm on: want lead and bee quota, texts: %q", tt.Texts())
 	} else {
 		for _, provider := range []string{"claude", "codex"} {
-			if _, ok := tt.Find(provider); !ok {
+			if _, ok := tt.Find(s.providerDisplayName(provider)); !ok {
 				t.Fatalf("多供应商缺少 %s 图标无障碍标签", provider)
 			}
 		}
