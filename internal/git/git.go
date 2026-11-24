@@ -44,6 +44,7 @@ var repoWriteSubcommands = map[string]bool{
 	"cherry-pick":  true,
 	"clean":        true,
 	"commit":       true,
+	"init":         true,
 	"merge":        true,
 	"mv":           true,
 	"pull":         true,

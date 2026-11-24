@@ -126,6 +126,18 @@ func (c *Client) GitCreateBranch(ctx context.Context, threadID, name string) err
 	return c.gitRunner().CreateBranch(ctx, workDir, name)
 }
 
+// GitInit 在会话工作目录初始化一个新的 Git 仓库。
+func (c *Client) GitInit(ctx context.Context, threadID string) error {
+	if c == nil || c.backend == nil {
+		return errors.New("backend 不可用")
+	}
+	workDir, ok := c.ThreadWorkDir(threadID)
+	if !ok || strings.TrimSpace(workDir) == "" {
+		return fmt.Errorf("会话 %s 没有工作目录", threadID)
+	}
+	return c.gitRunner().Init(ctx, workDir)
+}
+
 // GitFastForwardInto 把会话所在仓库的当前分支快进到 branch。
 func (c *Client) GitFastForwardInto(ctx context.Context, threadID, branch string) error {
 	if c.backend == nil {

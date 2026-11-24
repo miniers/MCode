@@ -175,6 +175,23 @@ func (r *Runner) CreateBranch(ctx context.Context, dir, name string) error {
 	return err
 }
 
+// Init 在指定目录初始化一个新的 Git 仓库（git init）。
+// 即使目录已有影子仓库，也通过清空 ShadowRoot 的副本执行，确保在 dir 内创建真实的 .git。
+func (r *Runner) Init(ctx context.Context, dir string) error {
+	if r == nil {
+		return errors.New("git runner is nil")
+	}
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return errors.New("init directory is empty")
+	}
+	// 副本共用同一把并发信号量，仅清空 ShadowRoot，使 run 不再注入影子仓库环境。
+	plain := *r
+	plain.ShadowRoot = ""
+	_, err := plain.run(ctx, dir, nil, "init")
+	return err
+}
+
 // RemoteURL 获取指定仓库 origin 远端的 URL。若获取失败或不存在返回空字符串与 error。
 func (r *Runner) RemoteURL(ctx context.Context, dir string) (string, error) {
 	out, err := r.run(ctx, dir, nil, "remote", "get-url", "origin")
