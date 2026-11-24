@@ -113,26 +113,32 @@ func TestComposerRunningChangesCapsule(t *testing.T) {
 	}
 }
 
-// TestComposerCapsulesShareOneRow 验证待办进度与继续提示两枚胶囊同时出现时在同一行：
-// 两者的中心 Y 相同，且都落在同一个带 Label 的胶囊行容器内。
+// TestComposerPlanCapsuleEmbeddedBee 验证子代理浮动面板里的输入框不显示待办条，
+// 清单全部完成后视图数据也只剩 Complete 标记。
 func TestComposerPlanCapsuleEmbeddedBee(t *testing.T) {
 	s := newChatState(NewFakeClient())
 	defer s.close()
 	s.embeddedBee = true
 	s.selectedThreadID = "bee"
 	s.messages = []Message{{ID: "todo", Role: "tool", ToolName: "todo_write", ToolInput: `{"todos":[{"content":"一","status":"completed"},{"content":"二","status":"completed"},{"content":"三","status":"in_progress"}]}`}}
-	capsule, ok := composerPlanCapsule(nil, s, "bee")
-	if !ok || capsule.Label != "待办进度 2/3" {
-		t.Fatalf("子代理待办胶囊 = %+v, ok=%v", capsule, ok)
+	view, ok := composerPlanView(s, "bee")
+	if !ok || !view.Visible || view.Done != 2 || view.Total != 3 {
+		t.Fatalf("子代理待办视图 = %+v, ok=%v", view, ok)
 	}
-	s.composerView.planPillOpen = true
+	tt := ui.NewTester(func(c *ui.Context) { renderComposerPlanBar(c, s, "bee") }, 600, 200)
+	tt.Frame()
+	if _, ok := tt.Find("待办进度 2/3"); ok || tt.HasText("三") {
+		t.Fatalf("子代理输入框不应显示待办条: %v", tt.Texts())
+	}
 	s.messages[0].ToolInput = `{"todos":[{"content":"一","status":"completed"},{"content":"二","status":"completed"},{"content":"三","status":"completed"}]}`
-	s.messagesRev++ // 生产代码改写 s.messages 都会递增 messagesRev，待办胶囊按它缓存
-	if _, ok := composerPlanCapsule(nil, s, "bee"); ok || s.composerView.planPillOpen {
-		t.Fatal("全部完成后应隐藏胶囊并关闭浮层")
+	s.messagesRev++ // 生产代码改写 s.messages 都会递增 messagesRev，待办视图按它缓存
+	if view, _ := composerPlanView(s, "bee"); view.Visible || !view.Complete {
+		t.Fatalf("全部完成后视图应是 Complete 而不是 Visible: %+v", view)
 	}
 }
 
+// TestComposerCapsulesShareOneRow 验证后台任务与继续提示两枚胶囊同时出现时在同一行：
+// 两者的中心 Y 相同，且都落在同一个带 Label 的胶囊行容器内。
 func TestComposerCapsulesShareOneRow(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
@@ -143,23 +149,21 @@ func TestComposerCapsulesShareOneRow(t *testing.T) {
 
 	msgs := []Message{
 		{ID: "m1", Role: "user", Text: "开始", TurnIndex: 1},
-		{ID: "m2", Role: "tool", ToolName: "todowrite", TurnIndex: 1,
-			ToolInput: `{"todos":[{"content":"写文档","status":"pending"},{"content":"写测试","status":"completed"}]}`},
-		{ID: "m3", Role: "assistant", Text: "先停一下", TurnIndex: 1},
+		backgroundTasksTestBackground("m2"),
 	}
 	s.mu.Lock()
 	s.selectedThreadID = "t1"
 	s.messages = msgs
 	s.messagesRev++
-	// 上一轮中断 → 继续胶囊；待办未完成且出现在最后一条用户消息之后 → 待办胶囊。
+	// 上一轮中断 → 继续胶囊；有后台任务在跑 → 后台任务胶囊。
 	seedCapsuleThread(s, false, "interrupted")
 	s.mu.Unlock()
 	s.invalidate()
 
-	waitFor(t, tt, func() bool { _, ok := tt.Find("待办进度 1/2"); return ok })
-	planRect, ok := tt.Find("待办进度 1/2")
+	waitFor(t, tt, func() bool { _, ok := tt.Find("后台任务 · 1 个运行中"); return ok })
+	planRect, ok := tt.Find("后台任务 · 1 个运行中")
 	if !ok {
-		t.Fatalf("应能找到待办进度胶囊，当前可见文字: %v", tt.Texts())
+		t.Fatalf("应能找到后台任务胶囊，当前可见文字: %v", tt.Texts())
 	}
 	continueRect, ok := tt.Find("上一轮已中断 · 继续")
 	if !ok {
@@ -171,12 +175,12 @@ func TestComposerCapsulesShareOneRow(t *testing.T) {
 	}
 
 	if planRect.H != ControlSM || continueRect.H != ControlSM {
-		t.Fatalf("胶囊高度应为 %v: 待办 %v / 继续 %v", ControlSM, planRect.H, continueRect.H)
+		t.Fatalf("胶囊高度应为 %v: 后台任务 %v / 继续 %v", ControlSM, planRect.H, continueRect.H)
 	}
 	planY := planRect.Y + planRect.H/2
 	continueY := continueRect.Y + continueRect.H/2
 	if math.Abs(float64(planY-continueY)) > 1 {
-		t.Fatalf("两枚胶囊应在同一行，中心 Y 不一致: 待办 %.1f / 继续 %.1f", planY, continueY)
+		t.Fatalf("两枚胶囊应在同一行，中心 Y 不一致: 后台任务 %.1f / 继续 %.1f", planY, continueY)
 	}
 	if !rowRect.Contains(planRect.X+planRect.W/2, planY) || !rowRect.Contains(continueRect.X+continueRect.W/2, continueY) {
 		t.Fatalf("两枚胶囊都应落在同一个胶囊行容器内: row=%+v plan=%+v continue=%+v", rowRect, planRect, continueRect)

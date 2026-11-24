@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -199,8 +200,8 @@ func TestPlanPill_StaleAfterUserMessage(t *testing.T) {
 	if !shouldShowPlanPill(msgs, false) {
 		t.Fatal("expected pill shown when todo comes after the last user message")
 	}
-	if got := planPillText(buildPlanPillView(msgs, false)); got != "1/2 · 改代码" {
-		t.Fatalf("planPillText = %q", got)
+	if view := buildPlanPillView(msgs, false); view.Done != 1 || view.Total != 2 || view.Current != "改代码" {
+		t.Fatalf("view = %+v", view)
 	}
 }
 
@@ -245,7 +246,7 @@ func TestPlanPillRunningNoFramePending(t *testing.T) {
 	builds := 0
 	tt := ui.NewTester(func(c *ui.Context) {
 		builds++
-		renderComposerPlanPill(c, s, "thread")
+		renderComposerPlanBar(c, s, "thread")
 	}, 400, 100)
 	tt.Frame()
 	beforeBuilds := builds
@@ -256,151 +257,6 @@ func TestPlanPillRunningNoFramePending(t *testing.T) {
 	if tt.FramePending() {
 		t.Error("待办胶囊运行中不应持续请求下一帧")
 	}
-}
-
-func TestPlanPillMilestones(t *testing.T) {
-	testenv.TempHome(t)
-
-	t.Run("2到6项时出点且状态正确", func(t *testing.T) {
-		s := newChatState(NewFakeClient())
-		defer s.close()
-		s.selectedThreadID = "t1"
-		s.threads = []Thread{{ID: "t1", IsRunning: true}}
-		s.messages = []Message{{
-			ID:        "todo-4",
-			Role:      "tool",
-			Kind:      "tool",
-			ToolName:  "TodoWrite",
-			ToolInput: `{"todos":[{"content":"第一步","status":"completed"},{"content":"第二步","status":"completed"},{"content":"第三步","status":"in_progress"},{"content":"第四步","status":"pending"}]}`,
-		}}
-		s.messagesRev = 1
-
-		capsule, ok := composerPlanCapsule(nil, s, "t1")
-		if !ok {
-			t.Fatal("应生成待办胶囊")
-		}
-		if capsule.Text != "第三步" || capsule.CountText != "2/4" {
-			t.Fatalf("胶囊文本或计数不符: Text=%q CountText=%q", capsule.Text, capsule.CountText)
-		}
-		want := []milestoneState{milestoneCompleted, milestoneCompleted, milestoneInProgress, milestonePending}
-		if !reflect.DeepEqual(capsule.Milestones, want) {
-			t.Fatalf("Milestones = %v, want %v", capsule.Milestones, want)
-		}
-
-		tt := ui.NewTester(func(c *ui.Context) {
-			renderComposerCapsuleRow(c, s, []composerCapsule{capsule})
-		}, 600, 120)
-		tt.Frame()
-
-		textRect, ok := tt.Find("第三步")
-		if !ok {
-			t.Fatalf("应能找到当前步文字，可见文字: %v", tt.Texts())
-		}
-		dotsRect, ok := tt.Find("里程碑")
-		if !ok {
-			t.Fatal("2..6 项时应渲染里程碑点容器")
-		}
-		countRect, ok := tt.Find("2/4")
-		if !ok {
-			t.Fatalf("应能找到计数 2/4，可见文字: %v", tt.Texts())
-		}
-		if !(textRect.X < dotsRect.X && dotsRect.X < countRect.X) {
-			t.Fatalf("里程碑点应位于当前步文字与计数之间: text=%+v dots=%+v count=%+v", textRect, dotsRect, countRect)
-		}
-		for _, label := range []string{"步骤 1 已完成", "步骤 2 已完成", "步骤 3 进行中", "步骤 4 未开始"} {
-			if _, ok := tt.Find(label); !ok {
-				t.Fatalf("缺少里程碑点 %q", label)
-			}
-		}
-
-		// 边界：2 项和 6 项均出点。
-		for _, total := range []int{2, 6} {
-			s.mu.Lock()
-			todos := ""
-			for i := 0; i < total; i++ {
-				if i > 0 {
-					todos += ","
-				}
-				status := "pending"
-				if i == 0 {
-					status = "in_progress"
-				}
-				todos += fmt.Sprintf(`{"content":"项%d","status":%q}`, i+1, status)
-			}
-			s.messages = []Message{{ID: fmt.Sprintf("todo-%d", total), Role: "tool", Kind: "tool", ToolName: "TodoWrite", ToolInput: fmt.Sprintf(`{"todos":[%s]}`, todos)}}
-			s.messagesRev++
-			s.mu.Unlock()
-			capN, ok := composerPlanCapsule(nil, s, "t1")
-			if !ok || len(capN.Milestones) != total {
-				t.Fatalf("%d 项时应出 %d 个点, ok=%v len=%d", total, total, ok, len(capN.Milestones))
-			}
-		}
-	})
-
-	t.Run("超过6项或少于2项不出点", func(t *testing.T) {
-		for _, total := range []int{1, 7} {
-			s := newChatState(NewFakeClient())
-			s.selectedThreadID = "t1"
-			s.threads = []Thread{{ID: "t1", IsRunning: true}}
-			todos := ""
-			for i := 0; i < total; i++ {
-				if i > 0 {
-					todos += ","
-				}
-				status := "pending"
-				if i == 0 && total > 1 {
-					status = "completed"
-				} else if i == 1 || (total == 1 && i == 0) {
-					status = "in_progress"
-				}
-				todos += fmt.Sprintf(`{"content":"步骤%d","status":%q}`, i+1, status)
-			}
-			s.messages = []Message{{
-				ID:        fmt.Sprintf("todo-%d", total),
-				Role:      "tool",
-				Kind:      "tool",
-				ToolName:  "TodoWrite",
-				ToolInput: fmt.Sprintf(`{"todos":[%s]}`, todos),
-			}}
-			s.messagesRev = 1
-
-			capsule, ok := composerPlanCapsule(nil, s, "t1")
-			if !ok {
-				s.close()
-				t.Fatalf("%d 项时胶囊应可见", total)
-			}
-			if len(capsule.Milestones) != 0 {
-				s.close()
-				t.Fatalf("%d 项时不应生成里程碑点，got %v", total, capsule.Milestones)
-			}
-			tt := ui.NewTester(func(c *ui.Context) {
-				renderComposerCapsuleRow(c, s, []composerCapsule{capsule})
-			}, 600, 120)
-			tt.Frame()
-			if _, ok := tt.Find("里程碑"); ok {
-				s.close()
-				t.Fatalf("%d 项时不应渲染里程碑点", total)
-			}
-			s.close()
-		}
-	})
-
-	t.Run("其它胶囊不受影响", func(t *testing.T) {
-		tt := ui.NewTester(func(c *ui.Context) {
-			renderComposerCapsuleRow(c, nil, []composerCapsule{{
-				Key:   "plain-pill",
-				Label: "普通胶囊",
-				Text:  "普通提示",
-			}})
-		}, 400, 100)
-		tt.Frame()
-		if !tt.HasText("普通提示") {
-			t.Fatal("普通胶囊正文应正常显示")
-		}
-		if _, ok := tt.Find("里程碑"); ok {
-			t.Fatal("普通胶囊不应渲染里程碑点")
-		}
-	})
 }
 
 func TestPlanPillCurrentOps(t *testing.T) {
@@ -417,17 +273,12 @@ func TestPlanPillCurrentOps(t *testing.T) {
 			{ID: "b1", Role: "tool", Kind: "tool", ToolName: "Bash", ToolInput: `{"command":"go vet ./internal/ui/","description":"静态检查"}`, ToolStatus: "completed"},
 		}
 		view := buildPlanPillView(msgs, true)
-		if len(view.CurrentOps) != 3 {
-			t.Fatalf("CurrentOps 长度 = %d, want 3: %+v", len(view.CurrentOps), view.CurrentOps)
+		// 只保留当前项开始之后最近的 1 条，之前的 Read/Edit 被挤掉。
+		if len(view.CurrentOps) != 1 {
+			t.Fatalf("CurrentOps 长度 = %d, want 1: %+v", len(view.CurrentOps), view.CurrentOps)
 		}
-		if view.CurrentOps[0].Name != "读取" || view.CurrentOps[0].Target != "a.go" {
+		if view.CurrentOps[0].Name != "$" || view.CurrentOps[0].Target != "静态检查" {
 			t.Fatalf("op[0] = %+v", view.CurrentOps[0])
-		}
-		if view.CurrentOps[1].Name != "编辑" || view.CurrentOps[1].Target != "b.go" {
-			t.Fatalf("op[1] = %+v", view.CurrentOps[1])
-		}
-		if view.CurrentOps[2].Name != "$" || view.CurrentOps[2].Target != "静态检查" {
-			t.Fatalf("op[2] = %+v", view.CurrentOps[2])
 		}
 
 		// Claude 增量任务模式：当前项开始之后的 TaskCreate 等待办工具也必须被排除。
@@ -444,42 +295,12 @@ func TestPlanPillCurrentOps(t *testing.T) {
 			{ID: "ce1", Role: "tool", Kind: "tool", ToolName: "Edit", ToolInput: `{"file_path":"/repo/cur2.go"}`, ToolStatus: "completed"},
 		}
 		claudeView := buildPlanPillView(claudeMsgs, true)
-		if len(claudeView.CurrentOps) != 2 {
-			t.Fatalf("Claude CurrentOps 长度 = %d, want 2: %+v", len(claudeView.CurrentOps), claudeView.CurrentOps)
-		}
-		if claudeView.CurrentOps[0].Target != "cur1.go" || claudeView.CurrentOps[1].Target != "cur2.go" {
+		if len(claudeView.CurrentOps) != 1 || claudeView.CurrentOps[0].Target != "cur2.go" {
 			t.Fatalf("Claude CurrentOps = %+v", claudeView.CurrentOps)
-		}
-
-		// 弹层渲染：减少动效下直接展开且不持续请求帧；无操作时不显示占位文字。
-		setAppReduceMotion(t, true)
-		opts := ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}}
-		tt := ui.NewTesterWith(func(c *ui.Context) {
-			renderPlanPopover(c, view)
-		}, 500, 400, opts)
-		tt.Frame()
-		if !tt.HasText("a.go") || !tt.HasText("b.go") || !tt.HasText("静态检查") {
-			t.Fatalf("弹层应列出当前步操作，可见文字: %v", tt.Texts())
-		}
-		if tt.HasText("before.go") {
-			t.Fatal("弹层不应包含当前步之前的工具操作")
-		}
-		if tt.FramePending() {
-			t.Fatal("减少动效时弹层展开不应请求后续帧")
-		}
-
-		emptyView := view
-		emptyView.CurrentOps = nil
-		ttEmpty := ui.NewTesterWith(func(c *ui.Context) {
-			renderPlanPopover(c, emptyView)
-		}, 500, 400, opts)
-		ttEmpty.Frame()
-		if ttEmpty.HasText("a.go") || ttEmpty.HasText("暂无操作") || ttEmpty.HasText("无操作") {
-			t.Fatalf("无操作时不应显示占位文字，可见文字: %v", ttEmpty.Texts())
 		}
 	})
 
-	t.Run("最多保留最近8条", func(t *testing.T) {
+	t.Run("最多保留最近1条", func(t *testing.T) {
 		msgs := []Message{
 			{ID: "u1", Role: "user", Text: "开工"},
 			todoToolMsg("p1", `{"todos":[{"content":"进行中","status":"in_progress"}]}`),
@@ -495,11 +316,8 @@ func TestPlanPillCurrentOps(t *testing.T) {
 			})
 		}
 		view := buildPlanPillView(msgs, true)
-		if len(view.CurrentOps) != 8 {
-			t.Fatalf("CurrentOps 长度 = %d, want 8", len(view.CurrentOps))
-		}
-		if view.CurrentOps[0].Target != "f03.go" || view.CurrentOps[7].Target != "f10.go" {
-			t.Fatalf("CurrentOps 首尾 = %q .. %q, want f03.go .. f10.go", view.CurrentOps[0].Target, view.CurrentOps[7].Target)
+		if len(view.CurrentOps) != 1 || view.CurrentOps[0].Target != "f10.go" {
+			t.Fatalf("CurrentOps = %+v, want 仅 f10.go", view.CurrentOps)
 		}
 	})
 
@@ -515,7 +333,7 @@ func TestPlanPillCurrentOps(t *testing.T) {
 		s.messagesRev = 1
 
 		before := planPillBuilds.Load()
-		if _, ok := composerPlanCapsule(nil, s, "t1"); !ok {
+		if _, ok := composerPlanView(s, "t1"); !ok {
 			t.Fatal("首次构建应返回可见胶囊")
 		}
 		afterFirst := planPillBuilds.Load()
@@ -523,7 +341,7 @@ func TestPlanPillCurrentOps(t *testing.T) {
 			t.Fatalf("首次构建计数 = %d, want %d", afterFirst, before+1)
 		}
 		for i := 0; i < 3; i++ {
-			if _, ok := composerPlanCapsule(nil, s, "t1"); !ok {
+			if _, ok := composerPlanView(s, "t1"); !ok {
 				t.Fatal("缓存命中应返回可见胶囊")
 			}
 		}
@@ -543,14 +361,245 @@ func TestPlanPillCurrentOps(t *testing.T) {
 		s.messagesRev++
 		s.mu.Unlock()
 
-		if _, ok := composerPlanCapsule(nil, s, "t1"); !ok {
+		if _, ok := composerPlanView(s, "t1"); !ok {
 			t.Fatal("messagesRev 变更后应返回可见胶囊")
 		}
 		if got := planPillBuilds.Load(); got != afterFirst+1 {
 			t.Fatalf("messagesRev 变更后应重算一次: want=%d got=%d", afterFirst+1, got)
 		}
-		if len(s.planPillCache.CurrentOps) != 2 {
-			t.Fatalf("更新后 CurrentOps 长度 = %d, want 2", len(s.planPillCache.CurrentOps))
+		if ops := s.planPillCache.CurrentOps; len(ops) != 1 || ops[0].Target != "b.go" {
+			t.Fatalf("更新后 CurrentOps = %+v, want 仅 b.go", ops)
 		}
 	})
+}
+
+// planBarHarness 只渲染待办条和它下面的输入卡片占位，便于单独验证条的展开、收起与定时。
+func planBarHarness(t *testing.T, s *chatState, reduce bool) *ui.Tester {
+	t.Helper()
+	setAppReduceMotion(t, reduce)
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		ui.Column(c.Key("plan-bar-host")).FillWidth().Gap(Space3).Children(func() {
+			renderComposerPlanBar(c, s, "t1")
+			ui.Box(c.Key("plan-bar-card")).Label("输入卡片").FillWidth().Height(60).Background(ThemeSurface(c))
+		})
+	}, 600, 500, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduce}})
+	tt.Frame()
+	return tt
+}
+
+// planBarState 造一个会话 t1，消息是一条用户消息加一份待办清单（以及可选的后续消息）。
+func planBarState(running bool, todos string, after ...Message) *chatState {
+	msgs := []Message{{ID: "u1", Role: "user", Text: "开工"}, todoToolMsg("p1", todos)}
+	return &chatState{
+		threads:  []Thread{{ID: "t1", IsRunning: running}},
+		messages: append(msgs, after...),
+	}
+}
+
+const planBarThreeSteps = `{"todos":[{"content":"第一步","status":"completed"},{"content":"第二步","status":"in_progress"},{"content":"第三步","status":"pending"}]}`
+
+// 有未完成待办时条出现在输入卡片正上方，状态胶囊行里不再有待办胶囊。
+func TestComposerPlanBarAboveCard(t *testing.T) {
+	testenv.TempHome(t)
+	s, view := buildRoot(NewFakeClient())
+	t.Cleanup(s.close)
+	tt := ui.NewTester(view, 1000, 700)
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	s.mu.Lock()
+	s.selectedThreadID = "t1"
+	s.messages = []Message{
+		{ID: "m1", Role: "user", Text: "开始", TurnIndex: 1},
+		{ID: "m2", Role: "tool", ToolName: "todowrite", TurnIndex: 1, ToolInput: planBarThreeSteps},
+		backgroundTasksTestBackground("m3"),
+	}
+	s.messagesRev++
+	seedCapsuleThread(s, false, "")
+	s.mu.Unlock()
+	s.invalidate()
+
+	waitFor(t, tt, func() bool { _, ok := tt.Find("待办进度 1/3"); return ok })
+	head, _ := tt.Find("待办进度 1/3")
+	card, ok := tt.Find("消息输入框")
+	if !ok {
+		t.Fatalf("找不到输入卡片: %v", tt.Texts())
+	}
+	if head.Y >= card.Y || head.Y+head.H > card.Y+1 || card.Y-(head.Y+head.H) > planBarOverlap {
+		t.Fatalf("待办条应紧贴输入卡片上沿: head=%+v card=%+v", head, card)
+	}
+	if head.H != ControlLG {
+		t.Fatalf("条头高度 = %v, want %v", head.H, ControlLG)
+	}
+	row, ok := tt.Find("输入区状态胶囊")
+	if !ok {
+		t.Fatal("后台任务胶囊应仍在胶囊行里")
+	}
+	if row.Contains(head.X+head.W/2, head.Y+head.H/2) {
+		t.Fatalf("待办不应出现在胶囊行里: row=%+v head=%+v", row, head)
+	}
+	if !tt.HasText("第二步") || !tt.HasText("1/3") {
+		t.Fatalf("条头应显示计数与当前项: %v", tt.Texts())
+	}
+}
+
+// 点条头展开清单，再点条头或按 Esc 收起；不做点外部收起。
+func TestComposerPlanBarToggle(t *testing.T) {
+	for _, reduce := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce=%v", reduce), func(t *testing.T) {
+			s := planBarState(false, planBarThreeSteps)
+			tt := planBarHarness(t, s, reduce)
+			if tt.HasText("第三步") {
+				t.Fatalf("默认应收起: %v", tt.Texts())
+			}
+			clickText(t, tt, "待办进度 1/3")
+			tt.Advance(DurBase + 60*time.Millisecond)
+			if !tt.HasText("第一步") || !tt.HasText("第三步") {
+				t.Fatalf("展开后应列出全部待办: %v", tt.Texts())
+			}
+			if tt.HasText("待办清单") {
+				t.Fatal("展开列表不应再有标题行")
+			}
+			// 点外部不收起。
+			card, _ := tt.Find("输入卡片")
+			tt.ClickAt(card.X+card.W/2, card.Y+card.H/2)
+			tt.Advance(DurBase + 60*time.Millisecond)
+			if !tt.HasText("第三步") {
+				t.Fatal("点外部不应收起")
+			}
+			clickText(t, tt, "待办进度 1/3")
+			tt.Advance(DurBase + 60*time.Millisecond)
+			if tt.HasText("第三步") {
+				t.Fatalf("再点条头应收起: %v", tt.Texts())
+			}
+
+			clickText(t, tt, "待办进度 1/3")
+			tt.Advance(DurBase + 60*time.Millisecond)
+			tt.Key(0, ui.KeyEscape)
+			tt.Advance(DurBase + 60*time.Millisecond)
+			if tt.HasText("第三步") {
+				t.Fatalf("Esc 应收起: %v", tt.Texts())
+			}
+			if !tt.HasText("第二步") {
+				t.Fatal("收起后条头仍应显示当前项")
+			}
+		})
+	}
+}
+
+// 进行中项下只显示最近 1 条工具操作；没有操作时不显示占位文字。
+func TestComposerPlanBarCurrentOpOnly(t *testing.T) {
+	ops := []Message{
+		{ID: "r1", Role: "tool", Kind: "tool", ToolName: "Read", ToolInput: `{"file_path":"/repo/internal/ui/a.go"}`, ToolStatus: "completed"},
+		{ID: "e1", Role: "tool", Kind: "tool", ToolName: "Edit", ToolInput: `{"file_path":"/repo/internal/ui/b.go"}`, ToolStatus: "completed"},
+	}
+	s := planBarState(true, planBarThreeSteps, ops...)
+	tt := planBarHarness(t, s, true)
+	clickText(t, tt, "待办进度 1/3")
+	if !tt.HasText("b.go") || tt.HasText("a.go") {
+		t.Fatalf("进行中项下应只有最近一条操作 b.go: %v", tt.Texts())
+	}
+
+	empty := planBarState(true, planBarThreeSteps)
+	ttEmpty := planBarHarness(t, empty, true)
+	clickText(t, ttEmpty, "待办进度 1/3")
+	if ttEmpty.HasText("暂无操作") || ttEmpty.HasText("无操作") || ttEmpty.HasText("b.go") {
+		t.Fatalf("无操作时不应显示占位文字: %v", ttEmpty.Texts())
+	}
+}
+
+// 可见的清单变成全部完成：显示「全部完成」，停 2.4s 后整条收起消失，之后不再请求帧。
+func TestComposerPlanBarAllDone(t *testing.T) {
+	for _, reduce := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce=%v", reduce), func(t *testing.T) {
+			s := planBarState(true, `{"todos":[{"content":"甲","status":"completed"},{"content":"乙","status":"in_progress"}]}`)
+			tt := planBarHarness(t, s, reduce)
+			if _, ok := tt.Find("待办进度 1/2"); !ok {
+				t.Fatalf("未完成的清单应显示条: %v", tt.Texts())
+			}
+
+			s.mu.Lock()
+			s.messages = append(s.messages, todoToolMsg("p2", `{"todos":[{"content":"甲","status":"completed"},{"content":"乙","status":"completed"}]}`))
+			s.messagesRev++
+			s.mu.Unlock()
+			tt.Frame()
+			if !tt.HasText("全部完成") || !tt.HasText("2/2") {
+				t.Fatalf("应显示全部完成: %v", tt.Texts())
+			}
+			tt.Advance(planBarDoneHold - 300*time.Millisecond)
+			if !tt.HasText("全部完成") {
+				t.Fatalf("停留期内条不应消失: %v", tt.Texts())
+			}
+			tt.Advance(300*time.Millisecond + DurBase + 100*time.Millisecond)
+			if tt.HasText("全部完成") || tt.HasText("2/2") {
+				t.Fatalf("停留结束后条应消失: %v", tt.Texts())
+			}
+			if tt.FramePending() {
+				t.Fatal("条消失后不应再请求下一帧")
+			}
+			tt.Advance(5 * time.Second)
+			if tt.FramePending() || tt.HasText("全部完成") {
+				t.Fatal("条消失后推进时钟不应再有帧或文字")
+			}
+			if s.composerView.planPillOpen || s.composerView.planBarShown {
+				t.Fatalf("条消失后展开与显示状态应复位: %+v", s.composerView)
+			}
+		})
+	}
+}
+
+// 打开线程时清单本来就已全部完成的，不显示条。
+func TestComposerPlanBarAlreadyCompletedHidden(t *testing.T) {
+	s := planBarState(false, `{"todos":[{"content":"甲","status":"completed"},{"content":"乙","status":"completed"}]}`)
+	tt := planBarHarness(t, s, false)
+	if tt.HasText("全部完成") || tt.HasText("2/2") {
+		t.Fatalf("已全部完成的清单不应显示条: %v", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("没有条时不应请求帧")
+	}
+}
+
+// 展开与收起的动画走完后不再请求下一帧（含减少动效），点一行可展开长文本再收回。
+func TestComposerPlanBarSettles(t *testing.T) {
+	long := "这是一条很长很长的待办正文，" + "用来验证默认单行省略、点一行展开成多行并且再点收回，" + "它的长度远远超过条的可用宽度"
+	todos := fmt.Sprintf(`{"todos":[{"content":"第一步","status":"in_progress"},{"content":%q,"status":"pending"}]}`, long)
+	// 长文本放在待办项上：条头只显示当前（进行中）项，Find 才不会先命中条头。
+	for _, reduce := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reduce=%v", reduce), func(t *testing.T) {
+			s := planBarState(false, todos)
+			tt := planBarHarness(t, s, reduce)
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("静止的条不应请求帧")
+			}
+			clickText(t, tt, "待办进度 0/2")
+			tt.Advance(DurBase + 100*time.Millisecond)
+			if tt.FramePending() {
+				t.Fatal("展开动画结束后不应请求帧")
+			}
+			collapsed, ok := tt.Find(long)
+			if !ok {
+				t.Fatalf("展开后应能找到长文本行: %v", tt.Texts())
+			}
+			clickText(t, tt, long)
+			tt.Advance(DurBase + 100*time.Millisecond)
+			expanded, _ := tt.Find(long)
+			if expanded.H <= collapsed.H {
+				t.Fatalf("点一行应展开成多行: 收起 %+v 展开 %+v", collapsed, expanded)
+			}
+			clickText(t, tt, long)
+			tt.Advance(DurBase + 100*time.Millisecond)
+			if again, _ := tt.Find(long); math.Abs(float64(again.H-collapsed.H)) > 1 {
+				t.Fatalf("再点应收回单行: %+v vs %+v", again, collapsed)
+			}
+			clickText(t, tt, "待办进度 0/2")
+			tt.Advance(DurBase + 100*time.Millisecond)
+			if tt.FramePending() {
+				t.Fatal("收起动画结束后不应请求帧")
+			}
+			if tt.HasText(long) {
+				t.Fatalf("收起后清单应消失: %v", tt.Texts())
+			}
+		})
+	}
 }

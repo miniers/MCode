@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -14,28 +15,15 @@ import (
 // planPillBuilds 仅用于测试观测 buildPlanPillView 的实际构建次数。
 var planPillBuilds atomic.Uint64
 
-// 待办进度胶囊：最新一份待办清单（TodoWrite / update_plan 工具）还没做完时，
-// 在输入框上方常驻一枚小胶囊，显示「完成数/总数 · 进行中那一项」，
-// 点击用弹出层展开完整清单（每项带状态图标，超出高度可滚动）。
+// 待办进度条：最新一份待办清单（TodoWrite / update_plan 工具）还没做完时，
+// 在输入卡片正上方常驻一条，显示「进度环 · 完成数/总数 · 进行中那一项」，
+// 点条头在原位展开完整清单（每项带状态图标，超出高度可滚动）。
 
 const (
-	// planPillMaxWidth 是胶囊的最大宽度：正文单行截断，超长待办不会把输入框挤宽。
-	planPillMaxWidth float32 = 420
-	// planPillTextMaxRunes 是胶囊里待办正文保留的字符数，避免无障碍 Label 过长。
-	planPillTextMaxRunes = 60
-	// planPopoverMaxHeight 是弹出清单列表的最大高度，超出部分在弹层内滚动。
-	planPopoverMaxHeight float32 = 240
 	// planPillBadgeSize 是进度环的边长。
 	planPillBadgeSize float32 = 16
-	// planPopoverMinWidth 是弹出清单的最小宽度，保证长待办正文有足够单行空间。
-	planPopoverMinWidth float32 = 260
-	// planPopoverMaxWidth 是弹出清单的最大宽度，超出后正文换行。
-	planPopoverMaxWidth float32 = 380
-	// planPillMaxCurrentOps 是弹层里当前步下面最多展示的工具操作条数。
-	planPillMaxCurrentOps = 8
-	// planPillMilestoneMinItems / planPillMilestoneMaxItems 是胶囊展示里程碑圆点的项数范围。
-	planPillMilestoneMinItems = 2
-	planPillMilestoneMaxItems = 6
+	// planPillMaxCurrentOps 是进行中待办项下最多展示的工具操作条数。
+	planPillMaxCurrentOps = 1
 )
 
 // planOpItem 是待办当前步下的一次工具操作摘要。
@@ -48,12 +36,13 @@ type planOpItem struct {
 
 // planPillView 是一帧待办进度胶囊要展示的内容。
 type planPillView struct {
-	Visible    bool         // 是否显示胶囊
+	Visible    bool         // 是否显示待办条（清单还没做完）
+	Complete   bool         // 清单刚全部完成（Visible 为 false）：条只在已显示时停留片刻
 	Items      []todoItem   // 最新一份待办清单
 	Done       int          // 已完成项数
 	Total      int          // 总项数
 	Current    string       // 进行中那一项的正文（没有进行中项时取第一项未完成的）
-	Running    bool         // 会话是否正在运行，决定进度环是否呼吸
+	Running    bool         // 会话是否正在运行，决定进行中图标是否转动
 	CurrentOps []planOpItem // 当前步开始之后的最近若干条工具操作
 }
 
@@ -296,11 +285,11 @@ func buildPlanPillView(msgs []Message, running bool) planPillView {
 		return planPillView{}
 	}
 	done, total := todoPlanProgress(items)
-	if done >= total {
-		return planPillView{}
-	}
 	if !running && idx <= lastUserMessageIndex(msgs) {
 		return planPillView{}
+	}
+	if done >= total {
+		return planPillView{Complete: true, Items: items, Done: done, Total: total}
 	}
 	return planPillView{
 		Visible:    true,
@@ -311,25 +300,6 @@ func buildPlanPillView(msgs []Message, running bool) planPillView {
 		Running:    running,
 		CurrentOps: planCurrentOps(msgs, items, idx, taskStarts, taskIndex),
 	}
-}
-
-// planPillMilestones 返回胶囊内 2..6 项的步骤里程碑状态；超出范围返回 nil。
-func planPillMilestones(v planPillView) []milestoneState {
-	if v.Total < planPillMilestoneMinItems || v.Total > planPillMilestoneMaxItems || len(v.Items) != v.Total {
-		return nil
-	}
-	out := make([]milestoneState, len(v.Items))
-	for i, it := range v.Items {
-		switch it.Status {
-		case "completed":
-			out[i] = milestoneCompleted
-		case "in_progress":
-			out[i] = milestoneInProgress
-		default:
-			out[i] = milestonePending
-		}
-	}
-	return out
 }
 
 // isPlanTodoTool 判断工具消息是否属于待办清单工具本身，用于从当前步操作列表里排除。
@@ -348,7 +318,7 @@ func isPlanTodoTool(m Message) bool {
 }
 
 // planCurrentOps 取最近一条把当前进行中项标为 in_progress 的待办消息，
-// 收集它之后的工具调用消息（排除待办工具本身），最多保留最近 8 条。
+// 收集它之后的工具调用消息（排除待办工具本身），最多保留最近 planPillMaxCurrentOps 条。
 func planCurrentOps(msgs []Message, items []todoItem, latestIdx int, taskStarts []int, taskIndex int) []planOpItem {
 	currentIdx := -1
 	currentText := ""
@@ -437,157 +407,314 @@ func buildPlanOpItem(m Message) planOpItem {
 	}
 }
 
-// planPillText 拼出胶囊正文：「N/M · 进行中那一项」。
-func planPillText(v planPillView) string {
-	text := fmt.Sprintf("%d/%d", v.Done, v.Total)
-	if current := truncateRunes(v.Current, planPillTextMaxRunes); current != "" {
-		text += " · " + current
-	}
-	return text
+const (
+	// planBarOverlap 是待办条被输入卡片盖住的高度：条像从卡片后面露出来。
+	planBarOverlap float32 = 8
+	// planBarListMaxHeight 是展开清单的最大高度，超出部分滚动。
+	planBarListMaxHeight float32 = 154
+	// planBarFadeHeight 是清单滚动区上下渐隐遮罩的高度。
+	planBarFadeHeight float32 = 16
+	// planBarDoneHold 是全部完成后条停留的时间，之后收起消失。
+	planBarDoneHold = 2400 * time.Millisecond
+)
+
+// resetPlanBar 把待办条的展开、停留与行展开状态复位（条消失或换会话时调用）。
+func (v *composerViewState) resetPlanBar() {
+	v.planPillOpen = false
+	v.planBarShown = false
+	v.planBarHiding = false
+	v.planBarDoneAt = time.Time{}
+	v.planBarRowOpen = nil
+	v.planBarScroll = ui.ScrollState{}
 }
 
-// renderComposerPlanPill 在输入框上方渲染待办进度胶囊（没有可显示的待办时整行不渲染）。
-func renderComposerPlanPill(c *ui.Context, s *chatState, threadID string) {
-	// 浮动面板里的子代理输入框空间太小，不显示待办胶囊。
+// planCurrentIndex 返回当前项下标：进行中的那一项，没有时取第一项未完成的，全部完成时返回 -1。
+func planCurrentIndex(items []todoItem) int {
+	for i, it := range items {
+		if it.Status == "in_progress" {
+			return i
+		}
+	}
+	for i, it := range items {
+		if it.Status != "completed" {
+			return i
+		}
+	}
+	return -1
+}
+
+// renderComposerPlanBar 在输入卡片正上方渲染待办条：清单没做完时常驻；
+// 可见的清单变成全部完成后，条显示「全部完成」停留 planBarDoneHold 再收起。
+// 打开线程时清单本来就已全部完成的不显示。
+func renderComposerPlanBar(c *ui.Context, s *chatState, threadID string) {
+	// 浮动面板里的子代理输入框空间太小，不显示待办条。
 	if s == nil || s.embeddedBee {
 		return
 	}
-	// isThreadRunning 内部自己加锁，先取运行状态，再在锁内读消息快照。
-	running := s.isThreadRunning(threadID)
-	s.mu.Lock()
-	view := buildPlanPillView(s.messages, running)
-	s.mu.Unlock()
-	if !view.Visible {
-		// 胶囊消失时顺带收起弹层，避免下次出现时突然弹开。
-		s.composerView.planPillOpen = false
+	v := &s.composerView
+	view, ok := composerPlanView(s, threadID)
+	switch {
+	case ok && view.Visible:
+		v.planBarShown, v.planBarThread, v.planBarTotal = true, threadID, view.Total
+		v.planBarDoneAt, v.planBarHiding = time.Time{}, false
+	case ok && view.Complete && v.planBarShown && v.planBarThread == threadID && v.planBarTotal == view.Total:
+		if v.planBarDoneAt.IsZero() {
+			v.planBarDoneAt = c.Now()
+		}
+		if rest := planBarDoneHold - c.Now().Sub(v.planBarDoneAt); rest > 0 {
+			c.After(rest)
+		} else {
+			v.planBarHiding = true
+		}
+	default:
+		if v.planBarShown || v.planPillOpen {
+			v.resetPlanBar()
+		}
 		return
 	}
+	if v.planPillOpen && c.Shortcut(0, ui.KeyEscape) {
+		v.planPillOpen = false
+	}
 
-	text := planPillText(view)
-	pill := ui.ButtonBase(c.Key("composer-plan-pill")).
-		Label(fmt.Sprintf("待办进度 %d/%d", view.Done, view.Total)).
-		Tooltip("查看待办清单").
-		Height(ControlMD).
-		Radius(RadiusPill).
-		Padding(Space1, Space3).
-		MaxWidth(planPillMaxWidth).
-		Border(Hairline, ThemeBorder(c)).
-		OnClick(func() {
-			togglePopoverOpen(&s.composerView.planPillOpen)
-		})
-	// 与排队、改动胶囊同一套浅底胶囊的悬停/展开反馈。
-	composerHoverBg(c, pill, pill.Hovered() || s.composerView.planPillOpen)
-
-	scale := motionPressScale(c, pill, "button-press-scale", true && pill.Pressed())
-	pill.Scale(scale, scale)
-	pill.Children(func() {
-		ui.Row(c.Key("composer-plan-pill-content")).
-			Gap(Space2).
-			AlignItems(ui.Center).
-			Children(func() {
-				// 进度环复用输入框底栏上下文用量表的圆弧画法（stroke-dasharray 的圆环），
-				// 只是尺寸缩到 16pt；已完成比例直接决定圆环长度。
-				ring := ui.Image(c, makeContextMeterSVG(isDark(c), view.fraction(), false)).
-					Size(planPillBadgeSize, planPillBadgeSize).
-					Fit(ui.Contain)
-				if view.Running {
-					ring.Opacity(1)
-				} else {
-					ring.Opacity(0.9)
-				}
-				ui.Text(c, text).
-					FontSize(scaledFont(TypeCaption)).
-					TextColor(ThemePrimaryText(c)).
-					SingleLine()
+	wrap := ui.Column(c.Key("composer-plan-bar")).FillWidth().Shrink(0).Padding(0, Space4)
+	show := float32(1)
+	if v.planBarHiding {
+		show = 0
+	}
+	k := wrap.AnimateTo("composer-plan-bar/show", show, ui.Animation{Duration: animateDuration(c, DurBase), Ease: motionEaseStandard})
+	if v.planBarHiding && k == 0 {
+		wrap.Hidden(true)
+		v.resetPlanBar()
+		return
+	}
+	// 负下边距抵掉列间距并让输入卡片盖住条的最后 planBarOverlap；收起过程中随 k 收到只抵间距。
+	wrap.Margin(0, 0, -(Space3 + planBarOverlap*k), 0)
+	wrap.Children(func() {
+		strip := ui.Column(c.Key("composer-plan-bar-strip")).
+			FillWidth().
+			Shrink(0).
+			Padding(0, 0, planBarOverlap, 0).
+			Radius(RadiusLG, RadiusLG, 0, 0).
+			Border(Hairline, ThemeBorder(c)).
+			BorderWidth(Hairline, Hairline, 0, Hairline).
+			Background(ThemeOverlayHover(c).Over(ThemeSurface(c)))
+		strip.Children(func() {
+			renderPlanBarHead(c, s, view)
+			motionUnfoldBody(c, "composer-plan-bar-body", v.planPillOpen, func() {
+				renderPlanBarList(c, s, view)
 			})
-	})
-
-	appPopover(c.Key("composer-plan-popover"), pill, &s.composerView.planPillOpen, func() {
-		s.composerView.planPillOpen = false
-	}, func() {
-		renderPlanPopover(c, view)
+		})
+		if h := strip.LayoutBounds().H; h > 0 && k < 1 {
+			wrap.ClipY().Height(k * h).Opacity(k)
+		}
 	})
 }
 
-// renderPlanPopover 渲染点击胶囊后弹出的完整待办清单：每项带状态图标，
-// 列表超过最大高度后在弹层内滚动。
-func renderPlanPopover(c *ui.Context, view planPillView) {
-	popoverCard(c, ui.Column(c.Key("composer-plan-popover-card")).
-		MinWidth(planPopoverMinWidth).
-		MaxWidth(planPopoverMaxWidth).
-		Padding(Space3, Space4, Space3, Space4).
-		Gap(Space3)).
-		Children(func() {
-			ui.Row(c.Key("composer-plan-popover-header")).
-				AlignItems(ui.Center).
-				Justify(ui.SpaceBetween).
-				Children(func() {
-					ui.Row(c.Key("composer-plan-popover-title")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, IconListTodo()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-						ui.Text(c, "待办清单").
-							FontSize(scaledFont(TypeFootnote)).
-							FontWeight(500).
-							TextColor(ThemeSecondaryText(c))
+// renderPlanBarHead 渲染条头：进度环、完成数、当前项与 chevron；点击展开或收起。
+func renderPlanBarHead(c *ui.Context, s *chatState, view planPillView) {
+	v := &s.composerView
+	open := v.planPillOpen
+	head := ui.ButtonBase(c.Key("composer-plan-bar-head")).
+		Label(fmt.Sprintf("待办进度 %d/%d", view.Done, view.Total)).
+		FillWidth().
+		Height(ControlLG).
+		Padding(0, Space3, 0, Space4).
+		Radius(RadiusLG, RadiusLG, 0, 0).
+		Transition(motionTransition(c, ui.ElementTransition{Duration: DurFast, Ease: EaseOut, Colors: true})).
+		OnClick(func() {
+			v.planPillOpen = !v.planPillOpen
+			if v.planPillOpen {
+				// 展开时让当前项落在第二行。
+				v.planBarScroll.Y = float32(max(planCurrentIndex(view.Items)-1, 0)) * RowHeight
+			} else {
+				v.planBarRowOpen = nil
+			}
+		})
+	if head.Hovered() {
+		head.Background(ThemeOverlayHover(c))
+	} else {
+		head.Background(ui.Transparent)
+	}
+	turn := float32(1)
+	if open {
+		turn = 0
+	}
+	turn = head.AnimateTo("composer-plan-bar/chevron", turn, ui.Animation{Duration: animateDuration(c, DurBase), Ease: EaseOut})
+	head.Children(func() {
+		ui.Row(c.Key("composer-plan-bar-head-content")).
+			FillWidth().
+			Gap(composerCapsuleGap).
+			AlignItems(ui.Center).
+			Children(func() {
+				if view.Complete {
+					ui.Box(c.Key("composer-plan-bar-done")).Size(planPillBadgeSize, planPillBadgeSize).Center().Shrink(0).Children(func() {
+						ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeSuccess(c))
 					})
-					ui.Text(c, fmt.Sprintf("%d/%d", view.Done, view.Total)).
-						FontSize(scaledFont(TypeCaption)).
-						TextColor(ThemeSecondaryText(c))
-				})
+				} else {
+					// 进度环复用输入框底栏上下文用量表的圆弧画法，尺寸缩到 16pt。
+					ui.Image(c, makeContextMeterSVG(isDark(c), view.fraction(), false)).
+						Size(planPillBadgeSize, planPillBadgeSize).
+						Fit(ui.Contain).
+						Shrink(0)
+				}
+				ui.Text(c, fmt.Sprintf("%d/%d", view.Done, view.Total)).
+					FontSize(uiFont(TypeFootnote)).
+					FontFeatures("tnum").
+					TextColor(ThemeSecondaryText(c)).
+					SingleLine().
+					Shrink(0)
+				current := view.Current
+				if view.Complete {
+					current = "全部完成"
+				}
+				ui.Text(c, current).
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ThemePrimaryText(c)).
+					SingleLine().
+					Grow(1).
+					MinWidth(0).
+					Ellipsis("…")
+				ui.Icon(c, IconChevronDown()).
+					Size(IconSM, IconSM).
+					TextColor(ThemeSecondaryText(c)).
+					Rotate(180 * turn).
+					Shrink(0)
+			})
+	})
+}
 
-			ui.Scroll(c.Key("composer-plan-popover-scroll")).
-				MaxHeight(planPopoverMaxHeight).
+// renderPlanBarList 渲染展开的清单：行高 RowHeight，最高 planBarListMaxHeight，
+// 滚动区上下在还有内容时画渐隐遮罩。
+func renderPlanBarList(c *ui.Context, s *chatState, view planPillView) {
+	v := &s.composerView
+	bg := ThemeOverlayHover(c).Over(ThemeSurface(c))
+	ui.Column(c.Key("composer-plan-bar-list")).FillWidth().Padding(0, Space2, Space1, Space2).Children(func() {
+		ui.Column(c.Key("composer-plan-bar-list-host")).FillWidth().Children(func() {
+			ui.Scroll(c.Key("composer-plan-bar-scroll")).
+				FillWidth().
+				MaxHeight(planBarListMaxHeight).
+				TrackScroll(&v.planBarScroll).
 				Children(func() {
-					shownCurrentOps := false
-					ui.Column(c.Key("composer-plan-popover-list")).Gap(Space2).Children(func() {
-						for i, it := range view.Items {
-							it := it
-							ui.Row(c.Key(fmt.Sprintf("composer-plan-popover-item-%d", i))).
-								Gap(Space3).
-								AlignItems(ui.Start).
-								Children(func() {
-									renderTodoStatusIcon(c, fmt.Sprintf("composer-plan-popover-icon-%d", i), it.Status, view.Running)
-									textColor := ThemePrimaryText(c)
-									if it.Status == "completed" {
-										textColor = ThemeSecondaryText(c).Alpha(0.75)
-									}
-									text := ui.Text(c, it.Text).
-										FontSize(scaledFont(TypeFootnote)).
-										LineHeight(1.4).
-										TextColor(textColor)
-									if it.Status == "completed" {
-										text.Strikethrough()
-									}
-								})
-							if it.Status == "in_progress" && !shownCurrentOps {
-								shownCurrentOps = true
-								if len(view.CurrentOps) > 0 {
-									ui.Column(c.Key("composer-plan-popover-ops")).
-										FillWidth().
-										Padding(0, 0, 0, Space6).
-										Gap(Space1).
-										Transition(motionCollapse(c)).
-										Children(func() {
-											for j, op := range view.CurrentOps {
-												renderPlanPopoverOp(c, j, op)
-											}
-										})
-								}
+					ui.Column(c.Key("composer-plan-bar-rows")).FillWidth().Children(func() {
+						shownOps := false
+						for i := range view.Items {
+							renderPlanBarRow(c, s, view, i, !shownOps)
+							if view.Items[i].Status == "in_progress" {
+								shownOps = true
 							}
 						}
 					})
 				})
+			if v.planBarScroll.Y > 2 {
+				renderPlanBarFade(c, "composer-plan-bar-fade-top", bg, true)
+			}
+			if v.planBarScroll.MaxY-v.planBarScroll.Y > 2 {
+				renderPlanBarFade(c, "composer-plan-bar-fade-bottom", bg, false)
+			}
 		})
+	})
 }
 
-// renderPlanPopoverOp 渲染进行中待办项下的一条工具操作：图标/工具名 + 路径芯片目标。
-func renderPlanPopoverOp(c *ui.Context, idx int, op planOpItem) {
+// renderPlanBarFade 在滚动区的上沿或下沿画一条渐隐遮罩（不拦截点击与滚轮）。
+func renderPlanBarFade(c *ui.Context, key string, bg ui.Color, top bool) {
+	box := ui.Box(c.Key(key)).Absolute().Left(0).Right(0).Height(planBarFadeHeight).PassThrough()
+	angle := float32(0)
+	if top {
+		box.Top(0)
+		angle = 180
+	} else {
+		box.Bottom(0)
+	}
+	box.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.FillGradient(r, ui.LinearGradient{
+			Angle: angle,
+			Stops: []ui.GradientStop{{Color: bg, At: 0}, {Color: bg.Alpha(0), At: 1}},
+		}, 0)
+	})
+}
+
+// renderPlanBarRow 渲染清单里的一行：状态图标 + 正文，进行中项高亮并在正文下显示最近一条工具操作。
+// 正文默认单行省略，点一行展开成多行，再点收回。
+func renderPlanBarRow(c *ui.Context, s *chatState, view planPillView, i int, withOps bool) {
+	v := &s.composerView
+	it := view.Items[i]
+	doing := it.Status == "in_progress"
+	expanded := v.planBarRowOpen[i]
+	row := ui.ButtonBase(c.Key(fmt.Sprintf("composer-plan-bar-row-%d", i))).
+		Label(it.Text).
+		Tooltip(it.Text).
+		FillWidth().
+		MinHeight(RowHeight).
+		Padding(Space1, Space3).
+		Radius(RadiusSM).
+		Transition(motionTransition(c, ui.ElementTransition{Duration: DurFast, Ease: EaseOut, Colors: true})).
+		OnClick(func() {
+			if v.planBarRowOpen == nil {
+				v.planBarRowOpen = map[int]bool{}
+			}
+			v.planBarRowOpen[i] = !v.planBarRowOpen[i]
+		})
+	switch {
+	case doing:
+		row.Background(ThemeAccentSubtle(c))
+	case row.Hovered():
+		row.Background(ThemeOverlayHover(c))
+	default:
+		row.Background(ui.Transparent)
+	}
+	row.Children(func() {
+		ui.Row(c.Key(fmt.Sprintf("composer-plan-bar-row-content-%d", i))).
+			FillWidth().
+			Gap(Space3).
+			AlignItems(ui.Start).
+			Children(func() {
+				renderPlanBarStatusIcon(c, fmt.Sprintf("composer-plan-bar-icon-%d", i), it.Status, view.Running)
+				textColor := ThemeSecondaryText(c)
+				switch it.Status {
+				case "completed":
+					textColor = ThemeTertiaryText(c)
+				case "in_progress":
+					textColor = ThemePrimaryText(c)
+				}
+				ui.Column(c.Key(fmt.Sprintf("composer-plan-bar-text-%d", i))).Grow(1).MinWidth(0).Children(func() {
+					text := ui.Text(c, it.Text).
+						FontSize(uiFont(TypeFootnote)).
+						LineHeight(1.4).
+						TextColor(textColor).
+						MinWidth(0)
+					if !expanded {
+						text.SingleLine().Ellipsis("…")
+					}
+					if doing && withOps {
+						for j, op := range view.CurrentOps {
+							renderPlanBarOp(c, j, op)
+						}
+					}
+				})
+			})
+	})
+}
+
+// renderPlanBarStatusIcon 渲染行首状态图标：已完成是绿色对勾（不套圆圈，与设计稿一致），
+// 其余沿用时间线待办卡片的图标。
+func renderPlanBarStatusIcon(c *ui.Context, key, status string, run bool) {
+	if status != "completed" {
+		renderTodoStatusIcon(c, key, status, run)
+		return
+	}
+	ui.Box(c.Key(key+"-box")).Size(11, 16).Center().Children(func() {
+		ui.Icon(c, IconCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
+	})
+}
+
+// renderPlanBarOp 渲染进行中待办项下的一条工具操作：图标/工具名 + 路径芯片目标。
+func renderPlanBarOp(c *ui.Context, idx int, op planOpItem) {
 	label := strings.TrimSpace(op.Name + " " + op.Target)
-	ui.Row(c.Key(fmt.Sprintf("composer-plan-popover-op-%d", idx))).
+	ui.Row(c.Key(fmt.Sprintf("composer-plan-bar-op-%d", idx))).
 		Label(label).
 		FillWidth().
 		Gap(Space2).
 		AlignItems(ui.Center).
-		Transition(motionCollapse(c)).
 		Children(func() {
 			renderToolChipCategoryMark(c, op.Category, op.Command, "monospace")
 			if op.Name != "" && !op.Command {
@@ -598,7 +725,7 @@ func renderPlanPopoverOp(c *ui.Context, idx int, op planOpItem) {
 					Shrink(0)
 			}
 			if op.Target != "" {
-				ui.Row(c.Key(fmt.Sprintf("composer-plan-popover-op-target-%d", idx))).
+				ui.Row(c.Key(fmt.Sprintf("composer-plan-bar-op-target-%d", idx))).
 					Label(op.Target).
 					Padding(Space0, Space2).
 					Radius(RadiusXS).

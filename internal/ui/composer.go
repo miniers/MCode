@@ -15,7 +15,14 @@ import (
 
 // composerViewState 维护 Composer 的轻量 UI 视图状态（仅在 UI 线程访问）。
 type composerViewState struct {
-	planPillOpen              bool                 // 待办进度胶囊的弹层是否打开
+	planPillOpen              bool                 // 待办条的清单是否展开
+	planBarThread             string               // 待办条上一次可见时所属的会话
+	planBarTotal              int                  // 待办条上一次可见时的清单项数，用来认出「同一份清单」做完
+	planBarShown              bool                 // 待办条是否在显示（含全部完成后的停留）
+	planBarDoneAt             time.Time            // 全部完成状态开始的时间，零值表示未进入
+	planBarHiding             bool                 // 全部完成的停留已结束，条正在收起
+	planBarRowOpen            map[int]bool         // 展开成多行的待办行
+	planBarScroll             ui.ScrollState       // 待办清单滚动位置
 	backgroundTasksOpen       bool                 // 后台任务胶囊的浮层是否打开
 	backgroundTaskExpanded    string               // 当前展开的消息 ID。
 	backgroundTaskThread      string               // 后台任务浮层所属会话。
@@ -716,8 +723,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 	if s.composerView.lastThreadID != selectedID {
 		s.composerView.lastThreadID = selectedID
 		s.composerView.history.reset()
-		// 待办弹层属于上一个会话，切换时收起。
-		s.composerView.planPillOpen = false
+		// 待办条属于上一个会话，切换时复位。
+		s.composerView.resetPlanBar()
 		s.composerView.permissionMenuOpen = false
 		// MCP 二级页属于上一个会话的服务列表，切换时回到附件浮层一级页。
 		s.composerView.mcpMenuOpen = false
@@ -836,7 +843,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 		}
 
 		outerCol.Children(func() {
-			// 输入区状态胶囊：待办进度、继续提示与运行中改动统一成一行，
+			// 输入区状态胶囊：后台任务、继续提示与运行中改动统一成一行，
 			// 状态类在左、内容类在右；没有胶囊时整行连同间距都不渲染。
 			pillKind := continuePillNone
 			if canShowContinue {
@@ -855,6 +862,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 			// 快捷回复行：只在配置了快捷回复、会话已开始、输入框空闲且草稿为空时出现。
 			renderQuickReplies(c, s)
+
+			// 待办条紧贴输入卡片上沿，被卡片盖住最后 8pt；Hero 与停靠两种布局共用这一处。
+			renderComposerPlanBar(c, s, currentThreadID)
 
 			// 悬浮卡片主体。
 			card := ui.Column(c.Key("composer-card")).
@@ -1064,7 +1074,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 										return true
 									}
 								}
-								if isRunning {
+								// 待办清单展开时 Esc 先收起清单，由待办条处理。
+								if isRunning && !s.composerView.planPillOpen {
 									s.interruptCurrent()
 									return true
 								}

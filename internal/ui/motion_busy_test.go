@@ -30,7 +30,7 @@ func TestMotionBusyLoops(t *testing.T) {
 			renderComposerCapsule(c, nil, composerCapsule{Key: "live", Label: "实时胶囊", Text: "运行中", Live: true})
 		}},
 		{"计划进度", "待办进度 0/1", func(c *ui.Context) {
-			renderComposerPlanPill(c, plan, "thread")
+			renderComposerPlanBar(c, plan, "thread")
 		}},
 	}
 	for _, tc := range cases {
