@@ -1081,7 +1081,8 @@ func ensureChatMarkdown(c *ui.Context, s *chatState) {
 
 func markdownThemeChanged(c *ui.Context, theme *markdown.Theme) bool {
 	return theme == nil || theme.Text != ThemePrimaryText(c) || theme.Link != ThemeAccent(c) ||
-		theme.CodeBlockBackground != ThemeSurface(c) || theme.CodeBlockBorder != ThemeBorder(c) || theme.Muted != ThemeSecondaryText(c)
+		theme.CodeBlockBackground != ThemeSurface(c) || theme.CodeBlockBorder != ThemeBorder(c) || theme.Muted != ThemeSecondaryText(c) ||
+		theme.Code != ThemeCodeText(c) || theme.CodeBackground != ThemeCodeBackground(c)
 }
 
 func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSize float32) *markdown.Theme {
@@ -1089,6 +1090,8 @@ func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSi
 	mdTheme.FontSize = textSize
 	mdTheme.LineHeight = 1.45
 	mdTheme.Text = ThemePrimaryText(c)
+	mdTheme.Code = ThemeCodeText(c)
+	mdTheme.CodeBackground = ThemeCodeBackground(c)
 	mdTheme.Muted = ThemeSecondaryText(c)
 	mdTheme.Link = ThemeAccent(c)
 	mdTheme.CodeFont = codeFont

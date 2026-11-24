@@ -69,6 +69,8 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-theme-color-text", Page: "appearance", Sheet: "themes", Section: "文字", Title: "主文字", Aliases: []string{"颜色", "主题", "text"}},
 		{ID: "row-theme-color-text_secondary", Page: "appearance", Sheet: "themes", Section: "文字", Title: "次要文字", Aliases: []string{"颜色", "主题", "text_secondary"}},
 		{ID: "row-theme-color-text_tertiary", Page: "appearance", Sheet: "themes", Section: "文字", Title: "辅助文字", Aliases: []string{"颜色", "主题", "text_tertiary"}},
+		{ID: "row-theme-color-code_text", Page: "appearance", Sheet: "themes", Section: "文字", Title: "代码文字", Aliases: []string{"颜色", "主题", "code_text", "行内代码"}},
+		{ID: "row-theme-color-code_background", Page: "appearance", Sheet: "themes", Section: "背景", Title: "代码底色", Aliases: []string{"颜色", "主题", "code_background", "行内代码"}},
 		{ID: "row-theme-color-accent", Page: "appearance", Sheet: "themes", Section: "强调", Title: "强调色", Aliases: []string{"颜色", "主题", "accent"}},
 		{ID: "row-theme-accent-system", Page: "appearance", Sheet: "themes", Section: "强调", Title: "跟随系统", Aliases: []string{"颜色", "主题"}},
 		{ID: "row-theme-color-danger", Page: "appearance", Sheet: "themes", Section: "状态", Title: "危险", Aliases: []string{"颜色", "主题", "danger"}},

@@ -22,7 +22,7 @@ type ThemeDef struct {
 
 // ThemeColorKeys 按界面顺序列出颜色覆盖项。
 var ThemeColorKeys = []string{
-	"canvas", "main", "card", "raised", "popover", "text", "text_secondary", "text_tertiary",
+	"canvas", "main", "card", "raised", "popover", "code_background", "text", "text_secondary", "text_tertiary", "code_text",
 	"accent", "danger", "warning", "success", "caution", "plan", "border", "divider",
 }
 

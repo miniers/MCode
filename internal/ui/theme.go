@@ -207,6 +207,7 @@ func ThemeIdentity(key string) ui.Color {
 
 type themePalette struct {
 	Canvas, Main, Card, Raised, Popover, Text, TextSecondary, TextTertiary, Accent, Danger, Warning, Success, Caution, Plan, Border, Divider ui.Color
+	CodeText, CodeBackground                                                                                                                 ui.Color
 	AccentSystem                                                                                                                             bool
 }
 
@@ -284,22 +285,24 @@ func resolvePalette(cfg config.AppearanceConfig, id string) themePalette {
 	}
 	p := builtinPalettes[base]
 	fields := map[string]*ui.Color{
-		"canvas":         &p.Canvas,
-		"main":           &p.Main,
-		"card":           &p.Card,
-		"raised":         &p.Raised,
-		"popover":        &p.Popover,
-		"text":           &p.Text,
-		"text_secondary": &p.TextSecondary,
-		"text_tertiary":  &p.TextTertiary,
-		"accent":         &p.Accent,
-		"danger":         &p.Danger,
-		"warning":        &p.Warning,
-		"success":        &p.Success,
-		"caution":        &p.Caution,
-		"plan":           &p.Plan,
-		"border":         &p.Border,
-		"divider":        &p.Divider,
+		"canvas":          &p.Canvas,
+		"main":            &p.Main,
+		"card":            &p.Card,
+		"raised":          &p.Raised,
+		"popover":         &p.Popover,
+		"text":            &p.Text,
+		"text_secondary":  &p.TextSecondary,
+		"text_tertiary":   &p.TextTertiary,
+		"code_text":       &p.CodeText,
+		"code_background": &p.CodeBackground,
+		"accent":          &p.Accent,
+		"danger":          &p.Danger,
+		"warning":         &p.Warning,
+		"success":         &p.Success,
+		"caution":         &p.Caution,
+		"plan":            &p.Plan,
+		"border":          &p.Border,
+		"divider":         &p.Divider,
 	}
 	for key, value := range def.Colors {
 		if key == "accent" && value == config.ThemeAccentSystem {
@@ -311,6 +314,14 @@ func resolvePalette(cfg config.AppearanceConfig, id string) themePalette {
 				*field = color
 			}
 		}
+	}
+	// 行内代码色默认跟随最终生效的主文字，必须在用户覆盖之后派生：
+	// 早派生会把内置主题的黑字写进 CodeText，覆盖 text 后代码仍停在黑色。
+	if p.CodeText == (ui.Color{}) {
+		p.CodeText = p.Text
+	}
+	if p.CodeBackground == (ui.Color{}) {
+		p.CodeBackground = p.Text.Alpha(0.07)
 	}
 	return p
 }
@@ -448,6 +459,15 @@ func ThemeOverlay(c *ui.Context, opacity float32) ui.Color {
 
 // ThemePrimaryText 返回当前模式的主文本色。
 func ThemePrimaryText(c *ui.Context) ui.Color { return themeColor(c, "Text", paletteOf(c).Text) }
+
+// ThemeCodeText 返回 Markdown 行内代码的文字色。
+// 不走主题过渡：这两个值被 Markdown 主题缓存（mdOpts.Theme）逐帧比较，
+// 过渡中间色会让缓存每帧重建。
+func ThemeCodeText(c *ui.Context) ui.Color { return paletteOf(c).CodeText }
+
+// ThemeCodeBackground 返回 Markdown 行内代码的底色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeCodeBackground(c *ui.Context) ui.Color { return paletteOf(c).CodeBackground }
 
 // ThemeSecondaryText 返回当前模式的次要文本色。
 func ThemeSecondaryText(c *ui.Context) ui.Color {

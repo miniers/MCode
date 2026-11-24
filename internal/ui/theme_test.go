@@ -3,8 +3,10 @@ package mcodeui
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 	"mcode/internal/config"
 )
 
@@ -419,6 +421,111 @@ func TestThemeRuntimeDerivedColors(t *testing.T) {
 	}, 100, 100)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
+}
+
+func TestThemeRuntimeCodeColors(t *testing.T) {
+	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
+	for _, dark := range []bool{false, true} {
+		setActiveTheme(config.AppearanceConfig{})
+		base := builtinPalettes[config.ThemeLight]
+		if dark {
+			base = builtinPalettes[config.ThemeDark]
+		}
+		mdTheme := (*markdown.Theme)(nil)
+		tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+		appReduceMotion.Store(true)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.SetDark(dark)
+		tt.Frame()
+		if mdTheme.Text != base.Text || mdTheme.Code != base.Text || mdTheme.CodeBackground != base.Text.Alpha(0.07) {
+			t.Fatalf("dark=%v 默认代码色应跟随主文字: text=%v code=%v bg=%v", dark, mdTheme.Text, mdTheme.Code, mdTheme.CodeBackground)
+		}
+	}
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"code_text": "#123456", "code_background": "#ABCDEF80",
+	}}}})
+	appReduceMotion.Store(true)
+	mdTheme := (*markdown.Theme)(nil)
+	tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+	appReduceMotion.Store(true)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if mdTheme.Code != ui.Hex("#123456") || mdTheme.CodeBackground != ui.Hex("#ABCDEF80") {
+		t.Fatalf("代码覆盖色未生效: code=%v bg=%v", mdTheme.Code, mdTheme.CodeBackground)
+	}
+	if mdTheme.Text != builtinPalettes[config.ThemeLight].Text {
+		t.Fatalf("代码覆盖不应改动主文字: %v", mdTheme.Text)
+	}
+
+	// 路由联动：值变的是调色板终值，而不是经过主题过渡的当前色。只设 text 时
+	// 代码色必须仍跟随它，否则换主题时行内代码会与正文不同步。
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"text": "#654321",
+	}}}})
+	appReduceMotion.Store(true)
+	textOnlyTheme := (*markdown.Theme)(nil)
+	ui.NewTester(func(c *ui.Context) { textOnlyTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100).Frame()
+	if textOnlyTheme.Text != ui.Hex("#654321") || textOnlyTheme.Code != ui.Hex("#654321") || textOnlyTheme.CodeBackground != ui.Hex("#654321").Alpha(0.07) {
+		t.Fatalf("只覆盖 text 时代码色应跟随: text=%v code=%v bg=%v", textOnlyTheme.Text, textOnlyTheme.Code, textOnlyTheme.CodeBackground)
+	}
+
+	chat := newChatState(nil)
+	setActiveTheme(config.AppearanceConfig{})
+	appReduceMotion.Store(true)
+	chatTT := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat) }, 600, 400)
+	chatTT.SetPreferences(ui.Preferences{ReduceMotion: true})
+	chatTT.Frame()
+	for _, key := range []string{"code_text", "code_background"} {
+		oldChat := chat.mdOpts.Theme
+		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
+		appReduceMotion.Store(true)
+		chatTT.Frame()
+		if chat.mdOpts.Theme == oldChat {
+			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
+		}
+		// 只覆盖其中一个键时，另一项仍取默认（跟随主文字），不应跟着变成覆盖值。
+		defaultText := builtinPalettes[config.ThemeDark].Text
+		wantCode, wantBG := defaultText, defaultText.Alpha(0.07)
+		if key == "code_text" {
+			wantCode = ui.Hex("#123456")
+		} else {
+			wantBG = ui.Hex("#123456")
+		}
+		if chat.mdOpts.Theme.Code != wantCode || chat.mdOpts.Theme.CodeBackground != wantBG {
+			t.Fatalf("%s 覆盖未进入 Markdown 主题: %v/%v", key, chat.mdOpts.Theme.Code, chat.mdOpts.Theme.CodeBackground)
+		}
+	}
+}
+
+func TestChatMarkdownThemeStableWhileThemeAnimates(t *testing.T) {
+	resetRuntimeTheme(t)
+	setAppReduceMotion(t, false)
+	chat := newChatState(nil)
+	chatTT := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat) }, 600, 400)
+	chatTT.SetPreferences(ui.Preferences{})
+	chatTT.Frame()
+	if chat.mdOpts.Theme == nil {
+		t.Fatal("Markdown 主题未初始化")
+	}
+
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"code_text": "#123456", "code_background": "#ABCDEF",
+	}}}})
+	appReduceMotion.Store(false)
+	chatTT.Frame() // 切主题后允许重建一次
+	stable := chat.mdOpts.Theme
+	for frame := 1; frame <= 30; frame++ {
+		chatTT.Advance(10 * time.Millisecond)
+		chatTT.Frame()
+		if chat.mdOpts.Theme != stable {
+			t.Fatalf("第 %d 帧 Markdown 主题被重建（主题动画中缓存不得逐帧变化）", frame)
+		}
+	}
+
+	if chat.mdOpts.Theme.Code != ui.Hex("#123456") || chat.mdOpts.Theme.CodeBackground != ui.Hex("#ABCDEF") {
+		t.Fatalf("代码色应为覆盖终值: code=%v bg=%v", chat.mdOpts.Theme.Code, chat.mdOpts.Theme.CodeBackground)
+	}
 }
 
 func TestThemeScrollbarStyleHoverActive(t *testing.T) {
