@@ -355,11 +355,16 @@ func swarmBeeDormant(h SwarmBee, waiting bool) bool {
 	return !(waiting && h.Status == "running") && !h.PendingMerge && h.Status != "running"
 }
 
+// swarmBeeHoldsFloat 判断单个子线程是否还应继续留在浮窗里：待定稿的设计子代理还在等用户定稿，浮窗要一直留着。
+func swarmBeeHoldsFloat(h SwarmBee, waiting bool) bool {
+	return h.AwaitingFinalize || !swarmBeeDormant(h, waiting)
+}
+
 // swarmBeeShouldAutoHide 判定单个子线程此刻是否应该自动从浮窗里收起（纯函数，便于单测）：
-// 该子线程已进入终态、自它进入终态起已满 swarmAutoHideDelay，且这批完成还没处理过
+// 该子线程已进入终态且无需留在浮窗、自它进入终态起已满 swarmAutoHideDelay，且这批完成还没处理过
 // （没自动收起过、用户也没手动打开过）。
 func swarmBeeShouldAutoHide(h SwarmBee, waiting bool, doneSince, now time.Time, handled bool) bool {
-	if handled || doneSince.IsZero() || !swarmBeeDormant(h, waiting) {
+	if handled || doneSince.IsZero() || swarmBeeHoldsFloat(h, waiting) {
 		return false
 	}
 	return !now.Before(doneSince.Add(swarmAutoHideDelay))
@@ -510,8 +515,8 @@ func trackSwarmAutoHide(s *chatState, leadID string, bees []SwarmBee, precompute
 			continue
 		}
 		key := leadID + "|" + id
-		if !swarmBeeDormant(h, waiting[id]) {
-			// 又跑起来了，或在等用户回答/审批：这份计时与「已处理」标记一并作废，下次结束重新计时；
+		if swarmBeeHoldsFloat(h, waiting[id]) {
+			// 又跑起来了，或在等用户回答/审批/定稿：这份计时与「已处理」标记一并作废，下次结束重新计时；
 			// 被自动收起过的子线程重新运行时也放回浮窗。
 			// 用户明确点开的保留同样到期：重新开始运行后按新的完成时刻重新计时。
 			if keptOpen != nil {

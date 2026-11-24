@@ -294,6 +294,7 @@ func TestSwarmBeeShouldAutoHide(t *testing.T) {
 		// 终态 bee 不可能再回答残留的等待请求，不应因此永久留在浮窗里。
 		{"终态 bee 的残留等待不阻止收起", done, true, base, base.Add(time.Minute), false, true},
 		{"在等人工合并", SwarmBee{Status: "completed", PendingMerge: true}, false, base, base.Add(time.Minute), false, false},
+		{"待定稿不自动收起", SwarmBee{Status: "completed", AwaitingFinalize: true}, false, base, base.Add(time.Minute), false, false},
 		{"已经自动收起过", done, false, base, base.Add(time.Minute), true, false},
 		{"用户手动打开过（标记为已处理）", done, false, time.Time{}, base.Add(time.Minute), true, false},
 		{"完成时刻未记录", done, false, time.Time{}, base.Add(time.Minute), false, false},
@@ -507,6 +508,63 @@ func TestTrackSwarmAutoHideKeepsDelayForBeeSeenRunning(t *testing.T) {
 	trackSwarmAutoHide(s, leadID, done)
 	if got := swarmVisibleBees(leadID, done); len(got) != 0 {
 		t.Fatalf("满 %s 后应收起：%v", swarmAutoHideDelay, got)
+	}
+}
+
+// TestTrackSwarmAutoHideKeepsAwaitingFinalizeBee 验证处于待定稿的已完成设计子代理不会在首帧或超时后被收起，
+// 定稿（AwaitingFinalize 变为 false）后才按 swarmAutoHideDelay 正常收起。
+func TestTrackSwarmAutoHideKeepsAwaitingFinalizeBee(t *testing.T) {
+	const leadID = "lead-awaiting-finalize"
+	resetSwarmAutoHideFor(leadID)
+	s := newChatState(NewFakeClient())
+	t.Cleanup(func() {
+		closeEmbeddedBees(s)
+		resetSwarmAutoHideFor(leadID)
+	})
+
+	bees := []SwarmBee{{ThreadID: "h-design", Name: "Design", Status: "completed", AwaitingFinalize: true}}
+	trackSwarmAutoHide(s, leadID, bees)
+
+	swarmFloatMu.Lock()
+	dismissed := swarmFloatDismissedBees[leadID]["h-design"]
+	swarmFloatMu.Unlock()
+	if dismissed {
+		t.Fatal("待定稿的设计子代理首次被观察时不应进入已收起列表")
+	}
+	if got := swarmVisibleBees(leadID, bees); len(got) != 1 {
+		t.Fatalf("待定稿的设计子代理应保持在浮窗里：%v", got)
+	}
+
+	// 人为把 doneSince 改早到超过 swarmAutoHideDelay，再跑一帧仍不应收起。
+	swarmFloatMu.Lock()
+	swarmBeeDoneSince[leadID] = map[string]time.Time{"h-design": time.Now().Add(-swarmAutoHideDelay - time.Second)}
+	swarmFloatMu.Unlock()
+	trackSwarmAutoHide(s, leadID, bees)
+	swarmFloatMu.Lock()
+	dismissed = swarmFloatDismissedBees[leadID]["h-design"]
+	swarmFloatMu.Unlock()
+	if dismissed {
+		t.Fatal("待定稿的设计子代理即使 doneSince 超过延迟也不应被收起")
+	}
+	if got := swarmVisibleBees(leadID, bees); len(got) != 1 {
+		t.Fatalf("待定稿的设计子代理超时后仍应可见：%v", got)
+	}
+
+	// 用户定稿后（AwaitingFinalize 改为 false），满 swarmAutoHideDelay 会被收起。
+	bees[0].AwaitingFinalize = false
+	trackSwarmAutoHide(s, leadID, bees)
+	swarmFloatMu.Lock()
+	swarmBeeDoneSince[leadID]["h-design"] = time.Now().Add(-swarmAutoHideDelay - time.Second)
+	swarmFloatMu.Unlock()
+	trackSwarmAutoHide(s, leadID, bees)
+	swarmFloatMu.Lock()
+	dismissed = swarmFloatDismissedBees[leadID]["h-design"]
+	swarmFloatMu.Unlock()
+	if !dismissed {
+		t.Fatal("定稿后满延迟应进入已收起列表")
+	}
+	if got := swarmVisibleBees(leadID, bees); len(got) != 0 {
+		t.Fatalf("定稿后满 %s 应收起：%v", swarmAutoHideDelay, got)
 	}
 }
 
