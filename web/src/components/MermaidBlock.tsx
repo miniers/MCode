@@ -4,12 +4,17 @@ import { loadMermaid } from '../utils/lazyMermaid';
 
 let renderSeq = 0;
 
-function readIsDarkTheme(): boolean {
-  if (typeof document === 'undefined') return false;
-  return document.documentElement.classList.contains('dark');
+export function readIsDarkTheme(): boolean {
+  if (typeof document !== 'undefined') {
+    return document.documentElement.classList.contains('dark');
+  }
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  return false;
 }
 
-function useIsDarkTheme(): boolean {
+export function useIsDarkTheme(): boolean {
   const [isDark, setIsDark] = React.useState<boolean>(readIsDarkTheme);
 
   React.useEffect(() => {

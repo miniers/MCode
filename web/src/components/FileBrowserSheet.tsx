@@ -11,11 +11,8 @@ import { useRemoteStatic } from '../context/RemoteContext';
 import { useRemoteFilesWriteApi } from '../context/remoteFilesWriteApi';
 import { useRemoteFilesOpsApi } from '../context/remoteFilesOpsApi';
 import type { RemoteFilesWriteResult } from '../context/remoteFilesWriteApi';
-import {
-  parseMarkdown,
-  type MarkdownBlock,
-  type MarkdownInlineToken
-} from '../utils/markdown';
+import { MarkdownImageProvider } from '../context/MarkdownImageContext';
+import { MarkdownView } from './MarkdownView';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FileEditor } from './FileEditor';
 import { MenuSheetHeader } from './thread/menu/MenuSheetHeader';
@@ -74,10 +71,6 @@ function bytesToDataUrl(bytes: Uint8Array, mimeType: string): string {
     binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
   return `data:${mimeType};base64,${btoa(binary)}`;
-}
-
-function isSafeHref(href: string): boolean {
-  return /^(https?:\/\/|\/|#|mailto:)/i.test(href);
 }
 
 const FolderIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -827,159 +820,13 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
     return Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
   }, [lineCount]);
 
-  // 安全 Markdown 渲染
-  const renderInlineTokens = (inlines: MarkdownInlineToken[], keyPrefix: string): React.ReactNode => {
-    return inlines.map((token, idx) => {
-      const key = `${keyPrefix}-${idx}`;
-      switch (token.type) {
-        case 'code':
-          return (
-            <code
-              key={key}
-              className="px-1 py-0.5 rounded bg-[var(--user-bubble)] font-mono text-mc-footnote text-[var(--foreground)]"
-            >
-              {token.content}
-            </code>
-          );
-        case 'strong':
-          return (
-            <strong key={key} className="font-semibold text-[var(--foreground)]">
-              {renderInlineTokens(token.inlines, key)}
-            </strong>
-          );
-        case 'emphasis':
-          return (
-            <em key={key} className="italic text-[var(--foreground)]">
-              {renderInlineTokens(token.inlines, key)}
-            </em>
-          );
-        case 'strike':
-          return (
-            <del key={key} className="line-through text-[var(--foreground-muted)]">
-              {renderInlineTokens(token.inlines, key)}
-            </del>
-          );
-        case 'link': {
-          const safe = isSafeHref(token.href);
-          return (
-            <a
-              key={key}
-              href={safe ? token.href : '#'}
-              target={safe ? '_blank' : undefined}
-              rel="noreferrer noopener"
-              className="text-[var(--primary)] underline underline-offset-2 break-all"
-            >
-              {renderInlineTokens(token.inlines, key)}
-            </a>
-          );
-        }
-        default:
-          return <React.Fragment key={key}>{token.content}</React.Fragment>;
-      }
-    });
-  };
-
-  const renderMarkdownBlocks = (blocks: MarkdownBlock[], prefix = 'md'): React.ReactNode => {
-    return blocks.map((block, index) => {
-      const key = `${prefix}-${index}`;
-      switch (block.type) {
-        case 'heading': {
-          const headingStyles = {
-            1: 'text-base font-bold mt-3 mb-1.5',
-            2: 'text-sm font-bold mt-2.5 mb-1',
-            3: 'text-xs font-semibold mt-2 mb-1',
-            4: 'text-xs font-semibold mt-1.5 mb-0.5'
-          };
-          return (
-            <div key={key} className={`${headingStyles[block.depth]} text-[var(--foreground)]`}>
-              {renderInlineTokens(block.inlines, key)}
-            </div>
-          );
-        }
-        case 'paragraph':
-          return (
-            <p key={key} className="text-xs leading-relaxed text-[var(--foreground)] my-1.5 whitespace-pre-wrap break-words">
-              {renderInlineTokens(block.inlines, key)}
-            </p>
-          );
-        case 'list': {
-          const items = block.items.map((item, itemIdx) => (
-            <li key={`${key}-${itemIdx}`} className="text-xs leading-relaxed text-[var(--foreground)]">
-              {renderInlineTokens(item.inlines, `${key}-${itemIdx}`)}
-              {item.children.length > 0 && renderMarkdownBlocks(item.children, `${key}-${itemIdx}-c`)}
-            </li>
-          ));
-          return block.ordered ? (
-            <ol key={key} start={block.start} className="list-decimal pl-4 my-1.5 space-y-0.5">
-              {items}
-            </ol>
-          ) : (
-            <ul key={key} className="list-disc pl-4 my-1.5 space-y-0.5">
-              {items}
-            </ul>
-          );
-        }
-        case 'code':
-          return (
-            <div key={key} className="my-2 rounded-xl bg-[var(--user-bubble)] border border-[var(--border)] p-2.5 overflow-x-auto">
-              {block.language && (
-                <div className="text-mc-caption text-[var(--foreground-muted)] mb-1 font-mono uppercase">
-                  {block.language}
-                </div>
-              )}
-              <pre className="font-mono text-xs leading-relaxed text-[var(--foreground)] whitespace-pre overflow-x-auto">
-                {block.content}
-              </pre>
-            </div>
-          );
-        case 'quote':
-          return (
-            <blockquote key={key} className="border-l-2 border-[var(--primary)] pl-2.5 my-1.5 text-[var(--foreground-muted)] italic text-xs">
-              {renderMarkdownBlocks(block.blocks, key)}
-            </blockquote>
-          );
-        case 'table':
-          return (
-            <div key={key} className="my-2 overflow-x-auto rounded-xl border border-[var(--border)]">
-              <table className="w-full border-collapse text-xs text-[var(--foreground)]">
-                <thead className="bg-[var(--user-bubble)]">
-                  <tr>
-                    {block.header.map((cell, col) => (
-                      <th
-                        key={`${key}-h${col}`}
-                        style={{ textAlign: block.align[col] ?? undefined }}
-                        className="px-2.5 py-1 font-semibold border-b border-[var(--border)] whitespace-nowrap"
-                      >
-                        {renderInlineTokens(cell.inlines, `${key}-h${col}`)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row, rowIdx) => (
-                    <tr key={`${key}-r${rowIdx}`} className="border-t border-[var(--border)] first:border-t-0">
-                      {row.map((cell, col) => (
-                        <td
-                          key={`${key}-r${rowIdx}c${col}`}
-                          style={{ textAlign: block.align[col] ?? undefined }}
-                          className="px-2.5 py-1 align-top"
-                        >
-                          {renderInlineTokens(cell.inlines, `${key}-r${rowIdx}c${col}`)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          );
-        case 'divider':
-          return <hr key={key} className="my-2 border-[var(--border)]" />;
-        default:
-          return null;
-      }
-    });
-  };
+  // 当前 Markdown 文件所在目录（相对工作区根，根目录下传 "."，供 MarkdownImage 解析相对路径图片）
+  const markdownBaseDir = useMemo(() => {
+    if (!activeFile) return undefined;
+    const normalized = activeFile.path.replace(/\\/g, '/').replace(/^\/+/, '');
+    const slash = normalized.lastIndexOf('/');
+    return slash >= 0 ? normalized.slice(0, slash) || '.' : '.';
+  }, [activeFile]);
 
   const displayedEntries = searchResults ? searchResults.entries : directoryEntries;
   const isSearchActive = searchQuery.trim().length > 0;
@@ -1198,7 +1045,9 @@ export const FileBrowserSheetBody = React.forwardRef<ThreadMenuPageHandle, FileB
                 <div className="space-y-2 min-w-0">
                   {markdownMode === 'preview' && (activeFile.name.endsWith('.md') || activeFile.name.endsWith('.markdown')) ? (
                     <div className="p-3 rounded-xl bg-[var(--card)] border border-[var(--border)] select-text min-w-0">
-                      {renderMarkdownBlocks(parseMarkdown(fileText))}
+                      <MarkdownImageProvider threadID={threadID}>
+                        <MarkdownView text={fileText} baseDir={markdownBaseDir} />
+                      </MarkdownImageProvider>
                     </div>
                   ) : (
                     <div className="flex font-mono text-xs leading-5 p-2.5 overflow-x-auto bg-[var(--user-bubble)] rounded-xl border border-[var(--border)] select-text min-h-[140px]">

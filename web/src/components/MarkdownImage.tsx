@@ -190,7 +190,7 @@ function describeReadError(err: unknown): string {
   return '（本地图片读取失败，仅显示链接）';
 }
 
-type ImageSourceKind = 'remote' | 'local' | 'other';
+export type ImageSourceKind = 'remote' | 'local' | 'other';
 
 function classifySource(raw: string): ImageSourceKind {
   if (!raw) return 'other';
@@ -204,6 +204,51 @@ function classifySource(raw: string): ImageSourceKind {
   if (raw.startsWith('/') || raw.startsWith('~/')) return 'local';
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return 'other';
   return 'remote';
+}
+
+function isRelativeImageSrc(raw: string): boolean {
+  if (!raw) return false;
+  if (raw.startsWith('/') || raw.startsWith('~') || raw.startsWith('#')) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return false;
+  return true;
+}
+
+function joinImagePath(baseDir: string, relativeSrc: string): string {
+  const cleanBase = baseDir.trim().replace(/\\/g, '/');
+  const cleanRel = relativeSrc.trim().replace(/\\/g, '/');
+  const isAbsolute = cleanBase.startsWith('/');
+  const stack: string[] = [];
+  for (const segment of [...cleanBase.split('/'), ...cleanRel.split('/')]) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (stack.length > 0 && stack[stack.length - 1] !== '..') {
+        stack.pop();
+      } else if (!isAbsolute) {
+        stack.push('..');
+      }
+      continue;
+    }
+    stack.push(segment);
+  }
+  return isAbsolute ? `/${stack.join('/')}` : stack.join('/');
+}
+
+/**
+ * 解析 Markdown 图片地址：传入 baseDir 且 src 为相对路径时拼成 baseDir 下的路径并归为 local，
+ * 其余情况保持现有 classifySource 行为不变。
+ */
+export function resolveMarkdownImageSource(
+  src: string,
+  baseDir?: string
+): { kind: ImageSourceKind; src: string } {
+  const raw = src.trim();
+  const base = baseDir?.trim() ?? '';
+  if (base && isRelativeImageSrc(raw)) {
+    const resolved = joinImagePath(base, raw);
+    if (!resolved) return { kind: 'other', src: raw };
+    return { kind: 'local', src: resolved };
+  }
+  return { kind: classifySource(raw), src: raw };
 }
 
 type LocalImageState =
@@ -234,12 +279,13 @@ function ImageFallbackLink({ href, label, note }: { href: string; label: string;
 export interface MarkdownImageProps {
   src?: string | null;
   alt?: string | null;
+  baseDir?: string;
 }
 
-export const MarkdownImage = React.memo(function MarkdownImage({ src, alt }: MarkdownImageProps) {
-  const rawSrc = (src ?? '').trim();
-  const label = (alt ?? '').trim() || rawSrc;
-  const kind = classifySource(rawSrc);
+export const MarkdownImage = React.memo(function MarkdownImage({ src, alt, baseDir }: MarkdownImageProps) {
+  const rawInput = (src ?? '').trim();
+  const { kind, src: rawSrc } = resolveMarkdownImageSource(rawInput, baseDir);
+  const label = (alt ?? '').trim() || rawInput;
   const threadID = useMarkdownImageThreadID();
   const { capabilities, readThreadFile } = useRemoteStatic();
   const canReadFiles = Boolean(

@@ -3,12 +3,19 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import { CheckCircleIcon, LayoutIcon, XMarkIcon } from './Icons';
 import { MarkdownImage } from './MarkdownImage';
-import { MermaidBlock } from './MermaidBlock';
+import { MermaidBlock, readIsDarkTheme, useIsDarkTheme } from './MermaidBlock';
 import { SheetFrame } from './sheet/SheetFrame';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import type { Element, Root, RootContent } from 'hast';
-import type { PluggableList } from 'unified';
+import type {
+  Image as MdastImage,
+  Paragraph as MdastParagraph,
+  PhrasingContent,
+  Root as MdastRoot,
+  RootContent as MdastRootContent
+} from 'mdast';
+import type { Pluggable, PluggableList } from 'unified';
 import {
   getLoadedMathPlugins,
   loadMathPlugins,
@@ -504,27 +511,208 @@ const supportsLookbehind = (() => {
     return false;
   }
 })();
+
+export interface ExtractedHtmlImage {
+  url: string;
+  alt: string;
+}
+
+export interface RemarkHtmlImagesOptions {
+  isDark?: boolean;
+}
+
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&');
+}
+
+function readHtmlAttr(attrs: string, name: string): string | undefined {
+  const pattern = new RegExp(
+    `(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\`]+))`,
+    'i'
+  );
+  const match = pattern.exec(attrs);
+  if (!match) return undefined;
+  const raw = match[1] ?? match[2] ?? match[3] ?? '';
+  return decodeBasicHtmlEntities(raw).trim();
+}
+
+function firstSrcsetUrl(srcset: string): string {
+  const firstCandidate = srcset.split(',')[0]?.trim() ?? '';
+  if (!firstCandidate) return '';
+  return firstCandidate.split(/\s+/)[0] ?? '';
+}
+
+function extractPictureImage(pictureHtml: string, isDark: boolean): ExtractedHtmlImage | null {
+  const scheme = isDark ? 'dark' : 'light';
+  const mediaSchemePattern = new RegExp(`prefers-color-scheme\\s*:\\s*${scheme}`, 'i');
+  let matchedSourceUrl = '';
+  const sourcePattern = /<source(?=\s|\/?>)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  let sourceMatch: RegExpExecArray | null;
+  while ((sourceMatch = sourcePattern.exec(pictureHtml)) !== null) {
+    const attrs = sourceMatch[1] ?? '';
+    const media = readHtmlAttr(attrs, 'media') ?? '';
+    if (!mediaSchemePattern.test(media)) continue;
+    const srcset = readHtmlAttr(attrs, 'srcset') ?? '';
+    const url = firstSrcsetUrl(srcset);
+    if (url) {
+      matchedSourceUrl = url;
+      break;
+    }
+  }
+
+  const imgMatch = /<img(?=\s|\/?>)((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(pictureHtml);
+  const imgAttrs = imgMatch?.[1] ?? '';
+  const fallbackUrl = imgMatch ? (readHtmlAttr(imgAttrs, 'src') ?? '') : '';
+  const alt = imgMatch ? (readHtmlAttr(imgAttrs, 'alt') ?? '') : '';
+  const url = matchedSourceUrl || fallbackUrl;
+  if (!url) return null;
+  return { url, alt };
+}
+
+/**
+ * 从 HTML 片段中按文档顺序提取 <picture> 与 <img> 对应的图片地址及 alt（纯正则，不引入 HTML 解析与渲染）。
+ * <picture> 优先取匹配当前深浅色的 <source media=...dark/light> 的 srcset 首地址，否则回退到内部 <img src>。
+ */
+export function extractImagesFromHtml(html: string, isDark: boolean): ExtractedHtmlImage[] {
+  if (!html || (!/<img(?=\s|\/?>)/i.test(html) && !/<picture(?=\s|>)/i.test(html))) {
+    return [];
+  }
+  const cleaned = html.replace(/<!--[\s\S]*?-->/g, '');
+  const images: ExtractedHtmlImage[] = [];
+  const tokenPattern = /<picture(?=\s|>)[\s\S]*?<\/picture>|<img(?=\s|\/?>)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(cleaned)) !== null) {
+    const full = match[0];
+    if (/^<picture/i.test(full)) {
+      const pic = extractPictureImage(full, isDark);
+      if (pic) images.push(pic);
+    } else {
+      const attrs = match[1] ?? '';
+      const url = readHtmlAttr(attrs, 'src') ?? '';
+      if (!url) continue;
+      const alt = readHtmlAttr(attrs, 'alt') ?? '';
+      images.push({ url, alt });
+    }
+  }
+  return images;
+}
+
+const INLINE_PARENT_TYPES = new Set([
+  'paragraph',
+  'heading',
+  'tableCell',
+  'emphasis',
+  'strong',
+  'delete',
+  'link',
+  'linkReference'
+]);
+
+function toMdastImage(img: ExtractedHtmlImage): MdastImage {
+  return { type: 'image', url: img.url, alt: img.alt };
+}
+
+/**
+ * remark 插件：把 mdast 中含图片（<img> / <picture>）的块级或行内 html 节点替换成安全图片节点，
+ * 不含图片的 html 节点原样保留（react-markdown 未开启 rehype-raw，会自动丢弃）。
+ */
+export function remarkHtmlImages(options?: RemarkHtmlImagesOptions) {
+  const isDark = options?.isDark ?? readIsDarkTheme();
+  return (tree: MdastRoot): void => {
+    const visit = (parent: { type: string; children: MdastRootContent[] }): void => {
+      const isInlineParent = INLINE_PARENT_TYPES.has(parent.type);
+      const next: MdastRootContent[] = [];
+
+      for (let i = 0; i < parent.children.length; i += 1) {
+        const child = parent.children[i];
+        if (child.type === 'html') {
+          // CommonMark 行内 HTML 每个标签拆成独立 html 节点；把跨节点的行内 <picture>...</picture> 合并提取。
+          if (isInlineParent && /<picture(?=\s|>)/i.test(child.value) && !/<\/picture>/i.test(child.value)) {
+            let combined = child.value;
+            let endIdx = -1;
+            for (let j = i + 1; j < parent.children.length; j += 1) {
+              const peer = parent.children[j];
+              if (peer.type === 'html') {
+                combined += peer.value;
+                if (/<\/picture>/i.test(peer.value)) {
+                  endIdx = j;
+                  break;
+                }
+              } else if (peer.type === 'text' && !peer.value.trim()) {
+                combined += peer.value;
+              } else {
+                break;
+              }
+            }
+            if (endIdx !== -1) {
+              const images = extractImagesFromHtml(combined, isDark);
+              if (images.length > 0) {
+                next.push(...images.map(toMdastImage));
+                i = endIdx;
+                continue;
+              }
+            }
+          }
+
+          const images = extractImagesFromHtml(child.value, isDark);
+          if (images.length === 0) {
+            next.push(child);
+          } else if (isInlineParent) {
+            next.push(...images.map(toMdastImage));
+          } else {
+            const paragraph: MdastParagraph = {
+              type: 'paragraph',
+              children: images.map(toMdastImage) as PhrasingContent[]
+            };
+            next.push(paragraph);
+          }
+          continue;
+        }
+
+        if ('children' in child && Array.isArray(child.children)) {
+          visit(child as { type: string; children: MdastRootContent[] });
+        }
+        next.push(child);
+      }
+
+      parent.children = next;
+    };
+
+    visit(tree);
+  };
+}
+
 const REMARK_PLUGINS_LEAD: PluggableList = supportsLookbehind ? [remarkGfm] : [];
+const REMARK_HTML_IMAGES_LIGHT: Pluggable = () => remarkHtmlImages({ isDark: false });
+const REMARK_HTML_IMAGES_DARK: Pluggable = () => remarkHtmlImages({ isDark: true });
 const REMARK_PLUGINS_TAIL: PluggableList = [remarkBreaks];
 // 不含公式时用这组模块级常量：引用稳定，Markdown 不会因为插件数组变化重新解析。
-const REMARK_PLUGINS: PluggableList = [...REMARK_PLUGINS_LEAD, ...REMARK_PLUGINS_TAIL];
+const REMARK_PLUGINS_LIGHT: PluggableList = [...REMARK_PLUGINS_LEAD, REMARK_HTML_IMAGES_LIGHT, ...REMARK_PLUGINS_TAIL];
+const REMARK_PLUGINS_DARK: PluggableList = [...REMARK_PLUGINS_LEAD, REMARK_HTML_IMAGES_DARK, ...REMARK_PLUGINS_TAIL];
 const REHYPE_PLUGINS: PluggableList = [];
 
 // 数学公式（remark-math 只认成对的 $…$ 与 $$…$$，代码块里的美元符号不会被当作公式；
 // rehype-katex 把 math 节点转成 KaTeX HTML，样式随插件一起按需加载）体积最大，因此懒加载：
 // 插件按需加载，加载完成后按同一份插件对象缓存数组，保证引用稳定。
 let cachedRemarkMath: MathPlugins | null = null;
-let cachedRemarkPlugins: PluggableList = REMARK_PLUGINS;
+let cachedRemarkPluginsLight: PluggableList = REMARK_PLUGINS_LIGHT;
+let cachedRemarkPluginsDark: PluggableList = REMARK_PLUGINS_DARK;
 let cachedRehypeMath: MathPlugins | null = null;
 let cachedRehypePlugins: PluggableList = REHYPE_PLUGINS;
 
-function remarkPluginsFor(math: MathPlugins | null): PluggableList {
-  if (!math) return REMARK_PLUGINS;
+function remarkPluginsFor(math: MathPlugins | null, isDark: boolean): PluggableList {
+  if (!math) return isDark ? REMARK_PLUGINS_DARK : REMARK_PLUGINS_LIGHT;
   if (cachedRemarkMath !== math) {
     cachedRemarkMath = math;
-    cachedRemarkPlugins = [...REMARK_PLUGINS_LEAD, ...math.remark, ...REMARK_PLUGINS_TAIL];
+    cachedRemarkPluginsLight = [...REMARK_PLUGINS_LEAD, REMARK_HTML_IMAGES_LIGHT, ...math.remark, ...REMARK_PLUGINS_TAIL];
+    cachedRemarkPluginsDark = [...REMARK_PLUGINS_LEAD, REMARK_HTML_IMAGES_DARK, ...math.remark, ...REMARK_PLUGINS_TAIL];
   }
-  return cachedRemarkPlugins;
+  return isDark ? cachedRemarkPluginsDark : cachedRemarkPluginsLight;
 }
 
 function rehypePluginsFor(math: MathPlugins | null): PluggableList {
@@ -648,14 +836,22 @@ export interface MarkdownViewProps {
   /** 会话内查找高亮；不传（或不给 query）时行为与旧版完全一致 */
   highlight?: MarkdownHighlight;
   math?: boolean;
+  /** Markdown 文件所在目录，供相对路径图片解析为工作区本地图片 */
+  baseDir?: string;
 }
 
 type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>['rehypePlugins'];
 
-export const MarkdownView = React.memo(function MarkdownView({ text, highlight, math: mathEnabled = true }: MarkdownViewProps) {
+export const MarkdownView = React.memo(function MarkdownView({
+  text,
+  highlight,
+  math: mathEnabled = true,
+  baseDir
+}: MarkdownViewProps) {
   const query = (highlight?.query ?? '').trim();
   const caseSensitive = Boolean(highlight?.caseSensitive);
   const activeOccurrence = highlight?.activeOccurrence ?? null;
+  const isDark = useIsDarkTheme();
 
   // 发送时会把被引用会话的背景资料块拼在正文前面：时间线里只显示正文和引用胶囊，
   // 因此按 START/END 标记整段剥离（桌面端不做剥离，Web 端按设计不铺开资料块）。
@@ -683,7 +879,7 @@ export const MarkdownView = React.memo(function MarkdownView({ text, highlight, 
 
   // 不含公式的文本即使插件已加载也不启用，保持插件数组引用稳定
   const activeMath = mayHaveMath ? math : null;
-  const remarkPlugins = remarkPluginsFor(activeMath);
+  const remarkPlugins = remarkPluginsFor(activeMath, isDark);
   // 只有查找生效时才换插件数组，其余时候沿用模块级常量，Markdown 解析结果不受影响。
   const rehypePlugins = React.useMemo<RehypePlugins>(() => {
     const base = rehypePluginsFor(activeMath);
@@ -691,6 +887,17 @@ export const MarkdownView = React.memo(function MarkdownView({ text, highlight, 
       ? base
       : [() => rehypeFindHighlight(query, caseSensitive, activeOccurrence), ...base];
   }, [query, caseSensitive, activeOccurrence, activeMath]);
+
+  const markdownComponents = React.useMemo<Components>(
+    () =>
+      baseDir === undefined
+        ? components
+        : {
+            ...components,
+            img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} baseDir={baseDir} />
+          },
+    [baseDir]
+  );
 
   if (!displayText.trim()) {
     return <p className="text-[var(--foreground-muted)]">（无内容）</p>;
@@ -701,7 +908,7 @@ export const MarkdownView = React.memo(function MarkdownView({ text, highlight, 
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
-        components={components}
+        components={markdownComponents}
         urlTransform={mentionSafeUrlTransform}
       >
         {displayText}
