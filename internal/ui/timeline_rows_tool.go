@@ -295,17 +295,14 @@ func (s *chatState) hideToolDetail(m Message) {
 	s.invalidate()
 }
 
-// toolChipShortTitle 生成胶囊里的短标题（基于 toolCallTitle）：命令优先用输入里的 description
-// （自然语言意图，截断到 40 个字符），没有 description 时从命令正文里语义提取出主命令
-// （截断到 48 个字符）；读取与编辑显示文件名，搜索显示 pattern（截断到 24 个字符），
-// 其余工具显示工具名加对象。
-func toolChipShortTitle(m Message, verb, target string) string {
+// toolChipFullTitle 生成工具标题的完整版本（基于 toolCallTitle）：与 toolChipShortTitle 相同，但命令分支不做字符数截断，供按宽度省略的命令卡片使用。
+func toolChipFullTitle(m Message, verb, target string) string {
 	category := classifyToolCategory(toolMessageName(m))
 	if parseCommandToolInfo(m).IsCommand || category == toolCategoryCommand {
 		if desc := toolChipDescription(m); desc != "" {
-			return truncateRunes(desc, 40)
+			return desc
 		}
-		return truncateRunes(toolChipCommandShort(target), 48)
+		return toolChipCommandShort(target)
 	}
 	switch category {
 	case toolCategoryRead, toolCategoryEdit:
@@ -314,6 +311,20 @@ func toolChipShortTitle(m Message, verb, target string) string {
 		return truncateRunes(strings.Trim(target, `"`), 24)
 	}
 	return strings.TrimSpace(strings.TrimSpace(verb) + " " + target)
+}
+
+// toolChipShortTitle 生成胶囊里的短标题（基于 toolChipFullTitle）：命令按字符数截断
+// （有 description 时截断到 40 个字符，否则截断到 48 个字符），其余工具类别与 toolChipFullTitle 一致。
+func toolChipShortTitle(m Message, verb, target string) string {
+	full := toolChipFullTitle(m, verb, target)
+	category := classifyToolCategory(toolMessageName(m))
+	if parseCommandToolInfo(m).IsCommand || category == toolCategoryCommand {
+		if toolChipDescription(m) != "" {
+			return truncateRunes(full, 40)
+		}
+		return truncateRunes(full, 48)
+	}
+	return full
 }
 
 // toolChipDescription 取命令工具输入里的 description 字段（各家 agent 用它写一句自然语言意图），

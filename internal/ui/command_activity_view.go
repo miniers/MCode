@@ -120,7 +120,7 @@ func renderCommandCard(c *ui.Context, s *chatState, m Message, beatTools []Messa
 	background := isToolBackground(m)
 	open := s.toolMessageExpanded(m)
 	verb, target, detail := toolCallTitle(m)
-	title := toolChipShortTitle(m, verb, target)
+	title := toolChipFullTitle(m, verb, target)
 	rawCmd := commandActivityCommand(m)
 
 	var appCfg config.AppearanceConfig

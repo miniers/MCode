@@ -264,3 +264,33 @@ func TestCommandCardBarHeightQuantized(t *testing.T) {
 		}
 	}
 }
+
+// TestCommandCardTitleNotRuneTruncated 验证命令卡片标题走 toolChipFullTitle 时不按字符数截断，
+// 而胶囊用的 toolChipShortTitle 仍保持原有的 40/48 字符截断行为。
+func TestCommandCardTitleNotRuneTruncated(t *testing.T) {
+	longDesc := "Build, vet and test all touched Go packages across the repository"
+	descMsg := Message{
+		ID:         "card-title-desc",
+		Role:       "tool",
+		ToolName:   "Bash",
+		ToolStatus: "running",
+		ToolInput:  fmt.Sprintf(`{"command":"go test ./...","description":%q}`, longDesc),
+	}
+	verb, target, _ := toolCallTitle(descMsg)
+	if got := toolChipFullTitle(descMsg, verb, target); got != longDesc || strings.Contains(got, "…") {
+		t.Fatalf("toolChipFullTitle(desc) = %q, want %q without ellipsis", got, longDesc)
+	}
+	if got := toolChipShortTitle(descMsg, verb, target); got != truncateRunes(longDesc, 40) || !strings.Contains(got, "…") {
+		t.Fatalf("toolChipShortTitle(desc) = %q, want %q", got, truncateRunes(longDesc, 40))
+	}
+
+	longCmd := "golangci-lint run --enable-all-experimental-linters --timeout=120s"
+	cmdMsg := commandCardTestMessage("card-title-cmd", longCmd, "running", time.Second)
+	verb, target, _ = toolCallTitle(cmdMsg)
+	if got := toolChipFullTitle(cmdMsg, verb, target); got != longCmd || strings.Contains(got, "…") {
+		t.Fatalf("toolChipFullTitle(cmd) = %q, want %q without ellipsis", got, longCmd)
+	}
+	if got := toolChipShortTitle(cmdMsg, verb, target); got != truncateRunes(longCmd, 48) || !strings.Contains(got, "…") {
+		t.Fatalf("toolChipShortTitle(cmd) = %q, want %q", got, truncateRunes(longCmd, 48))
+	}
+}
