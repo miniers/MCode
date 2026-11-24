@@ -319,6 +319,14 @@ export interface RemoteContextType {
     requestID: string;
     actionID: string;
   }) => Promise<RemoteSwarmState>;
+  /** 获取会话工作区文件的临时同源预览地址。 */
+  openThreadPreview: (threadID: string, path: string) => Promise<string>;
+  /** 设计档位子代理定稿。 */
+  finalizeDesign: (params: {
+    threadID: string;
+    beeThreadID: string;
+    actionID: string;
+  }) => Promise<RemoteSwarmState>;
   /** 读取单个子代理待合并改动的 diff。 */
   getMergeDiff: (params: {
     threadID: string;

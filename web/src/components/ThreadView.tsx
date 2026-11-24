@@ -168,12 +168,16 @@ const SwarmQuestionBanner = lazy(() =>
 const ThreadFindBar = lazy(() =>
   import('./thread/ThreadFindBar').then((module) => ({ default: module.ThreadFindBar }))
 );
+const DesignPreviewOverlay = lazy(() =>
+  import('./DesignPreviewOverlay').then((module) => ({ default: module.DesignPreviewOverlay }))
+);
 
 interface ThreadViewProps {
   thread: RemoteThreadSummary;
   onBack?: () => void;
   subview?: 'agents' | 'review' | 'git' | 'files' | 'scripts' | 'context' | 'logs' | null;
   filePath?: string;
+  designPath?: string;
   /** 推送点开时的一次性定位：messageID 定位消息，requestID 定位审批面板；nonce 变化即重新执行 */
   jumpRequest?: { messageID?: string; requestID?: string; nonce: number } | null;
   /** 总管任务卡直达任务详情。 */
@@ -196,7 +200,7 @@ function readThreadDraft(threadID: string): string | undefined {
   return stored;
 }
 
-export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, jumpRequest, onOpenTask }) => {
+export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, designPath, jumpRequest, onOpenTask }) => {
   const { supportsAnswer, answerDecision } = useRemoteStewardApi();
   const {
     getThreadHistory,
@@ -442,12 +446,20 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     stopAllSupported: swarmStopAllSupported,
     clearFinishedSupported: swarmClearFinishedSupported,
     forwardQuestion: forwardSwarmBeeQuestion,
+    openThreadPreview,
+    finalizeDesign: finalizeSwarmDesign,
     getMergeDiff: getSwarmMergeDiff,
     approveMerge: approveSwarmMerge,
     discardMerge: discardSwarmMerge
   } = useThreadSwarm(thread.id);
   const swarmSupported = isSwarmCapabilitySupported(capabilities);
   // 合并审查与转交提问都属于可选能力：未声明时对应按钮不渲染
+  const previewSupported = Boolean(
+    capabilities?.methods?.includes('threads.preview.open')
+  );
+  const finalizeDesignSupported = Boolean(
+    capabilities?.methods?.includes('threads.swarm.finalizeDesign')
+  );
   const swarmMergeApprovalSupported = Boolean(
     capabilities?.methods?.includes('threads.swarm.mergeDiff') &&
     capabilities?.methods?.includes('threads.swarm.approveMerge') &&
@@ -509,6 +521,38 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     }
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   }, []);
+
+  const pushThreadDesignHash = useCallback((targetThreadID: string, path: string) => {
+    const hash = `#/t/${encodeURIComponent(targetThreadID)}?design=${encodeURIComponent(path)}`;
+    if (window.location.hash === hash) return;
+    const state = window.history.state;
+    const nextDepth =
+      state && typeof state === 'object' && typeof state.mcodeDepth === 'number'
+        ? state.mcodeDepth + 1
+        : 1;
+    window.history.pushState({ mcodeDepth: nextDepth }, '', hash);
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, []);
+
+  const openDesignPreview = useCallback((path: string) => {
+    pushThreadDesignHash(thread.id, path);
+  }, [pushThreadDesignHash, thread.id]);
+
+  const selectDesignPreviewFile = useCallback((path: string) => {
+    const hash = `#/t/${encodeURIComponent(thread.id)}?design=${encodeURIComponent(path)}`;
+    if (window.location.hash !== hash) {
+      window.history.replaceState(window.history.state, '', hash);
+    }
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, [thread.id]);
+
+  const closeDesignPreview = useCallback(() => {
+    const hash = `#/t/${encodeURIComponent(thread.id)}`;
+    if (window.location.hash !== hash) {
+      window.history.replaceState(window.history.state, '', hash);
+    }
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }, [thread.id]);
 
   const handleFilePathChange = useCallback((path: string) => {
     replaceThreadRoute(`/files${path ? `/${encodeURIComponent(path)}` : ''}`);
@@ -1779,6 +1823,45 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     ]
   );
 
+  const handleSendDesignFeedback = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || !isConnected || !canSend) {
+        throw new Error('当前无法发送消息');
+      }
+      const params: Parameters<typeof sendThreadMessage>[2] = runningSendParams(
+        latestSummary.isRunning,
+        isStewardThread
+      );
+      if (composerOptionsSupported) {
+        const options = changedComposerOptions(composerOptions, summaryComposerOptions(latestSummary));
+        if (Object.keys(options).length > 0) params.options = options;
+      }
+      if (params.whenRunning !== 'queue') revealSentMessage();
+      const action = await sendThreadMessage(thread.id, trimmed, params);
+      if (action.state === 'failed') {
+        releaseSendAnchor(true);
+        throw new Error(action.error || '发送失败');
+      }
+      if (action.state === 'accepted') {
+        beginPolling(action.turnID ?? null);
+      }
+    },
+    [
+      beginPolling,
+      canSend,
+      composerOptions,
+      composerOptionsSupported,
+      isConnected,
+      isStewardThread,
+      latestSummary,
+      releaseSendAnchor,
+      revealSentMessage,
+      sendThreadMessage,
+      thread.id
+    ]
+  );
+
   // 继续胶囊：最后一条可见消息是不是错误卡片，决定失败后还要不要再给胶囊（错误卡片自己已经带「继续」）
   const lastVisibleMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
   const lastVisibleMessageIsError = isErrorMessage(lastVisibleMessage);
@@ -2235,6 +2318,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               onApproveMerge={swarmMergeApprovalSupported ? approveSwarmMerge : undefined}
               onDiscardMerge={swarmMergeApprovalSupported ? discardSwarmMerge : undefined}
               onOpenThread={replaceThreadByID}
+              onOpenDesign={previewSupported ? pushThreadDesignHash : undefined}
               providers={providers}
             />
           </LazyBoundary>
@@ -2452,6 +2536,19 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                 className="shrink-0 px-1.5 py-0.5 rounded-full text-mc-caption font-semibold bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400 active:scale-95 transition"
               >
                 有提问
+              </button>
+            )}
+            {previewSupported && swarmState?.bee?.designFiles && swarmState.bee.designFiles.length > 0 && (
+              <button
+                type="button"
+                onClick={() => openDesignPreview(swarmState.bee!.designFiles![0])}
+                className={`shrink-0 px-1.5 py-0.5 rounded-full text-mc-caption font-semibold active:scale-95 transition ${
+                  swarmState.bee.awaitingFinalize
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+                    : 'bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400'
+                }`}
+              >
+                看稿
               </button>
             )}
           </div>
@@ -3251,6 +3348,26 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
           onSubmit={handleSubmitEditedMessage}
           onClose={() => setEditTarget(null)}
         />
+      )}
+
+      {/* 设计稿全屏看稿层 */}
+      {designPath && (
+        <LazyBoundary label="正在加载设计稿…">
+          <DesignPreviewOverlay
+            threadID={thread.id}
+            bee={swarmState?.bee ?? null}
+            activePath={designPath}
+            onSelectFile={selectDesignPreviewFile}
+            onClose={closeDesignPreview}
+            openThreadPreview={openThreadPreview}
+            onSendFeedback={handleSendDesignFeedback}
+            onFinalizeDesign={
+              finalizeDesignSupported ? () => finalizeSwarmDesign(thread.id) : undefined
+            }
+            canSend={canSend}
+            isConnected={isConnected}
+          />
+        </LazyBoundary>
       )}
     </div>
   );

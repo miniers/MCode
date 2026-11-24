@@ -25,6 +25,16 @@ const cases: Array<{ name: string; hash: string; expected: ReturnType<typeof par
     expected: { threadID: 'thread-1', requestID: 'req-2' }
   },
   {
+    name: '只有 design',
+    hash: '#/t/thread-1?design=.mcode%2Fdesign%2Fx.html',
+    expected: { threadID: 'thread-1', design: '.mcode/design/x.html' }
+  },
+  {
+    name: 'm、r 与 design 同时出现',
+    hash: '#/t/thread-1?m=msg-1&r=req-2&design=.mcode%2Fdesign%2Fx.html',
+    expected: { threadID: 'thread-1', messageID: 'msg-1', requestID: 'req-2', design: '.mcode/design/x.html' }
+  },
+  {
     name: '编码字符',
     hash: '#/t/th%2F1?m=a%20b%26c&r=%E5%AE%A1%E6%89%B9',
     expected: { threadID: 'th/1', messageID: 'a b&c', requestID: '审批' }

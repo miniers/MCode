@@ -18,6 +18,8 @@ export type Route =
       /** 推送点开时要定位的消息与审批请求，仅用于一次性跳转。 */
       messageID?: string;
       requestID?: string;
+      /** 持续状态参数：打开的设计稿相对路径。 */
+      design?: string;
     }
   | { kind: 'task'; taskID: string }
   | { kind: 'goal'; goalID: string };
@@ -104,7 +106,8 @@ export function parseRoute(hash: string): Route {
       kind: 'thread',
       threadID: threadRoute.threadID,
       messageID: threadRoute.messageID,
-      requestID: threadRoute.requestID
+      requestID: threadRoute.requestID,
+      design: threadRoute.design
     };
   }
   return { kind: 'home' };

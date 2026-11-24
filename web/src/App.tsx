@@ -288,9 +288,11 @@ const AppContent: React.FC = () => {
         const threadID = event.data.threadID;
         const messageID = typeof event.data.messageID === 'string' ? event.data.messageID : '';
         const requestID = typeof event.data.requestID === 'string' ? event.data.requestID : '';
+        const design = typeof event.data.design === 'string' ? event.data.design : '';
         const query = [
           messageID ? `m=${encodeURIComponent(messageID)}` : '',
-          requestID ? `r=${encodeURIComponent(requestID)}` : ''
+          requestID ? `r=${encodeURIComponent(requestID)}` : '',
+          design ? `design=${encodeURIComponent(design)}` : ''
         ]
           .filter(Boolean)
           .join('&');
@@ -319,9 +321,14 @@ const AppContent: React.FC = () => {
       requestID: route.requestID,
       nonce: threadJumpNonceRef.current
     });
-    // 定位只用一次：去掉 hash 里的查询串，刷新或分享时不再跳。
+    // 定位只用一次：去掉 hash 里的 m/r，保留 design 等持续状态参数。
     if (window.location.hash.includes('?')) {
-      replaceHash(window.location.hash.split('?')[0]);
+      const [baseHash, rawQuery = ''] = window.location.hash.split('?');
+      const params = new URLSearchParams(rawQuery);
+      params.delete('m');
+      params.delete('r');
+      const remaining = params.toString();
+      replaceHash(remaining ? `${baseHash}?${remaining}` : baseHash);
     }
   }, [route, replaceHash]);
 
@@ -364,6 +371,7 @@ const AppContent: React.FC = () => {
               onBack={split ? undefined : () => goBack('#/')}
               subview={route.subview}
               filePath={route.filePath}
+              designPath={route.design}
               jumpRequest={jumpRequest}
               onOpenTask={(taskID) => navigate(`#/task/${encodeURIComponent(taskID)}`)}
             />

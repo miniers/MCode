@@ -150,6 +150,34 @@ export function useRemoteSwarmApi({ clientRef, capabilities }: UseRemoteSwarmApi
     return result;
   }, [capabilities, clientRef]);
 
+  /** 打开会话工作区文件（如设计稿）的临时同源预览地址。 */
+  const openThreadPreview = useCallback(async (threadID: string, path: string): Promise<string> => {
+    const client = clientRef.current;
+    if (!client) throw new Error('未连接到 Mac 端，无法打开设计稿预览');
+    if (capabilities && !capabilities.methods.includes('threads.preview.open')) {
+      throw new Error('当前宿主未声明 threads.preview.open 能力');
+    }
+    const result = await client.openThreadPreview({ threadID, path });
+    if (clientRef.current !== client) throw new Error('连接已更换，请重新打开设计稿预览');
+    return result.url;
+  }, [capabilities, clientRef]);
+
+  /** 设计档位子代理定稿；返回最新编排状态。 */
+  const finalizeDesign = useCallback(async (params: {
+    threadID: string;
+    beeThreadID: string;
+    actionID: string;
+  }): Promise<RemoteSwarmState> => {
+    const client = clientRef.current;
+    if (!client) throw new Error('未连接到 Mac 端，无法定稿');
+    if (capabilities && !capabilities.methods.includes('threads.swarm.finalizeDesign')) {
+      throw new Error('当前宿主未声明 threads.swarm.finalizeDesign 能力');
+    }
+    const result = await client.finalizeSwarmDesign(params);
+    if (clientRef.current !== client) throw new Error('连接已更换，请重新确认定稿结果');
+    return result;
+  }, [capabilities, clientRef]);
+
   /** 放弃子代理改动。 */
   const discardMerge = useCallback(async (params: {
     threadID: string;
@@ -175,6 +203,8 @@ export function useRemoteSwarmApi({ clientRef, capabilities }: UseRemoteSwarmApi
     getSwarmTiers,
     setSwarmTiers,
     forwardQuestion,
+    openThreadPreview,
+    finalizeDesign,
     getMergeDiff,
     approveMerge,
     discardMerge

@@ -420,6 +420,7 @@ self.addEventListener('notificationclick', (event) => {
   const threadID = data.threadID || null;
   const messageID = data.messageID || null;
   const requestID = data.requestID || null;
+  const design = data.design || null;
 
   event.waitUntil(
     (async () => {
@@ -430,12 +431,13 @@ self.addEventListener('notificationclick', (event) => {
       if (windowClients.length > 0) {
         const client = windowClients[0];
         await client.focus();
-        client.postMessage({ type: 'mcode-open-thread', threadID, messageID, requestID });
+        client.postMessage({ type: 'mcode-open-thread', threadID, messageID, requestID, design });
       } else {
-        // 旧推送没有 messageID/requestID，查询串为空，URL 与之前一致。
+        // 旧推送没有 messageID/requestID/design，查询串为空，URL 与之前一致。
         const params = [];
         if (messageID) params.push('m=' + encodeURIComponent(messageID));
         if (requestID) params.push('r=' + encodeURIComponent(requestID));
+        if (design) params.push('design=' + encodeURIComponent(design));
         const query = params.length > 0 ? '?' + params.join('&') : '';
         await self.clients.openWindow(threadID ? '/#/t/' + encodeURIComponent(threadID) + query : '/');
       }

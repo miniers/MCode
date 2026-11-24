@@ -991,6 +991,7 @@ type SwarmBee struct {
 	Credibility           *SwarmCredibility `json:"credibility,omitempty"`
 	PendingQuestion       *SwarmBeeQuestion `json:"pendingQuestion,omitempty"`
 	AwaitingFinalize      bool              `json:"awaitingFinalize,omitempty"`
+	DesignFiles           []string          `json:"designFiles,omitempty"`
 }
 
 // SwarmState 对应 RemoteSwarmState

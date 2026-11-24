@@ -1332,3 +1332,21 @@ func TestThreadsSwarmFinalizeDesign(t *testing.T) {
 		t.Fatalf("expected ErrCodeResourceNotFound, got %+v", resp.Error)
 	}
 }
+
+// 19. 验证 swarmBeeToWire 对 DesignFiles 的映射与深拷贝隔离
+func TestSwarmBeeToWireDesignFiles(t *testing.T) {
+	if got := swarmBeeToWire(swarm.Bee{}).DesignFiles; len(got) != 0 {
+		t.Fatalf("expected empty DesignFiles, got %v", got)
+	}
+
+	src := []string{".mcode/design/a.html", ".mcode/design/b.html"}
+	got := swarmBeeToWire(swarm.Bee{DesignFiles: src})
+	if len(got.DesignFiles) != 2 || got.DesignFiles[0] != src[0] || got.DesignFiles[1] != src[1] {
+		t.Fatalf("unexpected DesignFiles: %+v", got.DesignFiles)
+	}
+
+	src[0] = "mutated"
+	if got.DesignFiles[0] != ".mcode/design/a.html" {
+		t.Fatalf("expected deep copy of DesignFiles, got %+v", got.DesignFiles)
+	}
+}

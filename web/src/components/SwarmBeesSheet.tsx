@@ -29,6 +29,8 @@ interface SwarmBeesSheetProps {
   onApproveMerge?: (beeThreadID: string) => Promise<void>;
   onDiscardMerge?: (beeThreadID: string) => Promise<void>;
   onOpenThread: (threadID: string) => void;
+  /** 宿主支持 threads.preview.open 时传入，点击跳转到 bee 会话并叠上看稿层。 */
+  onOpenDesign?: (beeThreadID: string, path: string) => void;
   /** 模型 ID → 显示名用；拿不到时原样显示 ID。 */
   providers?: RemoteProvider[];
 }
@@ -174,6 +176,7 @@ export const SwarmBeesSheetBody = forwardRef<ThreadMenuPageHandle, SwarmBeesShee
       onApproveMerge,
       onDiscardMerge,
       onOpenThread,
+      onOpenDesign,
       providers
     },
     ref
@@ -432,6 +435,11 @@ export const SwarmBeesSheetBody = forwardRef<ThreadMenuPageHandle, SwarmBeesShee
                           {mergeStateInfo.label}
                         </span>
                       )}
+                      {bee.awaitingFinalize && (
+                        <span className="px-1.5 py-0.5 rounded font-medium shrink-0 bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400">
+                          待定稿
+                        </span>
+                      )}
                       {changedFileCount > 0 && (
                         <span className="text-slate-500 dark:text-zinc-400 shrink-0">
                           {`${changedFileCount} 个文件 `}
@@ -597,6 +605,19 @@ export const SwarmBeesSheetBody = forwardRef<ThreadMenuPageHandle, SwarmBeesShee
 
                     {/* 行动作栏 */}
                     <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
+                      {onOpenDesign && bee.designFiles && bee.designFiles.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenDesign(bee.threadID, bee.designFiles![0])}
+                          className={
+                            bee.awaitingFinalize
+                              ? 'min-h-[36px] px-3 rounded-xl text-xs font-medium border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 text-amber-700 dark:text-amber-400 transition'
+                              : 'min-h-[36px] px-3 rounded-xl text-xs font-medium border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-700 dark:text-slate-200 transition'
+                          }
+                        >
+                          看稿
+                        </button>
+                      )}
                       {bee.canOpen && (
                         <button
                           type="button"

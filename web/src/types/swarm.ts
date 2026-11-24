@@ -72,6 +72,10 @@ export interface RemoteSwarmBee {
     forwarded: boolean;
     autoForwardAt?: string;
   };
+  /** 设计档位 bee 已完成本轮，等待用户确认定稿 */
+  awaitingFinalize?: boolean;
+  /** 设计档位 bee 产出的设计稿相对路径列表 */
+  designFiles?: string[];
 }
 
 export interface RemoteSwarmState {

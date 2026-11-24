@@ -1,11 +1,12 @@
 /**
- * 会话路由解析：#/t/<threadID> 之后允许带 ?m=<messageID> 与 &r=<requestID>，
- * 供系统推送点开时直达消息或审批卡。老链接不带查询串，行为不变。
+ * 会话路由解析：#/t/<threadID> 之后允许带 ?m=<messageID>、&r=<requestID> 与 &design=<path>，
+ * 供系统推送点开或看稿层使用。老链接不带查询串，行为不变。
  */
 export interface ThreadRoute {
   threadID: string;
   messageID?: string;
   requestID?: string;
+  design?: string;
 }
 
 const THREAD_ROUTE = /^\/t\/([^/?#]+)(?:\?([^#]*))?$/;
@@ -25,9 +26,11 @@ export function parseThreadRoute(hash: string): ThreadRoute | null {
   const params = new URLSearchParams(match[2] ?? '');
   const messageID = params.get('m') || '';
   const requestID = params.get('r') || '';
+  const design = params.get('design') || '';
   return {
     threadID,
     ...(messageID ? { messageID } : {}),
-    ...(requestID ? { requestID } : {})
+    ...(requestID ? { requestID } : {}),
+    ...(design ? { design } : {})
   };
 }

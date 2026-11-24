@@ -2187,6 +2187,7 @@ export type RemoteSwarmBee = {
   credibility?: RemoteSwarmCredibility;
   pendingQuestion?: RemoteSwarmPendingQuestion;
   awaitingFinalize?: boolean;
+  designFiles?: Array<string>;
   canOpen: boolean;
   canStop: boolean;
 };

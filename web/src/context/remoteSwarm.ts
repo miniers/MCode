@@ -41,6 +41,10 @@ export interface UseThreadSwarmResult {
   clearFinished: () => Promise<void>;
   /** 把子代理的提问转交主线程回答；返回态按 stopAll 方式合并。 */
   forwardQuestion: (beeThreadID: string, requestID: string) => Promise<void>;
+  /** 获取会话工作区文件的临时同源预览地址。 */
+  openThreadPreview: (threadID: string, path: string) => Promise<string>;
+  /** 设计档位子代理定稿；返回态按 stopAll 方式合并。 */
+  finalizeDesign: (beeThreadID: string) => Promise<void>;
   /** 读取单个子代理待合并改动的 diff（只读，不改状态缓存）。 */
   getMergeDiff: (beeThreadID: string) => Promise<RemoteSwarmMergeDiffResult>;
   /** 批准子代理改动合入主工作副本。 */
@@ -70,6 +74,8 @@ export function useThreadSwarm(threadID: string | null | undefined): UseThreadSw
     stopAllSwarmBees,
     clearFinishedSwarmBees,
     forwardQuestion: forwardSwarmQuestion,
+    openThreadPreview,
+    finalizeDesign: finalizeSwarmDesign,
     getMergeDiff: getSwarmMergeDiff,
     approveMerge: approveSwarmMerge,
     discardMerge: discardSwarmMerge,
@@ -289,6 +295,23 @@ export function useThreadSwarm(threadID: string | null | undefined): UseThreadSw
     }
   }, [forwardSwarmQuestion, swarmSupported, threadID]);
 
+  // 设计稿定稿：主会话/子代理上下文都归一化为 leadThreadID
+  const finalizeDesign = useCallback(async (beeThreadID: string): Promise<void> => {
+    if (!swarmSupported || !threadID) return;
+    const targetLeadThreadID = stateRef.current?.isBee && stateRef.current.leadThreadID ? stateRef.current.leadThreadID : threadID;
+    try {
+      const updated = await finalizeSwarmDesign({ threadID: targetLeadThreadID, beeThreadID, actionID: makeActionID() });
+      if (currentThreadIDRef.current === threadID) {
+        setState(updated);
+        setError(null);
+      }
+    } catch (err) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      setError(errorObj);
+      throw errorObj;
+    }
+  }, [finalizeSwarmDesign, swarmSupported, threadID]);
+
   // 读取待合并 diff：只读，不改编排状态缓存
   const getMergeDiff = useCallback(async (beeThreadID: string): Promise<RemoteSwarmMergeDiffResult> => {
     if (!swarmSupported || !threadID) throw new Error('当前会话不支持子代理改动审查');
@@ -340,6 +363,8 @@ export function useThreadSwarm(threadID: string | null | undefined): UseThreadSw
     stopAll,
     clearFinished,
     forwardQuestion,
+    openThreadPreview,
+    finalizeDesign,
     getMergeDiff,
     approveMerge,
     discardMerge

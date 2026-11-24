@@ -75,6 +75,7 @@ import type {
   RemoteSwarmMergeDiffResult,
   RemoteSwarmTier,
   RemoteSwarmTiersResult,
+  RemoteThreadsPreviewOpenResult,
   RemoteThreadsBulkArchiveParams,
   RemoteThreadsBulkArchiveResult,
   RemoteThreadsBulkMarkReadParams,
@@ -1785,6 +1786,27 @@ export class McodeRpcClient {
     actionID: string;
   }): Promise<RemoteSwarmState> {
     return this.sendRpc<RemoteSwarmState>('threads.swarm.forwardQuestion', params, 30000);
+  }
+
+  /**
+   * threads.preview.open { threadID, path } -> { url }
+   */
+  public async openThreadPreview(params: {
+    threadID: string;
+    path: string;
+  }): Promise<RemoteThreadsPreviewOpenResult> {
+    return this.sendRpc<RemoteThreadsPreviewOpenResult>('threads.preview.open', params, 30000);
+  }
+
+  /**
+   * threads.swarm.finalizeDesign { threadID, beeThreadID, actionID } -> RemoteSwarmState
+   */
+  public async finalizeSwarmDesign(params: {
+    threadID: string;
+    beeThreadID: string;
+    actionID: string;
+  }): Promise<RemoteSwarmState> {
+    return this.sendRpc<RemoteSwarmState>('threads.swarm.finalizeDesign', params, 30000);
   }
 
   /**

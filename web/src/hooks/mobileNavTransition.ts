@@ -7,6 +7,7 @@ export type NavDirection = 'push' | 'pop' | 'replace';
 export interface NavRouteLike {
   kind: string;
   subview?: string;
+  design?: string;
   /** thread 路由的会话标识；用来判断前后是否仍是同一个会话。 */
   threadID?: string;
 }
@@ -64,7 +65,8 @@ export function shouldSkipNavTransition(
     prevRoute.kind === 'thread' &&
     nextRoute.kind === 'thread' &&
     prevRoute.threadID === nextRoute.threadID &&
-    (prevRoute.subview ?? '') !== (nextRoute.subview ?? '')
+    ((prevRoute.subview ?? '') !== (nextRoute.subview ?? '') ||
+      (prevRoute.design ?? '') !== (nextRoute.design ?? ''))
   );
 }
 

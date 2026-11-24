@@ -162,6 +162,8 @@ export type RemoteActionsContextType = Pick<
   | 'getSwarmTiers'
   | 'setSwarmTiers'
   | 'forwardQuestion'
+  | 'openThreadPreview'
+  | 'finalizeDesign'
   | 'getMergeDiff'
   | 'approveMerge'
   | 'discardMerge'
@@ -1337,6 +1339,8 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     getSwarmTiers,
     setSwarmTiers,
     forwardQuestion,
+    openThreadPreview,
+    finalizeDesign,
     getMergeDiff,
     approveMerge,
     discardMerge
@@ -1559,6 +1563,8 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     getSwarmTiers,
     setSwarmTiers,
     forwardQuestion,
+    openThreadPreview,
+    finalizeDesign,
     getMergeDiff,
     approveMerge,
     discardMerge,
@@ -1571,7 +1577,7 @@ export const RemoteProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     previewWorktreeMove,
     executeWorktreeMove,
   }), [
-    setRememberDevice, renameDevice, forgetDevice, setSelectedProjectID, setTheme, setInspectedTask, setCurrentThreadFromContext, callRemote, supportsMethod, onRemoteNotification, reconnect, pairWithToken, newPairingCode, clearAuth, refreshBoard, moveTask, startTask, reviewTask, getDiff, getThreadDiff, getThreadGitStatus, getThreadGitBranches, listThreadFiles, readThreadFile, searchThreadFiles, readThreadMedia, listThreadScripts, runThreadScript, getThreadScriptRunStatus, setThreadScriptFavorite, saveScripts, previewBulkThreads, archiveBulkThreads, markDormantBulkThreads, markBulkThreadsRead, undoBulkThreads, createTask, createGoal, startGoal, pauseGoal, cancelGoal, replanGoal, retryGoalTask, skipGoalTask, loadProjects, loadThreads, loadMoreThreads, resyncThreads, listArchivedThreads, updateThread, moveThread, createThread, sendThreadMessage, checkThreadActionUnified, dismissThreadAction, refreshThread, subscribeThread, retryThreadSubscription, unsubscribeThread, openThread, openThreadByID, closeThread, getThreadHistory, listRequests, respondToRequest, interruptThread, killRunningCommand, listThreadQueue, updateThreadQueue, removeThreadQueue, moveThreadQueue, sendThreadQueueNow, interruptAndSendThread, editThreadQueueDraft, recallTurn, compactThread, forwardSwarmQuestion, subscribeCompactSuggestion, uploadAttachment, listProviders, rememberProviderSelection, getComposerQuota, getPushPublicKey, subscribePush, unsubscribePush, branchThread, forwardThread, loadThreadCommands, getThreadSwarm, setThreadSwarm, stopSwarmBee, stopAllSwarmBees, clearFinishedSwarmBees, getSwarmTiers, setSwarmTiers, forwardQuestion, getMergeDiff, approveMerge, discardMerge, addSwarmListener, setThreadSwarmMode, setThreadSwarmPlansOnly, setThreadSwarmBeeTiers, regenerateThreadTitle, limitProviderText, previewWorktreeMove, executeWorktreeMove
+    setRememberDevice, renameDevice, forgetDevice, setSelectedProjectID, setTheme, setInspectedTask, setCurrentThreadFromContext, callRemote, supportsMethod, onRemoteNotification, reconnect, pairWithToken, newPairingCode, clearAuth, refreshBoard, moveTask, startTask, reviewTask, getDiff, getThreadDiff, getThreadGitStatus, getThreadGitBranches, listThreadFiles, readThreadFile, searchThreadFiles, readThreadMedia, listThreadScripts, runThreadScript, getThreadScriptRunStatus, setThreadScriptFavorite, saveScripts, previewBulkThreads, archiveBulkThreads, markDormantBulkThreads, markBulkThreadsRead, undoBulkThreads, createTask, createGoal, startGoal, pauseGoal, cancelGoal, replanGoal, retryGoalTask, skipGoalTask, loadProjects, loadThreads, loadMoreThreads, resyncThreads, listArchivedThreads, updateThread, moveThread, createThread, sendThreadMessage, checkThreadActionUnified, dismissThreadAction, refreshThread, subscribeThread, retryThreadSubscription, unsubscribeThread, openThread, openThreadByID, closeThread, getThreadHistory, listRequests, respondToRequest, interruptThread, killRunningCommand, listThreadQueue, updateThreadQueue, removeThreadQueue, moveThreadQueue, sendThreadQueueNow, interruptAndSendThread, editThreadQueueDraft, recallTurn, compactThread, forwardSwarmQuestion, subscribeCompactSuggestion, uploadAttachment, listProviders, rememberProviderSelection, getComposerQuota, getPushPublicKey, subscribePush, unsubscribePush, branchThread, forwardThread, loadThreadCommands, getThreadSwarm, setThreadSwarm, stopSwarmBee, stopAllSwarmBees, clearFinishedSwarmBees, getSwarmTiers, setSwarmTiers, forwardQuestion, openThreadPreview, finalizeDesign, getMergeDiff, approveMerge, discardMerge, addSwarmListener, setThreadSwarmMode, setThreadSwarmPlansOnly, setThreadSwarmBeeTiers, regenerateThreadTitle, limitProviderText, previewWorktreeMove, executeWorktreeMove
   ]);
 
   const metaValue = useMemo<RemoteMetaContextType>(() => ({
