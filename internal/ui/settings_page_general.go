@@ -62,10 +62,7 @@ var pageGeneral = settingsPage{
 					val(func(c *config.Config) *string { return &c.Permissions.Mode }, config.ModeFullAccess),
 					permissionModeChoices(),
 				).withDisplay(func(st *SettingsState) string {
-					var mode string
-					if st.isLocked("mode") {
-						mode = st.launchPermissionMode()
-					}
+					mode := st.launchPermissionMode()
 					if mode == "" {
 						mode = st.cfg.Permissions.Mode
 					}

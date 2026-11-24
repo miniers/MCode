@@ -418,11 +418,14 @@ func WithLaunchMode(mode string) Option {
 	}
 }
 
-// launchPermissionMode 返回启动参数指定的权限档位；未通过启动参数指定时为空。
+// launchPermissionMode 返回启动参数锁定的权限档位；mode 未被 --mode / MCODE_MODE 锁定时为空（桌面入口总会传 WithLaunchMode）。
 func (s *SettingsState) launchPermissionMode() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.launchMode
+	if s.lockedKeys != nil && s.lockedKeys["mode"] {
+		return s.launchMode
+	}
+	return ""
 }
 
 // configWarningsText 把 LoadWithWarnings 的逐字段说明压成一行提示：
