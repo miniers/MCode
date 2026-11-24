@@ -158,7 +158,7 @@ const stoppedCardHtml = renderToStaticMarkup(
 assert(!stoppedCardHtml.includes('aria-label="进行中"'), 'stopped in_progress does not use RunningGlyph');
 assert(stoppedCardHtml.includes('--mc-accent'), 'stopped in_progress uses accent dot');
 
-// TimelineEntry 接入：运行中默认展开，结束后默认收起，即使「用时」折叠体收起也可见
+// TimelineEntry 接入：运行中与结束后都默认收起，即使「用时」折叠体收起也可见
 const todoEntry = msg('todo-entry', 'tool', t1, {
   kind: 'tool',
   toolName: 'TodoWrite',
@@ -201,7 +201,7 @@ const renderWorkEntry = (turnStatus: 'running' | 'completed', entries: ThreadMes
 
 const runningWorkHtml = renderWorkEntry('running', [todoEntry]);
 assert(runningWorkHtml.includes('data-turn-checklist-trigger="true"'), 'running workRecord renders checklist trigger');
-assert(runningWorkHtml.includes('data-checklist-open="true"'), 'running workRecord checklist defaults to open');
+assert(runningWorkHtml.includes('data-checklist-open="false"'), 'running workRecord checklist defaults to collapsed');
 assert(!runningWorkHtml.includes('data-expanded-work-record'), 'checklist card renders outside collapsed work body');
 
 const completedWorkHtml = renderWorkEntry('completed', [todoEntry]);

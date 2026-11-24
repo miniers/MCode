@@ -1044,12 +1044,12 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     const shimmerHeader =
       workRecordRunning && !item.entries.some((entry) => entry.toolStatus === 'running');
     const checklistKey = `${threadID}:${item.turnID}`;
-    const isChecklistOpen = checklistOpen ?? localChecklistOpen ?? workRecordRunning;
+    const isChecklistOpen = checklistOpen ?? localChecklistOpen ?? false;
     const handleToggleChecklist = () => {
       if (onToggleChecklist) {
-        onToggleChecklist(checklistKey, workRecordRunning);
+        onToggleChecklist(checklistKey, false);
       } else {
-        setLocalChecklistOpen((previous) => !(previous ?? workRecordRunning));
+        setLocalChecklistOpen((previous) => !(previous ?? false));
       }
     };
     const headerLead = (

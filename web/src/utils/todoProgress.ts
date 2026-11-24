@@ -1,6 +1,6 @@
 // 待办清单的解析与进度统计：口径对齐桌面端 internal/ui/timeline_rows.go:3371 parseTodoItems
 // —— 待办来自 TodoWrite / update_plan 这类工具消息的输入 JSON（含 todos 或 plan 数组，每项有 content/step 与 status）。
-// 解析只在这里做一份，供时间线回合头清单使用。
+// 解析只在这里做一份，回合头清单与输入框上方的进度胶囊共用。
 
 export type TodoStatus = 'pending' | 'in_progress' | 'completed';
 
@@ -134,4 +134,45 @@ export function todoCurrentText(items: readonly TodoItem[]): string {
 export function todoProgressFromMessage(message: TodoSourceMessage | null | undefined): TodoProgress | null {
   const items = todoItemsFromMessage(message);
   return items ? todoProgressOf(items) : null;
+}
+
+function lastUserMessageIndex(messages: readonly TodoSourceMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === 'user') return i;
+  }
+  return -1;
+}
+
+/** 最新一份待办清单的进度及其消息下标；没有待办消息时返回 null。后到的待办整份覆盖先前的。 */
+export function latestTodoProgress(
+  messages: readonly TodoSourceMessage[]
+): { progress: TodoProgress; index: number } | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const progress = todoProgressFromMessage(messages[i]);
+    if (progress) return { progress, index: i };
+  }
+  return null;
+}
+
+/**
+ * 输入框上方进度胶囊要展示的内容，与桌面端 shouldShowPlanPill 同口径：
+ * 有待办、未全部完成，而且会话正在运行，或最新待办出现在最后一条用户消息之后（这一轮的新进度）。
+ * 全部完成、没有待办、或结束后仍是上一轮的旧清单时返回 null（不显示）。
+ */
+export function shouldShowTodoProgress(
+  messages: readonly TodoSourceMessage[],
+  isRunning: boolean
+): TodoProgress | null {
+  const latest = latestTodoProgress(messages);
+  if (!latest) return null;
+  if (latest.progress.total <= 0 || latest.progress.done >= latest.progress.total) return null;
+  if (isRunning) return latest.progress;
+  return latest.index > lastUserMessageIndex(messages) ? latest.progress : null;
+}
+
+/** 胶囊正文：「完成数/总数 · 进行中那一项」（正文按 maxRunes 截断）。 */
+export function todoProgressText(progress: TodoProgress, maxRunes = 60): string {
+  const head = `${progress.done}/${progress.total}`;
+  const current = [...progress.current].slice(0, maxRunes).join('').replace(/\s+/g, ' ').trim();
+  return current ? `${head} · ${current}` : head;
 }
