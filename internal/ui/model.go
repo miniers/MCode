@@ -3587,7 +3587,7 @@ func (s *chatState) providerDisplayName(providerID string) string {
 		}
 		return endpoint
 	}
-	return providerID
+	return providerDisplayName(providerID)
 }
 
 // toggleSidebar 切换侧边栏的折叠与展开状态。

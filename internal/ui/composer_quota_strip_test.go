@@ -588,7 +588,7 @@ func TestComposerQuotaPopoverOpensOnlyClickedGroup(t *testing.T) {
 		return !s.quotaLoadingProviders["agy"] && !s.quotaLoadingProviders["agy@bee-1"]
 	})
 	tt.Frame()
-	if err := tt.Click("额度 agy"); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName("agy")); err != nil {
 		t.Fatalf("点击第一组 agy 失败: %v", err)
 	}
 	if !s.composerView.quotaOpen || s.composerView.quotaPopoverKey != "agy-个人账号" {

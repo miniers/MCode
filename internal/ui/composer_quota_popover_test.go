@@ -45,7 +45,7 @@ func TestComposerQuotaPopoverHeightCappedAndScrolls(t *testing.T) {
 
 	const width, height = 480, 360
 	tt := quotaPopoverTester(s, th, width, height)
-	if err := tt.Click("额度 " + th.Provider); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 		t.Fatalf("打开额度弹层失败: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestComposerQuotaPopoverRefreshRequestsProviderReload(t *testing.T) {
 	t.Cleanup(func() { SetChatQuotaWindowsForProvider(s, th.Provider, nil) })
 
 	tt := quotaPopoverTester(s, th, 480, 400)
-	if err := tt.Click("额度 " + th.Provider); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 		t.Fatalf("打开额度弹层失败: %v", err)
 	}
 	if err := tt.Click("刷新额度"); err != nil {

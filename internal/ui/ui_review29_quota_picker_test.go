@@ -114,7 +114,7 @@ func TestUIReview29CreditsErrorAndRetry(t *testing.T) {
 		})
 	}, 520, 400)
 
-	if err := tt.Click("额度 " + th.Provider); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 		t.Fatalf("打开额度弹层失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("credits boom") })
@@ -127,11 +127,11 @@ func TestUIReview29CreditsErrorAndRetry(t *testing.T) {
 	}
 
 	// 关闭后再次打开应照常重试，而不是被静默缓存挡住。
-	if err := tt.Click("额度 " + th.Provider); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 		t.Fatalf("关闭额度弹层失败: %v", err)
 	}
 	tt.Frame()
-	if err := tt.Click("额度 " + th.Provider); err != nil {
+	if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 		t.Fatalf("再次打开额度弹层失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -286,7 +286,7 @@ func TestUIReview29NarrowLayoutBounds(t *testing.T) {
 
 			winRect := ui.Rect{X: 0, Y: 0, W: float32(tc.winW), H: winH}
 
-			if err := tt.Click("额度 " + th.Provider); err != nil {
+			if err := tt.Click("额度 " + s.providerDisplayName(th.Provider)); err != nil {
 				t.Fatalf("打开额度浮层失败: %v", err)
 			}
 			tt.Frame()
