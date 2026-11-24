@@ -192,13 +192,7 @@ func renderRevertDialog(c *ui.Context, s *chatState) {
 
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragRevert, 480, max(440, winH-120), 360, 240, winW, winH)
-	prevOpen := open
 	modalDragModal(c, modalDragRevert, &open, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			s.closeRevertPreview()
-			return
-		}
-
 		ui.Column(c.Key("modal-revert-card")).
 			Width(width).
 			Height(height).
@@ -241,10 +235,10 @@ func renderRevertDialog(c *ui.Context, s *chatState) {
 				modalResizeGrips(c, modalDragRevert, width, height)
 			})
 	})
-	if open != prevOpen {
-		st.mu.Lock()
-		st.open = open
-		st.mu.Unlock()
+	// DialogBase 已经把遮罩点击与 Esc 写回 open，这里同步清理状态。
+	if !open {
+		modalDragReset(modalDragRevert)
+		s.closeRevertPreview()
 	}
 }
 

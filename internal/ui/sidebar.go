@@ -2526,12 +2526,7 @@ func renderRenameThreadModal(c *ui.Context, s *chatState) {
 	const renameModalHeight = 200
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragRenameThread, 380, renameModalHeight, 360, 160, winW, winH)
-	modalDragModal(c, modalDragRenameThread, &s.renameModalOpen, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			s.closeRenameModal()
-			return
-		}
-
+	modalDragModal(c, modalDragRenameThread, &open, func() {
 		ui.Column(c.Key("modal-rename-card")).
 			Label("modal-rename-card").
 			Width(width).
@@ -2605,6 +2600,10 @@ func renderRenameThreadModal(c *ui.Context, s *chatState) {
 				modalResizeGripsMin(c, modalDragRenameThread, width, height, 360, 160)
 			})
 	})
+	if !open {
+		modalDragReset(modalDragRenameThread)
+		s.closeRenameModal()
+	}
 }
 
 // confirmBeforeDeleting 读取「删除前确认」开关（Archive.ConfirmBeforeDeleting）。
@@ -3060,12 +3059,7 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragWorktreeManage, 480, 500, min(360, max(0, winW-modalDragPanelInset)), min(240, max(0, winH-modalDragPanelInset)), winW, winH)
-	modalDragModal(c, modalDragWorktreeManage, &ws.manageOpen, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			closeManage()
-			return
-		}
-
+	modalDragModal(c, modalDragWorktreeManage, &open, func() {
 		ui.Column(c.Key("modal-worktree-card")).
 			Width(width).
 			Height(height).
@@ -3153,6 +3147,10 @@ func renderWorktreeManageModal(c *ui.Context, s *chatState) {
 				modalResizeGrips(c, modalDragWorktreeManage, width, height)
 			})
 	})
+	if !open {
+		modalDragReset(modalDragWorktreeManage)
+		closeManage()
+	}
 }
 
 func renderWorktreeRow(c *ui.Context, it WorktreeInfo) {
@@ -3213,12 +3211,7 @@ func renderWorktreeMoveModal(c *ui.Context, s *chatState) {
 	const worktreeMoveModalHeight = 240
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragWorktreeMove, 380, worktreeMoveModalHeight, 360, 160, winW, winH)
-	modalDragModal(c, modalDragWorktreeMove, &ws.moveOpen, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			s.closeWorktreeMove()
-			return
-		}
-
+	modalDragModal(c, modalDragWorktreeMove, &open, func() {
 		ui.Column(c.Key("modal-worktree-move-card")).
 			Label("modal-worktree-move-card").
 			Width(width).
@@ -3295,6 +3288,10 @@ func renderWorktreeMoveModal(c *ui.Context, s *chatState) {
 				modalResizeGripsMin(c, modalDragWorktreeMove, width, height, 360, 160)
 			})
 	})
+	if !open {
+		modalDragReset(modalDragWorktreeMove)
+		s.closeWorktreeMove()
+	}
 }
 
 func (s *chatState) openMoveToProjectModal(threadID string) {

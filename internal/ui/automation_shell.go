@@ -206,8 +206,7 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 		}
 	}
 	narrow := width < automationNarrowWidth || availWidth < KanbanBoardPaneMinWidth+sidePaneHandleWidth+KanbanDetailMinWidth
-	sheetHandlesEsc := narrow && as.narrowDetail && selected.ID != "" && !as.moreOpen && !as.confirmDelete && !as.confirmRun && !as.confirmDiscard && !as.chooseProjectOpen && as.openRunID == ""
-	if !as.editorOpen && !sheetHandlesEsc && c.Shortcut(0, ui.KeyEscape) {
+	if c.Shortcut(0, ui.KeyEscape) {
 		handleAutomationEscape(s)
 	}
 	closeNarrow := func() {

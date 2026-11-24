@@ -378,7 +378,7 @@ func renderComposerContextDraftModal(c *ui.Context, s *chatState) {
 					})
 			})
 	})
-	if !open || (snap.editingLocalID == "" && snap.editingSnippetID == 0 && c.Shortcut(0, ui.KeyEscape)) {
+	if !open {
 		closeComposerContextDraftModal(s)
 	}
 }

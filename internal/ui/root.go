@@ -168,8 +168,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			winW, _ := c.Size()
 			state.sidebarWidth = clampSidebarWidthForWindow(winW, state.sidebarWidth)
 
-			pal := getPaletteState(state)
-
 			// 命令面板与设置窗口互不遮挡。
 			// 终端聚焦时不注册也不消费命令面板快捷键，让按键直达终端视图（例如 ⌘K 清屏）。
 			if !terminalFocused(state) {
@@ -193,12 +191,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				kanbanKeyboardSearchFocus(state, true)
 			}
 
-			paletteOpen := pal != nil && pal.open
-			if paletteOpen {
-				if c.Shortcut(0, ui.KeyEscape) {
-					closePalette(state)
-				}
-			} else if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
+			if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
 				// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
 				if (view != "attention" && view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || ((view == "tasks" || view == "attention") && !consumeKanbanEscape(state)) {
 					state.closeWorkspace()

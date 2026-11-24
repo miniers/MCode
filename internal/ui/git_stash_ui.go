@@ -301,11 +301,6 @@ func renderGitStashDialog(c *ui.Context, f *gitStashDialog) {
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragGitStash, gitStashCardWidth, max(400, winH-120), 360, 240, winW, winH)
 	modalDragModal(c, modalDragGitStash, &open, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			f.closeStashDialog()
-			return
-		}
-
 		ui.Column(c.Key("modal-git-stash-card")).
 			Width(width).
 			Height(height).

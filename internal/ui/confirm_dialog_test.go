@@ -564,3 +564,79 @@ func TestConfirmDialogTabEnterFocus(t *testing.T) {
 		}
 	})
 }
+
+// TestDialogBaseEscapeClosesOnlyDialog 验证 DialogBase 接管 Escape 后：
+// 1. 确认弹窗按 Escape 关闭且取消回调只触发一次；
+// 2. 设置页内打开确认弹窗时按 Escape 只关弹窗、设置页保持打开。
+func TestDialogBaseEscapeClosesOnlyDialog(t *testing.T) {
+	t.Run("确认弹窗按 Escape 关闭且取消回调只触发一次", func(t *testing.T) {
+		open := true
+		cancelCount, confirmCount := 0, 0
+		tt := ui.NewTester(func(c *ui.Context) {
+			RenderConfirmDialog(c, ConfirmDialog{
+				Key:          "test-dialog-base-esc",
+				Open:         open,
+				Tone:         ConfirmDanger,
+				Title:        "删除确认？",
+				Body:         "删除后无法恢复。",
+				ConfirmLabel: "删除",
+				CancelLabel:  "取消",
+				OnConfirm:    func() { confirmCount++ },
+				OnCancel: func() {
+					cancelCount++
+					open = false
+				},
+			})
+		}, 800, 600)
+		tt.Frame()
+		if !tt.HasText("删除确认？") {
+			t.Fatal("确认弹窗未渲染")
+		}
+
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		if open || tt.HasText("删除确认？") {
+			t.Fatalf("按 Escape 后确认弹窗应关闭，open=%v", open)
+		}
+		if cancelCount != 1 || confirmCount != 0 {
+			t.Fatalf("按 Escape 后取消回调应只触发一次：cancel=%d confirm=%d", cancelCount, confirmCount)
+		}
+
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		if cancelCount != 1 || confirmCount != 0 {
+			t.Fatalf("关闭后再次按 Escape 不应重复触发取消回调：cancel=%d confirm=%d", cancelCount, confirmCount)
+		}
+	})
+
+	t.Run("设置页打开确认弹窗时按 Escape 只关弹窗不关设置页", func(t *testing.T) {
+		owner := newChatState(NewFakeClient())
+		t.Cleanup(owner.close)
+		st := NewSettingsState(settingsTestDir(t), nil, owner)
+		setChatSettings(owner, st)
+		openSettingsWindowHeadless(owner, "general")
+
+		tt := ui.NewTester(func(c *ui.Context) {
+			renderSettingsWindow(c, st)
+		}, 960, 680)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
+		tt.Frame()
+
+		if err := settingsClick(t, tt, "恢复本页默认"); err != nil {
+			t.Fatalf("点击恢复本页默认失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			return st.resetPendingPage == "general" && tt.HasText("恢复默认")
+		})
+
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+
+		if st.resetPendingPage != "" || tt.HasText("恢复默认") {
+			t.Fatalf("按 Escape 后确认弹窗应关闭，resetPendingPage=%q", st.resetPendingPage)
+		}
+		if !st.IsOpen() || currentSettingsWindowState() != st {
+			t.Fatal("确认弹窗按 Escape 不应关闭设置页")
+		}
+	})
+}

@@ -74,8 +74,8 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 		return
 	}
 
-	// 一次渲染只执行一个回调：DialogBase 的 Esc / 点遮罩关闭与本组件自己的快捷键
-	// 可能落在同一帧，用 closed 去重，避免 OnCancel 被调用两次。
+	// 一次渲染只执行一个回调：DialogBase 的 Esc / 点遮罩关闭与本组件 Enter 确认/取消
+	// 可能落在同一帧，用 closed 去重，避免同帧触发两次回调。
 	closed := false
 	run := func(fn func()) {
 		if closed || fn == nil {
@@ -122,15 +122,6 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 
 	open := true
 	modalDragModal(c, key, &open, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			if d.Tone == ConfirmNotice {
-				closeNotice()
-			} else {
-				run(d.OnCancel)
-			}
-			return
-		}
-
 		var cancelBtn, extraBtn, confirmBtn ui.Element
 		ui.Column(c.Key("confirm-" + key + "-card")).
 			Width(panelWidth).
@@ -247,7 +238,7 @@ func RenderConfirmDialog(c *ui.Context, d ConfirmDialog) {
 		}
 	})
 
-	// 点遮罩关闭时 DialogBase 只把开关置回 false，这里补上取消回调。
+	// Esc 或点遮罩关闭时 DialogBase 只把开关置回 false，这里补上取消回调。
 	if !open {
 		modalDragReset(key)
 		if d.Tone == ConfirmNotice {

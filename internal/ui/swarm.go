@@ -2028,7 +2028,7 @@ func renderSwarmPanel(c *ui.Context, s *chatState) {
 		return
 	}
 
-	if !discardOpen && c.Shortcut(0, ui.KeyEscape) {
+	if c.Shortcut(0, ui.KeyEscape) {
 		swarmPanelMu.Lock()
 		hp.open = false
 		hp.reviewOpen = false

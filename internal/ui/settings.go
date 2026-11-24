@@ -1873,8 +1873,8 @@ func renderSettingsWindow(c *ui.Context, st *SettingsState) {
 	if st == nil || !st.IsOpen() {
 		return
 	}
-	openSheet, _ := settingsTreeSheetState(st)
-	if openSheet == "" && st.resetPendingPage == "" && !st.shortcutResetConfirmOpen && c.Shortcut(0, ui.KeyEscape) {
+	// shortcutResetConfirmOpen 仅在 shortcuts 二级面板打开时才渲染 DialogBase，无面板态仍需在此兜底拦截 Esc。
+	if !st.shortcutResetConfirmOpen && c.Shortcut(0, ui.KeyEscape) {
 		closeSettingsWindowForOwner(st.chat)
 	}
 	ui.Column(c.Key("settings-window-root")).Label("设置").Fill().Background(ThemeWindowBg(c)).Children(func() {

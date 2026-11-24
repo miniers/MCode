@@ -122,7 +122,7 @@ func renderTaskDetailDrawerSheet(c *ui.Context, opts taskDetailDrawerSheetOpts) 
 			}
 		})
 	})
-	if escaped := c.Shortcut(0, ui.KeyEscape); escaped || !open {
+	if !open {
 		if !backdropClicked && opts.OnEscape != nil {
 			opts.OnEscape()
 		} else if opts.OnClose != nil {

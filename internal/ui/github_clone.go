@@ -438,11 +438,6 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 	winW, winH := c.Size()
 	width, height := modalResizeSize(modalDragGitHubClone, githubCloneCardWidth, 500, 360, 240, winW, winH)
 	modalDragModal(c, modalDragGitHubClone, &cs.open, func() {
-		if c.Shortcut(0, ui.KeyEscape) {
-			closeGitHubClonePanel(s)
-			return
-		}
-
 		ui.Column(c.Key("github-clone-card")).
 			Width(width).
 			Height(height).
@@ -621,6 +616,11 @@ func renderGitHubClonePanel(c *ui.Context, s *chatState) {
 				modalResizeGrips(c, modalDragGitHubClone, width, height)
 			})
 	})
+	// DialogBase 已经把遮罩点击与 Esc 写回 cs.open，这里同步清理面板状态。
+	if !cs.open {
+		modalDragReset(modalDragGitHubClone)
+		closeGitHubClonePanel(s)
+	}
 }
 
 // renderGitHubRepoRow 渲染仓库列表中的一行：单击选中（写入输入框），双击直接克隆。
