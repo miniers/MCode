@@ -198,7 +198,7 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 	}
 
 	todoItems, hasTodo := todoItemsFromMessage(item.msg)
-	canToggleFold := !running && (len(item.workItems) > 0 || hasUsage || item.workTaskSpan.ok)
+	canToggleFold := !running
 
 	return ui.Column(c.Key("msg-" + item.id)).
 		FillWidth().
