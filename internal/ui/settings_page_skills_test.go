@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
@@ -38,11 +39,24 @@ func TestSkillsDeleteButtonAndConfirm(t *testing.T) {
 		{Agent: "claude", Scope: "external", Plugin: "plugin", Name: "plugin-skill", Enabled: true},
 	}
 	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1200, 1000)
-	if _, ok := tt.Find("删除技能「local-skill」"); !ok {
-		t.Fatal("非插件技能缺少删除按钮")
+	if _, ok := tt.Find("删除技能「local-skill」"); ok {
+		t.Fatal("主行不应直接露出删除按钮")
 	}
+	if err := tt.Click("更多操作「plugin-skill」"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
 	if _, ok := tt.Find("删除技能「plugin-skill」"); ok {
-		t.Fatal("插件技能不应有删除按钮")
+		t.Fatal("插件技能菜单不应有删除按钮")
+	}
+	if err := tt.Click("更多操作「local-skill」"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if _, ok := tt.Find("删除技能「local-skill」"); !ok {
+		t.Fatal("非插件技能菜单缺少删除按钮")
 	}
 	if err := tt.Click("删除技能「local-skill」"); err != nil {
 		t.Fatal(err)
@@ -59,6 +73,11 @@ func TestSkillsDeleteButtonAndConfirm(t *testing.T) {
 	if tt.HasText("将把 local-skill 移到废纸篓。") {
 		t.Fatal("取消后确认框仍在")
 	}
+	if err := tt.Click("更多操作「local-skill」"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
 	if err := tt.Click("删除技能「local-skill」"); err != nil {
 		t.Fatal(err)
 	}
@@ -201,9 +220,10 @@ func TestSettings_SkillToggle(t *testing.T) {
 	st := NewSettingsState(dataDir, nil, nil)
 	tt := ui.NewTester(func(c *ui.Context) { renderPageExtensions(c, st) }, 1000, 2000)
 
-	// 确认技能名称与在系统文件管理器中显示按钮存在
+	// 确认技能名称与行更多操作按钮存在
 	waitFor(t, tt, func() bool {
-		return tt.HasText("toggleable-skill") && tt.HasText(revealInFileManagerLabel())
+		_, moreOK := tt.Find("更多操作「toggleable-skill」")
+		return tt.HasText("toggleable-skill") && moreOK
 	})
 
 	// 点击技能启停开关
@@ -229,11 +249,32 @@ func TestSkills_SingleCard(t *testing.T) {
 		{Scope: "external", Name: "external-skill", Enabled: true},
 	}
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSection(c, st, sectionSkills, false) }, 1000, 2000)
-	for _, text := range []string{"设置卡片 skills.list", "项目技能 (1)", "Claude 全局技能 (1)", "外部与插件技能 (1)", "3 个技能", "打开目录", "重新扫描"} {
+	for _, text := range []string{"设置卡片 skills.list", "项目技能 (1)", "Claude 全局技能 (1)", "外部与插件技能 (1)", "3 个技能", "技能更多操作"} {
 		if _, ok := tt.Find(text); !ok {
 			t.Fatalf("缺少 %q", text)
 		}
 	}
+	for _, hidden := range []string{"打开目录", "重新扫描"} {
+		if tt.HasText(hidden) {
+			t.Fatalf("顶栏收起态不应直接出现 %q", hidden)
+		}
+	}
+	if err := tt.Click("技能更多操作"); err != nil {
+		t.Fatalf("点击顶栏更多菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	for _, item := range []string{"打开目录", "重新扫描"} {
+		if !tt.HasText(item) {
+			t.Fatalf("顶栏菜单缺少 %q", item)
+		}
+	}
+	// 关闭顶栏浮层后再测试搜索框输入。
+	if err := tt.Click("技能更多操作"); err != nil {
+		t.Fatalf("再次点击顶栏更多菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
 	for _, label := range []string{"设置卡片 sec-skills-project", "设置卡片 sec-skills-external", "sec-skills-global-claude-card"} {
 		if _, ok := tt.Find(label); ok {
 			t.Fatalf("不应存在嵌套卡片 %q", label)
@@ -631,8 +672,110 @@ func TestSettingsPageSkills_Narrow640NoOverflow(t *testing.T) {
 		}
 	})
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("删除技能「" + longName + "」")
+		_, ok := tt.Find("更多操作「" + longName + "」")
 		return ok
 	})
 	assertUIReview25DetailBounds(t, tt, 640, "设置卡片 skills.list")
+}
+
+// TestSkillsRowMenu 覆盖技能列表行瘦身与 ··· 菜单：主行只留名称、徽标与启停开关，
+// 路径/在访达中显示/移到废纸篓收进行菜单，打开目录/重新扫描收进顶栏菜单，同一时刻最多开一个行菜单。
+func TestSkillsRowMenu(t *testing.T) {
+	testenv.TempHome(t)
+	origScanSkills := scanSkills
+	origScanMCP := scanMCP
+	t.Cleanup(func() {
+		scanSkills = origScanSkills
+		scanMCP = origScanMCP
+	})
+
+	var rescanCount atomic.Int32
+	skill1 := agentconf.Skill{
+		Agent:   "claude",
+		Scope:   "global",
+		Name:    "menu-skill-one",
+		Path:    "/tmp/skills/menu-skill-one/SKILL.md",
+		Enabled: true,
+	}
+	skill2 := agentconf.Skill{
+		Agent:   "codex",
+		Scope:   "external",
+		Plugin:  "qa-plugin",
+		Name:    "menu-skill-two",
+		Path:    "/tmp/skills/menu-skill-two/SKILL.md",
+		Enabled: true,
+	}
+	scanSkills = func(agentconf.Options) ([]agentconf.Skill, error) {
+		rescanCount.Add(1)
+		return []agentconf.Skill{skill1, skill2}, nil
+	}
+	scanMCP = func(agentconf.Options) ([]agentconf.MCPServer, error) { return nil, nil }
+
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.agentConfLoaded = true
+	st.skills = []agentconf.Skill{skill1, skill2}
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 900)
+
+	// 主行不直接露出路径、访达入口、移到废纸篓以及顶栏二级操作。
+	for _, hidden := range []string{skill1.Path, skill2.Path, revealInFileManagerLabel(), "移到废纸篓", "打开目录", "重新扫描"} {
+		if tt.HasText(hidden) {
+			t.Fatalf("未展开菜单时不应出现 %q", hidden)
+		}
+	}
+
+	// 点击第一行 ···：显示第一行路径、在访达中显示、移到废纸篓。
+	if err := tt.Click("更多操作「menu-skill-one」"); err != nil {
+		t.Fatalf("点击第一行菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	for _, want := range []string{skill1.Path, revealInFileManagerLabel(), "移到废纸篓"} {
+		if !tt.HasText(want) {
+			t.Fatalf("第一行菜单缺少 %q，当前文本=%v", want, tt.Texts())
+		}
+	}
+
+	// 点击第二行 ···：切换到第二行菜单，同时第一行菜单关闭（同一时刻最多开一个行菜单）；插件技能无移到废纸篓。
+	if err := tt.Click("更多操作「menu-skill-two」"); err != nil {
+		t.Fatalf("点击第二行菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if tt.HasText(skill1.Path) {
+		t.Fatalf("切换行菜单后第一行菜单应关闭，仍见 %q", skill1.Path)
+	}
+	if !tt.HasText(skill2.Path) || !tt.HasText(revealInFileManagerLabel()) {
+		t.Fatalf("第二行菜单应显示路径与访达入口，当前文本=%v", tt.Texts())
+	}
+	if tt.HasText("移到废纸篓") {
+		t.Fatalf("插件技能行菜单不应显示「移到废纸篓」")
+	}
+
+	// 再次点击第二行 ···：菜单收起。
+	if err := tt.Click("更多操作「menu-skill-two」"); err != nil {
+		t.Fatalf("再次点击第二行菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if tt.HasText(skill2.Path) {
+		t.Fatalf("再次点击后第二行菜单应关闭")
+	}
+
+	// 点击顶栏 ···：显示「打开目录」「重新扫描」，并可触发重新扫描。
+	if err := tt.Click("技能更多操作"); err != nil {
+		t.Fatalf("点击顶栏更多菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	for _, want := range []string{"打开目录", "重新扫描"} {
+		if !tt.HasText(want) {
+			t.Fatalf("顶栏菜单缺少 %q，当前文本=%v", want, tt.Texts())
+		}
+	}
+	if err := tt.Click("重新扫描"); err != nil {
+		t.Fatalf("点击重新扫描失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return rescanCount.Load() == 1 && !tt.HasText("重新扫描")
+	})
 }
