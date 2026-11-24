@@ -14,17 +14,17 @@
 
 ## 1. 安装 MCode
 
-MCode 要求 macOS 14.0 及以上版本和 Apple 芯片。发布页只有 arm64 版本的 DMG。Windows 为尽力支持。
+MCode 要求 macOS 14.0 及以上版本，支持 Apple 芯片（arm64）与 Intel 芯片（amd64）。Windows 为尽力支持。
 
 下载地址：[MCode 发布页](https://github.com/miniers/MCode/releases/latest)。
 
 | 系统 | 安装包 |
 | :--- | :--- |
-| macOS | `mcode-<版本>-arm64.dmg` |
+| macOS | `mcode-<版本>-arm64.dmg`（Apple 芯片）；`mcode-<版本>-amd64.dmg`（Intel 芯片） |
 | Windows | `mcode-setup-<版本>-amd64.exe`（安装程序）；`MCode.exe`（免安装） |
 
 1. 打开发布页。
-2. 下载 `mcode-<版本>-arm64.dmg`。
+2. 下载对应芯片的 DMG（Apple 芯片下载 `mcode-<版本>-arm64.dmg`，Intel 芯片下载 `mcode-<版本>-amd64.dmg`）。
 3. 打开 DMG。
 4. 将 MCode 拖入「应用程序」文件夹。
 5. 打开 MCode。

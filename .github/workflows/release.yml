@@ -132,7 +132,11 @@ jobs:
           if [[ "${MCODE_NOTARIZE:-}" != 1 ]]; then
             sign_args+=(-skip-notarize)
           fi
-          go tool mygo build -platform darwin/arm64,windows/amd64 -o dist "${sign_args[@]}" -upload
+          go tool mygo build -platform darwin/arm64,darwin/amd64,windows/amd64 -o dist "${sign_args[@]}" -upload
+          if ! compgen -G 'dist/darwin-amd64/*-amd64.dmg' > /dev/null; then
+            echo '::error::未生成 Intel Mac DMG。'
+            exit 1
+          fi
           if ! compgen -G 'dist/windows-amd64/*-setup-*-amd64.exe' > /dev/null; then
             echo '::error::未生成 Windows 安装程序。'
             exit 1

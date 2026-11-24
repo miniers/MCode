@@ -81,7 +81,7 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 
 在 main 分支且工作区干净时，运行 `scripts/release.sh [patch|minor|major|版本号] [--notes 文件] [--dry-run]`。不指定 `--notes` 时，脚本使用 `.env` 中 `MCODE_RELEASE_AGENT` / `MCODE_RELEASE_MODEL` 配置的本地 agent（默认 claude），根据上一个标签以来的提交生成中文亮点，显示后确认（Enter 或 y 使用、e 编辑、n 取消，60 秒无输入自动使用；非终端环境不询问）；AI 失败时回退到提交标题。说明写入 `CHANGELOG.md` 的 `## 版本号` 下，同时更新 `mygo.json` 的版本号并推送标签。
 
-工作流构建 macOS（arm64）与 Windows（amd64）产物，将该章节作为发布正文；macOS 未公证时追加 Gatekeeper 提示，Windows 版未签名，追加 SmartScreen 提示。
+工作流构建 macOS（arm64 / amd64）与 Windows（amd64）产物，将该章节作为发布正文；macOS 未公证时追加 Gatekeeper 提示，Windows 版未签名，追加 SmartScreen 提示。
 
 如果推送标签未触发工作流，运行 `gh workflow run release.yml --ref v<版本号>`。
 

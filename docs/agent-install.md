@@ -1,6 +1,6 @@
 # MCode 安装指南（供 AI agent 执行）
 
-本文档支持 macOS（Apple 芯片）和 Windows（x64）。
+本文档支持 macOS（Apple 芯片 / Intel 芯片）和 Windows（x64）。
 
 ## 执行规则
 
@@ -35,7 +35,7 @@
    uname -m
    ```
 
-   结果必须为 `arm64`。任一条件不满足时，停止。告诉用户：发布页只有 Apple 芯片的 macOS 版本。
+   结果为 `arm64`（Apple 芯片）或 `x86_64`（Intel 芯片）。任一条件不满足时，停止。告诉用户：发布页只提供 Apple 芯片与 Intel 芯片的 macOS 版本。
 
 3. 设置数据目录。`MCODE_DATA` 有值时，使用该值。否则，使用 `~/.mcode`。后文用 `DATA` 指代数据目录。
 
@@ -72,7 +72,8 @@
 2. 取得最新 DMG 地址并下载。
 
    ```sh
-   url=$(curl -fsSL https://api.github.com/repos/miniers/MCode/releases/latest | grep -o 'https://[^"]*-arm64\.dmg' | head -1)
+   arch=$([ "$(uname -m)" = "arm64" ] && echo arm64 || echo amd64)
+   url=$(curl -fsSL https://api.github.com/repos/miniers/MCode/releases/latest | grep -o "https://[^\"]*-${arch}\\.dmg" | head -1)
    curl -fL -o /tmp/mcode.dmg "$url"
    ```
 
