@@ -435,48 +435,17 @@ func todoProgress(items []todoItem) (done, total int) {
 	return done, len(items)
 }
 
-// todoInputLooksLikePlan 廉价预判一段文本是否可能是待办工具输入，
-// 让 latestTodoMessageID 不必为整段历史做 JSON 解析。
-func todoInputLooksLikePlan(raw string) bool {
-	if raw == "" || !strings.Contains(raw, `"status"`) {
-		return false
-	}
-	return strings.Contains(raw, `"todos"`) || strings.Contains(raw, `"plan"`)
-}
-
-// latestTodoMessageID 返回给定消息里最后一条待办消息的 ID；没有待办消息时返回空。
-// 倒序扫描，命中即停。
-func latestTodoMessageID(messages []Message) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		for _, raw := range [2]string{m.ToolInput, m.Text} {
-			if !todoInputLooksLikePlan(raw) {
-				continue
-			}
-			if _, ok := parseTodoItems(raw); ok {
-				return m.ID
-			}
-		}
-	}
-	return ""
-}
-
-// todoCardExpanded 返回待办卡片此刻是否展开：用户在步骤入口点过就以用户选择为准；
-// 否则只有「当前线程最新的一条待办，且线程正在运行」时默认展开，其余情况默认收起。
-// running 由调用方算好传入（s.isThreadRunning 内部自己加锁，不能在这里持锁调用）。
+// todoCardExpanded 返回待办卡片此刻是否展开：用户在步骤入口点过就以用户选择为准，
+// 否则一律默认收起（运行中的实时进度由输入区胶囊显示）。
+// running 参数为兼容调用方保留，不再参与默认开合判断。
 func (s *chatState) todoCardExpanded(m Message, running bool) bool {
 	s.mu.Lock()
 	open, decided := s.expandedTool[todoCardKey(m.ID)]
-	msgs := s.timelineCacheMsgs
-	if len(msgs) == 0 {
-		msgs = s.messages
-	}
-	latest := latestTodoMessageID(msgs)
 	s.mu.Unlock()
 	if decided {
 		return open
 	}
-	return running && latest == m.ID
+	return false
 }
 
 // toggleTodoCard 记录用户对某条待办卡片开合的显式选择。

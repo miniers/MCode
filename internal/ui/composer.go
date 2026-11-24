@@ -15,6 +15,7 @@ import (
 
 // composerViewState 维护 Composer 的轻量 UI 视图状态（仅在 UI 线程访问）。
 type composerViewState struct {
+	planPillOpen              bool                 // 待办进度胶囊的弹层是否打开
 	backgroundTasksOpen       bool                 // 后台任务胶囊的浮层是否打开
 	backgroundTaskExpanded    string               // 当前展开的消息 ID。
 	backgroundTaskThread      string               // 后台任务浮层所属会话。
@@ -715,6 +716,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 	if s.composerView.lastThreadID != selectedID {
 		s.composerView.lastThreadID = selectedID
 		s.composerView.history.reset()
+		// 待办弹层属于上一个会话，切换时收起。
+		s.composerView.planPillOpen = false
 		s.composerView.permissionMenuOpen = false
 		// MCP 二级页属于上一个会话的服务列表，切换时回到附件浮层一级页。
 		s.composerView.mcpMenuOpen = false

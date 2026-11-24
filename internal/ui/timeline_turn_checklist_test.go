@@ -65,7 +65,7 @@ func TestTurnChecklist_FinishedAndRunningHeaders(t *testing.T) {
 		t.Fatalf("用时折叠体内不应再出现 todo 卡片或工具胶囊: %v", tt.Texts())
 	}
 
-	// 2. 运行态回合头显示「已处理 Ns」与「›」「1/3 步」，且最新清单默认展开。
+	// 2. 运行态回合头显示「已处理 Ns」与「›」「1/3 步」，默认收起（运行中进度由胶囊显示）；点击入口后展开。
 	start := time.Now().Add(-10 * time.Second)
 	runningTodo := `{"todos":[{"content":"步骤一","status":"completed"},{"content":"步骤二","status":"in_progress"},{"content":"步骤三","status":"pending"}]}`
 	runningMsgs := []Message{
@@ -77,16 +77,62 @@ func TestTurnChecklist_FinishedAndRunningHeaders(t *testing.T) {
 	if !runTT.HasText("已处理") || !runTT.HasText("›") || !runTT.HasText("1/3 步") {
 		t.Fatalf("运行态回合头应显示计时与步骤入口: %v", runTT.Texts())
 	}
-	for _, step := range []string{"步骤一", "步骤二", "步骤三"} {
-		if !runTT.HasText(step) {
-			t.Fatalf("运行态最新清单默认应展开并显示 %q: %v", step, runTT.Texts())
+	if _, ok := runTT.Find("展开步骤清单，已完成 1/3 步"); !ok {
+		t.Fatalf("运行态步骤入口默认应处于收起态: %v", runTT.Texts())
+	}
+	for _, step := range []string{"步骤一", "步骤三"} {
+		if runTT.HasText(step) {
+			t.Fatalf("运行态清单卡片默认应收起，不应显示 %q: %v", step, runTT.Texts())
 		}
 	}
-	// 点击运行态步骤入口可以收起，不受工具影响。
+	// 点击运行态步骤入口展开，再点收起，不受工具影响。
+	clickText(t, runTT, "展开步骤清单，已完成 1/3 步")
+	runTT.Advance(motionUnfold + 40*time.Millisecond)
+	for _, step := range []string{"步骤一", "步骤二", "步骤三"} {
+		if !runTT.HasText(step) {
+			t.Fatalf("点击展开后运行态清单应显示 %q: %v", step, runTT.Texts())
+		}
+	}
 	clickText(t, runTT, "收起步骤清单，已完成 1/3 步")
 	runTT.Advance(motionUnfold + 40*time.Millisecond)
-	if runTT.HasText("步骤一") {
-		t.Fatalf("点击收起后运行态清单应收起: %v", runTT.Texts())
+	for _, step := range []string{"步骤一", "步骤三"} {
+		if runTT.HasText(step) {
+			t.Fatalf("点击收起后运行态清单应收起: %v", runTT.Texts())
+		}
+	}
+}
+
+func TestTurnChecklistRunningCollapsedByDefault(t *testing.T) {
+	start := time.Now().Add(-10 * time.Second)
+	runningTodo := `{"todos":[{"content":"步骤一","status":"completed"},{"content":"步骤二","status":"in_progress"},{"content":"步骤三","status":"pending"}]}`
+	msgs := []Message{
+		{ID: "u1", Role: "user", Text: "正在执行", TurnIndex: 1, IsFinal: true, CreatedAt: start.Format(time.RFC3339)},
+		{ID: "todo1", Role: "tool", ToolName: "TodoWrite", ToolInput: runningTodo, Text: "TodoWrite " + runningTodo, TurnIndex: 1, ToolStatus: "completed"},
+	}
+	tt := newTurnHeaderRunningTester(t, msgs, "1/3 步")
+	tt.Advance(motionUnfold + 40*time.Millisecond)
+	if !tt.HasText("1/3 步") {
+		t.Fatalf("运行中回合头应显示 1/3 步: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("展开步骤清单，已完成 1/3 步"); !ok {
+		t.Fatalf("运行中步骤入口默认应处于收起态: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("待办进度 1/3"); !ok {
+		t.Fatalf("运行中应同时显示输入区待办进度胶囊: %v", tt.Texts())
+	}
+	if tt.HasText("步骤一") || tt.HasText("步骤三") {
+		t.Fatalf("运行中清单卡片默认不应展开: %v", tt.Texts())
+	}
+
+	clickText(t, tt, "展开步骤清单，已完成 1/3 步")
+	tt.Advance(motionUnfold + 40*time.Millisecond)
+	if _, ok := tt.Find("收起步骤清单，已完成 1/3 步"); !ok {
+		t.Fatalf("点击入口后应切换为收起状态文案: %v", tt.Texts())
+	}
+	for _, step := range []string{"步骤一", "步骤二", "步骤三"} {
+		if !tt.HasText(step) {
+			t.Fatalf("点入口后应展开清单并显示 %q: %v", step, tt.Texts())
+		}
 	}
 }
 

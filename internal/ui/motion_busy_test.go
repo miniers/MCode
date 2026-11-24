@@ -8,6 +8,10 @@ import (
 )
 
 func TestMotionBusyLoops(t *testing.T) {
+	plan := &chatState{
+		threads:  []Thread{{ID: "thread", IsRunning: true}},
+		messages: []Message{todoToolMsg("plan", `{"todos":[{"content":"进行中","status":"in_progress"}]}`)},
+	}
 	cases := []struct {
 		name  string
 		label string
@@ -24,6 +28,9 @@ func TestMotionBusyLoops(t *testing.T) {
 		}},
 		{"实时胶囊", "实时胶囊", func(c *ui.Context) {
 			renderComposerCapsule(c, nil, composerCapsule{Key: "live", Label: "实时胶囊", Text: "运行中", Live: true})
+		}},
+		{"计划进度", "待办进度 0/1", func(c *ui.Context) {
+			renderComposerPlanPill(c, plan, "thread")
 		}},
 	}
 	for _, tc := range cases {

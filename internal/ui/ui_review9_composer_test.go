@@ -160,6 +160,56 @@ func TestUIReview9ModelPickerResetOnSwitch(t *testing.T) {
 	}
 }
 
+func TestUIReview9PlanPillCached(t *testing.T) {
+	testenv.TempHome(t)
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1", IsRunning: true}}
+	s.messages = []Message{{
+		ID:        "m1",
+		Role:      "tool",
+		ToolName:  "todo_write",
+		ToolInput: `{"todos":[{"content":"第一项","status":"in_progress"},{"content":"第二项","status":"pending"}]}`,
+	}}
+	s.messagesRev = 1
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposer(c, s)
+	}, 900, 500)
+	tt.Frame()
+
+	before := planPillBuilds.Load()
+	for i := 0; i < 5; i++ {
+		tt.Frame()
+	}
+	if got := planPillBuilds.Load(); got != before {
+		t.Fatalf("messagesRev 未变化时构建计数不应增长: before=%d, got=%d", before, got)
+	}
+
+	s.mu.Lock()
+	s.messages[0].ToolInput = `{"todos":[{"content":"第一项","status":"completed"},{"content":"第二项","status":"in_progress"}]}`
+	s.messagesRev++
+	s.mu.Unlock()
+	tt.Frame()
+
+	afterMsg := planPillBuilds.Load()
+	if afterMsg <= before {
+		t.Fatalf("messagesRev 增长后构建计数应增长: before=%d, after=%d", before, afterMsg)
+	}
+	if !tt.HasText("第二项") || !tt.HasText("1/2") {
+		t.Fatalf("更新后的待办胶囊文案未刷新: %v", tt.Texts())
+	}
+
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	if got := planPillBuilds.Load(); got != afterMsg {
+		t.Fatalf("再次静止渲染时构建计数不应增长: want=%d, got=%d", afterMsg, got)
+	}
+}
+
 func TestUIReview9TrimmedLabelsAndAttachmentTags(t *testing.T) {
 	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())

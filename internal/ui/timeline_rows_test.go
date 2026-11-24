@@ -1522,37 +1522,8 @@ func TestParseTodoItems(t *testing.T) {
 	}
 }
 
-// TestLatestTodoMessageID 验证只把最后一条待办消息当作「当前待办」，
-// 普通工具调用与普通文本不被误认。
-func TestLatestTodoMessageID(t *testing.T) {
-	oldTodo := `TodoWrite {"todos":[{"content":"读代码","status":"completed"}]}`
-	newTodo := `update_plan {"plan":[{"step":"跑测试","status":"in_progress"}]}`
-	messages := []Message{
-		{ID: "t0", Role: "tool", Text: "ls -la"},
-		{ID: "t1", Role: "tool", ToolInput: oldTodo},
-		{ID: "u1", Role: "user", Text: "继续"},
-		{ID: "t2", Role: "tool", ToolInput: newTodo},
-		{ID: "a1", Role: "assistant", Text: "好了", IsFinal: true},
-	}
-	if got := latestTodoMessageID(messages); got != "t2" {
-		t.Fatalf("latestTodoMessageID() = %q, want %q", got, "t2")
-	}
-	if got := latestTodoMessageID(messages[:4]); got != "t2" {
-		t.Fatalf("latestTodoMessageID() 截掉末尾后 = %q, want %q", got, "t2")
-	}
-	if got := latestTodoMessageID(messages[:2]); got != "t1" {
-		t.Fatalf("latestTodoMessageID() 只剩一条待办时 = %q, want %q", got, "t1")
-	}
-	if got := latestTodoMessageID([]Message{{ID: "t0", Role: "tool", Text: "ls -la"}}); got != "" {
-		t.Fatalf("没有待办消息时 latestTodoMessageID() = %q, want 空", got)
-	}
-	if got := latestTodoMessageID(nil); got != "" {
-		t.Fatalf("空消息列表 latestTodoMessageID() = %q, want 空", got)
-	}
-}
-
-// TestTodoCardExpandedDefault 验证折叠默认规则：当前线程最新的一条待办且线程正在运行时默认展开，
-// 线程停下或不是最新一条时默认收起，用户点过以后以用户选择为准。
+// TestTodoCardExpandedDefault 验证折叠默认规则：无论线程是否在运行、是否最新一条待办，
+// 未点过时一律默认收起；用户点过以后以用户选择为准。
 func TestTodoCardExpandedDefault(t *testing.T) {
 	todoInput := `TodoWrite {"todos":[{"content":"改代码","status":"in_progress"}]}`
 	s := newChatState(NewFakeClient())
@@ -1570,8 +1541,8 @@ func TestTodoCardExpandedDefault(t *testing.T) {
 	if !running {
 		t.Fatal("测试会话应处于运行中")
 	}
-	if !s.todoCardExpanded(Message{ID: "cur"}, running) {
-		t.Fatal("最新一条待办在线程运行时应默认展开")
+	if s.todoCardExpanded(Message{ID: "cur"}, running) {
+		t.Fatal("最新一条待办在线程运行时也应默认收起")
 	}
 	if s.todoCardExpanded(Message{ID: "old"}, running) {
 		t.Fatal("不是最新一条待办时应默认收起")
@@ -1582,7 +1553,7 @@ func TestTodoCardExpandedDefault(t *testing.T) {
 	s.mu.Unlock()
 	stopped := s.isThreadRunning(selectedThreadIDSnapshot(s))
 	if s.todoCardExpanded(Message{ID: "cur"}, stopped) {
-		t.Fatal("线程停下后不应再默认展开")
+		t.Fatal("线程停下后应默认收起")
 	}
 
 	// 用户点过以后以用户选择为准
@@ -1592,11 +1563,14 @@ func TestTodoCardExpandedDefault(t *testing.T) {
 	if !s.todoCardExpanded(Message{ID: "cur"}, stopped) {
 		t.Fatal("用户点开后应保持展开")
 	}
+	if !s.todoCardExpanded(Message{ID: "cur"}, running) {
+		t.Fatal("用户点开后运行中也应保持展开")
+	}
 	s.mu.Lock()
 	s.expandedTool[todoCardKey("cur")] = false
 	s.mu.Unlock()
 	if s.todoCardExpanded(Message{ID: "cur"}, running) {
-		t.Fatal("用户收起后即使是最新一条也不应展开")
+		t.Fatal("用户收起后不应展开")
 	}
 }
 
