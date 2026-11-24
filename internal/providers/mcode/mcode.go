@@ -131,6 +131,9 @@ func (h *Harness) Kind() harness.Kind {
 // CarriesSystemPolicy 表示内置引擎支持追加系统规则。
 func (h *Harness) CarriesSystemPolicy(string) bool { return true }
 
+// CarriesGlobalInstructions 表示系统提示词已由 internal/app/mcode_agent.go 的 prompt.Build 从 ~/.agents 加载。
+func (h *Harness) CarriesGlobalInstructions() bool { return true }
+
 // Run 执行一轮内置 agent 对话。
 func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.Event)) (retErr error) {
 	// 引擎在进程内运行，也作为 swarm bee 的运行时并发执行，任何 panic 都会带崩整个进程。

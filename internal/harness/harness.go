@@ -228,6 +228,11 @@ type SystemPolicyCarrier interface {
 	CarriesSystemPolicy(threadID string) bool
 }
 
+// GlobalInstructionsCarrier 表示实现方已在自己的系统提示词里加载全局指令，宿主不再注入。
+type GlobalInstructionsCarrier interface {
+	CarriesGlobalInstructions() bool
+}
+
 // Emit 校验事件并在合法时派发给接收函数。
 func Emit(emit func(Event), e Event) error {
 	if err := e.Validate(); err != nil {

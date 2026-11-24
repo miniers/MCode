@@ -358,6 +358,16 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 	// 换新后的 provider 会话里没有首轮指导词，不论历史与交付状态都重新注入。
 	if !compactOnly && workDir != "" && guidanceBuilder != nil &&
 		(rotated || reinjectGuidance || (isGuidanceTriggerText(userText) && b.guidancePending(threadID, priorHistory))) {
+		carriesGlobal := false
+		if h != nil {
+			if carrier, ok := h.(harness.GlobalInstructionsCarrier); ok && carrier.CarriesGlobalInstructions() {
+				carriesGlobal = true
+			}
+		}
+		global := ""
+		if !carriesGlobal {
+			global = globalInstructionsSection()
+		}
 		guidance := guidanceBuilder(workDir)
 		// 额外的首轮段落（普通会话的「可以交给总管」提示）同样只在首轮出现：
 		// 与指导词拼成一段前置，后续轮次不再带，也不会随历史累积。
@@ -365,8 +375,8 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 		if firstTurnExtra != nil {
 			extra = firstTurnExtra(threadID)
 		}
-		parts := make([]string, 0, 2)
-		for _, part := range []string{guidance, extra} {
+		parts := make([]string, 0, 3)
+		for _, part := range []string{global, guidance, extra} {
 			if strings.TrimSpace(part) != "" {
 				parts = append(parts, part)
 			}

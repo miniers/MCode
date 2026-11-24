@@ -2,7 +2,10 @@
 package remote
 
 import (
+	"fmt"
+	"io"
 	"log"
+	"mcode/internal/agent/prompt"
 	"mcode/internal/agentconf"
 	"mcode/internal/config"
 	"mcode/internal/harness"
@@ -11,6 +14,7 @@ import (
 	"mcode/internal/projctx"
 	"mcode/internal/remote/wire"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -176,6 +180,46 @@ func (b *MemoryBackend) buildGuidance(workDir string, maxSkillRunes int, forBee 
 		parts = append(parts, wm)
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+const maxGlobalInstructionsBytes = 32 * 1024
+
+// globalInstructionsSection 读取用户主目录下生效的全局指令文件并包装为首轮注入段落；
+// 文件不存在、非普通文件、读取失败或内容为空时返回空串，超过 32 KB 时截断并附加提示。
+func globalInstructionsSection() string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	path := prompt.GlobalInstructionsPath(home)
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxGlobalInstructionsBytes+1))
+	f.Close()
+	if err != nil {
+		return ""
+	}
+	truncated := len(data) > maxGlobalInstructionsBytes
+	if truncated {
+		data = data[:maxGlobalInstructionsBytes]
+	}
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+	if truncated {
+		content += "\n[Truncated: file exceeds 32 KB.]"
+	}
+	return fmt.Sprintf("<global_instructions path=\"%s\">\n%s\n</global_instructions>", path, content)
 }
 
 // disabledSkillPaths 返回设置页已停用技能的规范路径集合（键为 SKILL.md 所在目录）。
