@@ -543,8 +543,12 @@ func TestSettingsState_AgentConfWriteOptionsFollowScanDir(t *testing.T) {
 	st.ensureAgentConfCurrent()
 	waitForAutoDormant(t, func() bool {
 		mu.Lock()
-		defer mu.Unlock()
-		return len(scannedDirs) == 2
+		scans := len(scannedDirs)
+		mu.Unlock()
+		st.mu.Lock()
+		loading := st.agentConfLoading
+		st.mu.Unlock()
+		return scans == 2 && !loading && st.agentConfWriteOptions().ProjectDir == ""
 	})
 	if got := st.agentConfWriteOptions().ProjectDir; got != "" {
 		t.Fatalf("切项目后应重扫并采用新目录，实际 %q", got)

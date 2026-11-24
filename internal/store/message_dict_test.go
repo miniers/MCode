@@ -103,8 +103,8 @@ func countMessageDictRows(t *testing.T, s *Store) int {
 }
 
 // 样本足够时应训练出 1 个字典：字典编码能正确解码，且压缩总量比无字典更小。
+// 依赖包级字典注册表，不能与会重置全局字典表的测试并行。
 func TestMessageDictTrainingCompressesBetter(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	s := openMessageDictTestStore(t, "")
 	defer s.Close()
@@ -235,10 +235,10 @@ func TestNoDictZstdDecodesAfterDictRegistered(t *testing.T) {
 
 // 字典确实来自数据库：清空内存注册表后重新 Open 同一库，带字典压缩的消息仍能读回原文。
 func TestMessageDictReloadsFromDatabase(t *testing.T) {
-	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "reload.db")
 	s := openMessageDictTestStore(t, path)
+	// resetMessageZstdDictsForTest 会清空包级字典注册表与编码器缓存，因此本测试不能 t.Parallel()。
 	defer resetMessageZstdDictsForTest()
 	seedMessageDictThread(t, s, "t-reload")
 	for i := 0; i < 660; i++ {
@@ -268,7 +268,7 @@ func TestMessageDictReloadsFromDatabase(t *testing.T) {
 		t.Fatalf("关闭数据库失败: %v", err)
 	}
 
-	// 模拟进程重启：清空内存注册表，此时带字典的帧应当解不开。
+	// 模拟进程重启：清空内存注册表，此时带字典的帧应当解不开（修改包级全局状态，不可并行）。
 	resetMessageZstdDictsForTest()
 	if _, _, err := decodeMessageContent(messageEncodingZstd, textZ, nil); err == nil {
 		t.Fatal("清空注册表后不应能解码带字典的帧")

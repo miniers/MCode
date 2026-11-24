@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,10 +311,14 @@ func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
 	rA := mustFind(tt, "a@example.com")
 	tt.Move(rA.X+rA.W/2, rA.Y+rA.H/2)
 	tt.Frame()
-	tt.Advance(700 * time.Millisecond)
+	if tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, ""); ok {
+		t.Fatalf("悬停行后不应立即出现 RoleTooltip: %+v", tipAcc)
+	}
+	tt.Advance(650 * time.Millisecond)
 	tt.Frame()
-	if !tt.HasText("周 60% · 周一用尽 · 周三重置") {
-		t.Fatalf("悬停提前用尽账号行应展示完整详情，texts=%q", tt.Texts())
+	tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, "")
+	if !ok || !strings.Contains(tipAcc.Name, "周 60% · 周一用尽 · 周三重置") {
+		t.Fatalf("悬停提前用尽账号行后应出现原生 RoleTooltip 包含完整详情，got ok=%v node=%+v texts=%q", ok, tipAcc, tt.Texts())
 	}
 
 	// 托盘宽度（400px）下不溢出、不换行。

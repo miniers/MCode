@@ -556,10 +556,11 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 
 			acc := model.Groups[0].Accounts[0]
 			detail := quotaRowTooltipText(acc.hoverLeft, acc.hoverRight, acc.HoverDetail)
-			tt.Advance(700 * time.Millisecond)
+			tt.Advance(650 * time.Millisecond)
 			tt.Frame()
-			if !tt.HasText(detail) {
-				t.Fatalf("悬停后应浮出完整详情 %q: %v", detail, tt.Texts())
+			tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, "")
+			if !ok || tipAcc.Name != detail {
+				t.Fatalf("悬停后应出现原生 RoleTooltip %q: ok=%v node=%+v texts=%v", detail, ok, tipAcc, tt.Texts())
 			}
 
 			tt.Advance(DurBase + time.Second)
@@ -575,8 +576,8 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 			if tt.FramePending() {
 				t.Fatal("离开悬停动效完成后不应继续请求下一帧")
 			}
-			if tt.HasText(detail) {
-				t.Fatalf("离开悬停后 Tooltip 应消失: %v", tt.Texts())
+			if tipAcc, ok := tt.AccessByRole(ui.RoleTooltip, ""); ok || tt.HasText(detail) {
+				t.Fatalf("离开悬停后 Tooltip 应消失: ok=%v node=%+v texts=%v", ok, tipAcc, tt.Texts())
 			}
 
 			// 展开无读数折叠项后动画结束不再请求下一帧。
