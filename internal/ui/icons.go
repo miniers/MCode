@@ -308,6 +308,8 @@ func IconByName(name string) *ui.SVG {
 		return iconMerge
 	case "network":
 		return iconNetwork
+	case "git-pull-request":
+		return iconGitPullRequest
 	case "git-pull-request-create":
 		return iconGitPullRequestCreate
 	case "timer":
@@ -476,6 +478,7 @@ const (
 	svgPathListTodo              = `<path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><rect x="3" y="4" width="6" height="6" rx="1"/>`
 	svgPathMerge                 = `<path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/>`
 	svgPathNetwork               = `<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>`
+	svgPathGitPullRequest        = `<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" x2="6" y1="9" y2="21"/>`
 	svgPathGitPullRequestCreate  = `<circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="M13 6h3a2 2 0 0 1 2 2v3"/><path d="M18 15v6"/><path d="M21 18h-6"/>`
 	svgPathTimer                 = `<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>`
 	svgPathNotebook              = `<path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><rect width="16" height="20" x="4" y="2" rx="2"/><path d="M16 2v20"/>`
@@ -621,6 +624,7 @@ var (
 	iconListTodo              = parseLucideSVG(svgPathListTodo)
 	iconMerge                 = parseLucideSVG(svgPathMerge)
 	iconNetwork               = parseLucideSVG(svgPathNetwork)
+	iconGitPullRequest        = parseLucideSVG(svgPathGitPullRequest)
 	iconGitPullRequestCreate  = parseLucideSVG(svgPathGitPullRequestCreate)
 	iconTimer                 = parseLucideSVG(svgPathTimer)
 	iconNotebook              = parseLucideSVG(svgPathNotebook)
@@ -716,6 +720,7 @@ func IconCircleSmall() *ui.SVG           { return iconCircleSmall }
 func IconListTodo() *ui.SVG              { return iconListTodo }
 func IconMerge() *ui.SVG                 { return iconMerge }
 func IconNetwork() *ui.SVG               { return iconNetwork }
+func IconGitPullRequest() *ui.SVG        { return iconGitPullRequest }
 func IconGitPullRequestCreate() *ui.SVG  { return iconGitPullRequestCreate }
 func IconTimer() *ui.SVG                 { return iconTimer }
 func IconNotebook() *ui.SVG              { return iconNotebook }

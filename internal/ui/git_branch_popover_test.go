@@ -398,6 +398,74 @@ func TestGitBranchPopoverMatchesDesign(t *testing.T) {
 	}
 }
 
+func TestGitBranchPopoverPRRow(t *testing.T) {
+	newEnv := func(t *testing.T, remote string, pr *git.PRSummary) (*chatState, *ui.Tester, *bool) {
+		t.Helper()
+		f := &branchPopoverFake{newGitFakeClient()}
+		s := newChatState(f)
+		t.Cleanup(s.close)
+		hs := getChatHeaderState(s)
+		st := f.gitState
+		st.RemoteURL = remote
+		chatHeaderMu.Lock()
+		hs.git["thread"] = st
+		if pr != nil {
+			hs.pr["thread"] = pr
+		}
+		chatHeaderMu.Unlock()
+		open := true
+		tt := ui.NewTester(func(c *ui.Context) { renderGitBranchPopoverContent(c, s, "thread", 300, &open) }, 800, 600)
+		return s, tt, &open
+	}
+
+	t.Run("有远端且有开放 PR", func(t *testing.T) {
+		s, tt, open := newEnv(t, "https://github.com/org/repo", &git.PRSummary{Number: 42, State: "OPEN"})
+		if _, ok := tt.Find("查看 PR"); !ok || !tt.HasText("#42") {
+			t.Fatalf("应渲染「查看 PR」行并显示 #42，texts=%q", tt.Texts())
+		}
+		if err := tt.Click("查看 PR"); err != nil {
+			t.Fatal(err)
+		}
+		if *open {
+			t.Fatal("点击后浮层应关闭")
+		}
+		ds := getGitPRDialogState(s)
+		ds.mu.Lock()
+		dialogOpen, selected := ds.open, ds.selected
+		ds.mu.Unlock()
+		if !dialogOpen || selected != 42 {
+			t.Fatalf("应打开 PR 弹窗并选中 #42：open=%v selected=%d", dialogOpen, selected)
+		}
+	})
+
+	t.Run("有远端但无 PR", func(t *testing.T) {
+		s, tt, open := newEnv(t, "https://github.com/org/repo", nil)
+		if _, ok := tt.Find("查看 PR"); !ok || tt.HasText("#") {
+			t.Fatalf("应渲染「查看 PR」行且不显示编号，texts=%q", tt.Texts())
+		}
+		if err := tt.Click("查看 PR"); err != nil {
+			t.Fatal(err)
+		}
+		ds := getGitPRDialogState(s)
+		ds.mu.Lock()
+		dialogOpen, selected := ds.open, ds.selected
+		ds.mu.Unlock()
+		if *open || !dialogOpen || selected != 0 {
+			t.Fatalf("应关闭浮层并打开 PR 弹窗且不选中：popover=%v open=%v selected=%d", *open, dialogOpen, selected)
+		}
+	})
+
+	t.Run("无远端", func(t *testing.T) {
+		_, tt, _ := newEnv(t, "", nil)
+		if _, ok := tt.Find("查看 PR"); ok {
+			t.Fatalf("无远端不应渲染「查看 PR」行，texts=%q", tt.Texts())
+		}
+		if _, ok := tt.Find("打开 Git 面板"); !ok {
+			t.Fatal("底部「打开 Git 面板」行应保留")
+		}
+	})
+}
+
 func TestGitBranchPopoverRowHighlightSpansMoreButton(t *testing.T) {
 	f := &branchPopoverFake{newGitFakeClient()}
 	branch := f.gitState.Branch

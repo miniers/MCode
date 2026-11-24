@@ -1024,6 +1024,27 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 		// g. 底部
 		branchPopoverDivider(c)
 		ui.Column(c.Key("git-branch-footer")).FillWidth().Padding(Space1).Children(func() {
+			if strings.TrimSpace(state.RemoteURL) != "" {
+				pr, prLoaded := s.headerGitPR(threadID)
+				openPR := prLoaded && pr != nil && strings.EqualFold(strings.TrimSpace(pr.State), "open")
+				trailing := ""
+				if openPR {
+					trailing = fmt.Sprintf("#%d", pr.Number)
+				}
+				menuRow(c, menuRowProps{
+					Key:      "git-branch-open-pr",
+					Icon:     IconGitPullRequest(),
+					Title:    "查看 PR",
+					Trailing: trailing,
+					OnClick: func() {
+						*open = false
+						s.openGitPRDialog()
+						if openPR {
+							s.selectGitPR(pr.Number)
+						}
+					},
+				})
+			}
 			menuRow(c, menuRowProps{
 				Key:      "git-branch-open-pane",
 				Icon:     IconPanelRight(),
