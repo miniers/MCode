@@ -2,10 +2,13 @@ package mcodeui
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/harness"
 )
 
 const (
@@ -221,29 +224,42 @@ func collectSessionStats(s *chatState, threadID string, now time.Time) sessionSt
 
 	st.costUSD, st.costReported, st.hasCost = sessionStatsCost(st.usage, providers, provider, model)
 	// bee 是独立会话，各自上报自己的花费，不并入主会话的累计值；有上报时加进总计。
+	// 主会话是目录价估算时总计仍是估算（保留「≈」），只有主会话本身是上报值或没有花费时才算上报。
 	if st.beeCostUSD > 0 {
 		st.costUSD += st.beeCostUSD
-		st.costReported = true
+		st.costReported = st.costReported || !st.hasCost
 		st.hasCost = true
 	}
 	return st
 }
 
 // sessionStatsCost 算整场会话的累计花费（美元）。上报金额的语义按协议分两种：
-// ACP（含内置 droid 与自定义 agent）与 claude 报的是整次会话的累计花费，每轮落库的是
-// 同一个递增数字（见 ACP 规范 "Session Context Size and Cost"），逐轮相加会重复计费——
-// 实测一个 11 轮的 maki 会话真实约 7.4 美元会被算成 44.5；pi、omp 报的是本轮内各请求
-// 之和，可以相加。两种都拿不到时退回按模型目录参考价估算合计用量。
+// ACP（含内置 droid 与自定义 agent）与 claude 报的是同一个 CLI 进程/会话内的累计花费，
+// 每轮落库的是同一个递增数字（见 ACP 规范 "Session Context Size and Cost"），逐轮相加会
+// 重复计费——实测一个 11 轮的 maki 会话真实约 7.4 美元会被算成 44.5；但进程重开后累计值
+// 会从 0 重新开始，所以按轮次升序分段求和（harness.CumulativeCostUSD）；pi、omp 报的是
+// 本轮内各请求之和，可以直接相加。都拿不到上报时退回按模型目录参考价估算合计用量。
 // reported 表示金额来自后端上报而非估算。
 func sessionStatsCost(usage ThreadUsage, providers []ProviderInfo, provider, model string) (cost float64, reported, ok bool) {
-	if turnCost, found := latestReportedCost(usage); found {
-		if sessionCostIsCumulative(providers, provider) {
-			return turnCost, true, true
+	reportedAny := false
+	for _, turn := range usage.Turns {
+		if turn.CostUSD > 0 {
+			reportedAny = true
+			cost += turn.CostUSD
 		}
-		for _, turn := range usage.Turns {
-			if turn.CostUSD > 0 {
-				cost += turn.CostUSD
+	}
+	if reportedAny {
+		if sessionCostIsCumulative(providers, provider) {
+			indexes := make([]int, 0, len(usage.Turns))
+			for index := range usage.Turns {
+				indexes = append(indexes, index)
 			}
+			sort.Ints(indexes)
+			costs := make([]float64, 0, len(indexes))
+			for _, index := range indexes {
+				costs = append(costs, usage.Turns[index].CostUSD)
+			}
+			cost = harness.CumulativeCostUSD(costs)
 		}
 		return cost, true, true
 	}
@@ -260,23 +276,6 @@ func sessionStatsCost(usage ThreadUsage, providers []ProviderInfo, provider, mod
 	}
 	cost, ok = estimateThreadCost(usage.Total, *info.Cost)
 	return cost, false, ok
-}
-
-// latestReportedCost 取轮次索引最大且带上报金额的那一轮的 CostUSD；按索引比较而不是
-// 依赖 map 迭代顺序。没有任何轮次上报时返回 false。
-func latestReportedCost(usage ThreadUsage) (float64, bool) {
-	latestIndex := 0
-	latest := 0.0
-	found := false
-	for index, turn := range usage.Turns {
-		if turn.CostUSD <= 0 {
-			continue
-		}
-		if !found || index > latestIndex {
-			latestIndex, latest, found = index, turn.CostUSD, true
-		}
-	}
-	return latest, found
 }
 
 // sessionCostIsCumulative 判断 provider 上报的花费是否为整次会话的累计值：

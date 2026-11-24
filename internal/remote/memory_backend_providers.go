@@ -415,6 +415,14 @@ func providerIsACP(id string, h harness.Harness) bool {
 	return false
 }
 
+// ProviderIsACP 判断 provider 是否为 ACP agent（含自定义 agent），与 ListProviders 下发的 ACP 标记同口径。
+func (b *MemoryBackend) ProviderIsACP(id string) bool {
+	b.mu.Lock()
+	h := b.harnesses[id]
+	b.mu.Unlock()
+	return providerIsACP(id, h)
+}
+
 // ListProviders 列出已注册的所有 Provider。
 func (b *MemoryBackend) ListProviders(ctx context.Context) (wire.ProvidersListResult, error) {
 	kinds := b.Providers()

@@ -281,8 +281,9 @@ func TestSessionStatsLiveRequiresSelectedRunningThread(t *testing.T) {
 }
 
 // TestSessionStatsCostSumsReportedTurns 验证上报金额的累加方式随 provider 语义变化：
-// pi/omp 报的是本轮增量，逐轮相加；ACP 家族与 claude 报的是整次会话累计，
-// 只取最后一轮的值，相加会把同一个递增数字重复计费。一轮都没上报时才退回目录参考价估算。
+// pi/omp 报的是本轮增量，逐轮相加；ACP 家族与 claude 报的是进程内累计，
+// 按轮次分段求和（单调递增时等于最后一轮），相加会把同一个递增数字重复计费。
+// 一轮都没上报时才退回目录参考价估算。
 func TestSessionStatsCostSumsReportedTurns(t *testing.T) {
 	providers := []ProviderInfo{{ID: "omp", Models: []ModelInfo{{
 		ID:   "m",
@@ -310,7 +311,7 @@ func TestSessionStatsCostSumsReportedTurns(t *testing.T) {
 	}
 	got, reported, ok = sessionStatsCost(cumulative, providers, "maki", "m")
 	if !ok || !reported || math.Abs(got-7.8463124) > 1e-9 {
-		t.Fatalf("会话累计语义应取最后一轮 7.8463124，得到 %v (reported=%v ok=%v)", got, reported, ok)
+		t.Fatalf("会话累计语义单调递增时应为 7.8463124，得到 %v (reported=%v ok=%v)", got, reported, ok)
 	}
 	if got, _, _ := sessionStatsCost(cumulative, providers, "claude", "m"); math.Abs(got-7.8463124) > 1e-9 {
 		t.Fatalf("claude 的 total_cost_usd 同样是会话累计，得到 %v", got)
@@ -332,8 +333,8 @@ func TestSessionStatsCostSumsReportedTurns(t *testing.T) {
 	}
 }
 
-// TestSessionStatsCostLatestIgnoresMapOrder 验证累计语义取轮次索引最大的那一轮，
-// 与 map 迭代顺序无关；末尾轮次没有金额时回退到更早有金额的轮次。
+// TestSessionStatsCostLatestIgnoresMapOrder 验证累计语义按轮次索引升序处理，
+// 与 map 迭代顺序无关；末尾轮次没有金额时不影响更早有金额的轮次。
 func TestSessionStatsCostLatestIgnoresMapOrder(t *testing.T) {
 	providers := []ProviderInfo{{ID: "maki", ACP: true}}
 	usage := ThreadUsage{
@@ -350,6 +351,49 @@ func TestSessionStatsCostLatestIgnoresMapOrder(t *testing.T) {
 	}
 	if got, _, _ := sessionStatsCost(usage, nil, "pi", ""); math.Abs(got-6.0) > 1e-9 {
 		t.Fatalf("逐轮增量语义应求和 6.0，得到 %v", got)
+	}
+}
+
+// TestSessionStatsCostCumulativeReset 验证 claude 进程重开后累计值归零时分段求和：
+// 1 → 3 → 0.5（新一段）→ 2，总计 3 + 2 = 5。
+func TestSessionStatsCostCumulativeReset(t *testing.T) {
+	usage := ThreadUsage{
+		Turns: map[int]TokenUsage{
+			3: {CostUSD: 2},
+			0: {CostUSD: 1},
+			2: {CostUSD: 0.5},
+			1: {CostUSD: 3},
+		},
+	}
+	got, reported, ok := sessionStatsCost(usage, nil, "claude", "")
+	if !ok || !reported || math.Abs(got-5) > 1e-9 {
+		t.Fatalf("重置后应分段求和为 5，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+}
+
+// TestSessionStatsEstimatedWithBeeKeepsEstimate 验证主会话是目录价估算时，加上 bee 上报花费后
+// 总计仍标记为估算（costReported=false，显示保留「≈」），金额为两者之和。
+func TestSessionStatsEstimatedWithBeeKeepsEstimate(t *testing.T) {
+	s := &chatState{
+		selectedThreadID: "t1",
+		threads:          []Thread{{ID: "t1", Provider: "omp", Model: "m"}},
+		providers: []ProviderInfo{{ID: "omp", Models: []ModelInfo{{
+			ID:   "m",
+			Cost: &ModelCost{Input: 1, Output: 1},
+		}}}},
+		threadUsage: ThreadUsage{
+			Turns: map[int]TokenUsage{0: {Input: 1_000_000}},
+			Total: TokenUsage{Input: 1_000_000},
+		},
+	}
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.setStateLocked(SwarmState{Bees: []SwarmBee{{ThreadID: "b1", CostUSD: 2}}})
+	swarmPanelMu.Unlock()
+
+	st := collectSessionStats(s, "t1", time.Time{})
+	if !st.hasCost || st.costReported || math.Abs(st.costUSD-3) > 1e-9 {
+		t.Fatalf("估算 1 + bee 上报 2 应为 3 且仍是估算，得到 %v (hasCost=%v reported=%v)", st.costUSD, st.hasCost, st.costReported)
 	}
 }
 

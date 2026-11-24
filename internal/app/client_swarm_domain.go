@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"time"
 
 	"mcode/internal/config"
 	"mcode/internal/harness"
-	"mcode/internal/providers/acp"
 	"mcode/internal/swarm"
 	mcodeui "mcode/internal/ui"
 )
@@ -207,7 +207,7 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 		// 查询次数翻倍。
 		if turns, total, err := c.backend.ThreadUsage(ctx, h.ThreadID); err == nil {
 			progress.tokens = int(total.InputTokens + total.OutputTokens)
-			progress.costUSD = beeSessionCost(turns, provider)
+			progress.costUSD = beeSessionCost(turns, provider == "claude" || c.backend.ProviderIsACP(provider))
 		} else {
 			cacheable = false
 		}
@@ -240,32 +240,26 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 }
 
 // beeSessionCost 算一个 bee 会话的花费（美元）。bee 会话与主会话一样受 provider 上报语义约束：
-// ACP agent 与 claude 报整次会话累计，取轮次索引最大的一轮；其余逐轮求和。
+// cumulative（claude 与 ACP agent）报进程内累计，按轮次升序分段求和；其余逐轮求和。
 // 没有任何上报时返回 0（bee 会话通常没有模型目录价格，不做估算）。
-func beeSessionCost(turns map[int]harness.Usage, provider string) float64 {
-	cumulative := provider == "claude"
-	if !cumulative {
-		for _, a := range acp.Agents() {
-			if string(a) == provider {
-				cumulative = true
-				break
-			}
-		}
-	}
-	latestIndex := -1
-	latest := 0.0
-	sum := 0.0
-	for index, u := range turns {
-		if u.CostUSD <= 0 {
-			continue
-		}
-		sum += u.CostUSD
-		if index > latestIndex {
-			latestIndex, latest = index, u.CostUSD
-		}
-	}
+func beeSessionCost(turns map[int]harness.Usage, cumulative bool) float64 {
 	if cumulative {
-		return latest
+		indexes := make([]int, 0, len(turns))
+		for index := range turns {
+			indexes = append(indexes, index)
+		}
+		sort.Ints(indexes)
+		costs := make([]float64, 0, len(indexes))
+		for _, index := range indexes {
+			costs = append(costs, turns[index].CostUSD)
+		}
+		return harness.CumulativeCostUSD(costs)
+	}
+	sum := 0.0
+	for _, u := range turns {
+		if u.CostUSD > 0 {
+			sum += u.CostUSD
+		}
 	}
 	return sum
 }
