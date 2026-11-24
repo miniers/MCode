@@ -39,6 +39,14 @@ func SegmentedFill(c *ui.Context, key any, selected *int, segments []Segment, on
 	return segmentedControl(c, key, selected, segments, onChange, true)
 }
 
+// segmentSelectedBackground 返回分段控件选中项底色；深色下卡片色比轨道暗，看不出选中。
+func segmentSelectedBackground(c *ui.Context) ui.Color {
+	if isDark(c) {
+		return ThemeOverlaySelected(c)
+	}
+	return ThemeSurface(c)
+}
+
 func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment, onChange func(int), fill bool) ui.Element {
 	ctx := c
 	if key != nil {
@@ -64,7 +72,7 @@ func segmentedControl(c *ui.Context, key any, selected *int, segments []Segment,
 			color := ThemeSecondaryText(c)
 			selectedItem := i == *selected
 			if selectedItem {
-				item.Background(ThemeSurface(c)).Shadow(0, 1, 2, 0, ui.Color{}.Alpha(0.08))
+				item.Background(segmentSelectedBackground(c)).Shadow(0, 1, 2, 0, ui.Color{}.Alpha(0.08))
 				color = ThemePrimaryText(c)
 			} else if item.Hovered() && !segment.Disabled {
 				item.Background(ThemeOverlay(c, OverlayFaint))

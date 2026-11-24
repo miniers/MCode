@@ -69,3 +69,26 @@ func TestSwitchTrackColor(t *testing.T) {
 		}
 	}, 200, 100)
 }
+
+func TestSegmentedSelectedBackgroundContrastsTrack(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		var got, overlaySelected, surface ui.Color
+		tester := ui.NewTester(func(c *ui.Context) {
+			got = segmentSelectedBackground(c)
+			overlaySelected = ThemeOverlaySelected(c)
+			surface = ThemeSurface(c)
+		}, 100, 100)
+		tester.SetDark(dark)
+		tester.Frame()
+		if dark {
+			if got != overlaySelected {
+				t.Errorf("深色模式选中底色 = %v，期望 %v", got, overlaySelected)
+			}
+			if got == surface {
+				t.Errorf("深色模式选中底色不应等于卡片色 %v", surface)
+			}
+		} else if got != surface {
+			t.Errorf("浅色模式选中底色 = %v，期望 %v", got, surface)
+		}
+	}
+}
