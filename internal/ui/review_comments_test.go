@@ -475,7 +475,7 @@ func TestReviewReadButtonSettles(t *testing.T) {
 			if _, ok := tt.Find("标记为未查看"); !ok || !read {
 				t.Fatal("点击后没有变为已查看")
 			}
-			// 动画结束后界面静止，不得继续请求下一帧（AGENTS.md 第 10 条）。
+			// 动画结束后界面静止，不得继续请求下一帧（AGENTS.md 第 11 条）。
 			tt.Advance(DurSlow)
 			tt.Frame()
 			if tt.FramePending() {
