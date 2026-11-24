@@ -74,8 +74,8 @@ func TestSwarmQuestionBannerShowsPendingQuestion(t *testing.T) {
 	if !tt.HasText("要不要删掉旧配置？") {
 		t.Fatalf("banner missing inline question prompt, got %v", tt.Texts())
 	}
-	if !tt.HasText("第 1 题") || !tt.HasText("第 2 题") {
-		t.Fatalf("banner missing inline question progress segments, got %v", tt.Texts())
+	if !tt.HasText("第 1 题，共 2 题") {
+		t.Fatalf("banner missing inline question progress trigger, got %v", tt.Texts())
 	}
 	// 没有提问的 bee 不占行
 	if tt.HasText("疾风") {
