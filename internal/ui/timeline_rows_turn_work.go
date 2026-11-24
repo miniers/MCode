@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"math"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -210,7 +212,7 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 					AlignItems(ui.Center).
 					Padding(Space0, Space2).
 					Radius(RadiusSM).
-					MinHeight(24).
+					MinHeight(ControlSM).
 					Label(headerLabel).
 					Tooltip(tooltip)
 				if canToggleFold {
@@ -219,17 +221,18 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 				textColor := ThemeSecondaryText(c)
 				var rotation float32
 				if canToggleFold {
-					header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) })
+					header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) }).
+						Transition(motionTransition(c, ui.ElementTransition{Duration: DurFast, Ease: EaseOut, Colors: true}))
 					focusRing(c, header)
 					if header.Hovered() {
-						header.Background(ThemeHover(c).Alpha(0.35))
+						header.Background(ThemeOverlayHover(c))
 						textColor = ThemePrimaryText(c)
 					}
 					rotation = header.AnimateTo(item.id+"/chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
 				}
 				header.Children(func() {
 					if item.workAttention {
-						ui.Icon(c, IconAlertTriangle()).Size(11, 11).Label("工具执行失败").TextColor(ThemeDanger(c))
+						ui.Icon(c, IconAlertTriangle()).Size(IconSM, IconSM).Label("工具执行失败").TextColor(ThemeDanger(c))
 					}
 					if running {
 						// 运行中的头只扫一道光；本回合已有工具胶囊在扫光时让位，避免同一屏两处同步高光。
@@ -243,7 +246,7 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 					}
 					renderTurnWorkHeaderText(c, item, counts, textColor)
 					if canToggleFold {
-						ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(textColor).Rotate(rotation)
+						ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).Label("折叠箭头").TextColor(textColor).Rotate(rotation)
 					}
 				})
 			}
@@ -270,8 +273,8 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 		})
 }
 
-// renderTurnChecklistToggle 渲染回合头右侧可独立点击的步骤清单入口（"› ○ done/total 步"）：
-// 作为回合头折叠按钮的兄弟元素存在，点击只开合清单卡片，不触及「用时」折叠体。
+// renderTurnChecklistToggle 渲染回合头右侧可独立点击的步骤清单入口：胶囊形小进度标记（标记 + done/total），
+// 没有箭头；作为回合头折叠按钮的兄弟元素存在，点击只开合清单卡片，不触及「用时」折叠体。
 func renderTurnChecklistToggle(c *ui.Context, s *chatState, m Message, items []todoItem) {
 	running := s.isThreadRunning(selectedThreadIDSnapshot(s))
 	expanded := s.todoCardExpanded(m, running)
@@ -284,36 +287,63 @@ func renderTurnChecklistToggle(c *ui.Context, s *chatState, m Message, items []t
 	label := fmt.Sprintf("%s步骤清单，已完成 %d/%d 步", action, done, total)
 
 	btn := ui.Row(c.Key("turnwork-todo-toggle-"+m.ID)).
-		Gap(Space1).
+		Gap(Space2).
 		AlignItems(ui.Center).
-		Padding(Space0, Space2).
-		Radius(RadiusSM).
-		MinHeight(24).
+		Padding(Space0, Space3, Space0, Space2).
+		Radius(RadiusPill).
+		Height(ControlXS).
+		Background(ThemeOverlayHover(c)).
 		Cursor(ui.CursorPointer).
 		Focusable().
 		Role(ui.RoleButton).
 		Label(label).
 		Tooltip(label).
+		Transition(motionTransition(c, ui.ElementTransition{Duration: DurFast, Ease: EaseOut, Colors: true})).
 		OnClick(func() {
 			s.toggleTodoCard(m.ID, !expanded)
 		})
 	focusRing(c, btn)
 	textColor := ThemeSecondaryText(c)
-	if btn.Hovered() {
-		btn.Background(ThemeHover(c).Alpha(0.35))
+	if btn.Hovered() || expanded {
+		btn.Background(ThemeOverlaySelected(c))
 		textColor = ThemePrimaryText(c)
 	}
 	btn.Children(func() {
-		ui.Text(c, "›").FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
 		if allDone {
-			ui.Icon(c, IconCircleCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
+			ui.Icon(c, IconCircleCheck()).Size(IconSM, IconSM).TextColor(ThemeSuccess(c))
 		} else {
-			ui.Box(c.Key("turnwork-todo-ring-"+m.ID)).Size(11, 11).Center().Children(func() {
-				ui.Box(c.Key("turnwork-todo-circle-"+m.ID)).Size(9, 9).Radius(RadiusPill).Border(1.5, ThemeBorder(c))
-			})
+			arc := ThemeSecondaryText(c)
+			if running {
+				arc = ThemeAccent(c)
+			}
+			ui.Image(c, turnChecklistRingSVG(done, total, ThemeDivider(c), arc)).Size(IconSM, IconSM).Fit(ui.Contain)
 		}
-		ui.Text(c, fmt.Sprintf("%d/%d 步", done, total)).FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
+		ui.Text(c, fmt.Sprintf("%d/%d", done, total)).FontSize(scaledFont(TypeBody)).FontFeatures("tnum").TextColor(textColor).SingleLine()
 	})
+}
+
+var turnChecklistRingCache sync.Map // key string -> *ui.SVG
+
+// turnChecklistRingSVG 画未完成时的进度环：24 视口、半径 10、线宽 2（与 circle-check 一致），
+// 底环 track，弧长 done/total，从 12 点方向顺时针。颜色与比例都是离散值，按它们缓存解析结果。
+func turnChecklistRingSVG(done, total int, track, arc ui.Color) *ui.SVG {
+	key := fmt.Sprintf("%d/%d|%v|%v", done, total, track, arc)
+	if v, ok := turnChecklistRingCache.Load(key); ok {
+		return v.(*ui.SVG)
+	}
+	const radius = 10.0
+	circumference := 2 * math.Pi * radius
+	var b strings.Builder
+	fmt.Fprintf(&b, `<circle cx="12" cy="12" r="%g" fill="none" stroke="#%02X%02X%02X" stroke-opacity="%.3f" stroke-width="2"/>`,
+		radius, track.R, track.G, track.B, float64(track.A)/255)
+	if total > 0 && done > 0 {
+		fraction := math.Min(1, float64(done)/float64(total))
+		fmt.Fprintf(&b, `<circle cx="12" cy="12" r="%g" fill="none" stroke="#%02X%02X%02X" stroke-opacity="%.3f" stroke-width="2" stroke-linecap="round" stroke-dasharray="%.2f %.2f" transform="rotate(-90 12 12)"/>`,
+			radius, arc.R, arc.G, arc.B, float64(arc.A)/255, circumference*fraction, circumference)
+	}
+	svg := ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">` + b.String() + `</svg>`))
+	turnChecklistRingCache.Store(key, svg)
+	return svg
 }
 
 // turnEndMessageFor 返回本回合最后一条助手正文消息（原来挂完成行的就是它），

@@ -23,11 +23,11 @@ func turnChecklistFinishedMessages() []Message {
 }
 
 func TestTurnChecklist_FinishedAndRunningHeaders(t *testing.T) {
-	// 1. 结束态回合头显示「用时 12s」与「›」「3/3 步」，默认收起；点开后展示逐行步骤，不触及用时折叠体。
+	// 1. 结束态回合头显示「用时 12s」与「3/3」入口，默认收起；点开后展示逐行步骤，不触及用时折叠体。
 	finished := turnChecklistFinishedMessages()
-	tt := newTurnHeaderUsageTester(t, finished, map[int]TokenUsage{1: {Input: 100, Output: 50, DurationMs: 12000}}, "3/3 步")
+	tt := newTurnHeaderUsageTester(t, finished, map[int]TokenUsage{1: {Input: 100, Output: 50, DurationMs: 12000}}, "3/3")
 
-	if !tt.HasText("用时 12s") || !tt.HasText("›") || !tt.HasText("3/3 步") {
+	if !tt.HasText("用时 12s") || !tt.HasText("3/3") {
 		t.Fatalf("结束态回合头缺少用时或步骤入口: %v", tt.Texts())
 	}
 	if tt.HasText("读仓库") || tt.HasText("go build") {
@@ -65,16 +65,16 @@ func TestTurnChecklist_FinishedAndRunningHeaders(t *testing.T) {
 		t.Fatalf("用时折叠体内不应再出现 todo 卡片或工具胶囊: %v", tt.Texts())
 	}
 
-	// 2. 运行态回合头显示「已处理 Ns」与「›」「1/3 步」，默认收起（运行中进度由胶囊显示）；点击入口后展开。
+	// 2. 运行态回合头显示「已处理 Ns」与「1/3」入口，默认收起（运行中进度由胶囊显示）；点击入口后展开。
 	start := time.Now().Add(-10 * time.Second)
 	runningTodo := `{"todos":[{"content":"步骤一","status":"completed"},{"content":"步骤二","status":"in_progress"},{"content":"步骤三","status":"pending"}]}`
 	runningMsgs := []Message{
 		{ID: "u1", Role: "user", Text: "正在执行", TurnIndex: 1, IsFinal: true, CreatedAt: start.Format(time.RFC3339)},
 		{ID: "todo1", Role: "tool", ToolName: "TodoWrite", ToolInput: runningTodo, Text: "TodoWrite " + runningTodo, TurnIndex: 1, ToolStatus: "completed"},
 	}
-	runTT := newTurnHeaderRunningTester(t, runningMsgs, "1/3 步")
+	runTT := newTurnHeaderRunningTester(t, runningMsgs, "1/3")
 	runTT.Advance(motionUnfold + 40*time.Millisecond)
-	if !runTT.HasText("已处理") || !runTT.HasText("›") || !runTT.HasText("1/3 步") {
+	if !runTT.HasText("已处理") || !runTT.HasText("1/3") {
 		t.Fatalf("运行态回合头应显示计时与步骤入口: %v", runTT.Texts())
 	}
 	if _, ok := runTT.Find("展开步骤清单，已完成 1/3 步"); !ok {
@@ -109,10 +109,10 @@ func TestTurnChecklistRunningCollapsedByDefault(t *testing.T) {
 		{ID: "u1", Role: "user", Text: "正在执行", TurnIndex: 1, IsFinal: true, CreatedAt: start.Format(time.RFC3339)},
 		{ID: "todo1", Role: "tool", ToolName: "TodoWrite", ToolInput: runningTodo, Text: "TodoWrite " + runningTodo, TurnIndex: 1, ToolStatus: "completed"},
 	}
-	tt := newTurnHeaderRunningTester(t, msgs, "1/3 步")
+	tt := newTurnHeaderRunningTester(t, msgs, "1/3")
 	tt.Advance(motionUnfold + 40*time.Millisecond)
-	if !tt.HasText("1/3 步") {
-		t.Fatalf("运行中回合头应显示 1/3 步: %v", tt.Texts())
+	if !tt.HasText("1/3") {
+		t.Fatalf("运行中回合头应显示 1/3: %v", tt.Texts())
 	}
 	if _, ok := tt.Find("展开步骤清单，已完成 1/3 步"); !ok {
 		t.Fatalf("运行中步骤入口默认应处于收起态: %v", tt.Texts())
@@ -225,7 +225,7 @@ func TestTurnChecklist_NoNextFrameAfterAnimationSettles(t *testing.T) {
 			fake.messages["t1"] = msgs
 			_, view := buildRoot(fake)
 			tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
-			waitFor(t, tt, func() bool { return tt.HasText("1/3 步") })
+			waitFor(t, tt, func() bool { return tt.HasText("1/3") })
 
 			// 静止时不应有帧在跑。
 			for i := 0; i < 30; i++ {
@@ -274,6 +274,82 @@ func TestTurnChecklist_NoNextFrameAfterAnimationSettles(t *testing.T) {
 			}
 			if tt.HasText("已完成项") || tt.HasText("待处理项") {
 				t.Fatalf("收起后不应再显示清单项: %v", tt.Texts())
+			}
+		})
+	}
+}
+
+// TestTurnChecklistChip 验证清单入口是没有箭头的 done/total 小胶囊，回合头图标与文字同尺寸居中，
+// 点胶囊只开合清单卡片，动画结束后不再续帧。
+func TestTurnChecklistChip(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ReduceMotion=%v", reduced), func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
+			start := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+			at := func(offset time.Duration) string { return start.Add(offset).Format(time.RFC3339) }
+			todoInput := `{"todos":[{"content":"读仓库","status":"completed"},{"content":"改实现","status":"completed"},{"content":"跑验证","status":"pending"},{"content":"收尾","status":"pending"}]}`
+			msgs := []Message{
+				{ID: "u1", Role: "user", Text: "按清单做", TurnIndex: 1, IsFinal: true, CreatedAt: at(0)},
+				{ID: "todo1", Role: "tool", ToolName: "TodoWrite", ToolInput: todoInput, Text: "TodoWrite " + todoInput, TurnIndex: 1, ToolStatus: "completed", CreatedAt: at(3 * time.Second)},
+				{ID: "bash1", Role: "tool", Text: `Bash {"command":"go build ./..."}`, TurnIndex: 1, ToolStatus: "failed", CreatedAt: at(5 * time.Second)},
+				{ID: "a1", Role: "assistant", Kind: "text", Text: "先到这里", TurnIndex: 1, IsFinal: true, CreatedAt: at(12 * time.Second)},
+			}
+			fake := NewFakeClient()
+			fake.messages["t1"] = msgs
+			_, view := buildRoot(fake)
+			tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+			waitFor(t, tt, func() bool { return tt.HasText("2/4") })
+
+			// 入口只剩 done/total：没有 › 文字，也没有「步」字。
+			if tt.HasText("›") {
+				t.Fatalf("清单入口不应再有 › 文字: %v", tt.Texts())
+			}
+			// Texts() 也包含无障碍 Label「展开步骤清单，已完成 2/4 步」，它按约定保留「步」，所以只查可见文字。
+			for _, text := range tt.Texts() {
+				if text == "2/4 步" {
+					t.Fatalf("清单入口文字不应含「步」: %v", tt.Texts())
+				}
+			}
+
+			// 回合头：警告图标与 chevron 都是 IconSM 见方，且与文字垂直居中对齐。
+			var header ui.Rect
+			for _, text := range tt.Texts() {
+				if strings.HasPrefix(text, "用时") {
+					header, _ = tt.Find(text)
+				}
+			}
+			if header.W <= 0 {
+				t.Fatalf("找不到回合头文字: %v", tt.Texts())
+			}
+			for _, label := range []string{"工具执行失败", "折叠箭头"} {
+				icon, ok := tt.Find(label)
+				if !ok {
+					t.Fatalf("回合头缺少图标 %q: %v", label, tt.Texts())
+				}
+				if icon.W != IconSM || icon.H != IconSM {
+					t.Fatalf("%s 尺寸 = %vx%v, want %vx%v", label, icon.W, icon.H, IconSM, IconSM)
+				}
+				if d := (icon.Y + icon.H/2) - (header.Y + header.H/2); d > 1 || d < -1 {
+					t.Fatalf("%s 与文字垂直中心相差 %v", label, d)
+				}
+			}
+
+			// 点清单入口只展开清单卡片，不展开工作过程。
+			clickText(t, tt, "展开步骤清单，已完成 2/4 步")
+			for i := 0; i < 30; i++ {
+				tt.Advance(20 * time.Millisecond)
+				tt.Frame()
+			}
+			for _, step := range []string{"读仓库", "改实现", "跑验证", "收尾"} {
+				if !tt.HasText(step) {
+					t.Fatalf("展开清单后缺少 %q: %v", step, tt.Texts())
+				}
+			}
+			if tt.HasText("go build") {
+				t.Fatalf("点清单入口不应展开工作过程: %v", tt.Texts())
+			}
+			if tt.FramePending() {
+				t.Fatalf("动画结束后（ReduceMotion=%v）不应继续请求下一帧", reduced)
 			}
 		})
 	}

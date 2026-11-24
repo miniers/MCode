@@ -1629,7 +1629,7 @@ func TestTimelineRows_GroupedTodoCard(t *testing.T) {
 					}
 				})
 			}, 1000, 700)
-			for _, want := range []string{"2/3 步", "$ go test"} {
+			for _, want := range []string{"2/3", "$ go test"} {
 				if !tt.HasText(want) {
 					t.Fatalf("缺少 %q: %q", want, tt.Texts())
 				}
@@ -1656,7 +1656,7 @@ func TestTimelineRows_TodoCard(t *testing.T) {
 		{ID: "u1", Role: "user", Text: "规划一下", TurnIndex: 1, IsFinal: true},
 		{ID: "t1", Role: "tool", TurnIndex: 1, Text: `TodoWrite {"todos":[{"content":"读代码","status":"completed"},{"content":"改代码","status":"in_progress"},{"content":"跑测试","status":"pending"}]}`},
 	}
-	tt := newTimelineTester(t, msgs, "1/3 步")
+	tt := newTimelineTester(t, msgs, "1/3")
 	// 线程未运行时清单默认收起，只在回合头显示步骤入口
 	if tt.HasText("待办清单") {
 		t.Fatalf("新清单卡片不应再显示「待办清单」标题行: %q", tt.Texts())
