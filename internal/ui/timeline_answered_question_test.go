@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -359,21 +360,15 @@ func TestTimelineRowsQuestionAnswerMessageRendersCard(t *testing.T) {
 		{ID: "a1", Role: "assistant", Text: "好的", TurnIndex: 1, IsFinal: true},
 	}
 	tt := newTimelineTester(t, msgs, "先做哪一项？")
-	if _, ok := tt.Find("问"); !ok {
-		t.Fatalf("问答卡片应显示「问」行：%q", tt.Texts())
-	}
-	if _, ok := tt.Find("答"); !ok {
-		t.Fatalf("问答卡片应显示「答」行：%q", tt.Texts())
-	}
 	if !tt.HasText("界面、存储") {
-		t.Fatalf("问答卡片应显示答案：%q", tt.Texts())
+		t.Fatalf("问答卡片应在同一行显示答案：%q", tt.Texts())
 	}
 	if tt.HasText("requestID") {
 		t.Fatalf("不应把记录消息的原始 JSON 渲染到时间线：%q", tt.Texts())
 	}
 }
 
-// TestTimelineRowsQuestionAnswerShowsRepliedMark 覆盖已回复卡片的标题行：显示「提问」，
+// TestTimelineRowsQuestionAnswerShowsRepliedMark 覆盖已回复卡片的一行摘要：显示题目与答案，
 // 不再重复渲染「已回复」文字。
 func TestTimelineRowsQuestionAnswerShowsRepliedMark(t *testing.T) {
 	payload := `{"requestID":"req-replied","skipped":false,"items":[{"question":"先做哪一项？","answers":["界面"]}]}`
@@ -382,8 +377,8 @@ func TestTimelineRowsQuestionAnswerShowsRepliedMark(t *testing.T) {
 		questionAnswerTestMessage("qa1", payload, 1),
 	}
 	tt := newTimelineTester(t, msgs, "先做哪一项？")
-	if !tt.HasText("提问") {
-		t.Fatalf("已回复卡片的标题行应显示「提问」：%q", tt.Texts())
+	if !tt.HasText("先做哪一项？") || !tt.HasText("界面") {
+		t.Fatalf("已回复卡片的摘要行应显示题目与答案：%q", tt.Texts())
 	}
 	if tt.HasText("已回复") {
 		t.Fatalf("已回复卡片不应再显示「已回复」：%q", tt.Texts())
@@ -398,8 +393,8 @@ func TestUIReview4AnsweredQuestionOmitsRepliedLabel(t *testing.T) {
 		questionAnswerTestMessage("qa1", payload, 1),
 	}
 	tt := newTimelineTester(t, msgs, "先做哪一项？")
-	if !tt.HasText("提问") {
-		t.Fatalf("已回复卡片应显示「提问」：%q", tt.Texts())
+	if !tt.HasText("界面") {
+		t.Fatalf("已回复卡片应显示答案：%q", tt.Texts())
 	}
 	if tt.HasText("已回复") {
 		t.Fatalf("已回复卡片不应渲染「已回复」：%q", tt.Texts())
@@ -414,8 +409,8 @@ func TestTimelineRowsQuestionAnswerSkippedRendersSkipLine(t *testing.T) {
 		questionAnswerTestMessage("qa1", payload, 1),
 	}
 	tt := newTimelineTester(t, msgs, "已跳过提问")
-	if _, ok := tt.Find("答"); ok {
-		t.Fatalf("跳过时不应显示「答」行：%q", tt.Texts())
+	if tt.HasText("未回答") {
+		t.Fatalf("跳过时不应显示答案：%q", tt.Texts())
 	}
 	if tt.HasText("已回复") {
 		t.Fatalf("跳过时不应显示「已回复」：%q", tt.Texts())
@@ -522,4 +517,43 @@ func countExactTexts(texts []string, want string) int {
 		}
 	}
 	return n
+}
+
+// TestAnsweredQuestionCardMultiExpandsOnClick 多题已回答卡片收成一行「N 个问题」，点开逐题列出问答，再点收起；
+// 展开收起动画跑完后不再请求下一帧。
+func TestAnsweredQuestionCardMultiExpandsOnClick(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	q := answeredQuestion{ID: "req-multi", TurnIndex: -1, Items: []answeredQuestionItem{
+		{Prompt: "先做哪一项？", Answers: []string{"界面", "存储"}},
+		{Prompt: "要不要迁移？"},
+	}}
+	tt := ui.NewTester(func(c *ui.Context) { renderAnsweredQuestionCard(c, s, q) }, 720, 400)
+	tt.Advance(time.Second)
+	if !tt.HasText("2 个问题") || tt.HasText("先做哪一项？") {
+		t.Fatalf("默认应只显示一行「2 个问题」：%q", tt.Texts())
+	}
+
+	if err := tt.Click("2 个问题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	for _, want := range []string{"先做哪一项？", "界面、存储", "要不要迁移？", "未回答"} {
+		if !tt.HasText(want) {
+			t.Fatalf("展开后应显示 %q：%q", want, tt.Texts())
+		}
+	}
+	if tt.FramePending() {
+		t.Fatal("展开动画结束后不应再请求下一帧")
+	}
+
+	if err := tt.Click("2 个问题"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(time.Second)
+	if tt.HasText("先做哪一项？") {
+		t.Fatalf("再点一次应收起：%q", tt.Texts())
+	}
+	if tt.FramePending() {
+		t.Fatal("收起动画结束后不应再请求下一帧")
+	}
 }

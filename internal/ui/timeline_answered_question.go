@@ -240,54 +240,134 @@ func attachAnsweredQuestionItems(items []timelineItem, qs []answeredQuestion) []
 	return res
 }
 
-// renderAnsweredQuestionCard 渲染已答复提问的静态历史态卡片：紧凑卡片，每题一行问题加一行答案。
-// 整次跳过时只显示一行「已跳过提问」。
+// answeredQuestionExpandedKey 是已答复提问卡片展开状态在 expandedReasoning 里的键。
+func answeredQuestionExpandedKey(id string) string { return "answered-question:" + id }
+
+// toggleAnsweredQuestion 展开或收起多题已答复卡片。
+func (s *chatState) toggleAnsweredQuestion(id string) {
+	s.mu.Lock()
+	if s.expandedReasoning == nil {
+		s.expandedReasoning = make(map[string]bool)
+	}
+	k := answeredQuestionExpandedKey(id)
+	s.expandedReasoning[k] = !s.expandedReasoning[k]
+	s.mu.Unlock()
+	s.holdChatPlace()
+	s.invalidate()
+}
+
+// renderAnsweredQuestionCard 渲染已答复提问的静态历史态卡片（设计稿 A 版）：收成一行；
+// 单题一行显示「题目 答案」，多题显示「N 个问题」，点开后逐题列出问答；整次跳过时只显示「已跳过提问」。
 func renderAnsweredQuestionCard(c *ui.Context, s *chatState, q answeredQuestion) {
 	id := q.ID
 	if id == "" {
 		id = fmt.Sprintf("question-%d", q.Time.UnixNano())
 	}
-	ui.Column(c.Key("answered-question-"+id)).
-		Radius(RadiusXL).
-		Background(ThemeSurface(c)).
+	key := "answered-question-" + id
+	many := !q.Skip && len(q.Items) > 1
+	open := false
+	if many {
+		s.mu.Lock()
+		open = s.expandedReasoning[answeredQuestionExpandedKey(id)]
+		s.mu.Unlock()
+	}
+	ui.Column(c.Key(key)).
+		Clip().
+		Radius(RadiusLG).
+		Background(ThemeSurfaceCard(c)).
 		Border(Hairline, ThemeBorder(c)).
-		Padding(Space4).
-		Gap(Space3).
 		MaxWidth(timelineContentMaxWidth(s)).
 		Children(func() {
-			if q.Skip {
-				ui.Row(c.Key("answered-question-skip-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, IconCircleEllipsis()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-					ui.Text(c, "已跳过提问").FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Selectable()
+			switch {
+			case q.Skip:
+				renderAnsweredQuestionHead(c, key, IconCircleEllipsis(), ThemeSecondaryText(c), func() {
+					ui.Text(c, "已跳过提问").FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Selectable()
 				})
-				return
-			}
-			ui.Row(c.Key("answered-question-header-" + id)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconCircleCheck()).Size(IconSM, IconSM).TextColor(ThemeSuccess(c))
-				ui.Text(c, "提问").Bold().FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
-			})
-			for i, item := range q.Items {
-				renderAnsweredQuestionEntry(c, id, i, item)
+			case many:
+				renderAnsweredQuestionToggle(c, s, key, id, len(q.Items), open)
+				motionUnfoldBody(c, key+"-fold", open, func() {
+					ui.Column(c.Key(key+"-list")).FillWidth().Gap(Space4).
+						Padding(Space1, Space4, Space4, Space4+IconMD+Space3).Children(func() {
+						for i, item := range q.Items {
+							renderAnsweredQuestionEntry(c, id, i, item)
+						}
+					})
+				})
+			default:
+				var item answeredQuestionItem
+				if len(q.Items) > 0 {
+					item = q.Items[0]
+				}
+				renderAnsweredQuestionHead(c, key, IconCircleCheck(), ThemeSuccess(c), func() {
+					if len(q.Items) == 0 {
+						ui.Text(c, "提问").FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
+						return
+					}
+					renderAnsweredQuestionSummary(c, key, item)
+				})
 			}
 		})
 }
 
-// renderAnsweredQuestionEntry 渲染一道题的问答两行：首行以「问」开头，次行以「答」开头；
-// 没有答案的题显示次要色的「未回答」。
+// renderAnsweredQuestionHead 渲染卡片的一行静态头：左侧状态图标，其余由 body 填充。
+func renderAnsweredQuestionHead(c *ui.Context, key string, icon *ui.SVG, iconColor ui.Color, body func()) {
+	ui.Row(c.Key(key+"-head")).FillWidth().MinHeight(ControlLG+Space2).Padding(Space3, Space4).Gap(Space3).AlignItems(ui.Center).Children(func() {
+		ui.Icon(c, icon).Size(IconMD, IconMD).TextColor(iconColor).Shrink(0)
+		body()
+	})
+}
+
+// renderAnsweredQuestionSummary 在一行里排出「题目 答案」：题目用次要色，答案用主色，放不下时一起省略；
+// 没有答案显示第三级色的「未回答」。
+func renderAnsweredQuestionSummary(c *ui.Context, key string, item answeredQuestionItem) {
+	answer := answeredQuestionAnswerText(item.Answers)
+	full := strings.TrimSpace(item.Prompt + " " + answer)
+	ui.Row(c.Key(key + "-summary")).Grow(1).MinWidth(0).Gap(Space2).Tooltip(full).Children(func() {
+		if item.Prompt != "" {
+			ui.Text(c, item.Prompt).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Selectable()
+		}
+		if answer == "" {
+			ui.Text(c, "未回答").FontSize(scaledFont(TypeBody)).TextColor(ThemeTertiaryText(c)).Shrink(0)
+			return
+		}
+		ui.Text(c, answer).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Selectable()
+	})
+}
+
+// renderAnsweredQuestionToggle 渲染多题卡片的头：「N 个问题」与展开箭头，点击展开或收起。
+func renderAnsweredQuestionToggle(c *ui.Context, s *chatState, key, id string, n int, open bool) {
+	label := fmt.Sprintf("%d 个问题", n)
+	head := ui.ButtonBase(c.Key(key+"-head")).
+		Label(label).
+		Role(ui.RoleDisclosure).
+		Expanded(open).
+		FillWidth().
+		MinHeight(ControlLG+Space2).
+		Padding(Space3, Space4).
+		OnClick(func() { s.toggleAnsweredQuestion(id) })
+	hover := head.AnimateTo("answered-hover", questionStep(head.Hovered()), questionAnim(c, DurFast))
+	head.Background(ui.Transparent.Mix(ThemeOverlayHover(c), hover))
+	focusRing(c, head)
+	head.Children(func() {
+		ui.Row(c.Key(key + "-head-row")).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, IconCircleCheck()).Size(IconMD, IconMD).TextColor(ThemeSuccess(c)).Shrink(0)
+			ui.Text(c, label).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).MinWidth(0)
+			chevron := ui.Icon(c, IconChevronDown()).Size(IconMD, IconMD).TextColor(ThemeTertiaryText(c)).Shrink(0)
+			chevron.Rotate(chevron.AnimateTo("answered-chevron", 180*questionStep(open), questionAnim(c, DurBase)))
+		})
+	})
+}
+
+// renderAnsweredQuestionEntry 渲染展开后一道题的问答：题目用次要色小字，答案用主色；
+// 没有答案的题显示第三级色的「未回答」。
 func renderAnsweredQuestionEntry(c *ui.Context, cardID string, idx int, item answeredQuestionItem) {
 	key := fmt.Sprintf("%s-%d", cardID, idx)
-	ui.Column(c.Key("answered-question-entry-" + key)).Gap(Space1).Children(func() {
-		ui.Row(c.Key("answered-question-ask-" + key)).Gap(Space3).AlignItems(ui.Start).FillWidth().Children(func() {
-			ui.Text(c, "问").Bold().FontSize(scaledFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, item.Prompt).FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Grow(1).MaxLines(answeredQuestionAnswerLimit).Selectable()
-		})
-		ui.Row(c.Key("answered-question-answer-" + key)).Gap(Space3).AlignItems(ui.Start).FillWidth().Children(func() {
-			ui.Text(c, "答").Bold().FontSize(scaledFont(TypeFootnote)).TextColor(ThemeAccent(c))
-			if answer := answeredQuestionAnswerText(item.Answers); answer != "" {
-				ui.Text(c, answer).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).Grow(1).MaxLines(answeredQuestionAnswerLimit).Selectable()
-				return
-			}
-			ui.Text(c, "未回答").Italic().FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c)).Grow(1).Selectable()
-		})
+	ui.Column(c.Key("answered-question-entry-" + key)).FillWidth().Gap(Space1).Children(func() {
+		ui.Text(c, item.Prompt).FontSize(scaledFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).MaxLines(answeredQuestionAnswerLimit).Ellipsis("…").Selectable()
+		if answer := answeredQuestionAnswerText(item.Answers); answer != "" {
+			ui.Text(c, answer).FontSize(scaledFont(TypeBody)).TextColor(ThemePrimaryText(c)).MaxLines(answeredQuestionAnswerLimit).Ellipsis("…").Selectable()
+			return
+		}
+		ui.Text(c, "未回答").FontSize(scaledFont(TypeBody)).TextColor(ThemeTertiaryText(c))
 	})
 }

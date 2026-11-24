@@ -6,6 +6,7 @@ import (
 	"image"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -335,7 +336,7 @@ func questionApproval() Approval {
 func TestQuestionCardSubmit(t *testing.T) {
 	fake, tt := newApprovalTester(t, []Approval{questionApproval()})
 	waitFor(t, tt, func() bool {
-		return tt.HasText("第 1 / 2 题") && tt.HasText("选择实现方案") && tt.HasText("还有 1 题未回答")
+		return tt.HasText("选择实现方案") && tt.HasText("第 2 题")
 	})
 
 	if tt.HasText("提交") {
@@ -361,7 +362,6 @@ func TestQuestionCardSubmit(t *testing.T) {
 		}
 		tt.Frame()
 	}
-	waitFor(t, tt, func() bool { return !tt.HasText("题未回答") })
 	if err := tt.Click("提交"); err != nil {
 		t.Fatalf("click '提交' failed: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestQuestionCardActionChangesOnLastQuestion(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderQuestionCard(c, s, a, false)
 	}, 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("第 1 / 2 题") })
+	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") })
 	if !tt.HasText("下一题") || tt.HasText("提交") {
 		t.Fatal("第一题应显示下一题而非提交")
 	}
@@ -386,7 +386,7 @@ func TestQuestionCardActionChangesOnLastQuestion(t *testing.T) {
 	s.questionDraftFor(a).current = 1
 	s.mu.Unlock()
 	s.invalidate()
-	waitFor(t, tt, func() bool { return tt.HasText("第 2 / 2 题") })
+	waitFor(t, tt, func() bool { return tt.HasText("包含哪些模块") })
 	if tt.HasText("下一题") {
 		t.Fatal("最后一题不应显示下一题")
 	}
@@ -496,7 +496,7 @@ func TestQuestionCardChoiceRowsAlign(t *testing.T) {
 
 			rects := make([]ui.Rect, 0, len(labels))
 			for _, label := range labels {
-				r, ok := tt.Find(label)
+				r, ok := tt.Find(questionChoiceA11yLabel(displayChoiceLabel(label), "", isRecommendedChoice(label)))
 				if !ok {
 					t.Fatalf("未找到选项 %q 的布局矩形", label)
 				}
@@ -568,7 +568,7 @@ func TestQuestionCardSingleOtherReplacesChoice(t *testing.T) {
 	a.Questions[0].AllowsOther = true
 	fake, tt := newApprovalTester(t, []Approval{a})
 	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") })
-	if err := tt.Click("输入其他答案"); err != nil {
+	if err := tt.Click("其他"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Type("自定义方案")
@@ -650,7 +650,7 @@ func TestQuestionWithoutFreeTextShowsOnlyChoices(t *testing.T) {
 	fake, tt := newApprovalTester(t, []Approval{a})
 	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") })
 
-	if tt.HasText("输入其他答案") {
+	if _, ok := tt.Find("其他"); ok {
 		t.Fatalf("不接受自由文本的题不应显示输入框：%q", tt.Texts())
 	}
 	if tt.HasText("其他指示…") {
@@ -679,7 +679,7 @@ func TestQuestionCardChoiceReplacesSingleOther(t *testing.T) {
 	a.Questions[0].AllowsOther = true
 	fake, tt := newApprovalTester(t, []Approval{a})
 	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") })
-	if err := tt.Click("输入其他答案"); err != nil {
+	if err := tt.Click("其他"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Type("自定义方案")
@@ -1106,7 +1106,7 @@ func newQuestionCardTester(t *testing.T, a Approval) *ui.Tester {
 	}, 1000, 700)
 }
 
-// 测试提问卡选项右侧的数字键帽：数字键确实对这些选项生效，键帽贴在文字右侧。
+// 测试提问卡选项左侧序号位里的数字：数字键确实对这些选项生效，序号在文字左侧。
 func TestQuestionCardChoiceKeyBadges(t *testing.T) {
 	for _, multi := range []bool{false, true} {
 		name := "单选"
@@ -1136,21 +1136,22 @@ func TestQuestionCardChoiceKeyBadges(t *testing.T) {
 			for i, label := range labels {
 				badge, ok := tt.Find(fmt.Sprintf("%d", i+1))
 				if !ok {
-					t.Fatalf("选项 %q 缺少键帽 %d，当前文本：%q", label, i+1, tt.Texts())
+					t.Fatalf("选项 %q 缺少序号 %d，当前文本：%q", label, i+1, tt.Texts())
 				}
-				labelRect, ok := tt.Find(label)
+				row, ok := tt.Find(label)
 				if !ok {
-					t.Fatalf("未找到选项文字 %q", label)
+					t.Fatalf("未找到选项行 %q", label)
 				}
-				if badge.X < labelRect.X {
-					t.Errorf("选项 %q 的键帽应位于文字右侧：badge.X=%.1f label.X=%.1f", label, badge.X, labelRect.X)
+				// 序号在行首 16×16 的序号位里，垂直方向落在本行内。
+				if badge.X-row.X > Space3+questionSlotSize || badge.Y < row.Y || badge.Y+badge.H > row.Y+row.H {
+					t.Errorf("选项 %q 的序号应在行首序号位：badge=%+v row=%+v", label, badge, row)
 				}
 			}
 		})
 	}
 }
 
-// 测试 12 个选项时只给前 9 个画键帽：数字键 1~9 才是实际生效的快捷键。
+// 测试 12 个选项时只给前 9 个画序号：数字键 1~9 才是实际生效的快捷键。
 func TestQuestionCardKeyBadgesStopAtNine(t *testing.T) {
 	labels := make([]string, 0, 12)
 	choices := make([]ApprovalQuestionChoice, 0, 12)
@@ -1175,12 +1176,12 @@ func TestQuestionCardKeyBadgesStopAtNine(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		want := fmt.Sprintf("%d", i+1)
 		if _, ok := tt.Find(want); !ok {
-			t.Fatalf("第 %d 个选项应有键帽 %q，当前文本：%q", i+1, want, tt.Texts())
+			t.Fatalf("第 %d 个选项应有序号 %q，当前文本：%q", i+1, want, tt.Texts())
 		}
 	}
 	for _, want := range []string{"10", "11", "12"} {
 		if _, ok := tt.Find(want); ok {
-			t.Fatalf("第 %s 个选项不应画键帽，当前文本：%q", want, tt.Texts())
+			t.Fatalf("第 %s 个选项不应画序号，当前文本：%q", want, tt.Texts())
 		}
 	}
 }
@@ -1247,29 +1248,6 @@ func TestApprovalCardSurfaceBackground(t *testing.T) {
 	}
 	if !colorNear(surface, tint, 12) && colorNear(got, tint, 4) {
 		t.Fatalf("卡片底色仍是整块警示底 %v", tint)
-	}
-}
-
-func TestUIReview4_SingleQuestionHidesUnansweredCount(t *testing.T) {
-	single := Approval{
-		ThreadID:  "t1",
-		RequestID: "r-q-single",
-		Kind:      ApprovalKindQuestion,
-		Questions: []ApprovalQuestion{
-			{ID: "q1", Prompt: "只此一题", Choices: []ApprovalQuestionChoice{{Label: "甲"}, {Label: "乙"}}},
-		},
-	}
-	ttSingle := newQuestionCardTester(t, single)
-	waitFor(t, ttSingle, func() bool { return ttSingle.HasText("只此一题") })
-	if ttSingle.HasText("题未回答") {
-		t.Fatalf("只有 1 题时不应显示未回答计数，got %v", ttSingle.Texts())
-	}
-
-	multi := questionApproval()
-	ttMulti := newQuestionCardTester(t, multi)
-	waitFor(t, ttMulti, func() bool { return ttMulti.HasText("选择实现方案") })
-	if !ttMulti.HasText("还有 1 题未回答") {
-		t.Fatalf("多题且有未答题目时应显示未回答计数，got %v", ttMulti.Texts())
 	}
 }
 
@@ -1448,7 +1426,7 @@ func TestUIReview4_NarrowLayoutAndRespondingLock(t *testing.T) {
 		t.Fatalf("提交进行中不应允许切换选项，got %v", sel)
 	}
 
-	_ = ttLock.Click("输入其他答案")
+	_ = ttLock.Click("其他")
 	ttLock.Type("禁止输入")
 	ttLock.Frame()
 	sLock.mu.Lock()
@@ -1825,11 +1803,11 @@ func TestQuestionSingleAutoAdvanceAndFocusComposer(t *testing.T) {
 		},
 	}
 	fake2, tt2 := newApprovalTester(t, []Approval{multi})
-	waitFor(t, tt2, func() bool { return tt2.HasText("第 1 / 2 题") && tt2.HasText("第一题") })
+	waitFor(t, tt2, func() bool { return tt2.HasText("第一题") })
 	if err := tt2.Click("一甲"); err != nil {
 		t.Fatalf("click '一甲' failed: %v", err)
 	}
-	waitFor(t, tt2, func() bool { return tt2.HasText("第 2 / 2 题") && tt2.HasText("第二题") })
+	waitFor(t, tt2, func() bool { return tt2.HasText("第二题") })
 	if _, ok := fake2.LastRespondAnswers(); ok {
 		t.Fatal("第一题自动前进到第二题时不应提前提交")
 	}
@@ -1943,60 +1921,266 @@ func TestQuestionSingleAutoAdvanceAndFocusComposer(t *testing.T) {
 	}
 }
 
-func TestQuestionBodySkipsHeaderEqualToPrompt(t *testing.T) {
-	countText := func(texts []string, target string) int {
-		n := 0
-		for _, text := range texts {
-			if text == target {
-				n++
-			}
-		}
-		return n
+// TestQuestionBodyShowsPromptOnly 题目区只显示 Prompt，不再单独多一行 Header；Prompt 为空时才用 Header。
+func TestQuestionBodyShowsPromptOnly(t *testing.T) {
+	show := func(id string, q ApprovalQuestion) *ui.Tester {
+		a := Approval{ThreadID: "t1", RequestID: id, Kind: ApprovalKindQuestion, Questions: []ApprovalQuestion{q}}
+		s := newChatState(NewFakeClient())
+		tt := ui.NewTester(func(c *ui.Context) { renderQuestionCard(c, s, a, false) }, 720, 480)
+		tt.Frame()
+		return tt
 	}
+	choices := []ApprovalQuestionChoice{{Label: "全量覆盖"}, {Label: "仅核心流程"}}
 
 	const sameText = "这次设计稿的覆盖范围希望怎么定?"
-	sameAppr := Approval{
-		ThreadID:  "t1",
-		RequestID: "r-same-header-prompt",
-		Kind:      ApprovalKindQuestion,
-		Questions: []ApprovalQuestion{{
-			ID:      "q1",
-			Header:  sameText,
-			Prompt:  sameText,
-			Choices: []ApprovalQuestionChoice{{Label: "全量覆盖"}, {Label: "仅核心流程"}},
-		}},
-	}
-	sSame := newChatState(NewFakeClient())
-	ttSame := ui.NewTester(func(c *ui.Context) {
-		renderQuestionCard(c, sSame, sameAppr, false)
-	}, 720, 480)
-	waitFor(t, ttSame, func() bool { return ttSame.HasText(sameText) })
-	if got := countText(ttSame.Texts(), sameText); got != 1 {
-		t.Fatalf("Header 与 Prompt 相同时文本 %q 应只出现 1 次，实际 %d 次，texts=%q", sameText, got, ttSame.Texts())
+	tt := show("r-same-header-prompt", ApprovalQuestion{ID: "q1", Header: sameText, Prompt: sameText, Choices: choices})
+	if got := countExactTexts(tt.Texts(), sameText); got != 1 {
+		t.Fatalf("Header 与 Prompt 相同时文本应只出现 1 次，实际 %d 次，texts=%q", got, tt.Texts())
 	}
 
-	diffAppr := Approval{
+	tt = show("r-diff-header-prompt", ApprovalQuestion{ID: "q1", Header: "覆盖范围", Prompt: "这次设计稿希望覆盖哪些模块?", Choices: choices})
+	if !tt.HasText("这次设计稿希望覆盖哪些模块?") {
+		t.Fatalf("应显示 Prompt，texts=%q", tt.Texts())
+	}
+	if tt.HasText("覆盖范围") {
+		t.Fatalf("Prompt 不为空时不应再显示 Header，texts=%q", tt.Texts())
+	}
+
+	tt = show("r-header-only", ApprovalQuestion{ID: "q1", Header: "覆盖范围", Choices: choices})
+	if !tt.HasText("覆盖范围") {
+		t.Fatalf("Prompt 为空时应显示 Header，texts=%q", tt.Texts())
+	}
+}
+
+// compactQuestionTester 渲染一张只含提问卡的 Tester，返回它与 chatState，便于读草稿。
+func compactQuestionTester(t *testing.T, a Approval, reduced bool) (*chatState, *ui.Tester) {
+	t.Helper()
+	setAppReduceMotion(t, reduced)
+	s := newChatState(NewFakeClient())
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		renderQuestionCard(c, s, a, false)
+	}, 720, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduced}})
+	return s, tt
+}
+
+func compactQuestionDraft(s *chatState, a Approval) (selected [][]int, current int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.questionDraftFor(a)
+	return slices.Clone(d.selected), d.current
+}
+
+// TestQuestionCardCompactProgressJumpsBetweenQuestions 多题时只有分段进度：没有「第 n / m 题」、「上一题」与未答计数，
+// 点进度段可以直接跳题（替代旧的上一题按钮）。
+func TestQuestionCardCompactProgressJumpsBetweenQuestions(t *testing.T) {
+	a := questionApproval()
+	s, tt := compactQuestionTester(t, a, false)
+	tt.Advance(time.Second)
+	for _, gone := range []string{"第 1 / 2 题", "上一题", "题未回答", "还有"} {
+		if tt.HasText(gone) {
+			t.Fatalf("定稿后不应再出现 %q：%q", gone, tt.Texts())
+		}
+	}
+	if !tt.HasText("选择实现方案") || tt.HasText("包含哪些模块") {
+		t.Fatalf("应从第一题开始：%q", tt.Texts())
+	}
+	for _, seg := range []string{"第 1 题", "第 2 题"} {
+		if _, ok := tt.Find(seg); !ok {
+			t.Fatalf("缺少进度段 %q：%q", seg, tt.Texts())
+		}
+	}
+
+	if err := tt.Click("第 2 题"); err != nil {
+		t.Fatalf("点进度段失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("包含哪些模块") && !tt.HasText("选择实现方案") })
+	if _, cur := compactQuestionDraft(s, a); cur != 1 {
+		t.Fatalf("点第 2 段后当前题应为 1，got %d", cur)
+	}
+	if err := tt.Click("第 1 题"); err != nil {
+		t.Fatalf("点进度段失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") && !tt.HasText("包含哪些模块") })
+	if _, cur := compactQuestionDraft(s, a); cur != 0 {
+		t.Fatalf("点第 1 段后当前题应为 0，got %d", cur)
+	}
+}
+
+// TestQuestionCardCompactKeyboardSubmit 数字键选择、回车提交，提交内容与改版前一致（原始 Label，多选按下标升序）。
+func TestQuestionCardCompactKeyboardSubmit(t *testing.T) {
+	oldDelay := questionAutoAdvanceDelay
+	questionAutoAdvanceDelay = time.Hour
+	defer func() { questionAutoAdvanceDelay = oldDelay }()
+
+	cases := []struct {
+		name  string
+		multi bool
+		keys  []ui.Key
+		want  map[string][]string
+	}{
+		{"单选", false, []ui.Key{ui.Key2}, map[string][]string{"q1": {"乙 (recommended)"}}},
+		{"多选", true, []ui.Key{ui.Key3, ui.Key1}, map[string][]string{"q1": {"甲", "丙"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			label := "乙 (recommended)"
+			a := Approval{
+				ThreadID:  "t1",
+				RequestID: "r-compact-keys-" + tc.name,
+				Kind:      ApprovalKindQuestion,
+				Questions: []ApprovalQuestion{{
+					ID:             "q1",
+					Prompt:         "选哪个？",
+					AllowsMultiple: tc.multi,
+					Choices:        []ApprovalQuestionChoice{{Label: "甲"}, {Label: label}, {Label: "丙"}},
+				}},
+			}
+			if tc.multi {
+				a.Questions[0].Choices[1].Label = "乙"
+			} else {
+				// 单选的推荐项默认已选，先按 1 清掉默认再按 2，验证数字键改选。
+				tc.keys = append([]ui.Key{ui.Key1}, tc.keys...)
+			}
+			// 只渲染审批层：快捷键由 renderApproval 注册，与整窗的输入框焦点无关。
+			fake := NewFakeClient()
+			s := newChatState(fake)
+			s.mu.Lock()
+			s.approvals = []Approval{a}
+			s.composerFocused = false
+			s.mu.Unlock()
+			tt := ui.NewTester(func(c *ui.Context) { renderApproval(c, s) }, 800, 600)
+			waitFor(t, tt, func() bool { return tt.HasText("选哪个？") })
+			for _, k := range tc.keys {
+				tt.Key(0, k)
+				tt.Frame()
+			}
+			if _, ok := fake.LastRespondAnswers(); ok {
+				t.Fatal("只按数字键不应提交")
+			}
+			tt.Key(0, ui.KeyEnter)
+			waitFor(t, tt, func() bool {
+				call, ok := fake.LastRespondAnswers()
+				return ok && !call.Skip && reflect.DeepEqual(call.Answers, tc.want)
+			})
+		})
+	}
+}
+
+// TestQuestionCardCompactMultiSelectToggles 多选可勾选多项，再点一次取消。
+func TestQuestionCardCompactMultiSelectToggles(t *testing.T) {
+	a := Approval{
 		ThreadID:  "t1",
-		RequestID: "r-diff-header-prompt",
+		RequestID: "r-compact-multi",
+		Kind:      ApprovalKindQuestion,
+		Questions: []ApprovalQuestion{{
+			ID:             "q1",
+			Prompt:         "要哪些？",
+			AllowsMultiple: true,
+			Choices:        []ApprovalQuestionChoice{{Label: "选项甲"}, {Label: "选项乙"}, {Label: "选项丙"}},
+		}},
+	}
+	s, tt := compactQuestionTester(t, a, false)
+	tt.Advance(time.Second)
+	for _, label := range []string{"选项丙", "选项甲"} {
+		if err := tt.Click(label); err != nil {
+			t.Fatalf("点击 %q 失败: %v", label, err)
+		}
+		tt.Frame()
+	}
+	if sel, _ := compactQuestionDraft(s, a); !reflect.DeepEqual(sel, [][]int{{0, 2}}) {
+		t.Fatalf("多选应同时勾上甲和丙：got %v", sel)
+	}
+	if err := tt.Click("选项丙"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if sel, _ := compactQuestionDraft(s, a); !reflect.DeepEqual(sel, [][]int{{0}}) {
+		t.Fatalf("再点一次应取消丙：got %v", sel)
+	}
+}
+
+// TestQuestionCardCompactLongDetailKeepsFullTextInLabel 超长 Detail 在行内最多 3 行并省略，全文放进该行的无障碍名称。
+func TestQuestionCardCompactLongDetailKeepsFullTextInLabel(t *testing.T) {
+	detail := strings.Repeat("这一段说明很长，", 40)
+	a := Approval{
+		ThreadID:  "t1",
+		RequestID: "r-compact-detail",
 		Kind:      ApprovalKindQuestion,
 		Questions: []ApprovalQuestion{{
 			ID:      "q1",
-			Header:  "覆盖范围",
-			Prompt:  "这次设计稿希望覆盖哪些模块?",
-			Choices: []ApprovalQuestionChoice{{Label: "全部模块"}, {Label: "只做首页"}},
+			Prompt:  "选哪个？",
+			Choices: []ApprovalQuestionChoice{{Label: "长说明项", Detail: detail}, {Label: "短项"}},
 		}},
 	}
-	sDiff := newChatState(NewFakeClient())
-	ttDiff := ui.NewTester(func(c *ui.Context) {
-		renderQuestionCard(c, sDiff, diffAppr, false)
-	}, 720, 480)
-	waitFor(t, ttDiff, func() bool {
-		return ttDiff.HasText("覆盖范围") && ttDiff.HasText("这次设计稿希望覆盖哪些模块?")
-	})
-	if got := countText(ttDiff.Texts(), "覆盖范围"); got != 1 {
-		t.Fatalf("Header 与 Prompt 不同时应显示 Header，实际出现 %d 次，texts=%q", got, ttDiff.Texts())
+	_, tt := compactQuestionTester(t, a, false)
+	tt.Advance(time.Second)
+	row, ok := tt.Find(questionChoiceA11yLabel("长说明项", strings.TrimSpace(detail), false))
+	if !ok {
+		t.Fatalf("该行的无障碍名称应含标题与说明全文：%q", tt.Texts())
 	}
-	if got := countText(ttDiff.Texts(), "这次设计稿希望覆盖哪些模块?"); got != 1 {
-		t.Fatalf("Header 与 Prompt 不同时应显示 Prompt，实际出现 %d 次，texts=%q", got, ttDiff.Texts())
+	short, ok := tt.Find("短项")
+	if !ok {
+		t.Fatalf("缺少短项：%q", tt.Texts())
+	}
+	// 说明最多 3 行：行高不超过 3 行说明加上下内边距与标题行。
+	maxH := uiFont(TypeFootnote)*questionTextLineHeight*float32(questionDetailMaxLines+1) + 2*Space3 + Space1
+	if row.H > maxH+8 {
+		t.Fatalf("长说明行高 %.1f 超过 3 行说明的上限 %.1f", row.H, maxH)
+	}
+	if row.H <= short.H {
+		t.Fatalf("长说明行应比短项更高：长 %.1f 短 %.1f", row.H, short.H)
+	}
+}
+
+// TestQuestionCardCompactStaticFrameAfterAnimations 勾选与换题的动画跑完后不再请求下一帧（含减少动效）。
+func TestQuestionCardCompactStaticFrameAfterAnimations(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		t.Run(map[bool]string{false: "normal", true: "reduced"}[reduced], func(t *testing.T) {
+			a := Approval{
+				ThreadID:  "t1",
+				RequestID: "r-compact-motion",
+				Kind:      ApprovalKindQuestion,
+				Questions: []ApprovalQuestion{
+					{ID: "q1", Prompt: "第一问", AllowsMultiple: true, Choices: []ApprovalQuestionChoice{{Label: "子项甲"}, {Label: "子项乙"}}},
+					{ID: "q2", Prompt: "第二问", AllowsMultiple: true, Choices: []ApprovalQuestionChoice{{Label: "子项丙"}, {Label: "子项丁"}}},
+				},
+			}
+			_, tt := compactQuestionTester(t, a, reduced)
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("初始动画结束后界面静止，不应再请求下一帧")
+			}
+
+			if err := tt.Click("子项甲"); err != nil {
+				t.Fatal(err)
+			}
+			if reduced && tt.FramePending() {
+				t.Fatal("减少动效时勾选应直接到终点")
+			}
+			if !reduced && !tt.FramePending() {
+				t.Fatal("普通模式勾选应有 140ms 过渡")
+			}
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("勾选动画结束后不应再请求下一帧")
+			}
+
+			if err := tt.Click("第 2 题"); err != nil {
+				t.Fatal(err)
+			}
+			if reduced && tt.FramePending() {
+				t.Fatal("减少动效时换题应直接到终点")
+			}
+			if !reduced && !tt.FramePending() {
+				t.Fatal("普通模式换题应有 200ms 过渡")
+			}
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("换题动画结束后不应再请求下一帧")
+			}
+			if !tt.HasText("第二问") {
+				t.Fatalf("应已换到第二题：%q", tt.Texts())
+			}
+		})
 	}
 }

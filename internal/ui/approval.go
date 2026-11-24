@@ -1266,7 +1266,7 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 	ui.Column(c.Key("approval-"+id)).FillWidth().Radius(RadiusLG).
 		Background(ThemeSurface(c)).Border(Hairline, ThemeBorder(c)).
 		Padding(Space3).Gap(Space2).Children(func() {
-		ui.Row(c.Key("plan-row-"+id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key("plan-row-" + id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(ThemeAccent(c)).Shrink(0)
 			ui.Text(c, title).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).
 				MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Tooltip(title)
@@ -1306,7 +1306,43 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 	})
 }
 
-// renderQuestionCard 渲染提问卡片：分题显示单选/多选/填空，底部为未答计数、跳过与提交。
+// 提问卡片（设计稿 A 版）的版式常量。
+const (
+	questionRowHeight      = ControlLG // 选项行高
+	questionSlotSize       = IconMD    // 左侧序号位
+	questionListMaxRows    = 7         // 选项列表最多显示的行数，超出后滚动
+	questionPromptMaxLines = 6         // 题目最多显示的行数，超出后在题目区内滚动
+	questionDetailMaxLines = 3         // 选项说明最多显示的行数，超出省略
+	questionTextLineHeight = float32(1.4)
+	// 任一选项说明超过该字数时，整题改用「标题一行、说明叠在下面」的版式；否则说明排在标题右侧同一行。
+	questionStackedDetailRunes = 28
+)
+
+// questionStep 把开关状态换成动画目标值（0 或 1）；目标值只随状态变化，静止时动画不再续帧。
+func questionStep(on bool) float32 {
+	if on {
+		return 1
+	}
+	return 0
+}
+
+func questionAnim(c *ui.Context, d time.Duration) ui.Animation {
+	return ui.Animation{Duration: animateDuration(c, d), Ease: EaseOut}
+}
+
+// questionChoiceA11yLabel 拼出选项行的无障碍名称：标题、推荐标记与说明全文（行内的说明会被省略，读屏用户仍能拿到全文）。
+func questionChoiceA11yLabel(title, detail string, recommended bool) string {
+	parts := []string{title}
+	if recommended {
+		parts = append(parts, "推荐")
+	}
+	if detail != "" {
+		parts = append(parts, detail)
+	}
+	return strings.Join(parts, "，")
+}
+
+// renderQuestionCard 渲染提问卡片（设计稿 A 版紧凑列表）：题目与进度、选项列表，底栏为补充要求、跳过与提交。
 func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, responding bool) {
 	id := approval.RequestID
 	qs := approval.Questions
@@ -1322,62 +1358,37 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 	unanswered := unansweredQuestionCount(qs, draft.selected, draft.others)
 	s.mu.Unlock()
 
-	accent := ThemeAccent(c)
 	ui.Column(c.Key("approval-"+id)).
 		Radius(RadiusLG).
-		Background(accent.Alpha(0.06).Over(ThemeSurface(c))).
-		Border(Hairline, accent.Alpha(0.25)).
-		Padding(Space5).
-		Gap(Space3).
+		Background(ThemeSurfaceCard(c)).
+		Border(Hairline, ThemeBorder(c)).
 		Children(func() {
-			// 头部：图标、标题，多题时显示题号与上一题
-			ui.Row(c.Key("approval-header-" + id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, IconBrain()).Size(IconMD, IconMD).TextColor(accent).Shrink(0)
-				ui.Text(c, approvalCardTitle(approval)).Bold().FontSize(uiFont(TypeProse)).TextColor(ThemePrimaryText(c)).MinWidth(0).Shrink(1).Selectable()
-				ui.Spacer(c)
-				if len(qs) > 1 {
-					ui.Text(c, fmt.Sprintf("第 %d / %d 题", current+1, len(qs))).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
-					Button(c, ButtonOpts{
-						Key:      "question-prev-" + id,
-						Text:     "上一题",
-						Variant:  ButtonSecondary,
-						Size:     ControlSM,
-						Disabled: responding || current == 0,
-						Tooltip:  "上一题",
-						OnClick: func() {
-							cancelQuestionAutoAdvance(s, id)
-							s.mu.Lock()
-							if draft.current > 0 {
-								draft.current--
-							}
-							s.mu.Unlock()
-							s.invalidate()
-						},
-					})
-				}
-			})
-
 			if len(qs) == 0 && approval.Detail != "" {
-				ui.Row(c.Key("question-detail-" + id)).Children(func() {
+				ui.Row(c.Key("question-detail-"+id)).FillWidth().Padding(Space4, Space5, Space2, Space5).Children(func() {
 					ui.Text(c, approval.Detail).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).MinWidth(0).Grow(1).Selectable()
 				})
 			}
 			if len(qs) > 0 {
 				renderQuestionBody(c, s, approval, draft, current, responding)
 			}
-			renderApprovalAuxBanner(c, approval)
+			if approvalAuxText(approval) != "" {
+				ui.Column(c.Key("question-aux-"+id)).FillWidth().Padding(0, Space4, Space3, Space4).Children(func() {
+					renderApprovalAuxBanner(c, approval)
+				})
+			}
+			ui.Box(c.Key("question-divider-" + id)).FillWidth().Height(Hairline).Background(ThemeHairline(c))
 
 			hasNext := len(qs) > 1 && current < len(qs)-1
 			skipKey := "question-skip-" + id
 			skipLoading := responding && activeApprovalKey(s) == skipKey
 			showCustomNote := len(qs) > 0 && current >= 0 && current < len(qs) && !questionShowsOther(qs[current])
-			ui.Row(c.Key("question-actions-" + id)).FillWidth().Wrap().Gap(Space3).AlignItems(ui.Center).Children(func() {
+			ui.Row(c.Key("question-actions-"+id)).FillWidth().Wrap().Gap(Space3).AlignItems(ui.Center).Padding(Space3, Space4).Children(func() {
 				if showCustomNote {
 					Button(c, ButtonOpts{
 						Key:      "question-custom-note-" + id,
 						Text:     "补充要求",
 						Variant:  ButtonGhost,
-						Size:     ControlSM,
+						Size:     ControlMD,
 						Disabled: responding,
 						Tooltip:  "在输入框补充要求",
 						OnClick: func() {
@@ -1391,15 +1402,12 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						},
 					})
 				}
-				if len(qs) > 1 && unanswered > 0 {
-					ui.Text(c, fmt.Sprintf("还有 %d 题未回答", unanswered)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c)).Selectable()
-				}
 				ui.Spacer(c)
 				Button(c, ButtonOpts{
 					Key:      skipKey,
 					Text:     "跳过",
-					Variant:  ButtonSecondary,
-					Size:     ControlSM,
+					Variant:  ButtonGhost,
+					Size:     ControlMD,
 					Loading:  skipLoading,
 					Disabled: responding && !skipLoading,
 					Tooltip:  "跳过提问 (Esc)",
@@ -1414,7 +1422,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						Key:      "question-next-" + id,
 						Text:     "下一题",
 						Variant:  ButtonPrimary,
-						Size:     ControlSM,
+						Size:     ControlMD,
 						Disabled: responding,
 						Tooltip:  "下一题 (↩)",
 						OnClick: func() {
@@ -1427,175 +1435,342 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 							s.invalidate()
 						},
 					})
-				} else {
-					submitKey := "question-submit-" + id
-					submitLoading := responding && activeApprovalKey(s) == submitKey
-					submitTooltip := "提交答案"
-					if unanswered == 0 && len(qs) > 0 {
-						submitTooltip = "提交答案 (↩)"
-					}
-					Button(c, ButtonOpts{
-						Key:      submitKey,
-						Text:     "提交",
-						Variant:  ButtonPrimary,
-						Size:     ControlSM,
-						Loading:  submitLoading,
-						Disabled: (responding && !submitLoading) || unanswered > 0 || len(qs) == 0,
-						Tooltip:  submitTooltip,
-						OnClick: func() {
-							cancelQuestionAutoAdvance(s, id)
-							s.mu.Lock()
-							answers := buildQuestionAnswers(qs, draft.selected, draft.others)
-							s.mu.Unlock()
-							setActiveApprovalKey(s, submitKey)
-							s.respondAnswers(approval, "", answers, false)
-						},
-					})
+					return
 				}
+				submitKey := "question-submit-" + id
+				submitLoading := responding && activeApprovalKey(s) == submitKey
+				submitTooltip := "提交答案"
+				if unanswered == 0 && len(qs) > 0 {
+					submitTooltip = "提交答案 (↩)"
+				}
+				Button(c, ButtonOpts{
+					Key:      submitKey,
+					Text:     "提交",
+					Variant:  ButtonPrimary,
+					Size:     ControlMD,
+					Loading:  submitLoading,
+					Disabled: (responding && !submitLoading) || unanswered > 0 || len(qs) == 0,
+					Tooltip:  submitTooltip,
+					OnClick: func() {
+						cancelQuestionAutoAdvance(s, id)
+						s.mu.Lock()
+						answers := buildQuestionAnswers(qs, draft.selected, draft.others)
+						s.mu.Unlock()
+						setActiveApprovalKey(s, submitKey)
+						s.respondAnswers(approval, "", answers, false)
+					},
+				})
 			})
 		})
 }
 
-// renderQuestionBody 渲染当前题目：Header、Prompt、选项列表与填空输入框。
+// renderQuestionBody 渲染当前题目：题目与分段进度、选项列表和填空行。换题时整块淡入。
 func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, responding bool) {
 	id := approval.RequestID
-	q := approval.Questions[qi]
+	qs := approval.Questions
+	q := qs[qi]
 	s.mu.Lock()
 	selected := slices.Clone(draftAt(draft.selected, qi))
+	var answered []bool
+	if len(qs) > 1 {
+		answered = make([]bool, len(qs))
+		for i, aq := range qs {
+			answered[i] = questionAnswered(aq, draftAt(draft.selected, i), draftAt(draft.others, i))
+		}
+	}
 	s.mu.Unlock()
 
-	ui.Column(c.Key(fmt.Sprintf("question-body-%s-%d", id, qi))).Gap(Space3).Children(func() {
-		if q.Header != "" && strings.TrimSpace(q.Header) != strings.TrimSpace(q.Prompt) {
-			ui.Text(c, q.Header).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
+	stacked := false
+	for _, choice := range q.Choices {
+		if len([]rune(strings.TrimSpace(choice.Detail))) > questionStackedDetailRunes {
+			stacked = true
+			break
 		}
-		if q.Prompt != "" {
-			ui.Text(c, q.Prompt).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).Selectable()
-		}
-		for ci, choice := range q.Choices {
-			ci, choice := ci, choice
-			isSel := slices.Contains(selected, ci)
-			btn := ui.ButtonBase(c.Key(fmt.Sprintf("question-choice-%s-%d-%d", id, qi, ci))).
-				Label(choice.Label).
-				Tooltip(choice.Label).
-				Disabled(responding).
-				Padding(Space2, Space3).
-				Radius(RadiusSM)
-			if isSel {
-				btn.Background(ThemeSelected(c)).Border(Hairline, ThemeAccent(c).Alpha(0.6))
-			} else {
-				btn.Border(Hairline, ThemeBorder(c))
-				if !responding && btn.Hovered() {
-					btn.Background(ThemeHover(c))
-				}
+	}
+
+	body := ui.Column(c.Key(fmt.Sprintf("question-body-%s-%d", id, qi))).FillWidth()
+	if k := motionEnter(c, body, "question-enter", 0); k < 1 {
+		body.Opacity(k)
+	}
+	body.Children(func() {
+		renderQuestionHead(c, s, approval, draft, qi, answered, responding)
+
+		listMaxHeight := questionRowHeight*questionListMaxRows + Space4
+		ui.Scroll(c.Key(fmt.Sprintf("question-list-scroll-%s-%d", id, qi))).FillWidth().MaxHeight(listMaxHeight).Children(func() {
+			list := ui.Column(c.Key(fmt.Sprintf("question-list-%s-%d", id, qi))).
+				FillWidth().
+				Padding(Space1, Space2, Space3, Space2).
+				Role(ui.RoleListBox).
+				FocusGroup(ui.Vertical)
+			if q.AllowsMultiple {
+				list.Multiselectable(true)
 			}
-			focusRing(c, btn)
-			btn.OnClick(func() {
-				s.mu.Lock()
-				if qi < len(draft.selected) {
-					draft.selected[qi] = toggleQuestionChoice(q, draft.selected[qi], ci)
-					if !q.AllowsMultiple {
-						draft.others[qi] = ""
-					}
+			list.Children(func() {
+				for ci := range q.Choices {
+					renderQuestionChoice(c, s, approval, draft, qi, ci, slices.Contains(selected, ci), stacked, responding)
 				}
-				s.mu.Unlock()
-				if !q.AllowsMultiple {
-					scheduleQuestionAutoAdvance(s, approval, qi)
+				if questionShowsOther(q) && qi < len(draft.others) {
+					renderQuestionOtherRow(c, s, approval, draft, qi, responding)
 				} else {
-					cancelQuestionAutoAdvance(s, id)
+					s.mu.Lock()
+					s.questionOtherFocused = false
+					s.mu.Unlock()
 				}
-				s.invalidate()
 			})
-			btn.Children(func() {
-				// 选项行统一左对齐并占满按钮宽度，图标位固定 13×13，保证选中与未选中排版一致
-				ui.Row(c.Key(fmt.Sprintf("question-choice-row-%s-%d-%d", id, qi, ci))).Gap(Space3).Justify(ui.Start).AlignItems(ui.Center).FillWidth().Children(func() {
-					// 选中显示勾选；多选未选中显示空方框，单选未选中留白对齐
-					switch {
-					case isSel:
-						iconColor := ThemeAccent(c)
-						if responding {
-							iconColor = ThemeTertiaryText(c)
-						}
-						ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(iconColor)
-					case q.AllowsMultiple:
-						iconColor := ThemeSecondaryText(c)
-						if responding {
-							iconColor = ThemeTertiaryText(c)
-						}
-						ui.Icon(c, IconSquare()).Size(IconSM, IconSM).TextColor(iconColor)
-					default:
-						// 固定宽度占位（不能用 Spacer：它会吃掉剩余空间把文字挤到右半边）
-						ui.Box(c).Size(IconSM, IconSM).Shrink(0)
-					}
-					ui.Column(c.Key(fmt.Sprintf("question-choice-text-%s-%d-%d", id, qi, ci))).Grow(1).MinWidth(0).Gap(Space0).Children(func() {
-						titleColor := ThemePrimaryText(c)
-						detailColor := ThemeSecondaryText(c)
-						if responding {
-							titleColor = ThemeTertiaryText(c)
-							detailColor = ThemeTertiaryText(c)
-						}
-						// 标签里的推荐标注只在显示时去掉，提交给 provider 的仍是原始 Label
-						label := ui.Text(c, displayChoiceLabel(choice.Label)).FontSize(uiFont(TypeBody)).TextColor(titleColor)
-						if isSel {
-							label.Bold()
-						}
-						if choice.Detail != "" {
-							ui.Text(c, choice.Detail).FontSize(uiFont(TypeCaption)).TextColor(detailColor)
-						}
-					})
-					// 推荐项单独用胶囊标注，不再靠整行强调色
-					if isRecommendedChoice(choice.Label) {
-						renderRecommendedBadge(c, fmt.Sprintf("question-choice-recommended-%s-%d-%d", id, qi, ci))
-					}
-					// 数字键 1~9 可直接选中当前题目的前 9 个选项：文字列已 Grow(1) 占满剩余宽度，
-					// 角标因此自然贴在行尾；第 10 个及以后没有快捷键，不画角标。
-					if ci < 9 {
-						badgeKey := fmt.Sprintf("question-badge-%s-%d-%d", id, qi, ci)
-						if q.AllowsMultiple {
-							Kbd(c, badgeKey, strconv.Itoa(ci+1))
-						} else {
-							accentKeyBadge(c, badgeKey, strconv.Itoa(ci+1))
-						}
-					}
+		})
+	})
+}
+
+// renderQuestionHead 渲染题目（Prompt，为空时用 Header）与多题时右侧的分段进度；题目超过 6 行在题目区内滚动。
+func renderQuestionHead(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, answered []bool, responding bool) {
+	id := approval.RequestID
+	q := approval.Questions[qi]
+	title := strings.TrimSpace(q.Prompt)
+	if title == "" {
+		title = strings.TrimSpace(q.Header)
+	}
+	lineHeight := uiFont(TypeProse) * questionTextLineHeight
+	ui.Row(c.Key(fmt.Sprintf("question-head-%s-%d", id, qi))).FillWidth().AlignItems(ui.Center).Gap(Space4).Padding(Space4, Space5, Space2, Space5).Children(func() {
+		if title != "" {
+			ui.Scroll(c.Key(fmt.Sprintf("question-title-scroll-%s-%d", id, qi))).Grow(1).MinWidth(0).MaxHeight(lineHeight * questionPromptMaxLines).Children(func() {
+				ui.Column(c.Key(fmt.Sprintf("question-title-%s-%d", id, qi))).FillWidth().Children(func() {
+					ui.Text(c, title).Bold().FontSize(uiFont(TypeProse)).LineHeight(questionTextLineHeight).TextColor(ThemePrimaryText(c)).Selectable()
 				})
 			})
+		} else {
+			ui.Spacer(c)
 		}
-		if questionShowsOther(q) && qi < len(draft.others) {
-			placeholder := "输入其他答案"
-			if len(q.Choices) == 0 {
-				placeholder = "输入答案"
-			}
-			in := ui.TextInput(c.Key(fmt.Sprintf("question-other-%s-%d", id, qi)), &draft.others[qi]).
-				Label(placeholder).
-				Placeholder(placeholder).
+		if len(answered) > 1 {
+			renderQuestionProgress(c, s, id, draft, qi, answered, responding)
+		}
+	})
+}
+
+// renderQuestionProgress 渲染多题的分段进度：每段 16×4，当前题、已答题、未答题颜色不同，点某段跳到那一题。
+func renderQuestionProgress(c *ui.Context, s *chatState, id string, draft *questionDraft, current int, answered []bool, responding bool) {
+	accent := ThemeAccent(c)
+	ui.Row(c.Key("question-progress-" + id)).Gap(Space1).Shrink(0).Children(func() {
+		for n := range answered {
+			n := n
+			seg := ui.ButtonBase(c.Key(fmt.Sprintf("question-dot-%s-%d", id, n))).
+				Label(fmt.Sprintf("第 %d 题", n+1)).
 				Disabled(responding).
-				FontSize(uiFont(TypeBody)).
-				Padding(Space2, Space3).
-				Radius(RadiusMD).
-				Background(ThemeSurface(c)).
-				Border(Hairline, ThemeBorder(c)).
-				OnChange(func() {
+				Padding(Space2, 0).
+				OnClick(func() {
 					cancelQuestionAutoAdvance(s, id)
 					s.mu.Lock()
-					if !q.AllowsMultiple && strings.TrimSpace(draft.others[qi]) != "" {
-						draft.selected[qi] = nil
-					}
+					draft.current = n
 					s.mu.Unlock()
 					s.invalidate()
 				})
-			focused := !responding && in.Focused()
-			if focused {
-				cancelQuestionAutoAdvance(s, id)
+			curK := seg.AnimateTo("question-dot-cur", questionStep(n == current), questionAnim(c, DurBase))
+			doneK := seg.AnimateTo("question-dot-done", questionStep(answered[n]), questionAnim(c, DurBase))
+			color := ThemeBorder(c).Mix(accent.Alpha(0.45), doneK).Mix(accent, curK)
+			focusRing(c, seg)
+			seg.Children(func() {
+				ui.Box(c.Key(fmt.Sprintf("question-dot-bar-%s-%d", id, n))).Size(questionSlotSize, Space1).Radius(RadiusPill).Background(color)
+			})
+		}
+	})
+}
+
+// questionRowBackground 按悬停、选中、按下三个动画进度混出选项行底色（按下盖过选中，选中盖过悬停）。
+func questionRowBackground(c *ui.Context, hover, sel, press float32) ui.Color {
+	return ui.Transparent.
+		Mix(ThemeOverlayHover(c), hover).
+		Mix(ThemeOverlaySelected(c), sel).
+		Mix(ThemeOverlayPressed(c), press)
+}
+
+// renderQuestionSlot 渲染选项左侧的序号位：单选圆形、多选方形；选中后序号换成 accent 底白色勾。
+// glyph 不为空时在未选中态画图标，否则画 digit；序号与勾在 sel 进度的前后半段依次淡出淡入。
+func renderQuestionSlot(c *ui.Context, key string, digit string, glyph *ui.SVG, multi, responding bool, sel float32) {
+	radius := RadiusPill
+	if multi {
+		radius = RadiusXS
+	}
+	accent := ThemeAccent(c)
+	idle := ThemeTertiaryText(c)
+	if responding {
+		idle = idle.Alpha(0.6)
+	}
+	ui.Row(c.Key(key)).
+		Size(questionSlotSize, questionSlotSize).
+		Shrink(0).
+		Justify(ui.Center).
+		AlignItems(ui.Center).
+		Radius(radius).
+		Background(accent.Alpha(sel)).
+		Border(Hairline, ThemeOverlay(c, 0.22).Mix(accent, sel)).
+		Children(func() {
+			if sel < 0.5 {
+				fade := 1 - 2*sel
+				switch {
+				case glyph != nil:
+					ui.Icon(c, glyph).Size(IconSM-2, IconSM-2).TextColor(idle.Alpha(fade))
+				case digit != "":
+					ui.Text(c, digit).FontSize(uiFont(TypeCaption)).TextColor(idle.Alpha(fade))
+				}
+				return
 			}
-			s.mu.Lock()
-			s.questionOtherFocused = focused
-			s.mu.Unlock()
-			if q.IsSecret {
-				in.Password()
+			grow := 2*sel - 1
+			ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(ThemeOnAccent(c).Alpha(grow)).Scale(0.5+0.5*grow, 0.5+0.5*grow)
+		})
+}
+
+// renderQuestionRecommendedBadge 画设计稿里的「推荐」小标：accent-subtle 底、accent 字。
+// 与 renderRecommendedBadge 的底色透明度和内边距不同，那个函数还被其他卡片使用，所以这里单独画。
+func renderQuestionRecommendedBadge(c *ui.Context, key string) {
+	ui.Row(c.Key(key)).Padding(0, Space2).Radius(RadiusXS).Background(ThemeAccentSubtle(c)).Shrink(0).Children(func() {
+		ui.Text(c, "推荐").FontSize(uiFont(TypeCaption)).TextColor(ThemeAccent(c))
+	})
+}
+
+// renderQuestionChoice 渲染一个选项行：高 32、圆角 8；标题单行省略，说明最多 3 行并放进 tooltip 与无障碍名称。
+func renderQuestionChoice(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi, ci int, isSel, stacked, responding bool) {
+	id := approval.RequestID
+	q := approval.Questions[qi]
+	choice := q.Choices[ci]
+	title := displayChoiceLabel(choice.Label)
+	detail := strings.TrimSpace(choice.Detail)
+	recommended := isRecommendedChoice(choice.Label)
+	key := fmt.Sprintf("%s-%d-%d", id, qi, ci)
+
+	btn := ui.ButtonBase(c.Key("question-choice-"+key)).
+		Label(questionChoiceA11yLabel(title, detail, recommended)).
+		Role(ui.RoleOption).
+		Checked(isSel).
+		Disabled(responding).
+		FillWidth().
+		MinHeight(questionRowHeight).
+		Padding(0, Space3).
+		Radius(RadiusMD)
+	if stacked {
+		btn.Padding(Space3, Space3)
+	}
+	if detail != "" {
+		btn.Tooltip(detail)
+	} else {
+		btn.Tooltip(title)
+	}
+	hover := btn.AnimateTo("question-hover", questionStep(!responding && btn.Hovered()), questionAnim(c, DurFast))
+	press := btn.AnimateTo("question-press", questionStep(!responding && btn.Pressed()), questionAnim(c, DurFast))
+	sel := btn.AnimateTo("question-sel", questionStep(isSel), questionAnim(c, DurSnap))
+	btn.Background(questionRowBackground(c, hover, sel, press))
+	focusRing(c, btn)
+	btn.OnClick(func() {
+		s.mu.Lock()
+		if qi < len(draft.selected) {
+			draft.selected[qi] = toggleQuestionChoice(q, draft.selected[qi], ci)
+			if !q.AllowsMultiple {
+				draft.others[qi] = ""
 			}
+		}
+		s.mu.Unlock()
+		if !q.AllowsMultiple {
+			scheduleQuestionAutoAdvance(s, approval, qi)
 		} else {
-			s.mu.Lock()
-			s.questionOtherFocused = false
-			s.mu.Unlock()
+			cancelQuestionAutoAdvance(s, id)
+		}
+		s.invalidate()
+	})
+
+	titleColor, detailColor := ThemePrimaryText(c), ThemeSecondaryText(c)
+	if responding {
+		titleColor, detailColor = ThemeTertiaryText(c), ThemeTertiaryText(c)
+	}
+	digit := ""
+	if ci < 9 {
+		digit = strconv.Itoa(ci + 1)
+	}
+	btn.Children(func() {
+		align := ui.Center
+		if stacked {
+			align = ui.Start
+		}
+		ui.Row(c.Key("question-choice-row-" + key)).FillWidth().Gap(Space4).AlignItems(align).Children(func() {
+			renderQuestionSlot(c, "question-slot-"+key, digit, nil, q.AllowsMultiple, responding, sel)
+			titleText := func() {
+				ui.Text(c, title).FontSize(uiFont(TypeBody)).TextColor(titleColor).MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1)
+			}
+			if stacked {
+				ui.Column(c.Key("question-choice-text-" + key)).Grow(1).MinWidth(0).Gap(Space1).Children(func() {
+					ui.Row(c.Key("question-choice-title-" + key)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
+						titleText()
+						if recommended {
+							renderQuestionRecommendedBadge(c, "question-choice-recommended-"+key)
+						}
+					})
+					if detail != "" {
+						ui.Text(c, detail).FontSize(uiFont(TypeFootnote)).TextColor(detailColor).MaxLines(questionDetailMaxLines).Ellipsis("…").MinWidth(0)
+					}
+				})
+				return
+			}
+			titleText()
+			if recommended {
+				renderQuestionRecommendedBadge(c, "question-choice-recommended-"+key)
+			}
+			if detail != "" {
+				ui.Text(c, detail).FontSize(uiFont(TypeFootnote)).TextColor(detailColor).MaxLines(1).Ellipsis("…").Grow(1).Shrink(1).MinWidth(0)
+			} else {
+				ui.Spacer(c)
+			}
+		})
+	})
+}
+
+// renderQuestionOtherRow 渲染「其他」填空行（AllowsOther 或没有任何选项时）：序号位换成笔图标，填了内容即视为选中。
+func renderQuestionOtherRow(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, responding bool) {
+	id := approval.RequestID
+	q := approval.Questions[qi]
+	key := fmt.Sprintf("%s-%d", id, qi)
+	label := "其他"
+	if len(q.Choices) == 0 {
+		label = "输入答案"
+	}
+	filled := strings.TrimSpace(draft.others[qi]) != ""
+
+	row := ui.Row(c.Key("question-other-row-"+key)).
+		FillWidth().
+		MinHeight(questionRowHeight).
+		Padding(0, Space3).
+		Gap(Space4).
+		AlignItems(ui.Center).
+		Radius(RadiusMD).
+		Border(Hairline, ui.Transparent)
+	hover := row.AnimateTo("question-hover", questionStep(!responding && row.Hovered()), questionAnim(c, DurFast))
+	sel := row.AnimateTo("question-sel", questionStep(filled), questionAnim(c, DurSnap))
+	row.Background(questionRowBackground(c, hover, sel, 0))
+	row.Children(func() {
+		renderQuestionSlot(c, "question-slot-other-"+key, "", IconPencilLine(), q.AllowsMultiple, responding, sel)
+		in := ui.TextInputBase(c.Key("question-other-"+key), &draft.others[qi]).
+			Label(label).
+			Placeholder(label).
+			Disabled(responding).
+			FontSize(uiFont(TypeBody)).
+			TextColor(ThemePrimaryText(c)).
+			Grow(1).
+			MinWidth(0).
+			OnChange(func() {
+				cancelQuestionAutoAdvance(s, id)
+				s.mu.Lock()
+				if !q.AllowsMultiple && strings.TrimSpace(draft.others[qi]) != "" {
+					draft.selected[qi] = nil
+				}
+				s.mu.Unlock()
+				s.invalidate()
+			})
+		focused := !responding && in.Focused()
+		if focused {
+			cancelQuestionAutoAdvance(s, id)
+			row.Border(Hairline, ThemeAccent(c).Alpha(0.6))
+		}
+		s.mu.Lock()
+		s.questionOtherFocused = focused
+		s.mu.Unlock()
+		if q.IsSecret {
+			in.Password()
 		}
 	})
 }
