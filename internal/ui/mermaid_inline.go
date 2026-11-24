@@ -18,6 +18,7 @@ import (
 const (
 	mermaidInlineHostWidth   = 960
 	mermaidInlineEvalTimeout = 10 * time.Second
+	mermaidInlineCacheMax    = 64
 )
 
 type mermaidRenderStatus int
@@ -48,11 +49,14 @@ type mermaidRenderTask struct {
 }
 
 type mermaidInlineRendererState struct {
-	mu      sync.Mutex
-	entries map[mermaidCacheKey]*mermaidCacheEntry
-	queue   []mermaidRenderTask
-	running bool
-	seq     uint64
+	mu        sync.Mutex
+	entries   map[mermaidCacheKey]*mermaidCacheEntry
+	order     []mermaidCacheKey
+	queue     []mermaidRenderTask
+	running   bool
+	seq       uint64
+	idleTimer *time.Timer
+	idleSeq   uint64
 
 	win     *mygo.Window
 	wv      *mygo.WebView
@@ -65,8 +69,16 @@ var mermaidInlineRenderer = &mermaidInlineRendererState{
 	entries: make(map[mermaidCacheKey]*mermaidCacheEntry),
 }
 
+// mermaidInlineIdleRelease 控制隐藏 WebView 在渲染队列空闲多久后自动释放。
+var mermaidInlineIdleRelease = 60 * time.Second
+
 // mermaidRenderSVG 在后台隐藏 WebView 中将 Mermaid 源码渲染为 SVG 字符串；测试替换它以隔离原生 WebView。
 var mermaidRenderSVG = renderMermaidSVGWithWebView
+
+// mermaidReleaseIdleWebView 触发空闲隐藏 WebView 回收；测试可替换以观测回收行为。
+var mermaidReleaseIdleWebView = func() {
+	mermaidInlineRenderer.releaseIdle()
+}
 
 func makeMermaidCacheKey(code string, dark bool) mermaidCacheKey {
 	return mermaidCacheKey{
@@ -135,16 +147,10 @@ func (r *mermaidInlineRendererState) ensureLoadedWebView() (*mygo.WebView, <-cha
 		r.mu.Unlock()
 		return wv, loadCh, nil
 	}
-	oldWV, oldOff := r.wv, r.loadOff
-	r.wv, r.wvHost, r.loadCh, r.loadOff = nil, nil, nil, nil
+	oldWV, oldOff := r.takeWebViewLocked()
 	r.mu.Unlock()
 
-	if oldOff != nil {
-		oldOff()
-	}
-	if oldWV != nil {
-		oldWV.Destroy()
-	}
+	destroyMermaidWebView(oldWV, oldOff)
 
 	script, err := readMermaidVendorScript()
 	if err != nil {
@@ -182,22 +188,74 @@ func (r *mermaidInlineRendererState) ensureLoadedWebView() (*mygo.WebView, <-cha
 	return wv, loadCh, nil
 }
 
-func (r *mermaidInlineRendererState) discardWebView(wv *mygo.WebView) {
-	r.mu.Lock()
-	if r.wv != wv {
-		r.mu.Unlock()
-		return
-	}
-	off := r.loadOff
+func (r *mermaidInlineRendererState) takeWebViewLocked() (*mygo.WebView, func()) {
+	wv, off := r.wv, r.loadOff
 	r.wv, r.wvHost, r.loadCh, r.loadOff = nil, nil, nil, nil
-	r.mu.Unlock()
+	return wv, off
+}
 
+func destroyMermaidWebView(wv *mygo.WebView, off func()) {
 	if off != nil {
 		off()
 	}
 	if wv != nil {
 		wv.Destroy()
 	}
+}
+
+func (r *mermaidInlineRendererState) stopIdleTimerLocked() {
+	r.idleSeq++
+	if r.idleTimer != nil {
+		r.idleTimer.Stop()
+		r.idleTimer = nil
+	}
+}
+
+func (r *mermaidInlineRendererState) scheduleIdleReleaseLocked() {
+	r.stopIdleTimerLocked()
+	delay := mermaidInlineIdleRelease
+	releaseFn := mermaidReleaseIdleWebView
+	if delay <= 0 || releaseFn == nil {
+		return
+	}
+	seq := r.idleSeq
+	r.idleTimer = time.AfterFunc(delay, func() {
+		r.mu.Lock()
+		stale := r.idleSeq != seq || r.running || len(r.queue) > 0
+		if !stale {
+			r.idleTimer = nil
+		}
+		r.mu.Unlock()
+		if stale {
+			return
+		}
+		releaseFn()
+	})
+}
+
+func (r *mermaidInlineRendererState) releaseIdle() {
+	r.mu.Lock()
+	if r.running || len(r.queue) > 0 {
+		r.mu.Unlock()
+		return
+	}
+	r.idleTimer = nil
+	wv, off := r.takeWebViewLocked()
+	r.mu.Unlock()
+
+	destroyMermaidWebView(wv, off)
+}
+
+func (r *mermaidInlineRendererState) discardWebView(wv *mygo.WebView) {
+	r.mu.Lock()
+	if r.wv != wv {
+		r.mu.Unlock()
+		return
+	}
+	_, off := r.takeWebViewLocked()
+	r.mu.Unlock()
+
+	destroyMermaidWebView(wv, off)
 }
 
 func (r *mermaidInlineRendererState) nextSeq() uint64 {
@@ -259,6 +317,28 @@ func renderMermaidSVGWithWebView(code string, dark bool) (string, error) {
 	return svg, nil
 }
 
+func (r *mermaidInlineRendererState) evictOldEntriesLocked() {
+	if len(r.entries) <= mermaidInlineCacheMax {
+		return
+	}
+	kept := r.order[:0]
+	for _, k := range r.order {
+		e, ok := r.entries[k]
+		if !ok {
+			continue
+		}
+		if len(r.entries) > mermaidInlineCacheMax && e.status != mermaidStatusPending {
+			delete(r.entries, k)
+			continue
+		}
+		kept = append(kept, k)
+	}
+	for i := len(kept); i < len(r.order); i++ {
+		r.order[i] = mermaidCacheKey{}
+	}
+	r.order = kept
+}
+
 func (r *mermaidInlineRendererState) lookupOrStart(services ui.Services, win *mygo.Window, code string, dark bool) mermaidCacheEntry {
 	key := makeMermaidCacheKey(code, dark)
 
@@ -274,8 +354,11 @@ func (r *mermaidInlineRendererState) lookupOrStart(services ui.Services, win *my
 		r.mu.Unlock()
 		return snap
 	}
+	r.stopIdleTimerLocked()
 	e := &mermaidCacheEntry{status: mermaidStatusPending}
 	r.entries[key] = e
+	r.order = append(r.order, key)
+	r.evictOldEntriesLocked()
 	r.queue = append(r.queue, mermaidRenderTask{
 		key:      key,
 		code:     code,
@@ -297,6 +380,7 @@ func (r *mermaidInlineRendererState) runWorker() {
 		r.mu.Lock()
 		if len(r.queue) == 0 {
 			r.running = false
+			r.scheduleIdleReleaseLocked()
 			r.mu.Unlock()
 			return
 		}
@@ -322,6 +406,7 @@ func (r *mermaidInlineRendererState) runWorker() {
 			task.entry.svg = svg
 			task.entry.err = nil
 		}
+		r.evictOldEntriesLocked()
 		r.mu.Unlock()
 
 		if task.services != (ui.Services{}) {
@@ -343,19 +428,15 @@ func (r *mermaidInlineRendererState) getEntry(code string, dark bool) (mermaidCa
 
 func (r *mermaidInlineRendererState) resetForTest() {
 	r.mu.Lock()
-	wv, off := r.wv, r.loadOff
+	r.stopIdleTimerLocked()
+	wv, off := r.takeWebViewLocked()
 	r.entries = make(map[mermaidCacheKey]*mermaidCacheEntry)
+	r.order = nil
 	r.queue = nil
 	r.win = nil
-	r.wv, r.wvHost, r.loadCh, r.loadOff = nil, nil, nil, nil
 	r.mu.Unlock()
 
-	if off != nil {
-		off()
-	}
-	if wv != nil {
-		wv.Destroy()
-	}
+	destroyMermaidWebView(wv, off)
 }
 
 func (s *chatState) isMermaidSourceShown(key string) bool {

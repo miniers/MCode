@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -217,6 +218,230 @@ func TestMermaidInlineHeadlessRenderDoneAndFailed(t *testing.T) {
 		tester.Advance(time.Second)
 		if tester.FramePending() {
 			t.Fatal("回退态稳定后推进时钟不应继续请求下一帧")
+		}
+	})
+}
+
+func waitMermaidIdle(t *testing.T, expectedEntriesCheck func(entryCount, orderCount int) bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mermaidInlineRenderer.mu.Lock()
+		idle := !mermaidInlineRenderer.running && len(mermaidInlineRenderer.queue) == 0
+		entryCount := len(mermaidInlineRenderer.entries)
+		orderCount := len(mermaidInlineRenderer.order)
+		mermaidInlineRenderer.mu.Unlock()
+		if idle && (expectedEntriesCheck == nil || expectedEntriesCheck(entryCount, orderCount)) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("等待 mermaid 渲染队列空闲超时")
+}
+
+func TestMermaidInlineIdleRelease(t *testing.T) {
+	const (
+		code1       = "graph TD\nIdle1-->Done\n"
+		code2       = "graph TD\nIdle2-->Arm\n"
+		blockedCode = "graph TD\nIdle3-->Hold\n"
+	)
+
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	var startedOnce sync.Once
+	var unblockOnce sync.Once
+	closeUnblock := func() {
+		unblockOnce.Do(func() { close(unblock) })
+	}
+
+	setupMermaidInlineTest(t, func(code string, dark bool) (string, error) {
+		if code == blockedCode {
+			startedOnce.Do(func() { close(started) })
+			<-unblock
+		}
+		return minimalMermaidSVG, nil
+	})
+
+	prevIdle := mermaidInlineIdleRelease
+	prevRelease := mermaidReleaseIdleWebView
+	var releaseCalls atomic.Int32
+	releaseCh := make(chan struct{}, 8)
+	mermaidInlineIdleRelease = 50 * time.Millisecond
+	mermaidReleaseIdleWebView = func() {
+		releaseCalls.Add(1)
+		prevRelease()
+		releaseCh <- struct{}{}
+	}
+	t.Cleanup(func() {
+		closeUnblock()
+		mermaidInlineRenderer.resetForTest()
+		mermaidInlineIdleRelease = prevIdle
+		mermaidReleaseIdleWebView = prevRelease
+	})
+
+	mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, code1, false)
+	waitMermaidEntryDone(t, code1, false)
+
+	select {
+	case <-releaseCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待第一次空闲回收超时")
+	}
+	if got := releaseCalls.Load(); got != 1 {
+		t.Fatalf("一次渲染空闲后应回收恰好 1 次，实际 %d 次", got)
+	}
+
+	// 再次渲染完成后等待定时器挂起，在到期前入队阻塞任务，验证运行期间不触发回收。
+	mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, code2, false)
+	deadline := time.Now().Add(2 * time.Second)
+	armed := false
+	for time.Now().Before(deadline) {
+		mermaidInlineRenderer.mu.Lock()
+		armed = !mermaidInlineRenderer.running && mermaidInlineRenderer.idleTimer != nil
+		mermaidInlineRenderer.mu.Unlock()
+		if armed {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !armed {
+		t.Fatal("等待空闲回收定时器挂载超时")
+	}
+
+	mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, blockedCode, false)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待新任务开始执行超时")
+	}
+
+	select {
+	case <-releaseCh:
+		t.Fatalf("定时器到点前入队的新任务运行期间不应触发回收，当前次数 %d", releaseCalls.Load())
+	case <-time.After(90 * time.Millisecond):
+	}
+	if got := releaseCalls.Load(); got != 1 {
+		t.Fatalf("新任务运行期间回收次数应保持为 1，实际 %d", got)
+	}
+
+	closeUnblock()
+	waitMermaidEntryDone(t, blockedCode, false)
+
+	select {
+	case <-releaseCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待新任务结束后的空闲回收超时")
+	}
+	if got := releaseCalls.Load(); got != 2 {
+		t.Fatalf("新任务空闲后应再回收 1 次（共 2 次），实际 %d 次", got)
+	}
+}
+
+func TestMermaidInlineCacheBound(t *testing.T) {
+	t.Run("evicts oldest beyond cache max", func(t *testing.T) {
+		const total = mermaidInlineCacheMax + 10
+		var rendered atomic.Int32
+		setupMermaidInlineTest(t, func(code string, dark bool) (string, error) {
+			rendered.Add(1)
+			return minimalMermaidSVG, nil
+		})
+
+		var oldestCode, latestCode string
+		for i := 0; i < total; i++ {
+			code := fmt.Sprintf("graph TD\nN%d-->M%d\n", i, i)
+			if i == 0 {
+				oldestCode = code
+			}
+			latestCode = code
+			mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, code, false)
+		}
+
+		waitMermaidIdle(t, func(entryCount, orderCount int) bool {
+			return rendered.Load() == total
+		})
+
+		mermaidInlineRenderer.mu.Lock()
+		entryCount := len(mermaidInlineRenderer.entries)
+		orderCount := len(mermaidInlineRenderer.order)
+		mermaidInlineRenderer.mu.Unlock()
+
+		if entryCount > mermaidInlineCacheMax {
+			t.Fatalf("entries 数量应不超过上限 %d，实际 %d", mermaidInlineCacheMax, entryCount)
+		}
+		if orderCount != entryCount {
+			t.Fatalf("order 长度应与 entries 数量一致，entries=%d order=%d", entryCount, orderCount)
+		}
+		latest, ok := mermaidInlineRenderer.getEntry(latestCode, false)
+		if !ok || latest.status != mermaidStatusDone || latest.svg == nil {
+			t.Fatalf("最新一段代码应保留在缓存中且为 done，实际 ok=%v status=%v", ok, latest.status)
+		}
+		if _, ok := mermaidInlineRenderer.getEntry(oldestCode, false); ok {
+			t.Fatal("最旧一段代码应已被淘汰")
+		}
+	})
+
+	t.Run("skips pending entry during eviction", func(t *testing.T) {
+		const pendingCode = "graph TD\nPending-->Keep\n"
+		const extra = mermaidInlineCacheMax + 2
+
+		started := make(chan struct{})
+		unblock := make(chan struct{})
+		var startedOnce sync.Once
+		var unblockOnce sync.Once
+		closeUnblock := func() {
+			unblockOnce.Do(func() { close(unblock) })
+		}
+		var rendered atomic.Int32
+		setupMermaidInlineTest(t, func(code string, dark bool) (string, error) {
+			if code == pendingCode {
+				startedOnce.Do(func() { close(started) })
+				<-unblock
+			}
+			rendered.Add(1)
+			return minimalMermaidSVG, nil
+		})
+		t.Cleanup(closeUnblock)
+
+		mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, pendingCode, false)
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("等待 pending 任务开始执行超时")
+		}
+
+		var latestCode string
+		for i := 0; i < extra; i++ {
+			latestCode = fmt.Sprintf("graph TD\nP%d-->Q%d\n", i, i)
+			mermaidInlineRenderer.lookupOrStart(ui.Services{}, nil, latestCode, false)
+		}
+
+		pendingEntry, ok := mermaidInlineRenderer.getEntry(pendingCode, false)
+		if !ok || pendingEntry.status != mermaidStatusPending {
+			t.Fatalf("pending 状态的条目在淘汰时应被跳过保留，实际 ok=%v status=%v", ok, pendingEntry.status)
+		}
+
+		closeUnblock()
+		waitMermaidIdle(t, func(entryCount, orderCount int) bool {
+			return rendered.Load() == extra+1
+		})
+
+		mermaidInlineRenderer.mu.Lock()
+		entryCount := len(mermaidInlineRenderer.entries)
+		orderCount := len(mermaidInlineRenderer.order)
+		mermaidInlineRenderer.mu.Unlock()
+
+		if entryCount > mermaidInlineCacheMax {
+			t.Fatalf("全部完成后 entries 数量应不超过上限 %d，实际 %d", mermaidInlineCacheMax, entryCount)
+		}
+		if orderCount != entryCount {
+			t.Fatalf("order 长度应与 entries 数量一致，entries=%d order=%d", entryCount, orderCount)
+		}
+		if got := rendered.Load(); got != extra+1 {
+			t.Fatalf("pending 条目完成后不应重复入队渲染，期望总渲染 %d 次，实际 %d 次", extra+1, got)
+		}
+		latest, ok := mermaidInlineRenderer.getEntry(latestCode, false)
+		if !ok || latest.status != mermaidStatusDone {
+			t.Fatalf("最新条目应保留在缓存中且为 done，实际 ok=%v status=%v", ok, latest.status)
 		}
 	})
 }
