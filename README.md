@@ -19,7 +19,21 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 
 <img src="docs/images/swarm-floats.png" alt="子代理浮窗" width="100%">
 
-<img src="docs/images/swarm-bee.png" alt="子代理浮窗" width="100%">
+<img src="docs/images/swarm-bee.png" alt="子代理会话" width="100%">
+
+### Git 与 PR
+
+<img src="docs/images/git.png" alt="Git 与 PR" width="100%">
+
+### MoCo · 总管
+
+<img src="docs/images/steward.png" alt="MoCo · 总管" width="100%">
+
+### 看板与自动化
+
+<img src="docs/images/kanban.png" alt="看板" width="100%">
+
+<img src="docs/images/automation.png" alt="自动化" width="100%">
 
 ### 跨会话搜索
 
@@ -76,6 +90,7 @@ MCode 是一款 AI 编码桌面客户端，用一个窗口管理多个 AI coding
 - **数据与日志**：数据目录默认 `~/.mcode`（优先级依次为 `-data`、`MCODE_DATA`、设置里选择的目录），日志在 `<数据目录>/logs`（`mcode.log`、`startup.log`、`crash.log`）
 - **调试**：`MCODE_PPROF=host:port` 启动 pprof 服务（仅绑定本机回环地址），用 `go tool pprof http://<host>:<port>/debug/pprof/profile` 抓 CPU profile；`MCODE_STARTUP_TRACE=1` 记录启动各阶段耗时到 `<数据目录>/logs/mcode.log`（搜 `startup:`）
 - **测试**：`go test -timeout 60s ./...`、`go test -race -timeout 120s ./...`（显式超时，避免 UI 死锁时空等默认的 10 分钟）
+- **更新截图**：`MCODE_README_SHOTS=1 go test -timeout 600s -run TestReadmeShots ./internal/ui`，用 headless 渲染把 README 截图写入 `docs/images/`；`swarm-floats.png` 是实机截图、`remote-web.png` 是 Web 端截图，两张都不在这条命令的范围内
 
 ## 发布
 
