@@ -572,7 +572,11 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 		bin = DefaultBinary
 	}
 
-	var approvalURL, approvalToken string
+	var (
+		approvals     *approvalServer
+		approvalURL   string
+		approvalToken string
+	)
 	if approvalsActive(turn) {
 		srv, err := startApprovalServer(ctx, turn.Approver)
 		if err != nil {
@@ -580,6 +584,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 		}
 		defer srv.close()
 		srv.setPlanExitMode(planExitModeFor(turn))
+		approvals = srv
 		approvalURL = srv.url()
 		approvalToken = srv.token()
 	}
@@ -687,12 +692,23 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 	var (
 		watchdogMu       sync.Mutex
 		watchdogFired    string
+		watchdogStopped  bool
 		watchdogBudget   = h.opts.firstOutputTimeout()
 		watchdogDeadline = time.Now().Add(watchdogBudget)
+		_, approvalCh    = approvals.approvalState()
 	)
+	var watchdog *time.Timer
 	fireWatchdog := func() {
 		watchdogMu.Lock()
-		if time.Now().Before(watchdogDeadline) {
+		if watchdogStopped || time.Now().Before(watchdogDeadline) {
+			watchdogMu.Unlock()
+			return
+		}
+		if pending, nextCh := approvals.approvalState(); pending > 0 || channelClosed(approvalCh) {
+			// 挂起审批期间暂停看门狗，且审批状态变化过（含刚结束）时再给满一个预算，避免审批一结束就立刻超时。
+			approvalCh = nextCh
+			watchdogDeadline = time.Now().Add(watchdogBudget)
+			watchdog.Reset(watchdogBudget)
 			watchdogMu.Unlock()
 			return
 		}
@@ -702,8 +718,14 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 		// 兜底关闭读端：万一仍有子进程占着管道写端，读取循环也能立即结束。
 		_ = stdout.Close()
 	}
-	watchdog := time.AfterFunc(watchdogBudget, fireWatchdog)
-	defer watchdog.Stop()
+	watchdog = time.AfterFunc(watchdogBudget, fireWatchdog)
+	stopWatchdog := func() {
+		watchdogMu.Lock()
+		watchdogStopped = true
+		watchdog.Stop()
+		watchdogMu.Unlock()
+	}
+	defer stopWatchdog()
 
 	sawOutput := false
 	for {
@@ -720,6 +742,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 				} else {
 					watchdogBudget = h.opts.stallTimeout()
 				}
+				_, approvalCh = approvals.approvalState()
 				watchdogDeadline = time.Now().Add(watchdogBudget)
 				watchdog.Reset(watchdogBudget)
 				watchdogMu.Unlock()
@@ -731,7 +754,7 @@ func (h *Harness) runOnce(ctx context.Context, turn harness.Turn, emit func(harn
 	}
 
 	// 读取循环已结束，先停表，避免进程正常退出后被看门狗误杀。
-	watchdog.Stop()
+	stopWatchdog()
 	watchdogMu.Lock()
 	timedOut := watchdogFired
 	watchdogMu.Unlock()
@@ -791,4 +814,16 @@ func processSignaled(err error) bool {
 		return false
 	}
 	return exitErr.ProcessState != nil && !exitErr.ProcessState.Exited()
+}
+
+func channelClosed(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }

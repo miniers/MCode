@@ -95,6 +95,12 @@ func runFakeResidentClaude(mode string) {
 		<-ctx.Done()
 		return
 	}
+	if name == "resident_once_approval" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		_, _ = os.Stdout.Write(firstLine)
+		requestFakeApproval(os.Stdout, data[len(firstLine):])
+		return
+	}
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		line, readErr := reader.ReadBytes('\n')
@@ -138,6 +144,32 @@ func fakeControlResponse(requestID string, success bool) string {
 	return fmt.Sprintf(`{"type":"control_response","response":{"subtype":"error","request_id":%q,"error":"rejected by fake"}}`, requestID)
 }
 
+func requestFakeApproval(out io.Writer, rest []byte) {
+	for i, arg := range os.Args {
+		if arg != "--mcp-config" || i+1 >= len(os.Args) {
+			continue
+		}
+		data, err := os.ReadFile(os.Args[i+1])
+		var cfg mcpConfig
+		if err != nil || json.Unmarshal(data, &cfg) != nil {
+			return
+		}
+		srv := cfg.MCPServers["mcode_approval"]
+		req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(sseApprovalRequest))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Authorization", srv.Headers["Authorization"])
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			_, _ = out.Write(rest)
+		}
+		return
+	}
+}
+
 // handle 处理一帧；返回 true 表示进程要立刻退出。
 func (st *fakeResidentState) handle(frame []byte) bool {
 	var parsed fakeResidentFrame
@@ -158,31 +190,7 @@ func (st *fakeResidentState) handle(frame []byte) bool {
 			_, _ = out.Write(st.firstLine)
 		case "resident_approval":
 			_, _ = out.Write(st.firstLine)
-			go func() {
-				for i, arg := range os.Args {
-					if arg != "--mcp-config" || i+1 >= len(os.Args) {
-						continue
-					}
-					data, err := os.ReadFile(os.Args[i+1])
-					var cfg mcpConfig
-					if err != nil || json.Unmarshal(data, &cfg) != nil {
-						return
-					}
-					srv := cfg.MCPServers["mcode_approval"]
-					req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(sseApprovalRequest))
-					if err != nil {
-						return
-					}
-					req.Header.Set("Authorization", srv.Headers["Authorization"])
-					resp, err := http.DefaultClient.Do(req)
-					if err == nil {
-						_, _ = io.Copy(io.Discard, resp.Body)
-						_ = resp.Body.Close()
-						_, _ = out.Write(rest)
-					}
-					return
-				}
-			}()
+			go requestFakeApproval(out, rest)
 		case "resident_fail_stderr":
 			_, _ = fmt.Fprintln(os.Stderr, "fake: fatal startup error")
 			os.Exit(1)
@@ -723,6 +731,47 @@ func TestRunOnce_StallTimeoutReportsBudget(t *testing.T) {
 	err := h.Run(ctx, turn, func(harness.Event) {})
 	if err == nil || !strings.Contains(err.Error(), "200ms") || strings.Contains(err.Error(), "2s") {
 		t.Fatalf("单进程停顿超时应报告 200ms: %v", err)
+	}
+}
+
+func TestRunOnce_PendingApprovalPausesWatchdog(t *testing.T) {
+	dir := t.TempDir()
+	h := New(Options{Binary: os.Args[0], FirstOutputTimeout: 2 * time.Second, StallTimeout: 200 * time.Millisecond})
+	defer h.Close()
+	a := &pendingTestApprover{entered: make(chan struct{}, 1), release: make(chan struct{}, 1)}
+	turn := residentTurn("resident_once_approval:"+fixtureAbs(t, "basic.jsonl"), filepath.Join(dir, "starts.log"), dir)
+	turn.Transient = true
+	turn.Approver = a
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		events []harness.Event
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var events []harness.Event
+		err := h.Run(ctx, turn, collectEvents(&events))
+		done <- result{events, err}
+	}()
+	select {
+	case <-a.entered:
+	case <-ctx.Done():
+		t.Fatal("审批未开始")
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("审批等待时轮次提前结束: %+v", got)
+	case <-time.After(650 * time.Millisecond):
+	}
+	a.release <- struct{}{}
+	select {
+	case got := <-done:
+		if got.err != nil || hasEvent(got.events, harness.EventError) || !hasEvent(got.events, harness.EventDone) {
+			t.Fatalf("审批后未正常结束: %+v", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("审批后轮次未结束")
 	}
 }
 
