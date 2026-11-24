@@ -124,3 +124,11 @@ func motionToast(c *ui.Context) ui.ElementTransition {
 func motionFeedback(c *ui.Context) ui.ElementTransition {
 	return motionTransition(c, ui.ElementTransition{Duration: DurSnap, Ease: EaseSnap, Colors: true})
 }
+
+func motionCapsule(c *ui.Context) ui.ElementTransition {
+	return motionTransition(c, ui.ElementTransition{
+		Duration: DurBase, Ease: EaseSnap, ExitDuration: DurSnap, ExitEase: EaseOut, Colors: true,
+		Enter: &ui.Motion{Opacity: 0, Scale: 0.96},
+		Exit:  &ui.Motion{Opacity: 0, Scale: 0.96},
+	})
+}

@@ -405,6 +405,9 @@ type FakeClient struct {
 	// Git 模拟字段与调用记录
 	gitState          GitState
 	gitErr            error
+	gitInitCalls      []string
+	gitInitErr        error
+	gitInitHook       func(context.Context, string) error
 	gitCheckoutCalls  []string
 	gitWorktreeCalls  []string
 	gitCommitMessages []string
@@ -3152,6 +3155,28 @@ func (f *FakeClient) AgySetAutoWarmup(enabled bool) error {
 	}
 	f.agyAutoWarmup = enabled
 	return nil
+}
+
+// GitInit 模拟初始化 Git 仓库并记录调用。
+func (f *FakeClient) GitInit(ctx context.Context, threadID string) error {
+	f.mu.Lock()
+	f.gitInitCalls = append(f.gitInitCalls, threadID)
+	err := f.gitInitErr
+	hook := f.gitInitHook
+	f.mu.Unlock()
+	if hook != nil {
+		return hook(ctx, threadID)
+	}
+	return err
+}
+
+// GitInitCalls 返回 GitInit 的调用记录。
+func (f *FakeClient) GitInitCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	res := make([]string, len(f.gitInitCalls))
+	copy(res, f.gitInitCalls)
+	return res
 }
 
 // GitState 模拟获取 Git 状态，gitErr 非空时返回错误。

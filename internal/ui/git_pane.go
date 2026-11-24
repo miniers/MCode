@@ -756,7 +756,7 @@ func renderGitPane(c *ui.Context, s *chatState) {
 				return
 			}
 			if state.WorkDir == "" {
-				renderGitPaneEmpty(c, "不是 Git 仓库", IconGitBranch())
+				renderGitPaneNotRepoEmpty(c, s, ps.threadID)
 				return
 			}
 			renderGitPaneAllScope(c, s, ps, dp, pane, contentH, modern)
@@ -1670,5 +1670,21 @@ func renderGitPaneUndo(c *ui.Context, ps *gitPaneState) {
 func renderGitPaneEmpty(c *ui.Context, title string, icon *ui.SVG) {
 	ui.Column(c.Key("git-pane-empty")).Fill().Center().Gap(Space3).Children(func() {
 		EmptyState(c, EmptyStateProps{Icon: icon, Title: title})
+	})
+}
+
+func renderGitPaneNotRepoEmpty(c *ui.Context, s *chatState, threadID string) {
+	ui.Column(c.Key("git-pane-empty")).Fill().Center().Gap(Space3).Children(func() {
+		var action func()
+		if canGitInit(s) {
+			initBusy := isGitInitBusy(s, threadID)
+			threadRunning := s != nil && s.isThreadRunning(threadID)
+			action = func() {
+				renderGitInitActionButton(c, "git-pane-init-btn", "初始化 Git", ButtonPrimary, ControlMD, IconGitBranch(), initBusy, threadRunning, func() {
+					startGitInit(s, threadID)
+				})
+			}
+		}
+		EmptyState(c, EmptyStateProps{Icon: IconGitBranch(), Title: "不是 Git 仓库", Action: action})
 	})
 }

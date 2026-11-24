@@ -270,9 +270,11 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 	}
 	col := ui.Column(c.Key("git-branch-content"))
 	if withCard {
-		col = popoverCard(c, col)
+		col = popoverCard(c, col).Width(max(280, min(width, 360)))
+	} else {
+		col.FillWidth()
 	}
-	col.Label("分支列表").Width(max(280, min(width, 360))).MaxWidthPercent(100).Padding(Space2).Gap(Space1).Children(func() {
+	col.Label("分支列表").MaxWidthPercent(100).Padding(Space2).Gap(Space1).Children(func() {
 		SearchField(c, TextFieldProps{Key: "git-branch-search", Value: &query, Label: "搜索分支", Placeholder: "切换或新建分支…", FillWidth: true, AutoFocus: edit == "", OnChange: func(v string) { p.mu.Lock(); p.query = v; p.selected = 0; p.mu.Unlock() }, OnKeyDown: func(k ui.TextKey) bool {
 			switch k.Key {
 			case ui.KeyEscape:
@@ -300,7 +302,9 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 			}
 			return false
 		}})
-		ui.Scroll(c.Key("git-branch-list-scroll")).FillWidth().MaxHeight(480).Children(func() {
+		_, winH := c.Size()
+		listMaxH := min(float32(480), max(float32(120), winH-200))
+		ui.Scroll(c.Key("git-branch-list-scroll")).FillWidth().MaxHeight(listMaxH).Children(func() {
 			ui.Column(c.Key("git-branch-list")).FillWidth().Children(func() {
 				index := 0
 				renderItem := func(item branchPopoverItem) {
