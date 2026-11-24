@@ -343,8 +343,6 @@ func toolBeatMarkdownOptions(c *ui.Context, s *chatState) *markdown.Options {
 // 这里只建一个稀疏主题并复用助手正文的代码块容器与揭示节奏，不整体复制 markdown.Options
 // （它内部带 sync.Map 图片缓存，复制会触发 go vet 的 copylocks 且语义不正确）。
 func reasoningMarkdownOptionsAt(c *ui.Context, s *chatState, baseSize float32) *markdown.Options {
-	ensureCodeBlockContainer(s)
-
 	key := reasoningMarkdownKey{state: s, size: baseSize}
 	reasoningMDOptsMu.Lock()
 	opts := reasoningMDOpts[key]
@@ -368,12 +366,7 @@ func reasoningMarkdownOptionsAt(c *ui.Context, s *chatState, baseSize float32) *
 	}
 	// 思考正文字号同样跟随「文字大小」。
 	opts.Theme.FontSize = scaledFont(baseSize)
-	opts.CodeBlock = s.mdStaticOpts.CodeBlock
-	// 思考正文同样支持本地图片与点击看大图。
-	installImagePreviewHooks(opts, s)
-	installLocalFileLinkHook(opts, s)
-	// 思考正文里的表格同样可以展开到浮窗里看完整内容。
-	installTableExpandHook(opts, s)
+	installMarkdownHooks(opts, s)
 	opts.Reveal = s.mdOpts.Reveal
 	return opts
 }

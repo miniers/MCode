@@ -97,11 +97,47 @@ func localImagePath(url string) (string, error) {
 	return filepath.FromSlash(url), nil
 }
 
+// resolveMarkdownImage 把文档里的相对图片路径按基准目录解析成绝对路径：
+// baseDir 非空、地址不含 scheme（://）、不以 data:/~/file: 开头且不是绝对路径时，
+// 去掉 ?query 与 #fragment 后拼接到 baseDir；其余地址原样返回。
+func resolveMarkdownImage(baseDir, rawURL string) string {
+	baseDir = strings.TrimSpace(baseDir)
+	url := strings.TrimSpace(rawURL)
+	if baseDir == "" || url == "" {
+		return rawURL
+	}
+	lower := strings.ToLower(url)
+	if strings.Contains(url, "://") ||
+		strings.HasPrefix(lower, "data:") ||
+		strings.HasPrefix(lower, "file:") ||
+		strings.HasPrefix(url, "~") ||
+		strings.HasPrefix(url, "/") ||
+		filepath.IsAbs(filepath.FromSlash(url)) {
+		return rawURL
+	}
+	clean := url
+	if i := strings.IndexAny(clean, "?#"); i >= 0 {
+		clean = clean[:i]
+	}
+	if clean == "" {
+		return rawURL
+	}
+	return filepath.Join(baseDir, filepath.FromSlash(clean))
+}
+
 // previewImageEntry 是一张图片的加载状态，异步加载完成后由重绘读取。
 type previewImageEntry struct {
 	mu  sync.Mutex
 	src ui.ImageSource
 	err error
+}
+
+// markdownImageItem 是图片段落或 HTML 图片块中要绘制的单张图片。
+type markdownImageItem struct {
+	url     string
+	alt     string
+	title   string
+	pending bool
 }
 
 // imagePreviewCache 按 url 缓存图片加载状态，避免每帧重新解码。
@@ -137,6 +173,11 @@ func cachedPreviewImage(c *ui.Context, url string) ui.ImageSource {
 // installImagePreviewHooks 给 Markdown 选项装上本地图片加载与点击放大的块钩子。
 // 选项原有的 Block 钩子会被包一层并优先调用，保持链式；每个选项只安装一次。
 func installImagePreviewHooks(o *markdown.Options, s *chatState) {
+	installImagePreviewHooksWithBaseDir(o, s, "")
+}
+
+// installImagePreviewHooksWithBaseDir 在 installImagePreviewHooks 基础上为相对图片路径绑定基准目录。
+func installImagePreviewHooksWithBaseDir(o *markdown.Options, s *chatState, baseDir string) {
 	if o == nil || s == nil {
 		return
 	}
@@ -144,96 +185,158 @@ func installImagePreviewHooks(o *markdown.Options, s *chatState) {
 		return
 	}
 	if o.LoadImage == nil {
-		o.LoadImage = loadLocalImage
+		if baseDir == "" {
+			o.LoadImage = loadLocalImage
+		} else {
+			o.LoadImage = func(url string) (ui.ImageSource, error) {
+				return loadLocalImage(resolveMarkdownImage(baseDir, url))
+			}
+		}
 	}
-	o.Block = imagePreviewBlockHook(s, o.Block)
+	o.Block = imagePreviewBlockHookWithBaseDir(s, baseDir, o.Block)
 }
 
-// imagePreviewBlockHook 把原 Block 钩子包一层：只有「整段仅含图片」且其中有可加载的本地图片时
-// 才交给自己渲染，其余块先交给原钩子，仍不接管时返回 false 交给默认渲染。
-// 没有本地图片（如 http 图片或加载失败的图片）时保持默认渲染，外观与原来一致。
+// imagePreviewBlockHook 把原 Block 钩子包一层：只有「整段仅含图片」且其中有可加载的本地图片
+// （或含行内 <img> HTML）时才交给自己渲染，其余块先交给原钩子，仍不接管时返回 false 交给默认渲染。
 func imagePreviewBlockHook(s *chatState, prev func(c *ui.Context, d *parser.Document, i int) bool) func(c *ui.Context, d *parser.Document, i int) bool {
+	return imagePreviewBlockHookWithBaseDir(s, "", prev)
+}
+
+func imagePreviewBlockHookWithBaseDir(s *chatState, baseDir string, prev func(c *ui.Context, d *parser.Document, i int) bool) func(c *ui.Context, d *parser.Document, i int) bool {
 	return func(c *ui.Context, d *parser.Document, i int) bool {
 		if prev != nil && prev(c, d, i) {
 			return true
 		}
-		if s == nil || !imageOnlyParagraph(d, i) {
+		if s == nil {
 			return false
 		}
-		// 预加载并检查是否至少有一张本地图片可用，没有则交给默认渲染。
-		if !hasLoadedImage(c, d.Inlines(i)) {
+		items, hasInlineHTML, ok := collectParagraphImages(d, i, baseDir, isDark(c))
+		if !ok || len(items) == 0 {
 			return false
 		}
-		renderImageParagraph(c, s, d, i)
+		// 预加载并检查是否至少有一张本地图片可用；若全是 Markdown 图片且暂无可用本地图片，交给默认渲染。
+		if !hasLoadedImageItems(c, items) && !hasInlineHTML {
+			return false
+		}
+		renderMarkdownImages(c, s, items)
 		return true
 	}
 }
 
-// hasLoadedImage 报告段落里的图片是否至少有一张已加载好，同时触发异步加载。
-func hasLoadedImage(c *ui.Context, in []parser.Inline) bool {
-	for k := 0; k < len(in); k = in[k].Next {
-		if in[k].Kind != parser.Image || in[k].Pending {
+// hasLoadedImageItems 报告图片列表是否至少有一张已加载好，同时触发异步加载。
+func hasLoadedImageItems(c *ui.Context, items []markdownImageItem) bool {
+	loaded := false
+	for _, it := range items {
+		if it.pending {
 			continue
 		}
-		if cachedPreviewImage(c, in[k].Dest) != nil {
-			return true
+		if cachedPreviewImage(c, it.url) != nil {
+			loaded = true
 		}
 	}
-	return false
+	return loaded
 }
 
-// imageOnlyParagraph 判断第 i 块是否整段只有图片，判断条件与 markdown 包
-// 决定走 images 渲染时相同：段落内除图片外只允许空白文本与换行。
-func imageOnlyParagraph(d *parser.Document, i int) bool {
+// collectParagraphImages 判断第 i 块是否整段只有图片（parser.Image、空白文本、换行与只含图片的
+// 行内 HTML，含单行 <picture> 与 <img>），并按出现顺序提取解析后的图片列表与是否包含行内 HTML 图片。
+func collectParagraphImages(d *parser.Document, i int, baseDir string, dark bool) (items []markdownImageItem, hasInlineHTML bool, ok bool) {
 	if d == nil || i < 0 || i >= d.Len() || d.Block(i).Kind != parser.Paragraph {
-		return false
+		return nil, false, false
 	}
 	in := d.Inlines(i)
 	if len(in) == 0 {
-		return false
+		return nil, false, false
 	}
-	n := 0
-	for k := 0; k < len(in); k = in[k].Next {
-		switch in[k].Kind {
-		case parser.Image:
-			n++
-		case parser.SoftBreak, parser.LineBreak:
-		case parser.Text:
-			if strings.TrimSpace(in[k].Text) != "" {
-				return false
-			}
-		default:
+	var htmlBuf strings.Builder
+	flushHTML := func() bool {
+		if htmlBuf.Len() == 0 {
+			return true
+		}
+		extracted, valid := extractInlineHTMLImageItems(htmlBuf.String(), dark)
+		htmlBuf.Reset()
+		if !valid {
 			return false
 		}
+		if len(extracted) > 0 {
+			hasInlineHTML = true
+			for _, it := range extracted {
+				it.url = resolveMarkdownImage(baseDir, it.url)
+				items = append(items, it)
+			}
+		}
+		return true
 	}
-	return n > 0
-}
-
-// renderImageParagraph 渲染只有图片的段落：与 markdown 包 images 一致（Wrap 的 Row、
-// 最大宽度 100%、保持宽高比、未加载时显示替代文字），并给已加载的图片加上点击放大。
-func renderImageParagraph(c *ui.Context, s *chatState, d *parser.Document, i int) {
-	in := d.Inlines(i)
-	ui.Row(c).Wrap().Gap(Space2).AlignSelf(ui.Stretch).Children(func() {
-		for k := 0; k < len(in); k = in[k].Next {
-			n := &in[k]
-			if n.Kind != parser.Image {
-				continue
+	for k := 0; k < len(in); k = in[k].Next {
+		n := &in[k]
+		switch n.Kind {
+		case parser.Image:
+			if !flushHTML() {
+				return nil, false, false
 			}
 			alt := parser.PlainText(in[k+1 : n.Next])
-			src := cachedPreviewImage(c, n.Dest)
-			if src == nil || n.Pending {
-				label := alt
+			items = append(items, markdownImageItem{
+				url:     resolveMarkdownImage(baseDir, n.Dest),
+				alt:     alt,
+				title:   n.Title,
+				pending: n.Pending,
+			})
+		case parser.SoftBreak, parser.LineBreak:
+			if htmlBuf.Len() > 0 {
+				htmlBuf.WriteByte('\n')
+			}
+		case parser.Text:
+			if strings.TrimSpace(n.Text) != "" {
+				return nil, false, false
+			}
+			if htmlBuf.Len() > 0 {
+				htmlBuf.WriteString(n.Text)
+			}
+		case parser.HTML:
+			if n.Pending {
+				return nil, false, false
+			}
+			htmlBuf.WriteString(n.Text)
+		default:
+			return nil, false, false
+		}
+	}
+	if !flushHTML() {
+		return nil, false, false
+	}
+	return items, hasInlineHTML, len(items) > 0
+}
+
+// renderImageParagraph 渲染只有图片的段落：提取段落内图片后复用 renderMarkdownImages 绘制。
+func renderImageParagraph(c *ui.Context, s *chatState, d *parser.Document, i int) {
+	items, _, ok := collectParagraphImages(d, i, "", isDark(c))
+	if !ok {
+		return
+	}
+	renderMarkdownImages(c, s, items)
+}
+
+// renderMarkdownImages 渲染一组图片：与 markdown 包 images 一致（Wrap 的 Row、
+// 最大宽度 100%、保持宽高比、未加载时显示替代文字），并给已加载的图片加上点击放大。
+func renderMarkdownImages(c *ui.Context, s *chatState, items []markdownImageItem) {
+	if len(items) == 0 {
+		return
+	}
+	ui.Row(c).Wrap().Gap(Space2).AlignSelf(ui.Stretch).Children(func() {
+		for _, item := range items {
+			src := cachedPreviewImage(c, item.url)
+			if src == nil || item.pending {
+				label := item.alt
 				if label == "" {
 					label = "图片"
 				}
 				ph := ui.Row(c).Padding(Space1, Space2).Radius(RadiusXS).Background(ThemeOverlay(c, 0.06))
-				ph.Role(ui.RoleImage).Label(alt)
+				ph.Role(ui.RoleImage).Label(item.alt)
 				ph.Children(func() {
 					ui.Text(c, label).TextColor(ThemeSecondaryText(c)).FontSize(uiFont(TypeBody))
 				})
 				continue
 			}
-			img := ui.Image(c, src).Radius(RadiusXS).MaxWidthPercent(100).Label(alt)
+			img := ui.Image(c, src).Radius(RadiusXS).MaxWidthPercent(100).Label(item.alt)
 			var w, h float32
 			switch v := src.(type) {
 			case *ui.Bitmap:
@@ -245,11 +348,14 @@ func renderImageParagraph(c *ui.Context, s *chatState, d *parser.Document, i int
 			if w > 0 && h > 0 {
 				img.AspectRatio(w / h)
 			}
-			if n.Title != "" {
-				img.Tooltip(n.Title)
+			if item.title != "" {
+				img.Tooltip(item.title)
 			}
-			// 点击看大图：记录图片来源、原始地址与替代文字，再由重绘画出浮层。
-			previewSrc, previewAlt, previewURL := src, alt, n.Dest
+			if s == nil {
+				continue
+			}
+			// 点击看大图：记录图片来源、解析后地址与替代文字，再由重绘画出浮层。
+			previewSrc, previewAlt, previewURL := src, item.alt, item.url
 			img.Cursor(ui.CursorPointer).OnClick(func() {
 				s.mu.Lock()
 				s.imagePreview = &imagePreviewState{src: previewSrc, alt: previewAlt, url: previewURL}

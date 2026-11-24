@@ -763,8 +763,14 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 		}
 		if mdPreview {
 			// Markdown 交给 markdown.View：表格、列表、代码块高亮都由它渲染，
-			// 正文默认可选中复制。配置与子线程「工作汇报」共用，正文比代码字号大一档。
-			markdown.View(c.Key(keyPrefix+"file-manager-md-view"), tab.content, swarmReportMarkdownOptions(c, s, fileManagerPreviewFontSize(s)+1)).
+			// 正文默认可选中复制。配置按被预览文件所在目录绑定相对路径解析，正文比代码字号大一档。
+			baseDir := ""
+			if abs := fileManagerWorkspacePath(s, fileManagerThreadID(s), tab.path); abs != "" {
+				baseDir = filepath.Dir(abs)
+			} else if filepath.IsAbs(tab.path) {
+				baseDir = filepath.Dir(tab.path)
+			}
+			markdown.View(c.Key(keyPrefix+"file-manager-md-view"), tab.content, markdownDocOptions(c, s, fileManagerPreviewFontSize(s)+1, baseDir)).
 				FillWidth()
 		} else {
 			// 文本预览用只读代码编辑器：语法高亮、行号、可选中复制，滚动也由它管理。

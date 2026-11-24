@@ -514,10 +514,16 @@ func mathBlockSize(o *markdown.Options) float32 {
 	return 14
 }
 
+// mathHooksInstalled 记录已装过公式钩子的 Markdown 选项，避免重复安装。
+var mathHooksInstalled sync.Map // *markdown.Options → struct{}
+
 // installMathHooks 给 Markdown 选项装上公式钩子：行内公式按基线对齐，
-// 块级公式单独居中成行；排不出的公式显示原文（行内由 mygo 自动退回，块级用等宽小字）。
+// 块级公式单独居中成行；排不出的公式显示原文（行内由 mygo 自动退回，块级用等宽小字）；每个选项只安装一次。
 func installMathHooks(o *markdown.Options) {
 	if o == nil {
+		return
+	}
+	if _, done := mathHooksInstalled.LoadOrStore(o, struct{}{}); done {
 		return
 	}
 	o.InlineMath = func(tex string, size float32) (markdown.InlineObject, bool) {

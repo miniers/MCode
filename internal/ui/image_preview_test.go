@@ -37,6 +37,34 @@ func TestLoadLocalImage_RejectsRelativePath(t *testing.T) {
 	}
 }
 
+// TestResolveMarkdownImage 确认相对图片路径按基准目录解析，绝对路径、网络/file/data/~ 与空基准目录原样返回。
+func TestResolveMarkdownImage(t *testing.T) {
+	base := t.TempDir()
+	abs := filepath.Join(base, "abs.png")
+
+	cases := []struct {
+		name    string
+		baseDir string
+		url     string
+		want    string
+	}{
+		{name: "相对路径", baseDir: base, url: "docs/images/x.png", want: filepath.Join(base, "docs", "images", "x.png")},
+		{name: "带点斜杠与查询锚点", baseDir: base, url: "./docs/images/x.png?raw=1#top", want: filepath.Join(base, "docs", "images", "x.png")},
+		{name: "绝对路径", baseDir: base, url: abs, want: abs},
+		{name: "http地址", baseDir: base, url: "http://example.com/a.png", want: "http://example.com/a.png"},
+		{name: "https地址", baseDir: base, url: "https://example.com/a.png", want: "https://example.com/a.png"},
+		{name: "file协议", baseDir: base, url: "file:///tmp/a.png", want: "file:///tmp/a.png"},
+		{name: "data协议", baseDir: base, url: "data:image/png;base64,AAAA", want: "data:image/png;base64,AAAA"},
+		{name: "家目录路径", baseDir: base, url: "~/a.png", want: "~/a.png"},
+		{name: "空基准目录", baseDir: "", url: "docs/images/x.png", want: "docs/images/x.png"},
+	}
+	for _, tc := range cases {
+		if got := resolveMarkdownImage(tc.baseDir, tc.url); got != tc.want {
+			t.Fatalf("%s：resolveMarkdownImage(%q, %q) = %q，希望 %q", tc.name, tc.baseDir, tc.url, got, tc.want)
+		}
+	}
+}
+
 // TestLoadLocalImage_RejectsUnsupportedExt 确认扩展名不在白名单内时不加载。
 func TestLoadLocalImage_RejectsUnsupportedExt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a.txt")
