@@ -1268,6 +1268,16 @@ func runFakeACPFeatures(mode string) {
 				}
 				result["usage"] = map[string]any{"inputTokens": 500, "outputTokens": 20, "thoughtTokens": 5, "cachedReadTokens": 100}
 			}
+			if mode == "feature_usage_cost" || mode == "feature_usage_cost_eur" {
+				currency := "USD"
+				if mode == "feature_usage_cost_eur" {
+					currency = "EUR"
+				}
+				cost := func(amount float64) map[string]any { return map[string]any{"amount": amount, "currency": currency} }
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{"sessionUpdate": "usage_update", "used": 100, "size": 2000, "cost": cost(0.5)}}})
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{"sessionUpdate": "usage_update", "cost": cost(1.2)}}})
+				result["usage"] = map[string]any{"inputTokens": 500, "outputTokens": 20}
+			}
 			result["stopReason"] = "end_turn"
 			if mode == "feature_agy_outcome_refusal" {
 				result["stopReason"] = "refusal"
@@ -1850,6 +1860,41 @@ func TestACPResumeAndClose(t *testing.T) {
 				t.Fatal("missing close")
 			} else if tc.session != "" && close[0]["sessionId"] != tc.session {
 				t.Fatal(close)
+			}
+		})
+	}
+}
+
+func TestUsageUpdateCost(t *testing.T) {
+	for _, tc := range []struct {
+		mode      string
+		wantCosts []float64 // 每条 EventUsage 的 CostUSD：两次 usage_update（第二次只带 cost）加轮末用量
+	}{
+		{mode: "feature_usage_cost", wantCosts: []float64{0.5, 1.2, 1.2}},
+		{mode: "feature_usage_cost_eur", wantCosts: []float64{0, 0}},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			_, events, err := runACPFeature(t, tc.mode, AgentOpenCode, harness.Turn{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var usages []harness.Usage
+			for _, e := range events {
+				if e.Type == harness.EventUsage {
+					usages = append(usages, *e.Usage)
+				}
+			}
+			// 后端对同轮 EventUsage 整条替换，所以每条（含轮末）都要带最新累计花费与上下文。
+			if len(usages) != len(tc.wantCosts) {
+				t.Fatalf("usages = %+v", usages)
+			}
+			for i, u := range usages {
+				if u.CostUSD != tc.wantCosts[i] {
+					t.Fatalf("usages[%d].CostUSD = %v, want %v", i, u.CostUSD, tc.wantCosts[i])
+				}
+				if u.ContextTokens != 100 || u.ContextWindow != 2000 {
+					t.Fatalf("usages[%d] context = %+v", i, u)
+				}
 			}
 		})
 	}

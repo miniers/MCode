@@ -4817,6 +4817,9 @@
         },
         "enabled": {
           "type": "boolean"
+        },
+        "acp": {
+          "type": "boolean"
         }
       },
       "required": [

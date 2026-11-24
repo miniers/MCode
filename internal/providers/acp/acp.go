@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -731,6 +732,9 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 	var sessionID string
 	var sessionMu sync.Mutex
 	var contextUsed, contextSize atomic.Int64
+	// sessionCostBits 是 usage_update 最近上报的会话累计花费（USD，float64 位模式）。
+	// 后端对同轮 EventUsage 整条替换，所以之后每条 EventUsage 都要带上它，否则会被覆盖成 0。
+	var sessionCostBits atomic.Uint64
 
 	setSessionID := func(id string) {
 		sessionMu.Lock()
@@ -1180,6 +1184,10 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 				Patch  string `json:"patch"`
 				Used   int64  `json:"used"`
 				Size   int64  `json:"size"`
+				Cost   *struct {
+					Amount   float64 `json:"amount"`
+					Currency string  `json:"currency"`
+				} `json:"cost"`
 			} `json:"update"`
 		}
 		if err := json.Unmarshal(params, &message); err != nil {
@@ -1404,15 +1412,24 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 			}
 
 		case "usage_update":
-			contextUsed.Store(u.Used)
-			contextSize.Store(u.Size)
-			if u.Used > 0 || u.Size > 0 {
+			costOK := u.Cost != nil && strings.EqualFold(u.Cost.Currency, "USD") && u.Cost.Amount > 0
+			hasContext := u.Used > 0 || u.Size > 0
+			if costOK {
+				sessionCostBits.Store(math.Float64bits(u.Cost.Amount))
+			}
+			// 只带 cost 的事件不覆盖已有上下文数据。
+			if hasContext {
+				contextUsed.Store(u.Used)
+				contextSize.Store(u.Size)
+			}
+			if hasContext || costOK {
 				_ = harness.Emit(emit, harness.Event{
 					Type: harness.EventUsage,
 					Usage: &harness.Usage{
-						InputTokens:   u.Used,
-						ContextTokens: u.Used,
-						ContextWindow: u.Size,
+						InputTokens:   contextUsed.Load(),
+						ContextTokens: contextUsed.Load(),
+						ContextWindow: contextSize.Load(),
+						CostUSD:       math.Float64frombits(sessionCostBits.Load()),
 					},
 				})
 			}
@@ -2060,6 +2077,7 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 			_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &harness.Usage{
 				InputTokens: u.InputTokens, OutputTokens: output, CachedTokens: u.CachedReadTokens,
 				ContextTokens: contextUsed.Load(), ContextWindow: contextSize.Load(),
+				CostUSD: math.Float64frombits(sessionCostBits.Load()),
 			}})
 		}
 		if h.opts.Agent != AgentAgy || ctx.Err() == nil {
