@@ -46,6 +46,7 @@ var attentionInboxGroups = []attentionInboxKindGroup{
 	{kind: "kanban_needs_approval"},
 	{kind: "kanban_review"},
 	{kind: "merge_review_pending"},
+	{kind: "design_awaiting_finalize"},
 	{kind: "kanban_plan_failed"},
 	{kind: "automation_failed"},
 	{kind: "automation_finished"},
@@ -507,7 +508,7 @@ func attentionKindMark(kind string) (symbol string, tone Tone) {
 		return "▲", ToneDanger
 	case "thread_stalled", "thread_quota":
 		return "▲", ToneWarning
-	case "merge_review_pending":
+	case "merge_review_pending", "design_awaiting_finalize":
 		return "●", ToneWarning
 	case "automation_finished":
 		return "○", ToneNeutral

@@ -39,13 +39,15 @@ const (
 	KindBeeFailed Kind = "bee_failed"
 	// KindMergeReviewPending 表示 Bee 有改动等待审查（AI 审查进行中除外）。
 	KindMergeReviewPending Kind = "merge_review_pending"
+	// KindDesignAwaitingFinalize 表示设计档位 Bee 已出稿等待用户确认定稿。
+	KindDesignAwaitingFinalize Kind = "design_awaiting_finalize"
 	// KindThreadNoProgress 表示会话或 bee 长时间没有文件改动，也没有看板状态变化。
 	KindThreadNoProgress Kind = "thread_no_progress"
 )
 
 // OwnerActionKinds 是必须由用户亲手处理的事件类型白名单：会话等审批、看板待审批、
-// 看板待验收、目标规划失败。总管启用时收件箱只列这四类，其余告知类事件交给总管处理。
-var OwnerActionKinds = []Kind{KindThreadApproval, KindKanbanNeedsApproval, KindKanbanReview, KindKanbanPlanFailed}
+// 看板待验收、目标规划失败、设计稿待确认。总管启用时收件箱只列这五类，其余告知类事件交给总管处理。
+var OwnerActionKinds = []Kind{KindThreadApproval, KindKanbanNeedsApproval, KindKanbanReview, KindKanbanPlanFailed, KindDesignAwaitingFinalize}
 
 // OwnerActionKindNames 返回 OwnerActionKinds 的字符串形式，供存储层过滤条件使用。
 func OwnerActionKindNames() []string {

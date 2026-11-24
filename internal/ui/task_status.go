@@ -234,6 +234,8 @@ func attentionKindTitle(kind string) string {
 		return "子代理失败"
 	case "merge_review_pending":
 		return "合并待审阅"
+	case "design_awaiting_finalize":
+		return "设计稿待确认"
 	case "thread_no_progress":
 		return "任务无进展"
 	default:

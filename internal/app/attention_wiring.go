@@ -104,6 +104,8 @@ type attentionWiring struct {
 	beeSnapshot map[string]map[string]string
 	// mergeReviewSnapshot 记录每个 lead 会话下 bee 是否处于待审查状态，用于去重与离开时消解。
 	mergeReviewSnapshot map[string]map[string]bool
+	// designAwaitingFinalizeSnapshot 记录每个 lead 会话下 bee 是否处于设计待定稿状态，用于去重与离开时消解。
+	designAwaitingFinalizeSnapshot map[string]map[string]bool
 	// noProgress 是无进展看门狗的对象状态表，只在看门狗内读写，受 mu 保护。
 	noProgress map[string]*noProgressState
 	// automationNotify 是自动化运行成功后的桌面通知实现，为空表示未接入桌面端。
@@ -283,7 +285,7 @@ func (w *attentionWiring) record(input attention.Input) bool {
 	if created && w.notify != nil {
 		// bee 失败只进收件箱不推送：主会话会在汇报里处理，推到手机只是噪音。
 		switch input.Kind {
-		case attention.KindKanbanReview, attention.KindKanbanFailed:
+		case attention.KindKanbanReview, attention.KindKanbanFailed, attention.KindDesignAwaitingFinalize:
 			w.notify(input.Title, input.Detail, input.ThreadID)
 		}
 	}
@@ -1057,8 +1059,8 @@ func beeStatusSnapshot(bees []swarm.Bee) map[string]string {
 	return snapshot
 }
 
-// beeMergeReview 是一条新进入待审查状态的 bee 提醒。
-type beeMergeReview struct {
+// beeAttentionNotice 描述一条由 bee 状态变化产生的提醒。
+type beeAttentionNotice struct {
 	SubjectID string
 	ThreadID  string
 	ProjectID string
@@ -1067,71 +1069,123 @@ type beeMergeReview struct {
 	EnteredAt time.Time
 }
 
+// beeMergeReview 是一条新进入待审查状态的 bee 提醒。
+type beeMergeReview = beeAttentionNotice
+
 // beeMergeReviewPending 判定 bee 是否处于需要提醒的待审查状态：改动已暂存且不在 AI 审查中。
 func beeMergeReviewPending(bee swarm.Bee) bool {
 	return bee.PendingMerge && bee.ReviewState != swarm.ReviewRunning
 }
 
-// diffMergeReviewPending 比较同一个 lead 下两次 bee 快照：新进入待审查状态产出事件；
-// prev 为 nil 表示首次观察（例如 MCode 重启后第一次看到该会话），此时为所有已在等待
-// 人工审查的 bee 补发提醒，但不产生消解列表，避免把重启前就存在的状态当成刚离开。
-// 返回新进入的提醒与已离开该状态的 bee 会话 ID，后者用于自动消解对应提醒。纯函数便于测试。
-func diffMergeReviewPending(prev map[string]bool, bees []swarm.Bee, leadThreadID string, observedAt time.Time) ([]beeMergeReview, []string) {
+// beeDesignAwaitingFinalize 判定 bee 是否处于等待用户确认定稿的设计状态。
+func beeDesignAwaitingFinalize(bee swarm.Bee) bool {
+	return bee.AwaitingFinalize &&
+		bee.Status != swarm.StatusRunning &&
+		bee.Status != swarm.StatusFailed &&
+		bee.Status != swarm.StatusStopped
+}
+
+// beeEnteredAt 取稳定的状态进入时刻（优先 bee 结束时间），保证重启后算出同一去重键。
+func beeEnteredAt(bee swarm.Bee, observedAt time.Time) time.Time {
+	if bee.FinishedAt != nil && !bee.FinishedAt.IsZero() {
+		return *bee.FinishedAt
+	}
+	return observedAt
+}
+
+// beeNameTaskDetail 拼接 bee 名称与任务标题作为提醒正文。
+func beeNameTaskDetail(name, task string) string {
+	switch {
+	case name != "" && task != "":
+		return name + "：" + task
+	case name != "":
+		return name
+	default:
+		return task
+	}
+}
+
+// diffBeeCondition 比较同一个 lead 下两次 bee 布尔快照：
+// prev 为 nil 表示首次观察（例如 MCode 重启后第一次看到该会话），此时补发当前命中的条目，
+// 但不产生消解列表，避免把重启前就存在的状态当成刚离开。纯函数便于测试。
+func diffBeeCondition(prev map[string]bool, bees []swarm.Bee, match func(swarm.Bee) bool) ([]swarm.Bee, []string) {
 	if prev == nil {
-		// 基线按「所有 bee 之前都不在待审查」处理：既补发当前待审查的提醒，
+		// 基线按「所有 bee 之前都不在该状态」处理：既补发当前命中的提醒，
 		// 又因基线为空而不会产出消解列表。
 		prev = map[string]bool{}
 	}
-	var pending []beeMergeReview
+	var entered []swarm.Bee
 	var cleared []string
 	seen := make(map[string]bool, len(bees))
 	for _, bee := range bees {
 		seen[bee.ThreadID] = true
-		isPending := beeMergeReviewPending(bee)
-		if isPending && !prev[bee.ThreadID] {
-			detail := bee.Name + "：" + bee.Task
-			if bee.ReviewReason != "" {
-				detail += "；审查意见：" + bee.ReviewReason
-			}
-			// EnteredAt 必须取稳定时刻（bee 结束时间），不能用本次观察时刻：
-			// MCode 重启后再次观察同一个 bee 时，只有稳定时刻才能算出同一个去重键，
-			// attention.Service.Record 才会识别为重复，不会每次重启都新增一条提醒。
-			enteredAt := observedAt
-			if bee.FinishedAt != nil && !bee.FinishedAt.IsZero() {
-				enteredAt = *bee.FinishedAt
-			}
-			pending = append(pending, beeMergeReview{
-				SubjectID: bee.ThreadID,
-				ThreadID:  leadThreadID,
-				ProjectID: bee.ProjectID,
-				Title:     "有改动待审查",
-				Detail:    detail,
-				EnteredAt: enteredAt,
-			})
+		active := match(bee)
+		if active && !prev[bee.ThreadID] {
+			entered = append(entered, bee)
 		}
-		if !isPending && prev[bee.ThreadID] {
+		if !active && prev[bee.ThreadID] {
 			cleared = append(cleared, bee.ThreadID)
 		}
 	}
-	// bee 已从快照里消失（被清理或归档）也算离开待审查状态。
-	for beeThreadID, wasPending := range prev {
-		if wasPending && !seen[beeThreadID] {
+	// bee 已从快照里消失（被清理或归档）也算离开该状态。
+	for beeThreadID, wasActive := range prev {
+		if wasActive && !seen[beeThreadID] {
 			cleared = append(cleared, beeThreadID)
 		}
 	}
-	return pending, cleared
+	return entered, cleared
 }
 
-// mergeReviewStatusSnapshot 记录每个 bee 是否处于待审查状态。
-func mergeReviewStatusSnapshot(bees []swarm.Bee) map[string]bool {
+// beeConditionSnapshot 记录每个 bee 是否满足指定条件。
+func beeConditionSnapshot(bees []swarm.Bee, match func(swarm.Bee) bool) map[string]bool {
 	snapshot := make(map[string]bool, len(bees))
 	for _, bee := range bees {
-		snapshot[bee.ThreadID] = beeMergeReviewPending(bee)
+		snapshot[bee.ThreadID] = match(bee)
 	}
 	return snapshot
 }
 
-// handleBeeLead 读取某个 lead 会话的 bee 状态并写入新出现的失败与待审查提醒。
+// diffMergeReviewPending 比较同一个 lead 下两次 bee 快照：新进入待审查状态产出事件；
+// 返回新进入的提醒与已离开该状态的 bee 会话 ID，后者用于自动消解对应提醒。纯函数便于测试。
+func diffMergeReviewPending(prev map[string]bool, bees []swarm.Bee, leadThreadID string, observedAt time.Time) ([]beeMergeReview, []string) {
+	entered, cleared := diffBeeCondition(prev, bees, beeMergeReviewPending)
+	pending := make([]beeMergeReview, 0, len(entered))
+	for _, bee := range entered {
+		detail := beeNameTaskDetail(bee.Name, bee.Task)
+		if bee.ReviewReason != "" {
+			detail += "；审查意见：" + bee.ReviewReason
+		}
+		pending = append(pending, beeMergeReview{
+			SubjectID: bee.ThreadID,
+			ThreadID:  leadThreadID,
+			ProjectID: bee.ProjectID,
+			Title:     "有改动待审查",
+			Detail:    detail,
+			EnteredAt: beeEnteredAt(bee, observedAt),
+		})
+	}
+	return pending, cleared
+}
+
+// diffDesignAwaitingFinalize 比较同一个 lead 下两次 bee 快照，产出新进入待定稿的设计提醒与已离开的 bee 会话 ID。
+// 通知与点击跳转指向 bee 自身会话（bee.ThreadID）。
+func diffDesignAwaitingFinalize(prev map[string]bool, bees []swarm.Bee, observedAt time.Time) ([]beeAttentionNotice, []string) {
+	entered, cleared := diffBeeCondition(prev, bees, beeDesignAwaitingFinalize)
+	pending := make([]beeAttentionNotice, 0, len(entered))
+	for _, bee := range entered {
+		pending = append(pending, beeAttentionNotice{
+			SubjectID: bee.ThreadID,
+			ThreadID:  bee.ThreadID,
+			ProjectID: bee.ProjectID,
+			Title:     "设计稿待你确认",
+			Detail:    beeNameTaskDetail(bee.Name, bee.Task),
+			EnteredAt: beeEnteredAt(bee, observedAt),
+		})
+	}
+	return pending, cleared
+}
+
+// handleBeeLead 读取某个 lead 会话的 bee 状态并写入新出现的失败、待审查与设计待定稿提醒。
 func (w *attentionWiring) handleBeeLead(leadThreadID string) {
 	if w.swarm == nil || leadThreadID == "" {
 		return
@@ -1146,6 +1200,7 @@ func (w *attentionWiring) handleBeeLead(leadThreadID string) {
 	w.mu.Lock()
 	failures := diffBeeFailures(w.beeSnapshot[leadThreadID], state.Bees, leadThreadID, observedAt)
 	reviews, clearedReviews := diffMergeReviewPending(w.mergeReviewSnapshot[leadThreadID], state.Bees, leadThreadID, observedAt)
+	designPending, clearedDesign := diffDesignAwaitingFinalize(w.designAwaitingFinalizeSnapshot[leadThreadID], state.Bees, observedAt)
 	if w.beeSnapshot == nil {
 		w.beeSnapshot = make(map[string]map[string]string)
 	}
@@ -1153,7 +1208,11 @@ func (w *attentionWiring) handleBeeLead(leadThreadID string) {
 	if w.mergeReviewSnapshot == nil {
 		w.mergeReviewSnapshot = make(map[string]map[string]bool)
 	}
-	w.mergeReviewSnapshot[leadThreadID] = mergeReviewStatusSnapshot(state.Bees)
+	w.mergeReviewSnapshot[leadThreadID] = beeConditionSnapshot(state.Bees, beeMergeReviewPending)
+	if w.designAwaitingFinalizeSnapshot == nil {
+		w.designAwaitingFinalizeSnapshot = make(map[string]map[string]bool)
+	}
+	w.designAwaitingFinalizeSnapshot[leadThreadID] = beeConditionSnapshot(state.Bees, beeDesignAwaitingFinalize)
 	w.mu.Unlock()
 	for _, failure := range failures {
 		w.record(attention.Input{
@@ -1181,6 +1240,21 @@ func (w *attentionWiring) handleBeeLead(leadThreadID string) {
 	}
 	for _, beeThreadID := range clearedReviews {
 		w.resolveSubject(attention.SubjectBee, beeThreadID, attention.KindMergeReviewPending)
+	}
+	for _, item := range designPending {
+		w.record(attention.Input{
+			Kind:        attention.KindDesignAwaitingFinalize,
+			SubjectType: attention.SubjectBee,
+			SubjectID:   item.SubjectID,
+			ProjectID:   item.ProjectID,
+			ThreadID:    item.ThreadID,
+			Title:       item.Title,
+			Detail:      item.Detail,
+			EnteredAt:   item.EnteredAt,
+		})
+	}
+	for _, beeThreadID := range clearedDesign {
+		w.resolveSubject(attention.SubjectBee, beeThreadID, attention.KindDesignAwaitingFinalize)
 	}
 }
 

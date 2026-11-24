@@ -1095,3 +1095,138 @@ func TestHandleAutomationRunStoppedNotifyOnce(t *testing.T) {
 		t.Fatalf("第二次停用通知 = %q, 期望 %q", after[1], want)
 	}
 }
+
+// TestAttentionDesignAwaitingFinalize 覆盖设计 bee 待定稿提醒：
+// 进入待定稿时记录一条 attention 并通知一次、重复观察同一状态不重复通知、离开待定稿后清除。
+func TestAttentionDesignAwaitingFinalize(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "attention.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Logf("close store: %v", err)
+		}
+	})
+
+	observedAt := time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC)
+	finishedAt := observedAt.Add(-time.Minute)
+	svc := attention.New(st, attention.Options{})
+	leadID := "lead-design"
+	beeID := "bee-design"
+
+	var mu sync.Mutex
+	var notices []string
+	notify := func(title, body, threadID string) {
+		mu.Lock()
+		defer mu.Unlock()
+		notices = append(notices, title+"|"+body+"|"+threadID)
+	}
+
+	designBee := swarm.Bee{
+		ThreadID:         beeID,
+		Name:             "Design",
+		Task:             "首页改版设计",
+		ProjectID:        "project-1",
+		Status:           swarm.StatusCompleted,
+		AwaitingFinalize: true,
+		FinishedAt:       &finishedAt,
+	}
+
+	makeWiring := func(bees []swarm.Bee) *attentionWiring {
+		mgr := swarm.NewManager(swarm.Options{
+			Persister:    staticLeadPersister{records: []swarm.LeadRecord{{LeadThreadID: leadID, Enabled: true, Bees: bees}}},
+			PollInterval: testSwarmPollInterval,
+		})
+		if err := mgr.Restore(ctx); err != nil {
+			t.Fatalf("restore swarm: %v", err)
+		}
+		return newAttentionWiring(attentionWiringOptions{
+			Service: svc,
+			Swarm:   mgr,
+			Now:     func() time.Time { return observedAt },
+			Notify:  notify,
+		})
+	}
+
+	// 1. 进入待定稿：记录一条 attention 并通知一次，线程指向 bee 自身会话。
+	w := makeWiring([]swarm.Bee{designBee})
+	w.handleBeeLead(leadID)
+
+	events := listUnresolved(t, svc)
+	if len(events) != 1 {
+		t.Fatalf("进入待定稿应记录 1 条未消解事件，实际 %d 条: %+v", len(events), events)
+	}
+	ev := events[0]
+	if ev.Kind != string(attention.KindDesignAwaitingFinalize) || ev.SubjectType != string(attention.SubjectBee) || ev.SubjectID != beeID || ev.ThreadID != beeID {
+		t.Fatalf("事件字段不符合预期: %+v", ev)
+	}
+	if ev.Title != "设计稿待你确认" || ev.Detail != "Design：首页改版设计" {
+		t.Fatalf("事件标题/正文 = %q/%q, 期望 设计稿待你确认 / Design：首页改版设计", ev.Title, ev.Detail)
+	}
+
+	mu.Lock()
+	gotNotices := append([]string(nil), notices...)
+	mu.Unlock()
+	wantNotice := "设计稿待你确认|Design：首页改版设计|" + beeID
+	if len(gotNotices) != 1 || gotNotices[0] != wantNotice {
+		t.Fatalf("通知列表 = %v, 期望 [%q]", gotNotices, wantNotice)
+	}
+
+	// 2. 重复观察同一状态（同一实例再次回调，以及重启后新实例重新观察）：不重复写库也不重复通知。
+	w.handleBeeLead(leadID)
+	makeWiring([]swarm.Bee{designBee}).handleBeeLead(leadID)
+
+	if count := countAttentionEvents(t, svc, attention.KindDesignAwaitingFinalize, beeID); count != 1 {
+		t.Fatalf("重复观察同一待定稿 bee 应只有 1 条记录，实际 %d 条", count)
+	}
+	mu.Lock()
+	gotNotices = append([]string(nil), notices...)
+	mu.Unlock()
+	if len(gotNotices) != 1 {
+		t.Fatalf("重复观察同一状态不应重复通知，实际 %d 条: %v", len(gotNotices), gotNotices)
+	}
+
+	// 3. 离开待定稿状态（用户回复重新运行 / 定稿 / 停止）：自动消解对应 attention。
+	for i, tc := range []struct {
+		name string
+		next swarm.Bee
+	}{
+		{
+			name: "用户回复后重新运行",
+			next: swarm.Bee{ThreadID: beeID, Name: "Design", Task: "首页改版设计", ProjectID: "project-1", Status: swarm.StatusRunning, AwaitingFinalize: false},
+		},
+		{
+			name: "定稿完成",
+			next: swarm.Bee{ThreadID: beeID, Name: "Design", Task: "首页改版设计", ProjectID: "project-1", Status: swarm.StatusCompleted, AwaitingFinalize: false, FinalizeRequested: true, FinishedAt: &finishedAt},
+		},
+		{
+			name: "停止",
+			next: swarm.Bee{ThreadID: beeID, Name: "Design", Task: "首页改版设计", ProjectID: "project-1", Status: swarm.StatusStopped, AwaitingFinalize: false, FinishedAt: &finishedAt},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			roundWiring := w
+			if i > 0 {
+				roundAt := finishedAt.Add(time.Duration(i) * time.Minute)
+				reentered := designBee
+				reentered.FinishedAt = &roundAt
+				roundWiring = makeWiring([]swarm.Bee{reentered})
+				roundWiring.handleBeeLead(leadID)
+			}
+
+			if unresolved := listUnresolved(t, svc); len(unresolved) != 1 {
+				t.Fatalf("%s 测试前置：应有 1 条未消解事件，实际 %d 条", tc.name, len(unresolved))
+			}
+
+			// 模拟 bee 状态从待定稿变成目标状态。
+			roundWiring.swarm = makeWiring([]swarm.Bee{tc.next}).swarm
+			roundWiring.handleBeeLead(leadID)
+
+			if unresolved := listUnresolved(t, svc); len(unresolved) != 0 {
+				t.Fatalf("离开待定稿（%s）后应清除未消解事件，实际仍剩 %d 条: %+v", tc.name, len(unresolved), unresolved)
+			}
+		})
+	}
+}
