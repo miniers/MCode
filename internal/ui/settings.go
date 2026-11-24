@@ -346,6 +346,18 @@ func (s *SettingsState) handleConfigChanged() {
 	s.cfgMu.Unlock()
 }
 
+// resyncTextDraftsLocked 按当前 cfg 重设文本设置草稿与派生标记，避免重置或重读后输入框仍显示旧值。
+// 调用方必须按 mu → cfgMu 顺序同时持有两把锁。
+func (s *SettingsState) resyncTextDraftsLocked() {
+	s.remoteHostsText = strings.Join(s.cfg.Remote.ExtraHosts, ", ")
+	if s.globalShortcutDraft != nil {
+		*s.globalShortcutDraft = s.cfg.Shortcuts.GlobalShortcut
+	}
+	s.remote.portInit = false
+	s.remote.tlsFieldsInit = false
+	s.remote.tailscaleHostInit = false
+}
+
 // refreshFromDisk 重新读盘并刷新设置页的配置快照。
 // 有未落盘的文本改动时跳过：那份内存态更新，重读会把用户刚输入的内容盖回去；
 // 保存（或下次打开面板）时本来就会重新读一次。
@@ -360,16 +372,14 @@ func (s *SettingsState) refreshFromDisk() {
 	if err != nil {
 		return
 	}
+	s.mu.Lock()
 	s.cfgMu.Lock()
 	s.cfg = cfg
 	s.base = cloneConfig(cfg)
-	s.remoteHostsText = strings.Join(cfg.Remote.ExtraHosts, ", ")
-	// 重读配置后草稿要跟着换，否则输入框还显示上一份配置里的旧快捷键。
-	if s.globalShortcutDraft != nil {
-		*s.globalShortcutDraft = cfg.Shortcuts.GlobalShortcut
-	}
+	s.resyncTextDraftsLocked()
 	s.configWarning = configWarningsText(warnings)
 	s.cfgMu.Unlock()
+	s.mu.Unlock()
 
 	s.invalidate()
 }
@@ -503,7 +513,7 @@ func (s *SettingsState) Open() {
 	} else {
 		s.cfg = cfg
 		s.base = cloneConfig(cfg)
-		s.remoteHostsText = strings.Join(cfg.Remote.ExtraHosts, ", ")
+		s.resyncTextDraftsLocked()
 		s.errorMessage = ""
 		s.configWarning = configWarningsText(warnings)
 	}

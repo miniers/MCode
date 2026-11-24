@@ -1160,6 +1160,7 @@ func resetSettingsTreePage(st *SettingsState, p settingsPage) {
 	for _, r := range controls {
 		r.reset(&st.cfg)
 	}
+	st.resyncTextDraftsLocked()
 	var loadErr error
 	if p.ID == "workbench" && !settingRowLocked(st, setting{ID: "row-global-instructions"}) {
 		loadErr = st.loadGlobalInstructions()
