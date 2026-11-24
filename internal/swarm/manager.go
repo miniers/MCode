@@ -1278,6 +1278,71 @@ func (m *Manager) BeeInteractive(threadID string) bool {
 	return false
 }
 
+// IsDesignBee 报告指定子会话是否属于交互式共享工作区（设计档位）bee。
+func (m *Manager) IsDesignBee(threadID string) bool {
+	if m == nil || threadID == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, lead := range m.leads {
+		for i := range lead.bees {
+			if lead.bees[i].ThreadID == threadID {
+				return isInteractiveSharedBee(&lead.bees[i])
+			}
+		}
+	}
+	return false
+}
+
+// RecordBeeDesignFile 为设计档位 bee 记录工作区内打开预览的设计稿相对路径，去重后落盘并通知变化。
+func (m *Manager) RecordBeeDesignFile(beeThreadID, relPath string) {
+	if m == nil {
+		return
+	}
+	beeThreadID = strings.TrimSpace(beeThreadID)
+	relPath = strings.TrimSpace(relPath)
+	if beeThreadID == "" || relPath == "" {
+		return
+	}
+
+	var changedLeadID string
+	m.mu.Lock()
+	for leadID, lead := range m.leads {
+		found := false
+		for i := range lead.bees {
+			bee := &lead.bees[i]
+			if bee.ThreadID != beeThreadID {
+				continue
+			}
+			found = true
+			if !isInteractiveSharedBee(bee) {
+				break
+			}
+			dup := false
+			for _, existing := range bee.DesignFiles {
+				if existing == relPath {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				bee.DesignFiles = append(bee.DesignFiles, relPath)
+				changedLeadID = leadID
+			}
+			break
+		}
+		if found {
+			break
+		}
+	}
+	m.mu.Unlock()
+
+	if changedLeadID != "" {
+		m.notifyChange(changedLeadID)
+	}
+}
+
 // LeadThreadForWorkDir 根据 bee 的工作目录反查所属主会话。
 func (m *Manager) LeadThreadForWorkDir(workDir string) (leadThreadID string, ok bool) {
 	owner, ok := m.ownerForWorkDir(workDir)
@@ -3278,6 +3343,8 @@ func (m *Manager) NoteBeeUserTurn(ctx context.Context, threadID string) {
 
 const finalizeDesignPrompt = "用户已定稿，不要再修改设计稿。现在输出最终汇报：设计稿路径；用户在各轮里拍板的关键决定；实现时要注意的点。"
 
+const designBeeMessagePrefix = "主会话转达用户的回复：\n"
+
 // resetBeeForNewRoundLocked 在持锁状态下重置已结束 bee 的结果字段，使其重新进入运行态。
 // 不重置 FinalizeRequested，由调用方按需清理。
 func (m *Manager) resetBeeForNewRoundLocked(bee *Bee, now time.Time) {
@@ -3380,6 +3447,158 @@ func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThread
 		m.resetEmptyNudge(beeThreadID)
 		m.setContinueNudge(beeThreadID, false)
 		m.setRetryCount(beeThreadID, 0)
+		m.notifyChange(leadThreadID)
+	}
+	return nil
+}
+
+// FinalizeDesignBeeFromTurn 在设计档位 bee 自己的回合内或待定稿状态下触发定稿：
+// 运行中时仅置 FinalizeRequested=true，不发送额外提示词，本轮结束后直接放行汇报；
+// 已处于待定稿状态时复用 FinalizeDesignBee。
+func (m *Manager) FinalizeDesignBeeFromTurn(ctx context.Context, beeThreadID string) error {
+	if m == nil {
+		return errors.New("swarm manager is nil")
+	}
+	beeThreadID = strings.TrimSpace(beeThreadID)
+	if beeThreadID == "" {
+		return ErrBeeNotFound
+	}
+
+	var (
+		leadThreadID string
+		isRunning    bool
+		isAwaiting   bool
+	)
+	m.mu.Lock()
+	for lid, lead := range m.leads {
+		for i := range lead.bees {
+			bee := &lead.bees[i]
+			if bee.ThreadID != beeThreadID {
+				continue
+			}
+			if !isInteractiveSharedBee(bee) {
+				m.mu.Unlock()
+				return errors.New("该子代理不是设计档位")
+			}
+			leadThreadID = lid
+			switch {
+			case bee.Status == StatusRunning:
+				bee.FinalizeRequested = true
+				isRunning = true
+			case bee.AwaitingFinalize:
+				isAwaiting = true
+			default:
+				m.mu.Unlock()
+				return errors.New("该设计子代理当前未处于运行或待定稿状态")
+			}
+			break
+		}
+		if leadThreadID != "" {
+			break
+		}
+	}
+	m.mu.Unlock()
+
+	if leadThreadID == "" {
+		return ErrBeeNotFound
+	}
+	if isRunning {
+		m.notifyChange(leadThreadID)
+		return nil
+	}
+	if isAwaiting {
+		return m.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+	}
+	return nil
+}
+
+// findLeadBeeByRefLocked 在持锁状态下按 ThreadID 精确匹配或按 Name 忽略大小写从最新到最旧匹配 lead 下的 bee。
+func findLeadBeeByRefLocked(lead *leadState, ref string) *Bee {
+	for i := range lead.bees {
+		if lead.bees[i].ThreadID == ref {
+			return &lead.bees[i]
+		}
+	}
+	for i := len(lead.bees) - 1; i >= 0; i-- {
+		if strings.EqualFold(strings.TrimSpace(lead.bees[i].Name), ref) {
+			return &lead.bees[i]
+		}
+	}
+	return nil
+}
+
+// SendDesignBeeMessage 将主会话转达的用户反馈发给处于待定稿状态的设计档位 bee（支持按 bee 线程 ID 或名称定位），
+// 发送成功后将其置回运行态且保持 FinalizeRequested=false，使其本轮结束后回到待定稿。
+func (m *Manager) SendDesignBeeMessage(ctx context.Context, leadThreadID, beeThreadID, text string) error {
+	if m == nil {
+		return errors.New("swarm manager is nil")
+	}
+	beeRef := strings.TrimSpace(beeThreadID)
+	if beeRef == "" {
+		return ErrBeeNotFound
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return errors.New("转发内容不能为空")
+	}
+
+	m.mu.Lock()
+	lead, ok := m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return ErrLeadNotFound
+	}
+	bee := findLeadBeeByRefLocked(lead, beeRef)
+	if bee == nil {
+		m.mu.Unlock()
+		return ErrBeeNotFound
+	}
+	if !isInteractiveSharedBee(bee) {
+		m.mu.Unlock()
+		return errors.New("该子代理不是设计档位")
+	}
+	if !bee.AwaitingFinalize {
+		m.mu.Unlock()
+		return errors.New("该子代理不在待定稿状态")
+	}
+	targetThreadID := bee.ThreadID
+	m.mu.Unlock()
+
+	messenger, ok := m.opts.Driver.(kanban.SessionMessenger)
+	if !ok {
+		return errors.New("driver does not support SessionMessenger")
+	}
+	if err := messenger.SendFollowUp(ctx, targetThreadID, designBeeMessagePrefix+text); err != nil {
+		return err
+	}
+
+	now := m.now()
+	m.mu.Lock()
+	lead, ok = m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return ErrLeadNotFound
+	}
+	bee = findLeadBeeByRefLocked(lead, targetThreadID)
+	if bee == nil {
+		m.mu.Unlock()
+		return ErrBeeNotFound
+	}
+	updated := false
+	if bee.AwaitingFinalize {
+		m.resetBeeForNewRoundLocked(bee, now)
+		bee.FinalizeRequested = false
+		updated = true
+	} else if bee.Status == StatusRunning {
+		bee.FinalizeRequested = false
+		updated = true
+	}
+	m.mu.Unlock()
+
+	if updated {
+		m.resetEmptyNudge(targetThreadID)
+		m.setContinueNudge(targetThreadID, false)
+		m.setRetryCount(targetThreadID, 0)
 		m.notifyChange(leadThreadID)
 	}
 	return nil
@@ -5183,7 +5402,25 @@ func (m *Manager) updateBeeLocked(leadThreadID string, h Bee) {
 			if lead.bees[i].Status != StatusRunning {
 				return
 			}
-			lead.bees[i] = h.clone()
+			cp := h.clone()
+			// 保留 Tick 解锁期间并发写入的设计稿路径与定稿请求。
+			for _, p := range lead.bees[i].DesignFiles {
+				dup := false
+				for _, existing := range cp.DesignFiles {
+					if existing == p {
+						dup = true
+						break
+					}
+				}
+				if !dup {
+					cp.DesignFiles = append(cp.DesignFiles, p)
+				}
+			}
+			if lead.bees[i].FinalizeRequested && !cp.FinalizeRequested {
+				cp.FinalizeRequested = true
+				cp.AwaitingFinalize = false
+			}
+			lead.bees[i] = cp
 			return
 		}
 	}

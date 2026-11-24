@@ -107,6 +107,8 @@ type Bee struct {
 	AwaitingFinalize bool `json:"awaiting_finalize,omitempty"`
 	// FinalizeRequested 表示用户已点定稿，本轮结束后不再暂缓汇报。
 	FinalizeRequested bool `json:"finalize_requested,omitempty"`
+	// DesignFiles 记录设计档位 bee 通过预览工具打开过的工作区内稿件相对路径（以 / 分隔）。
+	DesignFiles []string `json:"design_files,omitempty"`
 	// WritePaths 是派发时档位带来的写入白名单，非空时只合并匹配这些 glob 的改动。
 	WritePaths []string `json:"write_paths,omitempty"`
 	Acceptance []string `json:"acceptance,omitempty"`
@@ -506,6 +508,7 @@ type Options struct {
 func (h Bee) clone() Bee {
 	cp := h
 	cp.Files = append([]string(nil), h.Files...)
+	cp.DesignFiles = append([]string(nil), h.DesignFiles...)
 	cp.Acceptance = append([]string(nil), h.Acceptance...)
 	if h.AcceptanceStartedAt != nil {
 		t := *h.AcceptanceStartedAt

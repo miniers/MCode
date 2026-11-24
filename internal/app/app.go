@@ -886,7 +886,16 @@ func Open(opts Options) (*App, error) {
 			}
 			return out
 		},
-		OpenPreview: mcodeui.OpenPreviewForThread,
+		OpenPreview: func(threadID, target string) error {
+			if swarmMgr != nil {
+				if workDir, ok := backend.ThreadWorkDir(threadID); ok {
+					if relPath, ok := resolveDesignPreviewRelPath(workDir, target); ok {
+						swarmMgr.RecordBeeDesignFile(threadID, relPath)
+					}
+				}
+			}
+			return mcodeui.OpenPreviewForThread(threadID, target)
+		},
 	}
 	// 记忆工具只读项目空间与全局空间；用户明确要求记住时 memory_propose 经 MemoryCommit 直接写入。
 	if localDocs != nil {

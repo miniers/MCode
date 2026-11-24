@@ -1434,6 +1434,9 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 				}
 				return text, nil
 			},
+			Message:        mgr.SendDesignBeeMessage,
+			IsDesignBee:    mgr.IsDesignBee,
+			FinalizeDesign: mgr.FinalizeDesignBeeFromTurn,
 		})
 	}
 
@@ -1807,4 +1810,53 @@ func beeRecallSummary(content string) string {
 		return string(runes[:beeRecallItemRunes]) + "…"
 	}
 	return string(runes)
+}
+
+// resolveDesignPreviewRelPath 将预览目标规范化为相对于工作目录的 `/` 分隔路径；
+// 对 HTTP(S) URL、空值或越出工作目录的路径返回 false。
+func resolveDesignPreviewRelPath(workDir, target string) (string, bool) {
+	target = strings.TrimSpace(target)
+	workDir = strings.TrimSpace(workDir)
+	if target == "" || workDir == "" {
+		return "", false
+	}
+	lower := strings.ToLower(target)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return "", false
+	}
+
+	absRoot, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", false
+	}
+	root := filepath.Clean(absRoot)
+	evalRoot := root
+	if er, err := filepath.EvalSymlinks(root); err == nil {
+		evalRoot = er
+	}
+
+	p := filepath.FromSlash(target)
+	var full string
+	if filepath.IsAbs(p) {
+		full = filepath.Clean(p)
+	} else {
+		full = filepath.Clean(filepath.Join(root, p))
+	}
+	rel, err := filepath.Rel(root, full)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+
+	evalFull, err := filepath.EvalSymlinks(full)
+	if err == nil {
+		evalRel, relErr := filepath.Rel(evalRoot, evalFull)
+		if relErr != nil || evalRel == "." || evalRel == ".." || strings.HasPrefix(evalRel, ".."+string(filepath.Separator)) || filepath.IsAbs(evalRel) {
+			return "", false
+		}
+		return filepath.ToSlash(evalRel), true
+	}
+	if !os.IsNotExist(err) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
 }

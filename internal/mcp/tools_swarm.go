@@ -10,6 +10,9 @@ import (
 // swarmDelegateToolName 是编排派发工具名；只对编排开启的主会话可见。
 const swarmDelegateToolName = "swarm_delegate"
 
+// swarmMessageToolName 是主会话向待定稿设计 bee 转达用户回复的工具名；可见性与 swarm_delegate 一致。
+const swarmMessageToolName = "swarm_message"
+
 // SwarmHooks 把编排派发器接给 swarm_delegate 工具。编排在 MCP 服务之后才接线，
 // 所以由 app 用 Server.SetSwarm 注入；没有注入时工具既不列出也不能调用。
 type SwarmHooks struct {
@@ -17,6 +20,12 @@ type SwarmHooks struct {
 	Available func(threadID string) bool
 	// Delegate 派发一批条目，返回给模型看的结果文本。条目的键与 ```swarm 块里的一致。
 	Delegate func(ctx context.Context, threadID string, entries []map[string]any) (string, error)
+	// Message 把主会话中用户对待定稿设计 bee 的反馈原话转达给该 bee。
+	Message func(ctx context.Context, leadThreadID, bee, text string) error
+	// IsDesignBee 报告指定线程是否属于设计档位 bee。
+	IsDesignBee func(threadID string) bool
+	// FinalizeDesign 在设计 bee 自己的回合内或待定稿状态下触发定稿。
+	FinalizeDesign func(ctx context.Context, beeThreadID string) error
 }
 
 // SetSwarm 并发安全地设置编排钩子。
@@ -44,16 +53,39 @@ func swarmUsable(hooks *SwarmHooks, ctx context.Context) bool {
 	return threadID != "" && hooks != nil && hooks.Available != nil && hooks.Delegate != nil && hooks.Available(threadID)
 }
 
-// filterSwarmTool 在 tools/list 里隐藏该会话用不了的 swarm_delegate。
+// swarmMessageUsable 与 swarmUsable 共用同一可见性与调用校验，仅在 Message 钩子已接线时放行。
+func swarmMessageUsable(hooks *SwarmHooks, ctx context.Context) bool {
+	threadID := scopeThreadID(ctx)
+	return threadID != "" && hooks != nil && hooks.Available != nil && hooks.Message != nil && hooks.Available(threadID)
+}
+
+// filterSwarmTool 在 tools/list 里隐藏该会话用不了的编排与设计定稿工具。
 func (s *Server) filterSwarmTool(r *http.Request, tools []ToolDefinition) []ToolDefinition {
-	if s.swarmAvailable(r.Context()) {
+	hooks := s.swarmHooks()
+	ctx := r.Context()
+	allowDelegate := swarmUsable(hooks, ctx)
+	allowMessage := swarmMessageUsable(hooks, ctx)
+	allowFinalize := designFinalizeUsable(hooks, ctx)
+	if allowDelegate && allowMessage && allowFinalize {
 		return tools
 	}
 	out := make([]ToolDefinition, 0, len(tools))
 	for _, tool := range tools {
-		if tool.Name != swarmDelegateToolName {
-			out = append(out, tool)
+		switch tool.Name {
+		case swarmDelegateToolName:
+			if !allowDelegate {
+				continue
+			}
+		case swarmMessageToolName:
+			if !allowMessage {
+				continue
+			}
+		case designFinalizeToolName:
+			if !allowFinalize {
+				continue
+			}
 		}
+		out = append(out, tool)
 	}
 	return out
 }
@@ -104,6 +136,22 @@ func (r *Registry) registerSwarmTools(s *Server) {
 		IsWrite: true,
 		Handler: handleSwarmDelegate,
 	})
+	r.Register(ToolDefinition{
+		Name: swarmMessageToolName,
+		Meta: map[string]any{"anthropic/alwaysLoad": true},
+		Description: "Forward the user's exact reply in the lead session (option selection, revision feedback, or confirmation to finalize) to an awaiting-finalize design bee. " +
+			"Do not restart or replace the bee using swarm_delegate replaces; this tool applies only to design bees currently awaiting finalization.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"bee":     str("Name or thread ID of the awaiting-finalize design bee."),
+				"message": str("The user's exact feedback or decision to forward to the bee."),
+			},
+			"required": []string{"bee", "message"},
+		},
+		IsWrite: true,
+		Handler: handleSwarmMessage,
+	})
 }
 
 func handleSwarmDelegate(tc ToolContext, args map[string]any) ToolResult {
@@ -141,4 +189,25 @@ func handleSwarmDelegate(tc ToolContext, args map[string]any) ToolResult {
 		text += fmt.Sprintf(" %d entry(ies) ignored: no prompt.", ignored)
 	}
 	return toolSuccess(text)
+}
+
+func handleSwarmMessage(tc ToolContext, args map[string]any) ToolResult {
+	hooks := tc.Server.swarmHooks()
+	if !swarmMessageUsable(hooks, tc.Context) {
+		return toolError(CodeNotFound, "Unknown tool: "+swarmMessageToolName, false)
+	}
+	bee, _ := args["bee"].(string)
+	bee = strings.TrimSpace(bee)
+	if bee == "" {
+		return toolError(CodeInvalidArguments, "Missing required argument: 'bee'.", false)
+	}
+	message, _ := args["message"].(string)
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return toolError(CodeInvalidArguments, "Missing required argument: 'message'.", false)
+	}
+	if err := hooks.Message(tc.Context, scopeThreadID(tc.Context), bee, message); err != nil {
+		return toolError(CodeInternal, err.Error(), false)
+	}
+	return toolSuccess("Forwarded user message to design bee.")
 }
