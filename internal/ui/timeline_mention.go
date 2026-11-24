@@ -467,13 +467,11 @@ func renderUserMentionParagraph(c *ui.Context, s *chatState, m Message, segments
 			if tooltip == "" {
 				tooltip = seg.Text
 			}
-			ui.RichText(c.Key("mention-"+key), ui.Span{
-				Text:       seg.Text,
-				Color:      ThemeAccent(c),
-				Weight:     500,
-				Background: ThemeAccent(c).Alpha(0.18),
-				Radius:     7,
-			}).
+			ui.Text(c.Key("mention-"+key), seg.Text).
+				TextColor(ThemeAccent(c)).
+				FontWeight(500).
+				Background(ThemeAccent(c).Alpha(0.18)).
+				Radius(7).
 				Tooltip(tooltip).
 				Cursor(ui.CursorPointer).
 				OnClick(func() {

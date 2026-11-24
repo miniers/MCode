@@ -28,6 +28,7 @@ var pathExtensions = map[string]struct{}{
 	".txt":      {},
 	".ts":       {},
 	".tsx":      {},
+	".astro":    {},
 	".js":       {},
 	".jsx":      {},
 	".json":     {},

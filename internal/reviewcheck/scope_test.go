@@ -80,3 +80,12 @@ func TestParseScopePlanDocSoft(t *testing.T) {
 		t.Errorf("Soft = %#v，期望计划文档", scope.Soft)
 	}
 }
+
+// TestScopeRecognizesAstro 验证无目录前缀的 Page.astro 能被路径提取识别。
+func TestScopeRecognizesAstro(t *testing.T) {
+	got := ExtractPaths("检查 Page.astro 的渲染逻辑")
+	want := []string{"Page.astro"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ExtractPaths() = %#v，期望 %#v", got, want)
+	}
+}

@@ -261,6 +261,7 @@ var commonCodeAndTextExts = map[string]string{
 	".swift":    "text/plain",
 	".ts":       "text/plain",
 	".tsx":      "text/plain",
+	".astro":    "text/plain",
 	".js":       "text/plain",
 	".jsx":      "text/plain",
 	".py":       "text/plain",

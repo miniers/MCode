@@ -13,7 +13,11 @@ func previewWebViewOptions(untrusted, capture bool) mygo.WebViewOptions {
 	if capture {
 		script += previewConsoleInstallJS
 	}
-	return mygo.WebViewOptions{Page: mygo.PageOptions{Untrusted: untrusted, PreloadScript: script}}
+	return mygo.WebViewOptions{Page: mygo.PageOptions{
+		Untrusted:       untrusted,
+		PreloadScript:   script,
+		SwipeNavigation: true,
+	}}
 }
 
 // 文档标识区分刷新后重置的序号；SPA 序号与控制台序号互不影响。

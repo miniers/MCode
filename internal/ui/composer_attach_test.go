@@ -911,3 +911,18 @@ func TestAttachmentTokenCacheLifecycle(t *testing.T) {
 		t.Fatalf("expected cache entry to be removed with the attachment")
 	}
 }
+
+// TestComposerAttachAstroIsCode 验证 .astro 附件按代码/文本识别并归类为 categoryCode。
+func TestComposerAttachAstroIsCode(t *testing.T) {
+	testenv.TempHome(t)
+
+	astroData := []byte("---\nconst title = 'Astro';\n---\n<h1>{title}</h1>\n")
+	mime, ok := detectAttachmentMime("Page.astro", astroData)
+	if !ok || mime != "text/plain" {
+		t.Fatalf("expected Page.astro to be detected as text/plain, got mime=%q ok=%v", mime, ok)
+	}
+
+	if cat, tag := classifyAttachment("Page.astro", mime); cat != categoryCode || tag != "ASTRO" {
+		t.Fatalf("expected categoryCode/ASTRO for Page.astro, got %v/%q", cat, tag)
+	}
+}

@@ -367,3 +367,12 @@ func TestReviewConcurrentSnapshots(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestReviewLanguageAstro 验证 .astro 扩展名映射为 "astro"。
+func TestReviewLanguageAstro(t *testing.T) {
+	for _, path := range []string{"Page.astro", "src/pages/index.ASTRO"} {
+		if got := reviewLanguage(path); got != "astro" {
+			t.Fatalf("reviewLanguage(%q) = %q, want %q", path, got, "astro")
+		}
+	}
+}

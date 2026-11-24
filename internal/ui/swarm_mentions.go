@@ -445,12 +445,13 @@ func renderSwarmMentionInline(c *ui.Context, s *chatState, key string, bee Swarm
 	name := ui.Text(c.Key(key), bee.Name).
 		FontWeight(700).
 		TextColor(color).
+		Radius(7).
+		PaddingX(Space0).
 		Tooltip("在独立窗口中打开").
 		OnClick(open)
 	if name.Hovered() {
 		name.Background(ThemeHover(c))
 	} else {
-		// 行内元素没有圆角，只用很淡的同色底色把名字标出来。
 		name.Background(color.Alpha(0.12))
 	}
 	return mentionIconSlot{box: slot.LayoutBounds, icon: safePersonaIcon(persona.Asset), color: color, size: size}

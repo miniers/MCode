@@ -346,6 +346,8 @@ func reviewLanguage(path string) string {
 		return "javascript"
 	case ".ts", ".tsx":
 		return "typescript"
+	case ".astro":
+		return "astro"
 	case ".json":
 		return "json"
 	case ".md", ".mdx":
