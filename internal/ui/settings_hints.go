@@ -124,8 +124,9 @@ var settingHints = map[string]string{
 
 	// 模型与供应商
 	"row-provider-bin":         "程序所在的路径。留空时，自动查找。",
-	"row-claude-bin":           "程序所在的路径。留空时，自动查找。",
-	"row-codex-bin":            "程序所在的路径。留空时，自动查找。",
+	"row-claude-bin":           "程序所在的路径。留空时，自动查找。修改后，必须重启应用。",
+	"row-codex-bin":            "程序所在的路径。留空时，自动查找。修改后，必须重启应用。",
+	"row-provider-auth":        "选择 droid 的登录方式。修改后，必须重启应用。",
 	"row-provider-pi-cache":    "打开后，pi 把提示词缓存保留更久。",
 	"row-provider-pi-vision":   "当前模型看不了图片时，用这个模型识别图片。",
 	"row-provider-tray-quota":  "打开后，菜单栏面板显示这个供应商的剩余额度。",

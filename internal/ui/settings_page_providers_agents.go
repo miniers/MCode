@@ -1368,8 +1368,7 @@ func renderProviderCLIExpanded(c *ui.Context, st *SettingsState, id string, acco
 	name := providerRowName(st, id)
 
 	if !accountSection {
-		// ACP 类 Provider（droid/cline/cursor/opencode/grok/devin）的配置改动需要重启生效
-		if id == "droid" || id == "cline" || id == "cursor" || id == "opencode" || id == "grok" || id == "devin" {
+		if providerNeedsRestart(id) {
 			ui.Column(c.Key("provider-restart-hint-"+id)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Tooltip("修改后需重启 MCode 生效").Children(func() {
 				ui.Text(c, "需重启生效").
 					FontSize(uiFont(TypeFootnote)).
@@ -1757,12 +1756,15 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 					if e.Locked {
 						SwitchDisabled(c, "sw-provider-list-"+e.Kind+"-"+e.ID, value, "启用 "+e.Name)
 					} else {
-						Switch(c, "sw-provider-list-"+e.Kind+"-"+e.ID, &value, "启用 "+e.Name, func(on bool) {
+						sw := Switch(c, "sw-provider-list-"+e.Kind+"-"+e.ID, &value, "启用 "+e.Name, func(on bool) {
 							childClicked = true
 							if e.Toggle != nil {
 								e.Toggle(on)
 							}
 						})
+						if e.Kind == "cli" && providerNeedsRestart(e.ID) {
+							sw.Tooltip("修改后，必须重启应用。")
+						}
 					}
 				}
 				ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
@@ -1938,6 +1940,15 @@ func renderCLIProviderSheetSections(c *ui.Context, st *SettingsState, id string,
 	for _, def := range cliProviderSheetSections(st, id, lib) {
 		def.Render(c, st)
 	}
+}
+
+// ACP 类 Provider 只在启动时注册，配置改动需要重启生效
+func providerNeedsRestart(id string) bool {
+	switch id {
+	case "droid", "cline", "cursor", "opencode", "grok", "devin":
+		return true
+	}
+	return false
 }
 
 // providerHasTrayQuotaSwitch 判断该 Provider 是否有「菜单栏额度」开关（与菜单栏额度面板支持的直连供应商一致）。
