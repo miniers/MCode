@@ -1308,8 +1308,6 @@ func TestUIReview4_DeliveryErrorUsesDangerTone(t *testing.T) {
 				switch tc.appr.Kind {
 				case ApprovalKindPlan:
 					cardBg = ThemeSurface(c)
-				case ApprovalKindQuestion:
-					cardBg = ThemeAccent(c).Alpha(0.06).Over(ThemeSurface(c))
 				}
 				ui.Column(c).FillWidth().Gap(Space2).Children(func() {
 					ui.Column(c).FillWidth().Gap(Space1).Background(cardBg).Children(func() {

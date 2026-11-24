@@ -52,6 +52,9 @@ type questionAnswerMessageItem struct {
 // answeredQuestionAnswerLimit 是答案行最多显示的行数，超出的部分省略，避免长答案把时间线撑开。
 const answeredQuestionAnswerLimit = 3
 
+// answeredEntryIndent 是答复条目的左缩进，与行头图标之后的文字对齐。
+const answeredEntryIndent = Space4 + IconMD + Space3
+
 // newAnsweredQuestion 把一次答复整理成历史态。answers 的键是题目 ID，值与 buildQuestionAnswers 一致；
 // skip 为 true 时只记跳过标记，不保留答案。
 func newAnsweredQuestion(a Approval, answers map[string][]string, skip bool) answeredQuestion {
@@ -287,7 +290,7 @@ func renderAnsweredQuestionCard(c *ui.Context, s *chatState, q answeredQuestion)
 				renderAnsweredQuestionToggle(c, s, key, id, len(q.Items), open)
 				motionUnfoldBody(c, key+"-fold", open, func() {
 					ui.Column(c.Key(key+"-list")).FillWidth().Gap(Space4).
-						Padding(Space1, Space4, Space4, Space4+IconMD+Space3).Children(func() {
+						Padding(Space1, Space4, Space4, answeredEntryIndent).Children(func() {
 						for i, item := range q.Items {
 							renderAnsweredQuestionEntry(c, id, i, item)
 						}
