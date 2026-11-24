@@ -25,9 +25,10 @@ func commandGaugeBarHeight(value, peak float64, full float32) float32 {
 }
 
 // isCommandCard 判断工具消息是否用命令卡片渲染：运行中的命令或 provider 托管的后台命令。
+// 只认状态明确为 running / background 的命令：历史或中断会话里状态为空的命令仍走胶囊加详情。
 // 等待审批的命令仍走普通胶囊，详情里要显示待批准的入参。
 func isCommandCard(m Message) bool {
-	return isCommandTool(m) && (toolIsRunningCommand(m) || isToolBackground(m)) && toolMessageState(m) != ToolPending
+	return isCommandTool(m) && (isToolRunning(m) || isToolBackground(m)) && toolMessageState(m) != ToolPending
 }
 
 // commandOutputText 取命令工具消息正文里第一行（工具头）之后的实时输出。
@@ -118,7 +119,7 @@ func renderCommandCard(c *ui.Context, s *chatState, m Message, beatTools []Messa
 	st := commandActivitySnapshot(s, m.ID)
 	background := isToolBackground(m)
 	open := s.toolMessageExpanded(m)
-	verb, target, _ := toolCallTitle(m)
+	verb, target, detail := toolCallTitle(m)
 	title := toolChipShortTitle(m, verb, target)
 	rawCmd := commandActivityCommand(m)
 
@@ -134,7 +135,7 @@ func renderCommandCard(c *ui.Context, s *chatState, m Message, beatTools []Messa
 	}
 
 	ui.Column(c.Key("command-card-"+m.ID)).FillWidth().Radius(RadiusMD).Background(ThemeSurfaceCard(c)).Border(Hairline, ThemeBorder(c)).Children(func() {
-		head := ui.Row(c.Key("command-card-head-"+m.ID)).FillWidth().Height(ControlLG).Radius(RadiusMD).Padding(0, Space3).Gap(Space3).AlignItems(ui.Center).Cursor(ui.CursorPointer).Focusable().Label(title)
+		head := ui.Row(c.Key("command-card-head-"+m.ID)).FillWidth().Height(ControlLG).Radius(RadiusMD).Padding(0, Space3).Gap(Space3).AlignItems(ui.Center).Cursor(ui.CursorPointer).Focusable().Label(toolCallRowLabel(verb, target, detail))
 		showActions := head.Hovered() || head.FocusWithin()
 		if head.Hovered() {
 			head.Background(ThemeHover(c))
@@ -145,10 +146,16 @@ func renderCommandCard(c *ui.Context, s *chatState, m Message, beatTools []Messa
 		}
 		head.Children(func() {
 			renderRunningGlyph(c, "command-card-run-"+m.ID, Space4, tone)
-			name := ui.Text(c, title).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Ellipsis("…").Grow(1).Shrink(1).MinWidth(0)
-			if toolChipDescription(m) == "" {
-				name.Font(fontFam)
-			}
+			// 标题外包一层可伸缩的行：运行中扫光的包裹行不带 Grow，由这一层把仪表与耗时推到右侧。
+			ui.Row(c.Key("command-card-title-" + m.ID)).Grow(1).Shrink(1).MinWidth(0).Children(func() {
+				renderToolChipTitle(c, m, func() ui.Element {
+					name := ui.Text(c, title).FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+					if toolChipDescription(m) == "" {
+						name.Font(fontFam)
+					}
+					return name
+				})
+			})
 			renderCommandGauge(c, "command-gauge-"+m.ID, st, stalled)
 			renderCommandCardActions(c, s, m, rawCmd, killing, background, showActions)
 			if badge != "" {

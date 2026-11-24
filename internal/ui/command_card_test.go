@@ -78,9 +78,12 @@ func TestCommandCardRunningMultiStep(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		tt.Frame()
 	}
-	verb, target, detail := toolCallTitle(m)
-	if _, ok := tt.Find(toolCallRowLabel(toolCallVerb(verb, m), target, detail)); ok {
-		t.Fatalf("运行中的命令不应再渲染工具胶囊: %q", tt.Texts())
+	// 卡片标题行与胶囊共用同一个 Label，只能靠卡片独有的 CPU 仪表区分。
+	if !isCommandCard(m) {
+		t.Fatal("运行中的命令应渲染成卡片")
+	}
+	if _, ok := tt.Find("资源占用"); !ok {
+		t.Fatalf("运行中的命令应渲染卡片的 CPU 仪表: %q", tt.Texts())
 	}
 	if n := commandCardTextCount(tt, "99%"); n != 1 {
 		t.Fatalf("CPU 百分比应只出现一次，实际 %d 次: %q", n, tt.Texts())
@@ -157,6 +160,30 @@ func TestCommandCardNoGaugeWithoutSample(t *testing.T) {
 	}
 	if _, ok := tt.Find("资源占用"); ok {
 		t.Fatalf("没有进程采样时不应显示 CPU 仪表: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("$ go test ./..."); !ok {
+		t.Fatalf("卡片标题行应能按「$ 命令」定位: %q", tt.Texts())
+	}
+}
+
+func TestCommandCardUnknownStatusStaysChip(t *testing.T) {
+	m := commandCardTestMessage("card-unknown", "go test ./...", "", 10*time.Second)
+	if isCommandCard(m) {
+		t.Fatal("状态为空且没有完成时间的命令不应是运行中卡片")
+	}
+	s := commandCardTestState(m, commandCardTestActivity("go test ./...", true))
+	tt := ui.NewTester(func(c *ui.Context) { renderSingleToolItem(c, s, m) }, 900, 500)
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	if _, ok := tt.Find("$ go test ./..."); !ok {
+		t.Fatalf("应渲染成胶囊: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("资源占用"); ok {
+		t.Fatalf("胶囊不应有 CPU 仪表: %q", tt.Texts())
+	}
+	if !tt.HasText("输出一行") {
+		t.Fatalf("胶囊展开后应显示输出正文: %q", tt.Texts())
 	}
 }
 

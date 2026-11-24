@@ -162,7 +162,10 @@ func TestBackgroundTaskExpandedCommandAndProcess(t *testing.T) {
 	m := backgroundTasksTestCommandLine("bg-view", 1, "background", "go build ./... | tail -10")
 	s := newChatState(nil)
 	s.composerView.backgroundTaskExpanded = m.ID
-	s.commandActivity = map[string]*commandActivityState{m.ID: {processes: []commandProcessView{{name: "compiler", cpu: 12}}}}
+	s.commandActivity = map[string]*commandActivityState{m.ID: {
+		hasProcess: true, cpu: 12, history: []float64{12},
+		processes: []commandProcessView{{name: "compiler", cpu: 12}},
+	}}
 	tt := ui.NewTester(func(c *ui.Context) { renderBackgroundTaskRow(c, s, "tasks", "", m, false) }, 800, 500)
 	for i := 0; i < 3; i++ {
 		tt.Frame()
@@ -170,7 +173,7 @@ func TestBackgroundTaskExpandedCommandAndProcess(t *testing.T) {
 	if _, ok := tt.Find("go build ./... | tail -10"); !ok {
 		t.Fatal("未显示完整命令")
 	}
-	if _, ok := tt.Find("compiler"); !ok {
-		t.Fatal("未显示进程")
-	}
+	// 进程行只在悬停 CPU 仪表时出现在浮层里。
+	commandCardHover(t, tt, "资源占用")
+	waitFor(t, tt, func() bool { return tt.HasText("compiler") })
 }
