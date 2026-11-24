@@ -398,11 +398,34 @@ func TestGitBranchPopoverMatchesDesign(t *testing.T) {
 	}
 }
 
+// branchPopoverPRFake 在 branchPopoverFake 之上补上 gitPRClient。
+type branchPopoverPRFake struct {
+	*branchPopoverFake
+	prs []git.PRSummary
+}
+
+// GitPRList 返回与头部 PR 一致的列表，否则弹窗读到列表后会清掉选中项。
+func (f *branchPopoverPRFake) GitPRList(context.Context, string, int) ([]git.PRSummary, error) {
+	return f.prs, nil
+}
+
+func (f *branchPopoverPRFake) GitPRDetail(context.Context, string, int) (git.PRDetail, error) {
+	return git.PRDetail{}, nil
+}
+
 func TestGitBranchPopoverPRRow(t *testing.T) {
-	newEnv := func(t *testing.T, remote string, pr *git.PRSummary) (*chatState, *ui.Tester, *bool) {
+	newEnvWith := func(t *testing.T, supportsPR bool, remote string, pr *git.PRSummary) (*chatState, *ui.Tester, *bool) {
 		t.Helper()
 		f := &branchPopoverFake{newGitFakeClient()}
-		s := newChatState(f)
+		var client Client = f
+		if supportsPR {
+			fake := &branchPopoverPRFake{branchPopoverFake: f}
+			if pr != nil {
+				fake.prs = []git.PRSummary{*pr}
+			}
+			client = fake
+		}
+		s := newChatState(client)
 		t.Cleanup(s.close)
 		hs := getChatHeaderState(s)
 		st := f.gitState
@@ -416,6 +439,10 @@ func TestGitBranchPopoverPRRow(t *testing.T) {
 		open := true
 		tt := ui.NewTester(func(c *ui.Context) { renderGitBranchPopoverContent(c, s, "thread", 300, &open) }, 800, 600)
 		return s, tt, &open
+	}
+	newEnv := func(t *testing.T, remote string, pr *git.PRSummary) (*chatState, *ui.Tester, *bool) {
+		t.Helper()
+		return newEnvWith(t, true, remote, pr)
 	}
 
 	t.Run("有远端且有开放 PR", func(t *testing.T) {
@@ -459,6 +486,16 @@ func TestGitBranchPopoverPRRow(t *testing.T) {
 		_, tt, _ := newEnv(t, "", nil)
 		if _, ok := tt.Find("查看 PR"); ok {
 			t.Fatalf("无远端不应渲染「查看 PR」行，texts=%q", tt.Texts())
+		}
+		if _, ok := tt.Find("打开 Git 面板"); !ok {
+			t.Fatal("底部「打开 Git 面板」行应保留")
+		}
+	})
+
+	t.Run("客户端不支持 PR", func(t *testing.T) {
+		_, tt, _ := newEnvWith(t, false, "https://github.com/org/repo", nil)
+		if _, ok := tt.Find("查看 PR"); ok {
+			t.Fatalf("客户端不支持 PR 时不应渲染「查看 PR」行，texts=%q", tt.Texts())
 		}
 		if _, ok := tt.Find("打开 Git 面板"); !ok {
 			t.Fatal("底部「打开 Git 面板」行应保留")

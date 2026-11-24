@@ -1024,7 +1024,8 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 		// g. 底部
 		branchPopoverDivider(c)
 		ui.Column(c.Key("git-branch-footer")).FillWidth().Padding(Space1).Children(func() {
-			if strings.TrimSpace(state.RemoteURL) != "" {
+			// 客户端不支持 PR 时点击只会打开报错的空弹窗，所以不渲染
+			if _, prOK := s.prClient(); prOK && strings.TrimSpace(state.RemoteURL) != "" {
 				pr, prLoaded := s.headerGitPR(threadID)
 				openPR := prLoaded && pr != nil && strings.EqualFold(strings.TrimSpace(pr.State), "open")
 				trailing := ""
