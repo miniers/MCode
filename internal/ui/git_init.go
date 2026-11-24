@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo"
 )
+
+// gitInitRunOnMain 调度初始化完成后的主线程 UI 状态切换；测试中可替换以避免无主循环时阻塞。
+var gitInitRunOnMain = mygo.RunOnMain
 
 type gitInitClient interface {
 	GitInit(context.Context, string) error
@@ -72,67 +75,9 @@ func startGitInit(s *chatState, threadID string) {
 		if ps := getGitPaneState(s); ps != nil {
 			ps.requestRefresh()
 		}
-		inspectorSelect(s, sidePaneGitID, false)
 		s.invalidate()
+		gitInitRunOnMain(func() {
+			inspectorSelect(s, sidePaneGitID, false)
+		})
 	}()
-}
-
-// renderGitInitActionButton 渲染「初始化」/「初始化 Git」操作按钮，进行中时使用不触发整窗重建的 Draw 指示器。
-func renderGitInitActionButton(c *ui.Context, key, text string, variant ButtonVariant, size float32, icon *ui.SVG, busy, threadRunning bool, onClick func()) ui.Element {
-	size = buttonSize(size)
-	pad, radius, font, iconSize := Space3, RadiusMD, TypeBody, IconMD
-	if size == ControlSM {
-		pad, radius, font, iconSize = Space3, RadiusSM, TypeFootnote, IconSM
-	}
-	disabled := busy || threadRunning
-	b := ui.ButtonBase(c.Key(key)).
-		Height(size).
-		Radius(radius).
-		Gap(Space2).
-		Padding(0, pad).
-		Label(text)
-	if threadRunning {
-		b.Description("会话运行中，暂不可初始化")
-	}
-	if disabled {
-		b.Disabled(true)
-	} else if onClick != nil {
-		b.OnClick(onClick)
-	}
-	fg := ThemePrimaryText(c)
-	if variant == ButtonPrimary {
-		fg = ThemeOnAccent(c)
-	}
-	hoverTarget, pressTarget := float32(0), float32(0)
-	if !disabled && b.Hovered() {
-		hoverTarget = 1
-	}
-	if !disabled && b.Pressed() {
-		pressTarget = 1
-	}
-	hover := b.AnimateTo("button-hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
-	press := b.AnimateTo("button-press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
-	bg := buttonBackground(variant, false, windowActiveFor(c), hover, press, buttonColors{
-		accent: ThemeAccent(c), accentHover: ThemeAccentHover(c), accentPressed: ThemeAccentPressed(c),
-		tertiary: ThemeTertiaryText(c), overlaySelected: ThemeOverlaySelected(c),
-		overlayHover: ThemeOverlayHover(c), overlayPressed: ThemeOverlayPressed(c), danger: ThemeDanger(c),
-	})
-	if disabled && variant != ButtonPrimary {
-		fg = ThemeTertiaryText(c)
-	}
-	b.Background(bg)
-	if variant == ButtonSecondary {
-		b.Border(1, ThemeBorder(c))
-	}
-	focusRing(c, b)
-	scale := motionPressScale(c, b, "button-press-scale", !disabled && b.Pressed())
-	b.Scale(scale, scale).Children(func() {
-		if busy {
-			renderRunningGlyph(c, key+"-running", iconSize, fg)
-		} else if icon != nil {
-			ui.Icon(c, icon).Size(iconSize, iconSize).TextColor(fg)
-		}
-		ui.Text(c, text).FontSize(uiFont(font)).FontWeight(500).TextColor(fg).SingleLine()
-	})
-	return b
 }

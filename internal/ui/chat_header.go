@@ -736,7 +736,7 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 
 	trigger.Children(func() {
 		if initBusy {
-			renderRunningGlyph(c, "chat-header-git-init-running", IconSM, fg)
+			LoadingIndicator(c, nil, "", IconSM, fg)
 			ui.Text(c, "正在初始化…").FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(fg).SingleLine()
 		} else {
 			ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(fg)
@@ -744,6 +744,10 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 		}
 	})
 
+	confirmTooltip := ""
+	if threadRunning {
+		confirmTooltip = "会话运行中，暂不可初始化"
+	}
 	appPopover(c.Key("chat-header-git-init-popover"), trigger, &hs.initConfirmOpen, func() {
 		hs.initConfirmOpen = false
 	}, func() {
@@ -760,8 +764,17 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 					FillWidth().
 					Justify(ui.End).
 					Children(func() {
-						renderGitInitActionButton(c, "chat-header-git-init-confirm-btn", "初始化", ButtonPrimary, ControlSM, nil, initBusy, threadRunning, func() {
-							startGitInit(s, threadID)
+						Button(c, ButtonOpts{
+							Key:      "chat-header-git-init-confirm-btn",
+							Text:     "初始化",
+							Variant:  ButtonPrimary,
+							Size:     ControlSM,
+							Disabled: threadRunning,
+							Loading:  initBusy,
+							Tooltip:  confirmTooltip,
+							OnClick: func() {
+								startGitInit(s, threadID)
+							},
 						})
 					})
 			}))
@@ -918,39 +931,11 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 		}
 		mainBtn.Children(func() {
 			if switching {
-				renderRunningGlyph(c, "chat-header-git-switching", IconSM, fg)
+				LoadingIndicator(c, nil, "", IconSM)
 			} else {
 				ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(fg)
 			}
 			ui.Text(c, label).FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(fg).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
-			if st.Changes > 0 && gitChangeBadgeVisible(s) {
-				dirtyBg := ThemeOverlayHover(c)
-				dirtyFg := ThemeSecondaryText(c)
-				if paneActive {
-					dirtyBg = ThemeOverlaySelected(c)
-					dirtyFg = ThemePrimaryText(c)
-				}
-				ui.Row(c.Key("chat-header-git-dirty")).
-					Height(16).
-					Padding(0, Space1+1).
-					Radius(RadiusPill).
-					Gap(3).
-					AlignItems(ui.Center).
-					Background(dirtyBg).
-					Shrink(0).
-					Children(func() {
-						ui.Box(c.Key("chat-header-git-dirty-dot")).
-							Size(5, 5).
-							Radius(RadiusPill).
-							Background(ThemeWarning(c)).
-							Shrink(0)
-						ui.Text(c, strconv.Itoa(st.Changes)).
-							FontSize(uiFont(TypeCaption)).
-							FontWeight(500).
-							TextColor(dirtyFg).
-							SingleLine()
-					})
-			}
 			if st.Ahead > 0 {
 				ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).FontWeight(500).TextColor(ThemeSuccess(c)).Shrink(0)
 			}
@@ -959,7 +944,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 			}
 		})
 
-		ui.Box(c.Key("chat-header-git-sep")).Width(Hairline).Height(14).Background(sepColor).Shrink(0)
+		ui.Box(c.Key("chat-header-git-sep")).Width(Hairline).Height(IconSM).Background(sepColor).Shrink(0)
 
 		caretBtn = ui.ButtonBase(c.Key("chat-header-git-branch-btn")).
 			Label("切换分支").
@@ -1045,186 +1030,185 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 					Children(func() {
 						renderGitBranchPopoverContent(c, s, threadID, gitMenuWidth, &hs.branchMenuOpen)
 						if canShowGitPRCreate(s, threadID, st) {
-									menuRow(c, menuRowProps{
-										Key:   "chat-header-pr-create-btn",
-										Label: "创建 PR",
-										Icon:  IconGitPullRequestCreate(),
-										Title: "创建 PR",
-										OnClick: func() {
-											hs.branchMenuOpen = false
-											openGitPRCreateDialog(s, threadID)
-											s.invalidate()
-										},
-									})
-								}
-								gitMenuDivider(c)
-								// 复制当前分支名（detached 时复制短哈希），方便在终端里直接使用
-								copyBranch := st.Branch
-								if copyBranch == "" {
-									copyBranch = st.Head
-								}
-								if copyBranch != "" {
-									menuRow(c, menuRowProps{
-										Key:   "chat-header-git-copy-branch-btn",
-										Label: "复制分支名",
-										Title: "复制分支名",
-										OnClick: func() {
-											hs.branchMenuOpen = false
-											c.WriteClipboard(copyBranch)
-											s.setToast("已复制分支名")
-											s.invalidate()
-										},
-									})
-								}
+							menuRow(c, menuRowProps{
+								Key:   "chat-header-pr-create-btn",
+								Label: "创建 PR",
+								Icon:  IconGitPullRequestCreate(),
+								Title: "创建 PR",
+								OnClick: func() {
+									hs.branchMenuOpen = false
+									openGitPRCreateDialog(s, threadID)
+									s.invalidate()
+								},
+							})
+						}
+						gitMenuDivider(c)
+						// 复制当前分支名（detached 时复制短哈希），方便在终端里直接使用
+						copyBranch := st.Branch
+						if copyBranch == "" {
+							copyBranch = st.Head
+						}
+						if copyBranch != "" {
+							menuRow(c, menuRowProps{
+								Key:   "chat-header-git-copy-branch-btn",
+								Label: "复制分支名",
+								Title: "复制分支名",
+								OnClick: func() {
+									hs.branchMenuOpen = false
+									c.WriteClipboard(copyBranch)
+									s.setToast("已复制分支名")
+									s.invalidate()
+								},
+							})
+						}
 
-								if len(st.Worktrees) > 0 {
-									ui.Text(c, "Worktree").
-										FontSize(uiFont(TypeCaption)).
-										Bold().
-										TextColor(ThemeSecondaryText(c)).
-										Padding(Space3, Space3, Space0, Space3)
-									for _, w := range st.Worktrees {
-										wt := w
-										if !visibleHeaderWorktree(wt.Branch) {
-											continue
-										}
-										name := filepath.Base(wt.Path)
-										var onClick func()
-										if !wt.Current {
-											onClick = func() {
-												run(func() error {
-													return s.client.GitSwitchWorktree(context.Background(), threadID, wt.Path)
-												})
-											}
-										}
-										menuRow(c, menuRowProps{
-											Key:         "chat-header-git-wt-" + wt.Path,
-											Label:       "切换到 worktree " + name,
-											Title:       name,
-											Trailing:    truncateRunes(wt.Branch, 16),
-											Checked:     wt.Current,
-											Highlighted: wt.Current,
-											Disabled:    busy,
-											OnClick:     onClick,
+						if len(st.Worktrees) > 0 {
+							ui.Text(c, "Worktree").
+								FontSize(uiFont(TypeCaption)).
+								Bold().
+								TextColor(ThemeSecondaryText(c)).
+								Padding(Space3, Space3, Space0, Space3)
+							for _, w := range st.Worktrees {
+								wt := w
+								if !visibleHeaderWorktree(wt.Branch) {
+									continue
+								}
+								name := filepath.Base(wt.Path)
+								var onClick func()
+								if !wt.Current {
+									onClick = func() {
+										run(func() error {
+											return s.client.GitSwitchWorktree(context.Background(), threadID, wt.Path)
 										})
 									}
 								}
+								menuRow(c, menuRowProps{
+									Key:         "chat-header-git-wt-" + wt.Path,
+									Label:       "切换到 worktree " + name,
+									Title:       name,
+									Trailing:    truncateRunes(wt.Branch, 16),
+									Checked:     wt.Current,
+									Highlighted: wt.Current,
+									Disabled:    busy,
+									OnClick:     onClick,
+								})
+							}
+						}
 
-								// 非主 worktree 时不提供新建/迁入 Worktree
-								inMainWorktree := true
-								for i, wt := range st.Worktrees {
-									if wt.Current && i > 0 {
-										inMainWorktree = false
-										break
-									}
-								}
-								if inMainWorktree {
-									s.mu.Lock()
-									emptyThread := s.selectedThreadID == threadID && len(s.messages) == 0
-									s.mu.Unlock()
-									if emptyThread {
-										menuRow(c, menuRowProps{
-											Key:      "chat-header-git-new-wt-btn",
-											Label:    "为此会话新建 Worktree",
-											Title:    "为此会话新建 Worktree",
+						// 非主 worktree 时不提供新建/迁入 Worktree
+						inMainWorktree := true
+						for i, wt := range st.Worktrees {
+							if wt.Current && i > 0 {
+								inMainWorktree = false
+								break
+							}
+						}
+						if inMainWorktree {
+							s.mu.Lock()
+							emptyThread := s.selectedThreadID == threadID && len(s.messages) == 0
+							s.mu.Unlock()
+							if emptyThread {
+								menuRow(c, menuRowProps{
+									Key:      "chat-header-git-new-wt-btn",
+									Label:    "为此会话新建 Worktree",
+									Title:    "为此会话新建 Worktree",
+									Disabled: busy,
+									OnClick: func() {
+										run(func() error {
+											if err := s.client.MoveToWorktree(context.Background(), threadID, "", false); err != nil {
+												return err
+											}
+											s.setToast("已迁入 Worktree")
+											return nil
+										})
+									},
+								})
+							} else if hs.wtMoving {
+								ui.Column(c.Key("chat-header-git-move-wt-form")).
+									FillWidth().
+									Padding(Space0, Space1).
+									Gap(Space2).
+									Children(func() {
+										in := ui.TextInput(c.Key("chat-header-git-move-wt-input"), &hs.wtBranch).
+											Label("Worktree 分支名").
+											Placeholder("留空自动生成").
+											FontSize(uiFont(TypeFootnote)).
+											TextColor(ThemePrimaryText(c)).
+											Background(ThemeHover(c).Alpha(0.25)).
+											BorderColor(ThemeAccent(c)).
+											BorderWidth(1).
+											Radius(RadiusSM).
+											Padding(Space1, Space3).
+											FillWidth().
+											AutoFocus()
+										in.OnTextKey(func(k ui.TextKey) bool {
+											if k.Key == ui.KeyEscape {
+												chatHeaderMu.Lock()
+												hs.wtMoving = false
+												hs.wtBranch = ""
+												chatHeaderMu.Unlock()
+												s.invalidate()
+												return true
+											}
+											return false
+										})
+										ui.Row(c.Key("chat-header-git-move-wt-transfer")).
+											Gap(Space2).
+											AlignItems(ui.Center).
+											Children(func() {
+												if cb := ui.Checkbox(c.Key("chat-header-git-move-wt-transfer-check"), &hs.wtTransfer, "同时迁移未提交的改动"); cb.Changed() {
+													s.invalidate()
+												}
+											})
+										Button(c.Key("chat-header-git-move-wt-confirm"), ButtonOpts{
+											Text:     "迁入",
 											Disabled: busy,
 											OnClick: func() {
+												branch := strings.TrimSpace(hs.wtBranch)
+												transfer := hs.wtTransfer
 												run(func() error {
-													if err := s.client.MoveToWorktree(context.Background(), threadID, "", false); err != nil {
+													if err := s.client.MoveToWorktree(context.Background(), threadID, branch, transfer); err != nil {
 														return err
 													}
 													s.setToast("已迁入 Worktree")
 													return nil
 												})
 											},
+											Variant: ButtonPrimary,
 										})
-									} else if hs.wtMoving {
-										ui.Column(c.Key("chat-header-git-move-wt-form")).
-											FillWidth().
-											Padding(Space0, Space1).
-											Gap(Space2).
-											Children(func() {
-												in := ui.TextInput(c.Key("chat-header-git-move-wt-input"), &hs.wtBranch).
-													Label("Worktree 分支名").
-													Placeholder("留空自动生成").
-													FontSize(uiFont(TypeFootnote)).
-													TextColor(ThemePrimaryText(c)).
-													Background(ThemeHover(c).Alpha(0.25)).
-													BorderColor(ThemeAccent(c)).
-													BorderWidth(1).
-													Radius(RadiusSM).
-													Padding(Space1, Space3).
-													FillWidth().
-													AutoFocus()
-												in.OnTextKey(func(k ui.TextKey) bool {
-													if k.Key == ui.KeyEscape {
-														chatHeaderMu.Lock()
-														hs.wtMoving = false
-														hs.wtBranch = ""
-														chatHeaderMu.Unlock()
-														s.invalidate()
-														return true
-													}
-													return false
-												})
-												ui.Row(c.Key("chat-header-git-move-wt-transfer")).
-													Gap(Space2).
-													AlignItems(ui.Center).
-													Children(func() {
-														if cb := ui.Checkbox(c.Key("chat-header-git-move-wt-transfer-check"), &hs.wtTransfer, "同时迁移未提交的改动"); cb.Changed() {
-															s.invalidate()
-														}
-													})
-												Button(c.Key("chat-header-git-move-wt-confirm"), ButtonOpts{
-													Text:     "迁入",
-													Disabled: busy,
-													OnClick: func() {
-														branch := strings.TrimSpace(hs.wtBranch)
-														transfer := hs.wtTransfer
-														run(func() error {
-															if err := s.client.MoveToWorktree(context.Background(), threadID, branch, transfer); err != nil {
-																return err
-															}
-															s.setToast("已迁入 Worktree")
-															return nil
-														})
-													},
-													Variant: ButtonPrimary,
-												})
-											})
-									} else {
-										menuRow(c, menuRowProps{
-											Key:      "chat-header-git-move-wt-btn",
-											Label:    "迁入 Worktree…",
-											Title:    "迁入 Worktree…",
-											Disabled: busy,
-											OnClick: func() {
-												chatHeaderMu.Lock()
-												hs.wtMoving = true
-												hs.wtBranch = ""
-												hs.wtTransfer = true
-												hs.branchErr = ""
-												chatHeaderMu.Unlock()
-												s.invalidate()
-											},
-										})
-									}
-								}
+									})
+							} else {
+								menuRow(c, menuRowProps{
+									Key:      "chat-header-git-move-wt-btn",
+									Label:    "迁入 Worktree…",
+									Title:    "迁入 Worktree…",
+									Disabled: busy,
+									OnClick: func() {
+										chatHeaderMu.Lock()
+										hs.wtMoving = true
+										hs.wtBranch = ""
+										hs.wtTransfer = true
+										hs.branchErr = ""
+										chatHeaderMu.Unlock()
+										s.invalidate()
+									},
+								})
+							}
+						}
 
-								if switching {
-									ui.Row(c.Key("chat-header-git-busy")).
-										Gap(Space2).
-										Padding(Space2, Space3).
-										AlignItems(ui.Center).
-										Children(func() {
-											renderRunningGlyph(c, "chat-header-git-busy-glyph", IconSM, ThemeAccent(c))
-											ui.Text(c, "正在切换…").FontSize(uiFont(TypeBody)).TextColor(ThemeSecondaryText(c))
-										})
-								}
-								if errMsg != "" {
-									renderGitError(c, "chat-header-git-error", errMsg)
-								}
-							})
+						if switching {
+							ui.Row(c.Key("chat-header-git-busy")).
+								Gap(Space2).
+								Padding(Space2, Space3).
+								AlignItems(ui.Center).
+								Children(func() {
+									LoadingIndicator(c, nil, "正在切换…", IconSM)
+								})
+						}
+						if errMsg != "" {
+							renderGitError(c, "chat-header-git-error", errMsg)
+						}
+					})
 			}))
 	})
 }

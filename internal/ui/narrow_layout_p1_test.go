@@ -177,18 +177,22 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 	if _, ok := tt.Find("更多工具"); ok {
 		t.Fatal("窄窗下不应同时存在第二个「…」按钮")
 	}
-	if _, ok := tt.Find("Git 分支"); ok {
-		t.Fatal("窄窗折叠级别下分支胶囊不应直接留在顶栏")
+	if _, ok := tt.Find("Git 面板"); ok {
+		t.Fatal("窄窗折叠级别下分支胶囊左半不应直接留在顶栏")
+	}
+	if _, ok := tt.Find("切换分支"); ok {
+		t.Fatal("窄窗折叠级别下分支胶囊右半不应直接留在顶栏")
 	}
 
 	if err := tt.Click("更多头部操作"); err != nil {
 		t.Fatalf("打开「更多头部操作」失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("Git 分支")
-		return ok
+		_, hasPane := tt.Find("Git 面板")
+		_, hasBranch := tt.Find("切换分支")
+		return hasPane && hasBranch
 	})
-	for _, label := range []string{"Git 分支", "外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
+	for _, label := range []string{"Git 面板", "切换分支", "外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
 		if _, ok := tt.AccessByRole(ui.RoleButton, label); !ok {
 			t.Fatalf("打开「更多头部操作」后缺少折叠项 %q", label)
 		}

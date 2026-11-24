@@ -1679,9 +1679,23 @@ func renderGitPaneNotRepoEmpty(c *ui.Context, s *chatState, threadID string) {
 		if canGitInit(s) {
 			initBusy := isGitInitBusy(s, threadID)
 			threadRunning := s != nil && s.isThreadRunning(threadID)
+			tooltip := ""
+			if threadRunning {
+				tooltip = "会话运行中，暂不可初始化"
+			}
 			action = func() {
-				renderGitInitActionButton(c, "git-pane-init-btn", "初始化 Git", ButtonPrimary, ControlMD, IconGitBranch(), initBusy, threadRunning, func() {
-					startGitInit(s, threadID)
+				Button(c, ButtonOpts{
+					Key:      "git-pane-init-btn",
+					Text:     "初始化 Git",
+					Icon:     IconGitBranch(),
+					Variant:  ButtonPrimary,
+					Size:     ControlMD,
+					Disabled: threadRunning,
+					Loading:  initBusy,
+					Tooltip:  tooltip,
+					OnClick: func() {
+						startGitInit(s, threadID)
+					},
 				})
 			}
 		}

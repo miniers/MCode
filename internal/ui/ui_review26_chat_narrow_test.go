@@ -53,7 +53,7 @@ func TestUIReview26NarrowChatHeaderAndComposerBounds(t *testing.T) {
 
 	tt := ui.NewTester(root, WindowMinWidth, 700)
 	waitFor(t, tt, func() bool {
-		_, hasBranch := tt.Find("Git 分支")
+		_, hasBranch := tt.Find("切换分支")
 		_, hasSend := tt.Find("发送")
 		return hasBranch && hasSend
 	})

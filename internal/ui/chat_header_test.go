@@ -56,7 +56,7 @@ func TestChatHeaderGitRefreshOnOpen(t *testing.T) {
 	fake.mu.Lock()
 	fake.gitState.Branches = append(fake.gitState.Branches, "new-branch")
 	fake.mu.Unlock()
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("new-branch") })
@@ -81,10 +81,29 @@ func TestChatHeaderGitLongMenuScrolls(t *testing.T) {
 	}
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("branch-00") })
+	scrollRect, ok := tt.Find("git-branch-list-scroll")
+	if !ok {
+		t.Fatal("缺少分支列表滚动区 git-branch-list-scroll")
+	}
+	if scrollRect.H <= 0 || scrollRect.H > 480 {
+		t.Fatalf("分支列表滚动区高度 = %v，期望在 (0, 480] 内", scrollRect.H)
+	}
+	if menuRect, ok := tt.Find("分支列表"); !ok || menuRect.Y+menuRect.H > 700 {
+		t.Fatalf("分支列表高度越出窗口: ok=%v rect=%+v", ok, menuRect)
+	}
+	if lastBefore, ok := tt.Find("切换到分支 branch-49"); ok && lastBefore.Y+lastBefore.H <= scrollRect.Y+scrollRect.H+1 {
+		t.Fatalf("未滚动前末端分支不应已在可视区: before=%+v scroll=%+v", lastBefore, scrollRect)
+	}
+	tt.Scroll(scrollRect.X+scrollRect.W/2, scrollRect.Y+scrollRect.H/2, 0, 10000)
+	tt.Frame()
+	lastAfter, ok := tt.Find("切换到分支 branch-49")
+	if !ok || lastAfter.H <= 0 || lastAfter.Y < scrollRect.Y-1 || lastAfter.Y+lastAfter.H > scrollRect.Y+scrollRect.H+1 {
+		t.Fatalf("滚动到底后末端分支不可见: ok=%v after=%+v scroll=%+v", ok, lastAfter, scrollRect)
+	}
 	if err := tt.Click("搜索分支"); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +252,7 @@ func TestChatHeaderGitCheckout(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 main"); return ok })
@@ -261,7 +280,7 @@ func TestChatHeaderGitSwitchWorktree(t *testing.T) {
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatalf("click branch capsule failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -284,7 +303,7 @@ func TestChatHeaderGitNewBranch(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("搜索分支"); return ok })
@@ -976,7 +995,10 @@ func TestChatHeaderNonGitProjectKeepsOpenInAndScripts(t *testing.T) {
 	if _, ok := tt.Find("运行项目脚本"); !ok {
 		t.Fatal("非 Git 会话有工作目录时应显示执行命令按钮")
 	}
-	if _, ok := tt.Find("Git 分支"); ok {
+	if _, ok := tt.Find("Git 面板"); ok {
+		t.Fatal("非 Git 会话不应显示分支胶囊")
+	}
+	if _, ok := tt.Find("切换分支"); ok {
 		t.Fatal("非 Git 会话不应显示分支胶囊")
 	}
 	if _, ok := tt.Find("提交与推送"); ok {
@@ -1424,16 +1446,20 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("头部缺少编排按钮")
 	}
-	branch, ok := tt.Find("Git 分支")
+	paneBtn, ok := tt.Find("Git 面板")
 	if !ok {
-		t.Fatal("头部缺少分支胶囊")
+		t.Fatal("头部缺少分支胶囊左半「Git 面板」")
+	}
+	branch, ok := tt.Find("切换分支")
+	if !ok {
+		t.Fatal("头部缺少分支胶囊右半「切换分支」")
 	}
 	title, ok := tt.Find("会话标题拖动区")
 	if !ok {
 		t.Fatal("头部缺少会话标题")
 	}
-	if !(swarm.X < branch.X && branch.X+branch.W <= title.X) {
-		t.Fatalf("编排/分支应依次排在标题左侧：编排 %+v 分支 %+v 标题 %+v", swarm, branch, title)
+	if !(swarm.X < paneBtn.X && paneBtn.X+paneBtn.W <= branch.X && branch.X+branch.W <= title.X) {
+		t.Fatalf("编排/分支应依次排在标题左侧：编排 %+v 面板 %+v 分支 %+v 标题 %+v", swarm, paneBtn, branch, title)
 	}
 
 	openIn, ok := tt.Find("在其它应用中打开")
@@ -1655,7 +1681,7 @@ func TestUIReview2MoveWorktreeTransferLabelOnce(t *testing.T) {
 	tt := ui.NewTesterWith(Root(fake), 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatalf("click branch capsule failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -1683,7 +1709,7 @@ func TestUIReview2BranchPopoverSingleCard(t *testing.T) {
 	tt := ui.NewTesterWith(Root(fake), 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatalf("click branch capsule failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -1889,7 +1915,7 @@ func TestChatHeaderPRChipNoPRCreateButton(t *testing.T) {
 	if tt.HasText("创建 PR") {
 		t.Fatalf("「创建 PR」不应直接出现在标题栏，texts=%q", tt.Texts())
 	}
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatalf("打开分支菜单失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
@@ -2087,8 +2113,8 @@ func TestChatHeaderRedesign(t *testing.T) {
 	waitFor(t, tt, func() bool { return forwardCallsContain(fake.FakeClient, "t1") })
 
 	// 分支菜单含「创建 PR」。
-	if err := tt.Click("Git 分支"); err != nil {
-		t.Fatalf("点击 Git 分支失败: %v", err)
+	if err := tt.Click("切换分支"); err != nil {
+		t.Fatalf("点击切换分支失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
 	tt.Key(0, ui.KeyEscape)

@@ -97,7 +97,7 @@ func TestGitBranchPopoverWorktree(t *testing.T) {
 	f := &branchPopoverFake{newGitFakeClient()}
 	tt := ui.NewTester(Root(f), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 other"); return ok })
@@ -120,7 +120,7 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	f := &branchPopoverFake{newGitFakeClient()}
 	tt := ui.NewTester(Root(f), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("分支操作 other"); return ok })
@@ -211,7 +211,7 @@ func TestGitBranchPopoverStashSwitch(t *testing.T) {
 			f := &branchStashFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, failRetry: failRetry}
 			tt := ui.NewTester(Root(f), 1000, 700)
 			waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-			if err := tt.Click("Git 分支"); err != nil {
+			if err := tt.Click("切换分支"); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })
@@ -256,7 +256,7 @@ func TestGitBranchPopoverBusyAndToast(t *testing.T) {
 	release := func() { releaseOnce.Do(func() { close(f.release) }) }
 	defer release()
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("Git 分支"); err != nil {
+	if err := tt.Click("切换分支"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })

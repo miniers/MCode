@@ -72,6 +72,14 @@ func TestChatHeaderGitInit(t *testing.T) {
 	testenv.TempHome(t)
 	stubTerminals(t)
 
+	oldRunOnMain := gitInitRunOnMain
+	var runOnMainCalls int
+	gitInitRunOnMain = func(fn func()) {
+		runOnMainCalls++
+		fn()
+	}
+	t.Cleanup(func() { gitInitRunOnMain = oldRunOnMain })
+
 	fake := NewFakeClient()
 	fake.SetThreadWorkDir("/repo")
 	fake.mu.Lock()
@@ -152,6 +160,9 @@ func TestChatHeaderGitInit(t *testing.T) {
 	if calls := fake.GitInitCalls(); len(calls) != 1 || calls[0] != "t1" {
 		t.Fatalf("GitInit 调用记录 = %v, want [t1]", calls)
 	}
+	if runOnMainCalls != 1 {
+		t.Fatalf("gitInitRunOnMain 调用次数 = %d, want 1", runOnMainCalls)
+	}
 
 	tt.Advance(time.Second)
 	tt.Frame()
@@ -161,6 +172,10 @@ func TestChatHeaderGitInit(t *testing.T) {
 }
 
 func TestGitPaneEmptyInit(t *testing.T) {
+	oldRunOnMain := gitInitRunOnMain
+	gitInitRunOnMain = func(fn func()) { fn() }
+	t.Cleanup(func() { gitInitRunOnMain = oldRunOnMain })
+
 	s, ps, client := gitPaneTestState(t)
 	client.paneMu.Lock()
 	client.stateHook = func(context.Context) (GitState, error) {
