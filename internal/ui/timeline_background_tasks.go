@@ -510,10 +510,6 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 				if duration, ok := toolBackgroundRunDuration(c, m); ok {
 					ui.Text(c, duration).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
 				}
-				activity := commandActivitySnapshot(s, m.ID)
-				if activity.sampleCount > 0 {
-					ui.Text(c, fmt.Sprintf("%.0f%%", activity.cpu)).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).SingleLine()
-				}
 				arrow := ui.Icon(c, IconChevronRight()).Size(9, 9).TextColor(ThemeSecondaryText(c))
 				angle := float32(0)
 				if expanded {
@@ -540,7 +536,7 @@ func renderBackgroundTaskRow(c *ui.Context, s *chatState, key, threadID string, 
 				if command, ok := toolFieldString(toolCallFields(m), "command"); ok && command != "" {
 					ui.Text(c, command).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).MaxLines(3).Selectable()
 				}
-				renderCommandActivityView(c, s, m)
+				renderCommandGauge(c, rowKey+"/gauge", commandActivitySnapshot(s, m.ID), false)
 				if scrollOwner && log != "" {
 					if v.backgroundTaskScrolledLog != log {
 						v.backgroundTaskScroll.Y = math.MaxFloat32

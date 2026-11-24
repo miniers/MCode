@@ -143,19 +143,29 @@ func (s *chatState) threadIsBusy(threadID string) bool {
 	return false
 }
 
-// runningCommandBadge 返回运行中命令工具胶囊上的时长文本与「长时间无输出」标记；
-// 不是运行中的命令工具，或时间戳解析不了时返回空文本。
+// runningCommandBadge 返回运行中命令卡片上的时长文本与「长时间无输出」标记；
+// 后台任务的文本以「后台 · 」开头且不判停滞。不是运行中的命令或后台任务，或时间戳解析不了时返回空文本。
 // 当前会话确实还在运行时才按秒取下一帧（与 renderBeeWindow 同一套机制），让时长每秒刷新；
 // 历史/中断会话里状态未知的工具不再触发每秒整窗重建。
 func (s *chatState) runningCommandBadge(c *ui.Context, m Message) (text string, stalled bool) {
-	if !toolIsRunningCommand(m) {
-		return "", false
-	}
-	elapsed, idleFor, ok := s.observeToolRun(m, c.Now())
-	if !ok {
+	background := isToolBackground(m) && isCommandTool(m)
+	if !background && !toolIsRunningCommand(m) {
 		return "", false
 	}
 	now := c.Now()
+	var elapsed, idleFor time.Duration
+	if background {
+		start, ok := parseRFC3339Time(m.CreatedAt)
+		if !ok {
+			return "后台", false
+		}
+		elapsed = max(now.Sub(start), 0)
+	} else {
+		var ok bool
+		if elapsed, idleFor, ok = s.observeToolRun(m, now); !ok {
+			return "", false
+		}
+	}
 	threadID := selectedThreadIDSnapshot(s)
 	s.mu.Lock()
 	ensureCommandActivityLocked(s, m)
@@ -164,23 +174,23 @@ func (s *chatState) runningCommandBadge(c *ui.Context, m Message) (text string, 
 		requestCommandActivity(c, s, threadID, now)
 	}
 	activity := commandActivitySnapshot(s, m.ID)
-	// 状态明确为 running 的工具照旧每秒刷新时长；其余靠兜底判为运行中的工具，
+	// 后台任务与状态明确为 running 的工具照旧每秒刷新时长；其余靠兜底判为运行中的工具，
 	// 只有当前会话仍在跑（IsRunning 或 SwarmBusy）时才继续每秒重建。
-	if isToolRunning(m) || s.threadIsBusy(selectedThreadIDSnapshot(s)) {
+	if background || isToolRunning(m) || s.threadIsBusy(threadID) {
 		afterNextSecond(c)
 	}
 	text = formatDuration(elapsed)
-	if len(activity.steps) >= 2 && activity.maxStep > 0 {
-		text = fmt.Sprintf("%d/%d · %s", activity.maxStep, len(activity.steps), text)
-	}
 	if activity.estimateSet && activity.estimate > elapsed {
 		text += " / ~" + formatDuration(activity.estimate)
+	}
+	if background {
+		return "后台 · " + text, false
 	}
 	if activity.hasProcess {
 		if activity.sampleCount >= 2 && elapsed >= toolRunStallMinRun && idleFor >= toolRunStallAfter && now.Sub(activity.lastBusyAt) >= toolRunStallAfter {
 			return text + " · 空闲", true
 		}
-		return fmt.Sprintf("%s · CPU %.0f%%", text, activity.cpu), false
+		return text, false
 	}
 	lastStep := ""
 	if len(activity.steps) > 0 {
@@ -209,10 +219,14 @@ func renderSingleToolItem(c *ui.Context, s *chatState, m Message) ui.Element {
 		return ui.Element{}
 	}
 
-	open := s.toolMessageExpanded(m)
-
 	// 单条工具没有节拍同伴，传自己即可满足“同一节拍只展开一个”的约定
 	siblings := []Message{m}
+	if isCommandCard(m) {
+		return ui.Column(c.Key("msg-tool-" + m.ID)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Children(func() {
+			renderCommandCard(c, s, m, siblings)
+		})
+	}
+	open := s.toolMessageExpanded(m)
 	return ui.Column(c.Key("msg-tool-" + m.ID)).FillWidth().MaxWidth(timelineContentMaxWidth(s)).Gap(Space1).Children(func() {
 		ui.Row(c.Key("tool-chips-" + m.ID)).
 			Gap(Space2).
@@ -737,10 +751,6 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 					if toolMessageState(m) == ToolPending && strings.TrimSpace(m.ToolInput) != "" {
 						ui.Text(c, m.ToolInput).Font(fontFam).FontSize(scaledFont(codeSz)).TextColor(ThemeSecondaryText(c)).Selectable()
 					}
-					// 运行中的命令：顶部是步骤列表，右上角是「终止此命令」图标按钮，只杀这一条命令，不中断本轮。
-					if toolIsRunningCommand(m) {
-						renderRunningCommandHeader(c, s, m, fontFam)
-					}
 					// 编辑类工具：胶囊展开后直接看到这次改动的行级 diff，顶部保留收起入口
 					if diffOpen {
 						pressButton0 := ui.ButtonBase(c.Key("tool-detail-diff-toggle-"+m.ID)).
@@ -761,9 +771,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 						renderInlineToolDiff(c, s, m)
 					}
 
-					if isCommandTool(m) && isToolRunning(m) {
-						renderRunningCommandActivity(c, s, m, fontFam, outputMax)
-					} else if strings.TrimSpace(m.Text) != "" {
+					if strings.TrimSpace(m.Text) != "" {
 						// 输出正文：等宽小号字，超长时保留前 300 个字符；
 						// 正文区限高后可滚动，运行中默认贴底跟随新输出，用户上滚则停止跟随。
 						// 拦截标记那行已从 lines 去掉，正文按处理后的行拼回

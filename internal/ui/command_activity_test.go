@@ -83,19 +83,6 @@ func TestCommandActivityFilteredProcessesAndCPU(t *testing.T) {
 	}
 }
 
-func TestRunningCommandBadgeCPU(t *testing.T) {
-	m := Message{ID: "badge-cpu", Role: "tool", ToolName: "Bash", ToolStatus: "running", ToolInput: `{"command":"go test"}`, CreatedAt: time.Now().Add(-time.Second).Format(time.RFC3339Nano)}
-	s := newChatState(NewFakeClient())
-	s.commandActivity = map[string]*commandActivityState{m.ID: {hasProcess: true, cpu: 12}}
-	var badge string
-	var stalled bool
-	tt := ui.NewTester(func(c *ui.Context) { badge, stalled = s.runningCommandBadge(c, m) }, 400, 200)
-	tt.Frame()
-	if stalled || !strings.Contains(badge, "CPU 12%") {
-		t.Fatalf("badge = %q, stalled = %v", badge, stalled)
-	}
-}
-
 func TestCommandActivityEstimate(t *testing.T) {
 	s := &chatState{messages: []Message{
 		{ToolStatus: "completed", ToolInput: `{"command":"go test ./..."}`, CreatedAt: "2026-01-01T00:00:00Z", ToolCompletedAt: "2026-01-01T00:00:12Z"},
@@ -144,46 +131,6 @@ func TestCommandStepStatus(t *testing.T) {
 		if got := commandStepStatus(tt.i, tt.maxStep); got != tt.want {
 			t.Errorf("commandStepStatus(%d, %d) = %q, want %q", tt.i, tt.maxStep, got, tt.want)
 		}
-	}
-}
-
-func TestRunningCommandDetailUsesActivityLayout(t *testing.T) {
-	m := Message{
-		ID: "cmd-1", Role: "tool", ToolName: "Bash", ToolStatus: "running",
-		ToolInput: `{"command":"go build ./... && go test ./..."}`,
-		Text:      `Bash {"command":"go build ./... && go test ./..."}` + "\ncompiler output",
-		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
-	}
-	s := newChatState(NewFakeClient())
-	s.selectedThreadID = "t1"
-	s.expandedTool[m.ID] = true
-	tt := ui.NewTester(func(c *ui.Context) {
-		renderToolDetail(c, s, m)
-	}, 900, 500)
-	for i := 0; i < 2; i++ {
-		tt.Frame()
-	}
-	if _, ok := tt.Find("终止此命令"); !ok {
-		t.Fatal("running detail should have a stop button")
-	}
-	if tt.HasText(`Bash {"command":"go build ./... && go test ./..."}`) {
-		t.Fatalf("running detail should hide the input header: %v", tt.Texts())
-	}
-	if !tt.HasText("go build ./...") || !tt.HasText("go test ./...") || !tt.HasText("compiler output") {
-		t.Fatalf("running detail should show steps and output: %v", tt.Texts())
-	}
-
-	done := m
-	done.ToolStatus = "completed"
-	done.ToolCompletedAt = time.Now().Format(time.RFC3339Nano)
-	tt = ui.NewTester(func(c *ui.Context) {
-		renderToolDetail(c, s, done)
-	}, 900, 500)
-	for i := 0; i < 2; i++ {
-		tt.Frame()
-	}
-	if !tt.HasText(`Bash {"command":"go build ./... && go test ./..."}`) {
-		t.Fatalf("completed detail should preserve the original output: %v", tt.Texts())
 	}
 }
 
@@ -242,7 +189,49 @@ func TestCommandActivityBackgroundCandidate(t *testing.T) {
 	t.Fatal("后台命令未采样")
 }
 
+func TestRunningCommandCardUsesActivityLayout(t *testing.T) {
+	setAppReduceMotion(t, true)
+	m := Message{
+		ID: "cmd-1", Role: "tool", ToolName: "Bash", ToolStatus: "running",
+		ToolInput: `{"command":"go build ./... && go test ./..."}`,
+		Text:      `Bash {"command":"go build ./... && go test ./..."}` + "\ncompiler output",
+		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
+	}
+	s := newChatState(NewFakeClient())
+	s.expandedTool[m.ID] = true
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSingleToolItem(c, s, m)
+	}, 900, 500)
+	for i := 0; i < 3; i++ {
+		tt.Frame()
+	}
+	commandCardHover(t, tt, commandCardTestTitle(m))
+	if _, ok := tt.Find("终止此命令"); !ok {
+		t.Fatal("running card should have a stop button")
+	}
+	if tt.HasText(`Bash {"command":"go build ./... && go test ./..."}`) {
+		t.Fatalf("running card should hide the input header: %v", tt.Texts())
+	}
+	if !tt.HasText("go build ./...") || !tt.HasText("go test ./...") || !tt.HasText("compiler output") {
+		t.Fatalf("running card should show steps and output: %v", tt.Texts())
+	}
+
+	done := m
+	done.ToolStatus = "completed"
+	done.ToolCompletedAt = time.Now().Format(time.RFC3339Nano)
+	tt = ui.NewTester(func(c *ui.Context) {
+		renderToolDetail(c, s, done)
+	}, 900, 500)
+	for i := 0; i < 2; i++ {
+		tt.Frame()
+	}
+	if !tt.HasText(`Bash {"command":"go build ./... && go test ./..."}`) {
+		t.Fatalf("completed detail should preserve the original output: %v", tt.Texts())
+	}
+}
+
 func TestRunningCommandCopyButton(t *testing.T) {
+	setAppReduceMotion(t, true)
 	cases := []struct {
 		name string
 		cmd  string
@@ -259,14 +248,14 @@ func TestRunningCommandCopyButton(t *testing.T) {
 				CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
 			}
 			s := newChatState(NewFakeClient())
-			s.selectedThreadID = "t1"
 			s.expandedTool[m.ID] = true
 			tt := ui.NewTester(func(c *ui.Context) {
-				renderToolDetail(c, s, m)
+				renderSingleToolItem(c, s, m)
 			}, 900, 500)
-			for i := 0; i < 2; i++ {
+			for i := 0; i < 3; i++ {
 				tt.Frame()
 			}
+			commandCardHover(t, tt, commandCardTestTitle(m))
 			if _, ok := tt.Find("复制命令"); !ok {
 				t.Fatalf("%s 应显示「复制命令」按钮", tc.name)
 			}
@@ -282,6 +271,7 @@ func TestRunningCommandCopyButton(t *testing.T) {
 }
 
 func TestRunningCommandStepsCollapse(t *testing.T) {
+	setAppReduceMotion(t, true)
 	longStep := strings.Repeat("flag-value ", 200) + "UNIQUE_STEP_END_MARKER"
 	longCmd := "go build ./... && echo " + longStep
 	mLong := Message{
@@ -291,12 +281,11 @@ func TestRunningCommandStepsCollapse(t *testing.T) {
 		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
 	}
 	s := newChatState(NewFakeClient())
-	s.selectedThreadID = "t1"
 	s.expandedTool[mLong.ID] = true
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderToolDetail(c, s, mLong)
+		renderSingleToolItem(c, s, mLong)
 	}, 900, 500)
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		tt.Frame()
 	}
 	if _, ok := tt.Find("展开命令"); !ok {
@@ -323,12 +312,11 @@ func TestRunningCommandStepsCollapse(t *testing.T) {
 		CreatedAt: time.Now().Add(-10 * time.Second).Format(time.RFC3339Nano),
 	}
 	sShort := newChatState(NewFakeClient())
-	sShort.selectedThreadID = "t1"
 	sShort.expandedTool[mShort.ID] = true
 	ttShort := ui.NewTester(func(c *ui.Context) {
-		renderToolDetail(c, sShort, mShort)
+		renderSingleToolItem(c, sShort, mShort)
 	}, 900, 500)
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		ttShort.Frame()
 	}
 	if _, ok := ttShort.Find("展开命令"); ok {

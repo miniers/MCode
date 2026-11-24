@@ -396,6 +396,15 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 							if _, ok := todoItemsFromMessage(toolMsg); ok {
 								continue
 							}
+							if isCommandCard(toolMsg) {
+								ui.Column(c.Key("tool-beat-chip-row-"+toolMsg.ID)).
+									FillWidth().
+									Padding(0, 0, 0, toolBeatPadLeft).
+									Children(func() {
+										renderCommandCard(c, s, toolMsg, beatTools)
+									})
+								continue
+							}
 							ui.Row(c.Key("tool-beat-chip-row-"+toolMsg.ID)).
 								Padding(0, 0, 0, toolBeatPadLeft).
 								AlignItems(ui.Center).

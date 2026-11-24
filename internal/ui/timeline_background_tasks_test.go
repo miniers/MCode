@@ -800,7 +800,7 @@ func TestTimelineBackgroundToolChip(t *testing.T) {
 		tt.Frame()
 	}
 	if !tt.HasText("后台 ·") {
-		t.Fatalf("胶囊应显示后台运行时长，当前文本 %v", tt.Texts())
+		t.Fatalf("命令卡片应显示后台运行时长，当前文本 %v", tt.Texts())
 	}
 	if tt.HasText("终止此命令") {
 		t.Fatalf("background 工具不应出现终止按钮，当前文本 %v", tt.Texts())
