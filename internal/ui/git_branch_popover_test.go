@@ -397,3 +397,41 @@ func TestGitBranchPopoverMatchesDesign(t *testing.T) {
 		t.Fatalf("有改动点击非当前分支不应调用切换：checkoutCalls=%d stashCalls=%d", checkoutCalls, stashCalls)
 	}
 }
+
+func TestGitBranchPopoverRowHighlightSpansMoreButton(t *testing.T) {
+	f := &branchPopoverFake{newGitFakeClient()}
+	branch := f.gitState.Branch
+	s := newChatState(f)
+	defer s.close()
+	s.loadGitState("t1")
+	openBranchPopover(s, "t1")
+	open := true
+	tt := ui.NewTesterWith(func(c *ui.Context) {
+		ui.Box(c).Fill().Padding(24).Children(func() {
+			gitPaneBranchPopover(c, s, "t1", 320, &open)
+		})
+	}, 600, 500, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	p := branchPopoverFor(s, "t1")
+	waitFor(t, tt, func() bool {
+		p.mu.Lock()
+		loaded := p.loaded
+		p.mu.Unlock()
+		_, btnOK := tt.Find("切换到分支 " + branch)
+		_, moreOK := tt.Find("分支操作 " + branch)
+		return loaded && btnOK && moreOK
+	})
+	btn, ok := tt.Find("切换到分支 " + branch)
+	if !ok {
+		t.Fatalf("找不到当前分支按钮: %s", branch)
+	}
+	more, ok := tt.Find("分支操作 " + branch)
+	if !ok {
+		t.Fatalf("找不到当前分支操作按钮: %s", branch)
+	}
+	img := tt.Image()
+	btnPx := img.At(int(btn.X)+4, int(btn.Y)+3)
+	morePx := img.At(int(more.X+more.W)-3, int(more.Y)+3)
+	if btnPx != morePx {
+		t.Fatalf("当前分支高亮应覆盖 ⋯ 按钮区域：btnPx=%v morePx=%v", btnPx, morePx)
+	}
+}

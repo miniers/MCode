@@ -820,20 +820,20 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 						}
 					}
 
-					row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).AlignItems(ui.Center)
+					row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).AlignItems(ui.Center).Radius(RadiusSM).Transition(motionFeedback(c))
+					if idx == selected && needle != "" {
+						row.Background(ThemeHover(c))
+					} else if current {
+						row.Background(ThemeSelected(c))
+					} else if idx == selected {
+						row.Background(ThemeHover(c))
+					} else if row.Hovered() {
+						row.Background(ThemeHover(c))
+					}
 					row.Children(func() {
-						btn := ui.ButtonBase(c.Key(key)).Label("切换到分支 "+item.name).Grow(1).Shrink(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Radius(RadiusSM).Justify(ui.Start).Disabled(busy).Transition(motionFeedback(c))
+						btn := ui.ButtonBase(c.Key(key)).Label("切换到分支 "+item.name).Grow(1).Shrink(1).MinWidth(0).Height(RowHeight).Padding(0, Space2).Justify(ui.Start).Disabled(busy)
 						scale := motionPressScale(c, btn, "button-press-scale", !busy && btn.Pressed())
 						btn.Scale(scale, scale)
-						if idx == selected && needle != "" {
-							btn.Background(ThemeHover(c))
-						} else if current {
-							btn.Background(ThemeSelected(c))
-						} else if idx == selected {
-							btn.Background(ThemeHover(c))
-						} else if btn.Hovered() {
-							btn.Background(ThemeHover(c))
-						}
 						btn.OnClick(func() { choose(item) })
 						if len(actions) > 0 {
 							btn.ContextMenu(func(m *ui.Menu) {
