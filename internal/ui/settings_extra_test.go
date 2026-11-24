@@ -128,13 +128,7 @@ func TestSettingsExtra_MCPPage(t *testing.T) {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
 
-	waitFor(t, tt, func() bool {
-		return tt.HasText("扩展")
-	})
-
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click 'MCP' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 
 	openMCPDetail(t, tt, "fake-database-mcp")
 	waitFor(t, tt, func() bool {
@@ -243,13 +237,7 @@ func TestSettingsExtra_MCPAuthButtons(t *testing.T) {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
 
-	waitFor(t, tt, func() bool {
-		return tt.HasText("扩展")
-	})
-
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click 'MCP' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("remote-http-mcp") && tt.HasText("local-stdio-mcp")

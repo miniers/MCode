@@ -14,7 +14,7 @@ func TestSettingsExtensions_SectionsAndPageOwnership(t *testing.T) {
 		{"mcp.custom", "MCP 服务"},
 		{"nowledge.memory", "记忆"},
 		{"nowledge.spaces", "项目记忆空间"},
-		{"advanced.memory", "记忆高级"},
+		{"advanced.memory", "高级设置"},
 	}
 	page, ok := settingsTreePageOf("extensions")
 	if !ok || len(page.Sections) != len(want) {
@@ -91,6 +91,8 @@ func TestExtensionsTab_SwitchTabsAndMotionSettles(t *testing.T) {
 
 	t.Run("切换MCP与记忆仅渲染对应段且动效收敛", func(t *testing.T) {
 		setAppReduceMotion(t, false)
+		setSettingsSectionExpanded(advancedMemory.ID, false)
+		t.Cleanup(func() { setSettingsSectionExpanded(advancedMemory.ID, false) })
 		chat := newChatState(NewFakeClient())
 		t.Cleanup(chat.close)
 		st := NewSettingsState(settingsTestDir(t), nil, chat)
@@ -128,8 +130,19 @@ func TestExtensionsTab_SwitchTabsAndMotionSettles(t *testing.T) {
 		if _, ok := tt.Find("设置卡片 nowledge.memory"); !ok || !tt.HasText("记忆后端") {
 			t.Fatalf("切换到记忆后未渲染 nowledgeSections: %v", tt.Texts())
 		}
-		if _, ok := tt.Find("设置卡片 advanced.memory"); !ok || !tt.HasText("Working Memory 字数上限") {
+		if _, ok := tt.Find("设置卡片 advanced.memory"); !ok || !tt.HasText("高级设置") {
 			t.Fatalf("切换到记忆后未渲染 advancedMemory: %v", tt.Texts())
+		}
+		if err := tt.Click("高级设置"); err != nil {
+			t.Fatalf("展开高级设置失败: %v", err)
+		}
+		tt.Advance(DurBase + time.Second)
+		tt.Frame()
+		if tt.FramePending() {
+			t.Fatal("展开高级设置后动画未停止")
+		}
+		if !tt.HasText("Working Memory 字数上限") {
+			t.Fatalf("展开高级设置后未渲染 Working Memory 字数上限: %v", tt.Texts())
 		}
 		for _, absent := range []string{"设置卡片 skills.list", "设置卡片 mcp.custom"} {
 			if _, ok := tt.Find(absent); ok {

@@ -58,6 +58,12 @@ func TestSettingsRedesignControls_MCPDetailHeaderTitle(t *testing.T) {
 		t.Fatalf("打开 MCP 详情失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
+		return tt.HasText("启用") && tt.HasText("新会话与批量策略") && tt.HasText("删除服务")
+	})
+	if err := tt.Click("新会话与批量策略"); err != nil {
+		t.Fatalf("展开新会话与批量策略失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
 		return tt.HasText("启用") && tt.HasText("全部工具可用") && tt.HasText("全部免审批") && tt.HasText("删除服务")
 	})
 	if got := countExactText(tt.Texts(), "context7-mcp"); got == 0 {

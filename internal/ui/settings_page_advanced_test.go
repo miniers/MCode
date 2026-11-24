@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -15,7 +16,7 @@ func TestSettingsAdvancedPage_Sections(t *testing.T) {
 		"conversation": {"advanced.conversation", "高级"},
 		"swarm":        {"advanced.orchestration", "高级"},
 		"workbench":    {"advanced.workbench", "高级"},
-		"extensions":   {"advanced.memory", "记忆高级"},
+		"extensions":   {"advanced.memory", "高级设置"},
 	} {
 		page, ok := settingsTreePageOf(pageID)
 		if !ok || len(page.Sections) == 0 {
@@ -29,9 +30,17 @@ func TestSettingsAdvancedPage_Sections(t *testing.T) {
 }
 
 func TestSettingsAdvancedPage_TogglePersists(t *testing.T) {
+	setSettingsSectionExpanded(advancedMemory.ID, false)
+	t.Cleanup(func() { setSettingsSectionExpanded(advancedMemory.ID, false) })
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, newChatState(NewFakeClient()))
 	tt := ui.NewTester(func(c *ui.Context) { renderPageNowledge(c, st) }, 1000, 4000)
+	tt.Frame()
+	if err := tt.Click("高级设置"); err != nil {
+		t.Fatalf("展开高级设置失败: %v", err)
+	}
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
 	if err := tt.Click("切换向新会话说明记忆工具用法"); err != nil {
 		t.Fatalf("切换记忆工具用法失败: %v", err)
 	}

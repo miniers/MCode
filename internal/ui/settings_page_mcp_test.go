@@ -39,17 +39,7 @@ func TestSettings_MCPAddAndDelete(t *testing.T) {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
 
-	waitFor(t, tt, func() bool {
-		return tt.HasText("扩展")
-	})
-
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click '扩展' failed: %v", err)
-	}
-
-	waitFor(t, tt, func() bool {
-		return tt.HasText("+ 添加服务")
-	})
+	clickExtensionsMCPTab(t, tt)
 
 	// 1. 打开添加面板并选择手动填写。
 	openMCPAddSheet(t, tt)
@@ -132,10 +122,7 @@ func TestMCPServerDeleteRequiresConfirm(t *testing.T) {
 	if err := tt.Click("设置"); err != nil {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("扩展") })
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click '扩展' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 	openMCPDetail(t, tt, "confirm-mcp")
 	waitFor(t, tt, func() bool { return tt.HasText("删除服务") })
 
@@ -324,10 +311,7 @@ func TestMCPServerRowShowsProbeError(t *testing.T) {
 	if err := tt.Click("设置"); err != nil {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("扩展") })
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click '扩展' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 	openMCPDetail(t, tt, "broken-mcp")
 	waitFor(t, tt, func() bool {
 		return tt.HasText("探测失败：401 unauthorized") && tt.HasText("重新检测")
@@ -359,10 +343,7 @@ func TestMCPServerRowReadOnly(t *testing.T) {
 	if err := tt.Click("设置"); err != nil {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("扩展") })
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click '扩展' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 
 	openMCPDetail(t, tt, "pi-readonly-mcp")
 	waitFor(t, tt, func() bool { return tt.HasText("只读 · 外部配置") })
@@ -379,6 +360,20 @@ func TestMCPServerRowReadOnly(t *testing.T) {
 	}
 }
 
+// clickExtensionsMCPTab 点击设置导航中的「扩展」并切换到「MCP 服务」分段。
+func clickExtensionsMCPTab(t *testing.T, tt *ui.Tester) {
+	t.Helper()
+	waitFor(t, tt, func() bool { return tt.HasText("扩展") })
+	if err := tt.Click("扩展"); err != nil {
+		t.Fatalf("click '扩展' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("MCP 服务") })
+	if err := tt.Click("MCP 服务"); err != nil {
+		t.Fatalf("click 'MCP 服务' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("+ 添加服务") })
+}
+
 // newThreadDefaultsTestTester 打开设置页的 MCP 页，供「新会话默认」相关用例复用。
 func newThreadDefaultsTestTester(t *testing.T, dataDir string) *ui.Tester {
 	t.Helper()
@@ -387,10 +382,7 @@ func newThreadDefaultsTestTester(t *testing.T, dataDir string) *ui.Tester {
 	if err := tt.Click("设置"); err != nil {
 		t.Fatalf("click '设置' failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("扩展") })
-	if err := tt.Click("扩展"); err != nil {
-		t.Fatalf("click '扩展' failed: %v", err)
-	}
+	clickExtensionsMCPTab(t, tt)
 	return tt
 }
 

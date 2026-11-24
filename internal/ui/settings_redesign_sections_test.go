@@ -66,7 +66,7 @@ func TestSettingsRedesignSections(t *testing.T) {
 			},
 			{
 				pageID:     "extensions",
-				wantTitles: []string{"记忆高级"},
+				wantTitles: []string{"高级设置"},
 			},
 			{
 				pageID:     "workbench",
