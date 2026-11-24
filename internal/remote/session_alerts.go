@@ -192,6 +192,11 @@ func (d *SessionAlertDetector) Observe(threadID, method string, params any) (Ses
 		d.mu.Lock()
 		d.threadTitles[threadID] = summary.Title
 		d.lastSummary[threadID] = summary
+		if _, ok := d.seenRequests[threadID]; !ok && !summary.HasPendingRequest {
+			// 线程在没有待处理请求时就被看到过，之后出现的请求都是新请求，要提醒；
+			// 若 summary 本身带着待处理请求（启动或重连时已有审批），仍走首快照基线逻辑。
+			d.seenRequests[threadID] = map[string]bool{}
+		}
 		// 有效忙态：主线程自身在跑，或它名下的子线程还没全部落定/回报，
 		// 或回合结束后仍有后台任务在跑。Swarm 模式下主线程送完子线程会先结束本轮，
 		// 不能只看 IsRunning；后台任务结束时 CLI 会自动续跑，等续跑结束再发完成通知。

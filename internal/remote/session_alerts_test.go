@@ -18,11 +18,12 @@ func TestSessionAlertDetector_ApprovalOnce(t *testing.T) {
 	d := NewSessionAlertDetector()
 	threadID := "thread-1"
 
-	// 记录会话标题
+	// 记录会话标题（带已有待处理请求，模拟启动/重连时的既有审批）
 	d.Observe(threadID, "thread.summary", wire.ThreadSummary{
-		ID:        threadID,
-		Title:     "代码重构任务",
-		IsRunning: true,
+		ID:                threadID,
+		Title:             "代码重构任务",
+		IsRunning:         true,
+		HasPendingRequest: true,
 	})
 
 	reqTitle := "是否允许执行脚本"
@@ -72,6 +73,129 @@ func TestSessionAlertDetector_ApprovalOnce(t *testing.T) {
 	}
 	if alert2.Body != reqTitle2 {
 		t.Errorf("expected body %s, got %s", reqTitle2, alert2.Body)
+	}
+}
+
+// TestSessionAlertDetector_FirstQuestionAlerts 验证线程先以无待处理请求出现，随后首次提问/审批应触发提醒。
+func TestSessionAlertDetector_FirstQuestionAlerts(t *testing.T) {
+	d := NewSessionAlertDetector()
+	threadID := "thread-first-q"
+
+	d.Observe(threadID, "thread.summary", wire.ThreadSummary{
+		ID:                threadID,
+		Title:             "主会话任务",
+		IsRunning:         true,
+		HasPendingRequest: false,
+	})
+
+	reqTitle := "请选择部署方式"
+	alert, ok := d.Observe(threadID, "requests.changed", wire.RequestsChangedParams{
+		ThreadID: threadID,
+		Requests: []wire.RemoteRequest{
+			{
+				ThreadID:  threadID,
+				RequestID: "req-first",
+				Title:     &reqTitle,
+			},
+		},
+	})
+	if !ok {
+		t.Fatalf("expected alert for first question, got ok=false")
+	}
+	if alert.Kind != SessionAlertApproval {
+		t.Errorf("expected kind %s, got %s", SessionAlertApproval, alert.Kind)
+	}
+	if alert.ThreadID != threadID {
+		t.Errorf("expected threadID %s, got %s", threadID, alert.ThreadID)
+	}
+	if alert.Body != reqTitle {
+		t.Errorf("expected body %q, got %q", reqTitle, alert.Body)
+	}
+}
+
+// TestSessionAlertDetector_HelperFirstQuestionAlerts 验证 helper 子线程首次提问同样触发审批提醒。
+func TestSessionAlertDetector_HelperFirstQuestionAlerts(t *testing.T) {
+	parentID := "lead-1"
+	cases := []struct {
+		name    string
+		summary wire.ThreadSummary
+	}{
+		{
+			name: "is-helper",
+			summary: wire.ThreadSummary{
+				ID:                "bee-helper",
+				Title:             "Bram: 子任务",
+				IsRunning:         true,
+				IsHelper:          true,
+				HasPendingRequest: false,
+			},
+		},
+		{
+			name: "parent-thread-id",
+			summary: wire.ThreadSummary{
+				ID:                "bee-child",
+				Title:             "Cove: 子任务",
+				IsRunning:         true,
+				ParentThreadID:    &parentID,
+				HasPendingRequest: false,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := NewSessionAlertDetector()
+			d.Observe(tc.summary.ID, "thread.summary", tc.summary)
+
+			reqTitle := "子代理需要确认"
+			alert, ok := d.Observe(tc.summary.ID, "requests.changed", wire.RequestsChangedParams{
+				ThreadID: tc.summary.ID,
+				Requests: []wire.RemoteRequest{
+					{
+						ThreadID:  tc.summary.ID,
+						RequestID: "req-helper-1",
+						Title:     &reqTitle,
+					},
+				},
+			})
+			if !ok {
+				t.Fatalf("expected alert for helper first question, got ok=false")
+			}
+			if alert.Kind != SessionAlertApproval {
+				t.Errorf("expected kind %s, got %s", SessionAlertApproval, alert.Kind)
+			}
+			if alert.Body != reqTitle {
+				t.Errorf("expected body %q, got %q", reqTitle, alert.Body)
+			}
+		})
+	}
+}
+
+// TestSessionAlertDetector_ExistingPendingBaseline 验证首条 summary 已带待处理请求时，首个 requests.changed 仅作基线不提醒。
+func TestSessionAlertDetector_ExistingPendingBaseline(t *testing.T) {
+	d := NewSessionAlertDetector()
+	threadID := "thread-existing-pending"
+
+	d.Observe(threadID, "thread.summary", wire.ThreadSummary{
+		ID:                threadID,
+		Title:             "重连会话",
+		IsRunning:         true,
+		HasPendingRequest: true,
+	})
+
+	reqTitle := "已有审批"
+	alert, ok := d.Observe(threadID, "requests.changed", wire.RequestsChangedParams{
+		ThreadID: threadID,
+		Requests: []wire.RemoteRequest{
+			{
+				ThreadID:  threadID,
+				RequestID: "req-existing",
+				Title:     &reqTitle,
+			},
+		},
+	})
+	if ok {
+		t.Fatalf("expected no alert for existing pending baseline, got %+v", alert)
 	}
 }
 
