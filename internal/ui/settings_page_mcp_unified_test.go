@@ -45,7 +45,7 @@ func TestMCP_UnifiedListAndDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
-		return tt.HasText("登录") && tt.HasText("shared-tool") && tt.HasText("新会话默认启用")
+		return tt.HasText("登录") && tt.HasText("shared-tool") && tt.HasText("新会话与批量策略")
 	})
 	if err := tt.Click("切换禁用 shared-tool"); err != nil {
 		t.Fatal(err)
@@ -54,6 +54,10 @@ func TestMCP_UnifiedListAndDetail(t *testing.T) {
 	if err != nil || !policy.Disabled["shared-service"]["shared-tool"] {
 		t.Fatalf("工具开关未保存: %v, %v", policy, err)
 	}
+	if err := tt.Click("新会话与批量策略"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("新会话默认启用") })
 	if err := tt.Click("切换shared-service"); err != nil {
 		t.Fatal(err)
 	}

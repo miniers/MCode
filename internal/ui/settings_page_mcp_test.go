@@ -435,6 +435,10 @@ func TestMCPNewThreadDefaults(t *testing.T) {
 
 	tt := newThreadDefaultsTestTester(t, dataDir)
 	openMCPDetail(t, tt, "ctx7")
+	waitFor(t, tt, func() bool { return tt.HasText("新会话与批量策略") })
+	if err := tt.Click("新会话与批量策略"); err != nil {
+		t.Fatalf("展开高级策略失败: %v", err)
+	}
 	waitFor(t, tt, func() bool { return tt.HasText("新会话默认启用") })
 
 	// 只读服务不会注入会话，小节里不应出现它的默认开关。
@@ -536,7 +540,11 @@ func TestMCPToolBatchSwitchWritesPolicy(t *testing.T) {
 	tt := ui.NewTester(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1000, 4000)
 	openMCPPage(t, tt)
 	openMCPDetail(t, tt, "batch-mcp")
-	waitFor(t, tt, func() bool { return tt.HasText("支持的工具 (2):") && tt.HasText("切换全部工具可用") })
+	waitFor(t, tt, func() bool { return tt.HasText("支持的工具 (2):") && tt.HasText("新会话与批量策略") })
+	if err := tt.Click("新会话与批量策略"); err != nil {
+		t.Fatalf("展开高级策略失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("切换全部工具可用") })
 
 	policyPath := agentconf.MCPToolPolicyPath(dataDir)
 	// 单个工具：只禁用 tool-a。
@@ -677,5 +685,283 @@ func TestMCPExternalDeleteRefreshesPolicyCache(t *testing.T) {
 	defer uiSt.mu.Unlock()
 	if len(uiSt.disabledTools["drop"]) != 0 || len(uiSt.autoApproveTools["drop"]) != 0 {
 		t.Fatal("删除后旧策略仍在缓存")
+	}
+}
+
+// findScannedMCPServer 按名称查找扫描到的 MCP 服务。
+func findScannedMCPServer(t *testing.T, opts agentconf.Options, name string) (agentconf.MCPServer, bool) {
+	t.Helper()
+	servers, err := agentconf.ScanMCP(opts)
+	if err != nil {
+		t.Fatalf("扫描 MCP 服务失败: %v", err)
+	}
+	for _, srv := range servers {
+		if srv.Name == name {
+			return srv, true
+		}
+	}
+	return agentconf.MCPServer{}, false
+}
+
+// TestMCPQuickToggle 覆盖列表快捷开关：切换启用且不打开详情、只读来源无开关、未信任仓库服务不被静默启用。
+func TestMCPQuickToggle(t *testing.T) {
+	t.Run("开关切换启用且不打开详情", func(t *testing.T) {
+		home := testenv.TempHome(t)
+		dataDir := settingsTestDir(t)
+		memSecrets := config.NewMemorySecretStore()
+		agentconf.SetSecretStore(memSecrets)
+		defer func() {
+			agentconf.SetSecretStore(config.NewMemorySecretStore())
+		}()
+		useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+			return nil, nil
+		})
+
+		opts := agentconf.Options{Home: home, DataDir: dataDir}
+		if err := agentconf.SaveMCPServer(opts, agentconf.MCPServer{
+			Name: "quick-mcp", Agent: "custom", Scope: "global", Transport: "stdio", Command: "echo",
+		}); err != nil {
+			t.Fatalf("保存测试服务失败: %v", err)
+		}
+
+		tt := ui.NewTester(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1000, 6000)
+		openMCPPage(t, tt)
+		waitFor(t, tt, func() bool { return tt.HasText("quick-mcp") && tt.HasText("已启用") })
+
+		// 第一次点快捷开关：停用服务，且不打开详情弹窗。
+		if err := tt.Click("启用 quick-mcp"); err != nil {
+			t.Fatalf("点击快捷开关失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			srv, ok := findScannedMCPServer(t, opts, "quick-mcp")
+			return ok && srv.Disabled && tt.HasText("已停用")
+		})
+		if tt.HasText("删除服务") || tt.HasText("新会话与批量策略") {
+			t.Fatalf("点击列表快捷开关不应打开详情弹窗: %v", tt.Texts())
+		}
+
+		// 第二次点快捷开关：重新启用，仍不打开详情弹窗。
+		if err := tt.Click("启用 quick-mcp"); err != nil {
+			t.Fatalf("再次点击快捷开关失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			srv, ok := findScannedMCPServer(t, opts, "quick-mcp")
+			return ok && !srv.Disabled && tt.HasText("已启用")
+		})
+		if tt.HasText("删除服务") || tt.HasText("新会话与批量策略") {
+			t.Fatalf("点击列表快捷开关不应打开详情弹窗: %v", tt.Texts())
+		}
+
+		// 点击整行其余区域仍打开详情弹窗。
+		openMCPDetail(t, tt, "quick-mcp")
+		waitFor(t, tt, func() bool { return tt.HasText("删除服务") })
+	})
+
+	t.Run("只读来源无开关", func(t *testing.T) {
+		home := testenv.TempHome(t)
+		dataDir := settingsTestDir(t)
+		useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+			return nil, nil
+		})
+		if err := os.MkdirAll(filepath.Join(home, ".pi", "agent"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".pi", "agent", "mcp.json"), []byte(`{
+  "mcpServers": {
+    "pi-readonly-quick": {"command": "pi-mcp", "args": ["--stdio"]}
+  }
+}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		tt := ui.NewTester(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1000, 6000)
+		openMCPPage(t, tt)
+		waitFor(t, tt, func() bool { return tt.HasText("pi-readonly-quick") && tt.HasText("只读") })
+		if _, ok := tt.Find("启用 pi-readonly-quick"); ok {
+			t.Fatal("只读服务列表行不应显示快捷开关")
+		}
+		if tt.HasText("切换启用 pi-readonly-quick") {
+			t.Fatal("只读服务不应显示启停开关")
+		}
+	})
+
+	t.Run("未信任服务不被静默启用", func(t *testing.T) {
+		home := testenv.TempHome(t)
+		dataDir := settingsTestDir(t)
+		projDir := t.TempDir()
+		memSecrets := config.NewMemorySecretStore()
+		agentconf.SetSecretStore(memSecrets)
+		defer func() {
+			agentconf.SetSecretStore(config.NewMemorySecretStore())
+		}()
+		useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+			return nil, nil
+		})
+
+		if err := os.WriteFile(filepath.Join(projDir, ".mcp.json"), []byte(`{
+  "mcpServers": {
+    "repo-untrusted": {"command": "echo", "args": ["hi"]}
+  }
+}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		opts := agentconf.Options{Home: home, ProjectDir: projDir, DataDir: dataDir}
+		before, ok := findScannedMCPServer(t, opts, "repo-untrusted")
+		if !ok || !before.Untrusted || !before.Disabled {
+			t.Fatalf("前置条件失败：仓库服务应未信任且禁用，实际 %+v (ok=%v)", before, ok)
+		}
+
+		fake := NewFakeClient()
+		fake.projects[0].Path = projDir
+		tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil), func(s *chatState) {
+			s.mu.Lock()
+			s.projects = []Project{{ID: "p1", Name: "mcode-test", Path: projDir}}
+			s.threads = []Thread{{ID: "t1", ProjectID: "p1"}}
+			s.selectedThreadID = "t1"
+			s.mu.Unlock()
+		}), 1000, 6000)
+		openMCPPage(t, tt)
+		waitFor(t, tt, func() bool { return tt.HasText("repo-untrusted") && tt.HasText("已停用") })
+
+		// 在列表点快捷开关：不得静默信任/启用，改为进入现有详情信任流程。
+		if err := tt.Click("启用 repo-untrusted"); err != nil {
+			t.Fatalf("点击未信任服务快捷开关失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			return tt.HasText("来自仓库配置，未信任：启用即表示信任该命令")
+		})
+		afterQuick, ok := findScannedMCPServer(t, opts, "repo-untrusted")
+		if !ok || !afterQuick.Untrusted || !afterQuick.Disabled {
+			t.Fatalf("未信任服务不能被快捷开关静默启用，实际 %+v (ok=%v)", afterQuick, ok)
+		}
+
+		// 在详情里确认启用后才正式信任并启用。
+		if err := tt.Click("切换启用 repo-untrusted"); err != nil {
+			t.Fatalf("在详情启用未信任服务失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			srv, found := findScannedMCPServer(t, opts, "repo-untrusted")
+			return found && !srv.Untrusted && !srv.Disabled
+		})
+	})
+}
+
+// TestMCPDetailCollapsed 覆盖详情折叠行：默认只见「启用」、按服务记忆展开、
+// 展开收起动效尊重 ReduceMotion 且动画结束后不再请求下一帧。
+func TestMCPDetailCollapsed(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		name := map[bool]string{false: "normal", true: "reduced"}[reduced]
+		t.Run(name, func(t *testing.T) {
+			setAppReduceMotion(t, reduced)
+			home := testenv.TempHome(t)
+			dataDir := settingsTestDir(t)
+			memSecrets := config.NewMemorySecretStore()
+			agentconf.SetSecretStore(memSecrets)
+			defer func() {
+				agentconf.SetSecretStore(config.NewMemorySecretStore())
+			}()
+			useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+				return []agentconf.MCPToolInfo{{Name: "tool-1"}}, nil
+			})
+
+			opts := agentconf.Options{Home: home, DataDir: dataDir}
+			for _, srvName := range []string{"collapse-mcp", "other-mcp"} {
+				if err := agentconf.SaveMCPServer(opts, agentconf.MCPServer{
+					Name: srvName, Agent: "custom", Scope: "global", Transport: "stdio", Command: "echo",
+				}); err != nil {
+					t.Fatalf("保存服务 %s 失败: %v", srvName, err)
+				}
+			}
+
+			tt := ui.NewTesterWith(Root(NewFakeClient(), WithSettings(dataDir, nil)), 1000, 6000, ui.TesterOptions{
+				Preferences: ui.Preferences{ReduceMotion: reduced},
+			})
+			openMCPPage(t, tt)
+			openMCPDetail(t, tt, "collapse-mcp")
+			waitFor(t, tt, func() bool {
+				return tt.HasText("支持的工具 (1):") && tt.HasText("切换启用 collapse-mcp") && tt.HasText("新会话与批量策略")
+			})
+			settleFrames(t, tt)
+			if tt.FramePending() {
+				t.Fatal("详情弹出落位后不应继续请求帧")
+			}
+
+			// 默认折叠：只见「启用」与折叠行标题，不见三项细则。
+			for _, hidden := range []string{"新会话默认启用", "全部工具可用", "全部免审批"} {
+				if tt.HasText(hidden) {
+					t.Fatalf("默认折叠状态下不应显示 %q", hidden)
+				}
+			}
+
+			// 点击展开：显示三项；正常模式开启动效，推进时钟到动画结束后不再请求下一帧。
+			if err := tt.Click("新会话与批量策略"); err != nil {
+				t.Fatalf("点击展开行失败: %v", err)
+			}
+			if !reduced && !tt.FramePending() {
+				t.Fatal("正常模式下展开折叠行应请求动效帧")
+			}
+			if reduced && tt.FramePending() {
+				t.Fatal("ReduceMotion 开启时展开不应请求后续帧")
+			}
+			tt.Advance(DurBase + 50*time.Millisecond)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("展开动画结束后不应继续请求下一帧")
+			}
+			for _, shown := range []string{"新会话默认启用", "全部工具可用", "全部免审批"} {
+				if !tt.HasText(shown) {
+					t.Fatalf("展开后应显示 %q: %v", shown, tt.Texts())
+				}
+			}
+
+			// 静止推进时钟不再重启动效。
+			tt.Advance(DurBase)
+			if tt.FramePending() {
+				t.Fatal("展开静止状态下不应继续请求下一帧")
+			}
+
+			// 按服务记忆展开状态：关闭再重开仍展开；切换到另一服务默认折叠。
+			if err := tt.Click("关闭MCP 服务"); err != nil {
+				t.Fatalf("关闭详情失败: %v", err)
+			}
+			settleFrames(t, tt)
+			openMCPDetail(t, tt, "other-mcp")
+			waitFor(t, tt, func() bool { return tt.HasText("切换启用 other-mcp") })
+			settleFrames(t, tt)
+			if tt.HasText("新会话默认启用") {
+				t.Fatal("未展开过的服务应保持默认折叠")
+			}
+			if err := tt.Click("关闭MCP 服务"); err != nil {
+				t.Fatalf("关闭详情失败: %v", err)
+			}
+			settleFrames(t, tt)
+			openMCPDetail(t, tt, "collapse-mcp")
+			waitFor(t, tt, func() bool { return tt.HasText("切换启用 collapse-mcp") })
+			settleFrames(t, tt)
+			if !tt.HasText("新会话默认启用") {
+				t.Fatal("同一服务应记住上次展开状态")
+			}
+
+			// 再次点击收起：动画结束后三项消失且不再请求下一帧。
+			if err := tt.Click("新会话与批量策略"); err != nil {
+				t.Fatalf("点击收起行失败: %v", err)
+			}
+			if !reduced && !tt.FramePending() {
+				t.Fatal("正常模式下收起折叠行应请求动效帧")
+			}
+			if reduced && tt.FramePending() {
+				t.Fatal("ReduceMotion 开启时收起不应请求后续帧")
+			}
+			tt.Advance(DurBase + 50*time.Millisecond)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("收起动画结束后不应继续请求下一帧")
+			}
+			for _, hidden := range []string{"新会话默认启用", "全部工具可用", "全部免审批"} {
+				if tt.HasText(hidden) {
+					t.Fatalf("收起后不应继续显示 %q", hidden)
+				}
+			}
+		})
 	}
 }

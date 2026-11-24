@@ -51,72 +51,43 @@ func mcpFormTextField(field func(*mcpPageUIState) *string) (func(*SettingsState)
 	return get, set
 }
 
-// renderMCPNewThreadDefaultsSection 渲染「新会话默认」小节：每个可注入服务一行开关，
-// 关掉的服务在新建会话时默认关闭。只读来源不会注入会话，不列出。
-func renderMCPNewThreadDefaultsBody(c *ui.Context, st *SettingsState) {
-	snap := mcpPageSnapshot(st)
-	uiSt, servers := snap.uiSt, snap.servers
-	visible := make([]agentconf.MCPServer, 0, len(servers))
+// renderMCPNewThreadDefaultRow 渲染「新会话默认启用」开关行，
+// 关掉的服务在新建会话时默认关闭；只读来源不会注入会话，不调用本函数。
+func renderMCPNewThreadDefaultRow(c *ui.Context, st *SettingsState, uiSt *mcpPageUIState, srv agentconf.MCPServer, key string) {
+	// 渲染路径只读缓存快照，避免逐帧读盘。
 	uiSt.mu.Lock()
-	selected := uiSt.selectedServer
-	uiSt.mu.Unlock()
-	for _, srv := range servers {
-		if srv.ReadOnly || mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name) != selected {
-			continue
-		}
-		visible = append(visible, srv)
-	}
-	if len(visible) == 0 {
-		return
-	}
-
-	// 渲染路径只读缓存快照，避免逐帧读盘；快照在读锁内拷一份，供后面的开关回调使用。
-	uiSt.mu.Lock()
-	disabled := make(map[string]bool, len(uiSt.newThreadDisabled))
-	for k, v := range uiSt.newThreadDisabled {
-		disabled[k] = v
-	}
+	enabled := !uiSt.newThreadDisabled[key]
 	saveErr := uiSt.newThreadDisabledErr
 	uiSt.mu.Unlock()
 
-	func() {
-		if saveErr != "" {
-			ui.Text(c, saveErr).
-				FontSize(uiFont(TypeFootnote)).
-				TextColor(ThemeDanger(c)).
-				Margin(0, Space5, Space3, Space5)
-		}
+	if saveErr != "" {
+		ui.Text(c, saveErr).
+			FontSize(uiFont(TypeFootnote)).
+			TextColor(ThemeDanger(c)).
+			Margin(0, Space5, Space3, Space5)
+	}
 
-		for i, srv := range visible {
-			if i > 0 {
-				renderSettingsDivider(c, "div-mcp-newthread-"+strconv.Itoa(i))
-			}
-			key := mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name)
-			enabled := !disabled[key]
-			// 行 key 与服务键都带序号，避免不同来源的同名服务互相覆盖。
-			srvKey := key + "-" + strconv.Itoa(i)
-			renderSettingRow(c, "row-mcp-newthread-"+srvKey, "新会话默认启用", func() {
-				toggleFunc(
-					func(*SettingsState) (bool, bool) { return enabled, false },
-					func(st *SettingsState, on bool) {
-						opts := st.agentConfWriteOptions()
-						uiSt.mu.Lock()
-						if on {
-							delete(uiSt.newThreadDisabled, key)
-						} else {
-							if uiSt.newThreadDisabled == nil {
-								uiSt.newThreadDisabled = make(map[string]bool)
-							}
-							uiSt.newThreadDisabled[key] = true
-						}
-						saveMCPNewThreadDisabledLocked(uiSt, opts)
-						uiSt.mu.Unlock()
-						st.invalidate()
-					},
-				).render(c, st, setting{ID: "row-mcp-newthread-" + srvKey, Title: srv.Name})
-			})
-		}
-	}()
+	srvKey := key + "-0"
+	renderSettingRow(c, "row-mcp-newthread-"+srvKey, "新会话默认启用", func() {
+		toggleFunc(
+			func(*SettingsState) (bool, bool) { return enabled, false },
+			func(st *SettingsState, on bool) {
+				opts := st.agentConfWriteOptions()
+				uiSt.mu.Lock()
+				if on {
+					delete(uiSt.newThreadDisabled, key)
+				} else {
+					if uiSt.newThreadDisabled == nil {
+						uiSt.newThreadDisabled = make(map[string]bool)
+					}
+					uiSt.newThreadDisabled[key] = true
+				}
+				saveMCPNewThreadDisabledLocked(uiSt, opts)
+				uiSt.mu.Unlock()
+				st.invalidate()
+			},
+		).render(c, st, setting{ID: "row-mcp-newthread-" + srvKey, Title: srv.Name})
+	})
 }
 
 // renderMCPCustomForm 渲染新增/编辑自定义 MCP 服务的表单。
@@ -439,7 +410,7 @@ func saveMCPCustomForm(st *SettingsState, uiSt *mcpPageUIState) {
 	st.loadAgentConf(st.agentConfWriteOptions().ProjectDir)
 }
 
-// renderMCPServerRow 渲染单条 MCP 服务详情卡片内容：顶部三个总开关、新会话默认启用、状态徽标与操作。
+// renderMCPServerRow 渲染单条 MCP 服务详情卡片内容：顶部启用开关、默认折叠的策略行、状态徽标与操作。
 func renderMCPServerRow(
 	c *ui.Context,
 	st *SettingsState,
@@ -459,6 +430,7 @@ func renderMCPServerRow(
 	uiSt.mu.Lock()
 	serverKey := mcp.EndpointKey(srvVal.Agent, srvVal.Scope, srvVal.Name)
 	isExpanded := uiSt.expandedServers[serverKey]
+	advExpanded := uiSt.detailAdvancedExpanded[serverKey]
 	tools := uiSt.toolsCache[serverKey]
 	disabledFlags := uiSt.disabledTools[srvVal.Name]
 	autoApproveFlags := uiSt.autoApproveTools[srvVal.Name]
@@ -479,70 +451,93 @@ func renderMCPServerRow(
 		}
 
 		SettingRow(c, mcpKey+"-row-enabled", "启用", func() {
-			enabled := !srvVal.Disabled
+			enabled := !srvVal.Disabled && !srvVal.Untrusted
 			toggleFunc(
 				func(*SettingsState) (bool, bool) { return enabled, false },
 				func(st *SettingsState, newEnabled bool) {
-					// 启停写盘与列表扫描同源，避免切项目后改到另一个项目（J-07）。
-					opts := st.agentConfWriteOptions()
-					// 写盘失败时保持内存里的旧状态：先乐观改内存会让界面谎报成功，
-					// 而开关下次重建又弹回去，用户看不出到底存了什么。
-					if err := agentconf.SetMCPServerEnabledFor(opts, srvVal, newEnabled); err != nil {
-						st.mu.Lock()
-						st.errorMessage = fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srvVal.Name, err)
-						st.mu.Unlock()
-						st.invalidate()
-						return
-					}
-					st.mu.Lock()
-					st.errorMessage = ""
-					for idx := range st.mcpServers {
-						item := &st.mcpServers[idx]
-						if item.Name != srvVal.Name {
-							continue
-						}
-						if newEnabled && item.Agent == srvVal.Agent && item.Source == srvVal.Source {
-							// 启用即视为信任这一条仓库内命令，清掉未信任标记与探测错误。
-							item.Untrusted = false
-						}
-						// 其它来源的同名仓库服务没有被信任，仍保持禁用。
-						item.Disabled = !newEnabled || item.Untrusted
-					}
-					st.mu.Unlock()
-					if newEnabled {
-						resetMCPToolProbe(uiSt, serverKey)
-					}
-					st.invalidate()
+					toggleMCPServerEnabled(st, uiSt, srvVal, newEnabled, false)
 				},
 			).render(c, st, setting{ID: mcpKey + "-sw", Title: "启用 " + srvVal.Name})
 		})
 		renderSettingsDivider(c, mcpKey+"-div-enabled")
 
-		SettingRow(c, mcpKey+"-row-tools-available", "全部工具可用", func() {
-			toggleFunc(
-				func(*SettingsState) (bool, bool) { return allToolsAvailable, false },
-				func(st *SettingsState, on bool) {
-					setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, !on)
-					st.invalidate()
-				},
-			).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
-				render(c, st, setting{ID: mcpKey + "-batch-available", Title: "全部工具可用"})
+		advToggleBtn := ui.ButtonBase(c.Key(mcpKey + "-adv-toggle")).
+			Label("新会话与批量策略").
+			Expanded(advExpanded).
+			FillWidth().
+			Padding(settingsRowPadY, settingsRowPadX).
+			MinHeight(settingsRowMinHeight).
+			Gap(Space4).
+			AlignItems(ui.Center).
+			Cursor(ui.CursorPointer)
+		if advToggleBtn.Hovered() {
+			advToggleBtn.Background(ThemeHover(c))
+		}
+		focusRing(c, advToggleBtn)
+		if advToggleBtn.Clicked() {
+			uiSt.mu.Lock()
+			if uiSt.detailAdvancedExpanded == nil {
+				uiSt.detailAdvancedExpanded = make(map[string]bool)
+			}
+			uiSt.detailAdvancedExpanded[serverKey] = !advExpanded
+			uiSt.mu.Unlock()
+			st.invalidate()
+		}
+		advToggleBtn.Children(func() {
+			ui.Text(c, "新会话与批量策略").
+				FontSize(uiFont(TypeBody)).
+				FontWeight(400).
+				TextColor(ThemePrimaryText(c)).
+				Grow(1).
+				SingleLine()
+			angle := float32(0)
+			if advExpanded {
+				angle = 90
+			}
+			arrow := ui.Icon(c.Key(mcpKey+"-adv-arrow"), IconChevronRight()).
+				Size(IconSM, IconSM).
+				TextColor(ThemeSecondaryText(c)).
+				Shrink(0)
+			if reduceMotion(c) {
+				arrow.Rotate(angle)
+			} else {
+				arrow.Rotate(arrow.AnimateTo(mcpKey+"-adv-arrow", angle, ui.Animation{Duration: DurFast, Ease: EaseOut}))
+			}
 		})
-		renderSettingsDivider(c, mcpKey+"-div-tools-available")
 
-		SettingRow(c, mcpKey+"-row-tools-approve", "全部免审批", func() {
-			toggleFunc(
-				func(*SettingsState) (bool, bool) { return allApprove, false },
-				func(st *SettingsState, on bool) {
-					setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
-					st.invalidate()
-				},
-			).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
-				render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
-		})
-		renderSettingsDivider(c, mcpKey+"-div-tools-approve")
+		if advExpanded {
+			ui.Column(c.Key(mcpKey + "-adv-body")).
+				FillWidth().
+				Transition(motionCollapse(c)).
+				Children(func() {
+					renderSettingsDivider(c, mcpKey+"-div-adv-top")
+					renderMCPNewThreadDefaultRow(c, st, uiSt, srvVal, serverKey)
+					renderSettingsDivider(c, mcpKey+"-div-tools-available")
 
-		renderMCPNewThreadDefaultsBody(c, st)
+					SettingRow(c, mcpKey+"-row-tools-available", "全部工具可用", func() {
+						toggleFunc(
+							func(*SettingsState) (bool, bool) { return allToolsAvailable, false },
+							func(st *SettingsState, on bool) {
+								setMCPToolFlags(uiSt, uiSt.disabledTools, srvVal.Name, toolNames, !on)
+								st.invalidate()
+							},
+						).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
+							render(c, st, setting{ID: mcpKey + "-batch-available", Title: "全部工具可用"})
+					})
+					renderSettingsDivider(c, mcpKey+"-div-tools-approve")
+
+					SettingRow(c, mcpKey+"-row-tools-approve", "全部免审批", func() {
+						toggleFunc(
+							func(*SettingsState) (bool, bool) { return allApprove, false },
+							func(st *SettingsState, on bool) {
+								setMCPToolFlags(uiSt, uiSt.autoApproveTools, srvVal.Name, toolNames, on)
+								st.invalidate()
+							},
+						).withDisabled(func(*SettingsState) bool { return len(toolNames) == 0 }).
+							render(c, st, setting{ID: mcpKey + "-batch-approve", Title: "全部免审批"})
+					})
+				})
+		}
 		renderSettingsDivider(c, mcpKey+"-div-newthread")
 	}
 

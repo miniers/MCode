@@ -140,8 +140,9 @@ type mcpPageUIState struct {
 	deleteConfirmTarget  agentconf.MCPServer
 	deleteConfirmOptions agentconf.Options
 
-	expandedServers map[string]bool
-	toolsCache      map[string][]agentconf.MCPToolInfo
+	expandedServers        map[string]bool
+	detailAdvancedExpanded map[string]bool
+	toolsCache             map[string][]agentconf.MCPToolInfo
 	toolsLoading    map[string]bool
 	toolsErr        map[string]string
 
@@ -180,9 +181,10 @@ type mcpPageUIState struct {
 // 之后渲染路径只读写内存里的开关与折叠设置。
 func newMCPPageUIState(dataDir string) *mcpPageUIState {
 	uiSt := &mcpPageUIState{
-		transportInput:  "stdio",
-		expandedServers: make(map[string]bool),
-		toolsCache:      make(map[string][]agentconf.MCPToolInfo),
+		transportInput:         "stdio",
+		expandedServers:        make(map[string]bool),
+		detailAdvancedExpanded: make(map[string]bool),
+		toolsCache:             make(map[string][]agentconf.MCPToolInfo),
 		toolsLoading:    make(map[string]bool),
 		toolsErr:        make(map[string]string),
 
@@ -439,6 +441,93 @@ func (uiSt *mcpPageUIState) syncNewThreadDisabled(st *SettingsState, scanKey str
 	uiSt.mu.Unlock()
 }
 
+// openMCPServerDetail 打开指定 MCP 服务的详情弹窗并触发一次工具探测。
+func openMCPServerDetail(st *SettingsState, uiSt *mcpPageUIState, srv agentconf.MCPServer) {
+	key := mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name)
+	uiSt.mu.Lock()
+	if uiSt.expandedServers == nil {
+		uiSt.expandedServers = make(map[string]bool)
+	}
+	uiSt.selectedServer = key
+	uiSt.expandedServers[key] = true
+	uiSt.isFormOpen = false
+	uiSt.mu.Unlock()
+	openSettingsSheet(st, "mcp-detail", "")
+	startMCPToolProbe(st, uiSt, srv)
+}
+
+// toggleMCPServerEnabled 切换 MCP 服务的启用状态：未信任的仓库服务在列表快捷开关上
+// 不静默信任或启用，而是打开详情按现有信任流程处理；其余场景写盘成功后再更新内存与信任状态。
+func toggleMCPServerEnabled(st *SettingsState, uiSt *mcpPageUIState, srv agentconf.MCPServer, newEnabled, fromList bool) {
+	if fromList && newEnabled && srv.Untrusted {
+		openMCPServerDetail(st, uiSt, srv)
+		return
+	}
+	// 启停写盘与列表扫描同源，避免切项目后改到另一个项目（J-07）。
+	opts := st.agentConfWriteOptions()
+	// 写盘失败时保持内存里的旧状态：先乐观改内存会让界面谎报成功，
+	// 而开关下次重建又弹回去，用户看不出到底存了什么。
+	if err := agentconf.SetMCPServerEnabledFor(opts, srv, newEnabled); err != nil {
+		st.mu.Lock()
+		st.errorMessage = fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srv.Name, err)
+		st.mu.Unlock()
+		st.invalidate()
+		return
+	}
+	st.mu.Lock()
+	st.errorMessage = ""
+	for idx := range st.mcpServers {
+		item := &st.mcpServers[idx]
+		if item.Name != srv.Name {
+			continue
+		}
+		if newEnabled && item.Agent == srv.Agent && item.Source == srv.Source {
+			// 启用即视为信任这一条仓库内命令，清掉未信任标记与探测错误。
+			item.Untrusted = false
+		}
+		// 其它来源的同名仓库服务没有被信任，仍保持禁用。
+		item.Disabled = !newEnabled || item.Untrusted
+	}
+	st.mu.Unlock()
+	if newEnabled {
+		resetMCPToolProbe(uiSt, mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name))
+	}
+	st.invalidate()
+}
+
+// mcpListStatusDot 返回列表行状态点的颜色与无障碍状态文案，只读渲染缓存并复用状态徽标语义。
+func mcpListStatusDot(c *ui.Context, st *SettingsState, snap mcpSnapshot, srv agentconf.MCPServer, key string) (ui.Color, string) {
+	if !srv.ReadOnly && (srv.Disabled || srv.Untrusted) {
+		return ThemeTertiaryText(c), "已停用"
+	}
+	if srv.URL != "" && !srv.ReadOnly {
+		serverID := mcpCachedAuthID(snap.uiSt, srv)
+		if snap.authBusy[serverID] {
+			return ThemeAccent(c), "授权中"
+		}
+		if snap.authErr[serverID] != "" {
+			return ThemeDanger(c), "授权失败"
+		}
+		if !snap.staticAuth[key] && !mcpServerSignedIn(st, snap.uiSt, srv, snap.client) {
+			return ThemeWarning(c), "需要授权"
+		}
+	}
+	snap.uiSt.mu.Lock()
+	probing := snap.uiSt.toolsLoading[key]
+	probeErr := snap.uiSt.toolsErr[key]
+	snap.uiSt.mu.Unlock()
+	switch {
+	case probing:
+		return ThemeAccent(c), "连接中"
+	case probeErr != "":
+		return ThemeDanger(c), "连接失败"
+	case srv.ReadOnly:
+		return ThemeSuccess(c), "只读"
+	default:
+		return ThemeSuccess(c), "已启用"
+	}
+}
+
 // renderCustomMCPSection 渲染自定义服务配置区（包含添加表单与自定义服务列表）。
 func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 	snap := mcpPageSnapshot(st)
@@ -517,7 +606,8 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 
 		for i, srv := range customServers {
 			renderSettingsDivider(c, "div-mcp-custom-"+strconv.Itoa(i))
-			key := mcp.EndpointKey(srv.Agent, srv.Scope, srv.Name)
+			srvVal := srv
+			key := mcp.EndpointKey(srvVal.Agent, srvVal.Scope, srvVal.Name)
 			row := ui.ButtonBase(c.Key("mcp-list-"+key)).
 				Label("打开 MCP 服务 "+key).
 				FillWidth().
@@ -527,24 +617,34 @@ func renderMCPCustomBody(c *ui.Context, st *SettingsState) {
 				row.Background(ThemeHover(c))
 			}
 			focusRing(c, row)
-			if row.Clicked() {
-				uiSt.mu.Lock()
-				uiSt.selectedServer = key
-				uiSt.expandedServers[key] = true
-				uiSt.isFormOpen = false
-				uiSt.mu.Unlock()
-				openSettingsSheet(st, "mcp-detail", "")
-				startMCPToolProbe(st, uiSt, srv)
-			}
+			childClicked := false
 			row.Children(func() {
 				ui.Row(c.Key("mcp-list-content-" + key)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, srv.Name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
-					Badge(c, "mcp-list-source-"+key, mcpSourceLabel(srv.Agent), ToneNeutral)
-					if srv.ReadOnly {
+					ui.Text(c, srvVal.Name).FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
+					Badge(c, "mcp-list-source-"+key, mcpSourceLabel(srvVal.Agent), ToneNeutral)
+					if srvVal.ReadOnly {
 						Badge(c, "mcp-list-readonly-"+key, "只读", ToneNeutral)
+					}
+					ui.Spacer(c)
+					dotColor, dotLabel := mcpListStatusDot(c, st, snap, srvVal, key)
+					ui.Box(c.Key("mcp-list-dot-"+key)).
+						Size(Space2, Space2).
+						Radius(RadiusPill).
+						Background(dotColor).
+						Label(dotLabel).
+						Shrink(0)
+					if !srvVal.ReadOnly {
+						enabled := !srvVal.Disabled && !srvVal.Untrusted
+						Switch(c, "mcp-list-sw-"+key, &enabled, "启用 "+srvVal.Name, func(newEnabled bool) {
+							childClicked = true
+							toggleMCPServerEnabled(st, uiSt, srvVal, newEnabled, true)
+						})
 					}
 				})
 			})
+			if row.Clicked() && !childClicked {
+				openMCPServerDetail(st, uiSt, srvVal)
+			}
 		}
 	}()
 }
