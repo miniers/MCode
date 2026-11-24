@@ -174,13 +174,13 @@ func TestGitTabMerged_AllAndTurnScopesRender(t *testing.T) {
 		t.Fatalf("工作区干净时应只显示历史，texts=%v", tt.Texts())
 	}
 
-	// 非 Git 仓库：all 范围显示「不是 Git 仓库」，turn 范围仍可用。
+	// 非 Git 仓库：all 范围显示「当前目录不是 Git 仓库」，turn 范围仍可用。
 	histClient.state = GitState{WorkDir: ""}
 	ps.mu.Lock()
 	ps.state = GitState{}
 	ps.mu.Unlock()
 	tt.Frame()
-	if !tt.HasText("不是 Git 仓库") {
+	if !tt.HasText("当前目录不是 Git 仓库") {
 		t.Fatalf("非仓库 all 范围缺少空态，texts=%v", tt.Texts())
 	}
 	s.selectReviewScope(dp, "turn")

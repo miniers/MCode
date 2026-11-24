@@ -629,7 +629,7 @@ func TestGitPaneEmptyStates(t *testing.T) {
 	ps.visible = true
 	ps.mu.Unlock()
 	tt := ui.NewTester(func(c *ui.Context) { renderGitPane(c, s) }, 480, 300)
-	if !tt.HasText("不是 Git 仓库") {
+	if !tt.HasText("当前目录不是 Git 仓库") {
 		t.Fatal("缺少非仓库空状态")
 	}
 	s.mu.Lock()
@@ -1538,14 +1538,14 @@ func TestGitPaneHeaderDetachedOnlyRefreshesLocally(t *testing.T) {
 		t.Fatalf("分离 HEAD 点击刷新不应触发 fetch：%v", calls)
 	}
 
-	// 无工作目录时禁用。
+	// 无工作目录时只显示空态。
 	ps.mu.Lock()
 	ps.state = GitState{}
 	ps.mu.Unlock()
-	tt.Frame()
-	if node, ok := tt.Access("刷新"); !ok || !node.Disabled {
-		t.Fatalf("无工作目录时应禁用刷新按钮: %+v ok=%v", node, ok)
-	}
+	waitFor(t, tt, func() bool {
+		_, hasRefresh := tt.Access("刷新")
+		return !hasRefresh && tt.HasText("当前目录不是 Git 仓库")
+	})
 	_ = s
 }
 

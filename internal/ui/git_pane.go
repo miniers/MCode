@@ -681,6 +681,7 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		state, syncing, progress, loading = ps.state, ps.syncing, ps.progress, ps.loading
 		ps.mu.Unlock()
 	}
+	notRepo := hasGit && scope == "all" && !loading && state.WorkDir == ""
 	if hasGit && modern && hasHist && state.WorkDir != "" && scope == "all" {
 		handleGitHistorySearchShortcut(c, gitHistoryStateFor(ps))
 	}
@@ -695,6 +696,10 @@ func renderGitPane(c *ui.Context, s *chatState) {
 		width = inspectorSession(s).Width
 	}
 	pane.Children(func() {
+		if notRepo {
+			renderGitPaneNotRepoEmpty(c, s, ps.threadID)
+			return
+		}
 		if hasGit {
 			renderGitPaneToolbar(c, s, ps, state, width)
 			if syncing && progress.Percent >= 0 {
@@ -1683,13 +1688,17 @@ func renderGitPaneNotRepoEmpty(c *ui.Context, s *chatState, threadID string) {
 			if threadRunning {
 				tooltip = "会话运行中，暂不可初始化"
 			}
+			btnText := "初始化 Git"
+			if initBusy {
+				btnText = "正在初始化…"
+			}
 			action = func() {
 				Button(c, ButtonOpts{
 					Key:      "git-pane-init-btn",
-					Text:     "初始化 Git",
-					Icon:     IconGitBranch(),
+					Text:     btnText,
+					Icon:     IconPlus(),
 					Variant:  ButtonPrimary,
-					Size:     ControlMD,
+					Size:     ControlSM,
 					Disabled: threadRunning,
 					Loading:  initBusy,
 					Tooltip:  tooltip,
@@ -1699,6 +1708,6 @@ func renderGitPaneNotRepoEmpty(c *ui.Context, s *chatState, threadID string) {
 				})
 			}
 		}
-		EmptyState(c, EmptyStateProps{Icon: IconGitBranch(), Title: "不是 Git 仓库", Action: action})
+		EmptyState(c, EmptyStateProps{Icon: IconGitBranch(), Title: "当前目录不是 Git 仓库", Action: action})
 	})
 }
