@@ -1064,11 +1064,7 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 	pop := appPopover(c.Key("chat-header-git-popover"), capsule, &hs.branchMenuOpen, func() {
 		hs.branchMenuOpen = false
 	}, func() {
-		popoverCard(c, ui.Column(c.Key("chat-header-git-menu")).
-			Width(gitMenuWidth).
-			Children(func() {
-				renderGitBranchPopoverContent(c, s, threadID, gitMenuWidth, &hs.branchMenuOpen)
-			})).Border(Hairline, ThemeBorder(c))
+		renderGitBranchPopoverBody(c, s, threadID, gitMenuWidth, &hs.branchMenuOpen, true)
 	})
 	if hs.branchMenuOpen {
 		pop.Margin(Space2, 0, 0, 0)
