@@ -85,9 +85,9 @@ func TestChatHeaderGitLongMenuScrolls(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("branch-00") })
-	scrollRect, ok := tt.Find("git-branch-list-scroll")
+	scrollRect, ok := tt.Find("分支")
 	if !ok {
-		t.Fatal("缺少分支列表滚动区 git-branch-list-scroll")
+		t.Fatal("缺少分支列表滚动区")
 	}
 	if scrollRect.H <= 0 || scrollRect.H > 480 {
 		t.Fatalf("分支列表滚动区高度 = %v，期望在 (0, 480] 内", scrollRect.H)

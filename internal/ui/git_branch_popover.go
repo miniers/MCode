@@ -304,7 +304,7 @@ func renderGitBranchPopoverBody(c *ui.Context, s *chatState, threadID string, wi
 		}})
 		_, winH := c.Size()
 		listMaxH := min(float32(480), max(float32(120), winH-200))
-		ui.Scroll(c.Key("git-branch-list-scroll")).Label("git-branch-list-scroll").FillWidth().MaxHeight(listMaxH).Children(func() {
+		ui.Scroll(c.Key("git-branch-list-scroll")).Label("分支").FillWidth().MaxHeight(listMaxH).Children(func() {
 			ui.Column(c.Key("git-branch-list")).FillWidth().Children(func() {
 				index := 0
 				renderItem := func(item branchPopoverItem) {
