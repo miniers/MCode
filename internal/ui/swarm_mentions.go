@@ -445,7 +445,7 @@ func renderSwarmMentionInline(c *ui.Context, s *chatState, key string, bee Swarm
 	name := ui.Text(c.Key(key), bee.Name).
 		FontWeight(700).
 		TextColor(color).
-		Radius(7).
+		Radius(RadiusSM).
 		PaddingX(Space0).
 		Tooltip("在独立窗口中打开").
 		OnClick(open)

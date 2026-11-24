@@ -471,7 +471,7 @@ func renderUserMentionParagraph(c *ui.Context, s *chatState, m Message, segments
 				TextColor(ThemeAccent(c)).
 				FontWeight(500).
 				Background(ThemeAccent(c).Alpha(0.18)).
-				Radius(7).
+				Radius(RadiusSM).
 				Tooltip(tooltip).
 				Cursor(ui.CursorPointer).
 				OnClick(func() {
