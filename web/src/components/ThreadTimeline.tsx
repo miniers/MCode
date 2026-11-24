@@ -55,7 +55,7 @@ import {
 } from '../utils/planOutline';
 import { QuestionAnswerCard } from './timeline/QuestionAnswerCard';
 import { parseQuestionAnswer } from '../utils/questionAnswer';
-import { todoProgressFromMessage } from '../utils/todoProgress';
+import { TurnChecklistCard, TurnChecklistTrigger } from './timeline/TurnChecklist';
 import {
   buildToolSegments,
   isToolCallEntry,
@@ -89,7 +89,7 @@ import {
 import {
   buildSwarmReportIndex, buildTruncatedReportIndex, collectBackgroundCommands,
   countWorkCategories, isAssistantMessage, isEndedStatus, isThinkingEntry,
-  classifyToolName, workSummaryText, turnWorkHeaderLabel, toolSegmentHeaderText, runningSwarmBees,
+  classifyToolName, workSummaryText, turnWorkHeaderLabel, turnChecklist, toolSegmentHeaderText, runningSwarmBees,
   workRecordHasFailure, timelineItemKey, timelineItemContainsMessage,
   truncatedReportsOfDispatch, isMergedSwarmReportRow, messageKindLabel,
   isFailedToolEntry, isBlockedToolEntry,
@@ -104,13 +104,13 @@ export {
   countWorkCategories, formatShortDuration, formatTurnElapsedSeconds, isAssistantMessage,
   isEndedStatus, isHiddenTimelineMessage, isThinkingEntry, isWorkEntry, mergeLatestHistoryPage,
   mergeThreadMessages, normalizeToolNameKey, classifyToolName, workSummaryText, workElapsedMs,
-  turnWorkHeaderLabel, toolSegmentHeaderText, runningSwarmBees, workRecordHasFailure,
+  turnWorkHeaderLabel, turnChecklist, toolSegmentHeaderText, runningSwarmBees, workRecordHasFailure,
   timelineItemKey, timelineItemContainsMessage, truncatedReportKey, truncatedReportsOfDispatch,
   isMergedSwarmReportRow, messageKindLabel
 } from './timeline/projection';
 export type {
   MessageKind, TurnStatus, ThreadMessage, CopyVariant, CopyState, WorkRecordItem, TimelineItem,
-  WorkToolCategory, WorkCategoryCounts
+  WorkToolCategory, WorkCategoryCounts, TurnChecklistData
 } from './timeline/projection';
 
 
@@ -628,6 +628,9 @@ interface TimelineEntryProps {
   segmentOpenState: Record<string, boolean>;
   /** 切换一段的开合；defaultOpen 是这段当前的默认开合状态，未显式设置过时从它翻转 */
   onToggleToolSegment: (key: string, defaultOpen: boolean) => void;
+  /** 回合步骤清单卡片的显式开合状态（未设置时按运行态默认展开、结束态默认收起） */
+  checklistOpen?: boolean;
+  onToggleChecklist?: (key: string, defaultOpen: boolean) => void;
   /** 「自动折叠思考过程」偏好：段的默认开合与回合折叠一致 */
   autoCollapse: boolean;
   onCopyMessage: (messageID: string, text: string, variant: CopyVariant) => void;
@@ -937,6 +940,8 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     onToggleWorkRecord,
     segmentOpenState,
     onToggleToolSegment,
+    checklistOpen,
+    onToggleChecklist,
     autoCollapse,
     onCopyMessage,
     canBranch,
@@ -1005,6 +1010,11 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   const workRecordNowMs = useRunningNowMs(workRecordRunning);
   const rawWorkHeaderLabel = item.type === 'workRecord' ? turnWorkHeaderLabel(item.entries, workRecordRunning, workRecordNowMs, item.turnStartedAt, item.turnCompletedAt) : '';
   const stableWorkHeaderLabel = useStableLabel(rawWorkHeaderLabel);
+  const [localChecklistOpen, setLocalChecklistOpen] = React.useState<boolean | undefined>(undefined);
+  const checklist = React.useMemo(
+    () => (item.type === 'workRecord' ? turnChecklist(item.entries) : null),
+    [item]
+  );
 
   if (item.type === 'turnFinished') {
     return (
@@ -1033,55 +1043,112 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
     // 这里不认 background：它只出现在已结束的回合里，不该把组头当成还在等它结束。
     const shimmerHeader =
       workRecordRunning && !item.entries.some((entry) => entry.toolStatus === 'running');
+    const checklistKey = `${threadID}:${item.turnID}`;
+    const isChecklistOpen = checklistOpen ?? localChecklistOpen ?? workRecordRunning;
+    const handleToggleChecklist = () => {
+      if (onToggleChecklist) {
+        onToggleChecklist(checklistKey, workRecordRunning);
+      } else {
+        setLocalChecklistOpen((previous) => !(previous ?? workRecordRunning));
+      }
+    };
+    const headerLead = (
+      <>
+        <span className="shrink-0">
+          {item.turnStatus === 'running' ? (
+            <RunningGlyph size={12} label="工作记录执行中" />
+          ) : item.turnStatus === 'completed' ? (
+            <CheckCircleIcon className="w-4 h-4 text-[var(--primary)]" />
+          ) : item.turnStatus === 'interrupted' ? (
+            <CircleIcon className="w-4 h-4 text-[var(--warning-foreground)]" />
+          ) : item.turnStatus === 'failed' ? (
+            <XMarkIcon className="w-4 h-4 text-[var(--danger-foreground)]" />
+          ) : (
+            <CircleIcon className="w-4 h-4 opacity-40" />
+          )}
+        </span>
+        <span
+          className={`font-medium truncate ${
+            shimmerHeader ? 'animate-pulse motion-reduce:animate-none' : ''
+          }`}
+        >
+          {workHeaderLabel}
+        </span>
+        {workRecordHasFailure(item.entries) && (
+          <span className="shrink-0 text-[var(--danger-foreground)]" title="工具执行失败">
+            <ExclamationTriangleIcon className="w-3.5 h-3.5" />
+          </span>
+        )}
+      </>
+    );
     return (
       <div
         key={`work-${item.turnID}`}
         className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 space-y-2 min-w-0"
       >
-        <button
-          type="button"
-          data-work-record-id={item.turnID}
-          onClick={() => onToggleWorkRecord(item.turnID)}
-          aria-expanded={isExpanded}
-          aria-label={isExpanded ? `收起第 ${item.turnIndex} 轮工作记录` : `展开第 ${item.turnIndex} 轮工作记录`}
-          title={`${workStatusLabel} · ${workSummary}`}
-          className="w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition"
-        >
-          <div className="flex items-center gap-2 min-w-0 text-mc-body text-[var(--foreground-muted)]">
-            <span className="shrink-0">
-              {item.turnStatus === 'running' ? (
-                <RunningGlyph size={12} label="工作记录执行中" />
-              ) : item.turnStatus === 'completed' ? (
-                <CheckCircleIcon className="w-4 h-4 text-[var(--primary)]" />
-              ) : item.turnStatus === 'interrupted' ? (
-                <CircleIcon className="w-4 h-4 text-[var(--warning-foreground)]" />
-              ) : item.turnStatus === 'failed' ? (
-                <XMarkIcon className="w-4 h-4 text-[var(--danger-foreground)]" />
-              ) : (
-                <CircleIcon className="w-4 h-4 opacity-40" />
-              )}
-            </span>
-            <span
-              className={`font-medium truncate ${
-                shimmerHeader ? 'animate-pulse motion-reduce:animate-none' : ''
-              }`}
+        {checklist ? (
+          <div className="min-w-0">
+            <div
+              onClick={() => onToggleWorkRecord(item.turnID)}
+              className="w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition cursor-pointer"
             >
-              {workHeaderLabel}
-            </span>
-            {workRecordHasFailure(item.entries) && (
-              <span className="shrink-0 text-[var(--danger-foreground)]" title="工具执行失败">
-                <ExclamationTriangleIcon className="w-3.5 h-3.5" />
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
-            <ChevronRightIcon
-              className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                isExpanded ? 'rotate-90' : ''
-              }`}
+              <div className="flex items-center gap-1 min-w-0 flex-1">
+                <button
+                  type="button"
+                  data-work-record-id={item.turnID}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleWorkRecord(item.turnID);
+                  }}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? `收起第 ${item.turnIndex} 轮工作记录` : `展开第 ${item.turnIndex} 轮工作记录`}
+                  title={`${workStatusLabel} · ${workSummary}`}
+                  className="flex items-center gap-2 min-w-0 text-left py-1.5 text-mc-body text-[var(--foreground-muted)]"
+                >
+                  {headerLead}
+                </button>
+                <TurnChecklistTrigger
+                  checklist={checklist}
+                  open={isChecklistOpen}
+                  onToggle={handleToggleChecklist}
+                />
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
+                <ChevronRightIcon
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    isExpanded ? 'rotate-90' : ''
+                  }`}
+                />
+              </div>
+            </div>
+            <TurnChecklistCard
+              checklist={checklist}
+              open={isChecklistOpen}
+              running={workRecordRunning}
             />
           </div>
-        </button>
+        ) : (
+          <button
+            type="button"
+            data-work-record-id={item.turnID}
+            onClick={() => onToggleWorkRecord(item.turnID)}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? `收起第 ${item.turnIndex} 轮工作记录` : `展开第 ${item.turnIndex} 轮工作记录`}
+            title={`${workStatusLabel} · ${workSummary}`}
+            className="w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition"
+          >
+            <div className="flex items-center gap-2 min-w-0 text-mc-body text-[var(--foreground-muted)]">
+              {headerLead}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
+              <ChevronRightIcon
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                  isExpanded ? 'rotate-90' : ''
+                }`}
+              />
+            </div>
+          </button>
+        )}
 
         {isExpanded && (
           <div
@@ -1149,10 +1216,6 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
                         const diffFiles = isToolEntry ? parseToolEditDiff(entry.toolName, entry.toolInput) : null;
                         const filePath = isToolEntry ? toolFilePath(entry.toolName, entry.toolInput) : null;
                         const diffSummary = diffFiles ? summarizeToolDiff(diffFiles) : null;
-                        // 待办类工具（TodoWrite / update_plan）：进度与输入框上方的胶囊共用同一份解析
-                        const todoProgress = isToolEntry
-                          ? todoProgressFromMessage({ role: 'tool', toolInput: entry.toolInput, text: entry.text })
-                          : null;
                         const labelClass = blocked
                           ? 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground-muted)]'
                           : failed
@@ -1193,14 +1256,6 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
                                   </span>
                                 )}
                                 {blocked && <span className="shrink-0 opacity-80">已被 hook 拦截</span>}
-                                {todoProgress && (
-                                  <span
-                                    className="shrink-0 rounded border border-[var(--border)] px-1 py-0.5 font-mono"
-                                    title="待办完成进度"
-                                  >
-                                    {todoProgress.done}/{todoProgress.total}
-                                  </span>
-                                )}
                               </span>
                               <span className="flex items-center gap-2 shrink-0">
                                 {/* 后台任务由 provider 托管，宿主不能单独中止，只对 running 给「停止」入口。 */}
@@ -1786,6 +1841,8 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
   previous.onToggleWorkRecord === next.onToggleWorkRecord &&
   previous.segmentOpenState === next.segmentOpenState &&
   previous.onToggleToolSegment === next.onToggleToolSegment &&
+  previous.checklistOpen === next.checklistOpen &&
+  previous.onToggleChecklist === next.onToggleChecklist &&
   previous.autoCollapse === next.autoCollapse &&
   previous.onCopyMessage === next.onCopyMessage &&
   previous.onBranchMessage === next.onBranchMessage &&
@@ -1907,6 +1964,9 @@ interface VirtualTimelineProps extends ThreadTimelineProps {
   segmentOpenState: Record<string, boolean>;
   /** 切换一段的开合 */
   onToggleToolSegment: (key: string, defaultOpen: boolean) => void;
+  /** 回合步骤清单的显式开合状态表 */
+  checklistOpenState: Record<string, boolean>;
+  onToggleChecklist: (key: string, defaultOpen: boolean) => void;
   /** B7 时间线末尾的后台任务清单：由 ThreadTimeline 统一筛好传进来 */
   backgroundCommands: BackgroundTaskCommand[];
   runningBees: RemoteSwarmBee[];
@@ -1940,6 +2000,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
   onToggleWorkRecord,
   segmentOpenState,
   onToggleToolSegment,
+  checklistOpenState,
+  onToggleChecklist,
   onCopyMessage,
   canBranch = false,
   onBranchMessage,
@@ -2099,6 +2161,8 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
           onToggleWorkRecord={toggleWorkRecord}
           segmentOpenState={segmentOpenState}
           onToggleToolSegment={onToggleToolSegment}
+          checklistOpen={item.type === 'workRecord' ? checklistOpenState[`${threadID}:${item.turnID}`] : undefined}
+          onToggleChecklist={onToggleChecklist}
           autoCollapse={autoCollapse}
           onCopyMessage={onCopyMessage}
           canBranch={canBranch}
@@ -2239,6 +2303,14 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
   const [segmentOpenState, setSegmentOpenState] = React.useState<Record<string, boolean>>({});
   const toggleToolSegment = React.useCallback((key: string, defaultOpen: boolean) => {
     setSegmentOpenState((previous) => ({
+      ...previous,
+      [key]: !(previous[key] ?? defaultOpen)
+    }));
+  }, []);
+  // 回合步骤清单的显式开合状态：按 threadID:turnID 记忆，虚拟列表滚动卸载后仍保留用户选择
+  const [checklistOpenState, setChecklistOpenState] = React.useState<Record<string, boolean>>({});
+  const toggleChecklist = React.useCallback((key: string, defaultOpen: boolean) => {
+    setChecklistOpenState((previous) => ({
       ...previous,
       [key]: !(previous[key] ?? defaultOpen)
     }));
@@ -2421,6 +2493,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
         onToggleWorkRecord={onToggleWorkRecord}
         segmentOpenState={segmentOpenState}
         onToggleToolSegment={toggleToolSegment}
+        checklistOpenState={checklistOpenState}
+        onToggleChecklist={toggleChecklist}
         onCopyMessage={onCopyMessage}
         canBranch={canBranch}
         onBranchMessage={onBranchMessage}
@@ -2493,6 +2567,8 @@ export const ThreadTimeline: React.FC<ThreadTimelineProps> = ({
           onToggleWorkRecord={toggleWorkRecord}
           segmentOpenState={segmentOpenState}
           onToggleToolSegment={toggleToolSegment}
+          checklistOpen={item.type === 'workRecord' ? checklistOpenState[`${threadID}:${item.turnID}`] : undefined}
+          onToggleChecklist={toggleChecklist}
           autoCollapse={autoCollapse}
           onCopyMessage={onCopyMessage}
           canBranch={canBranch}

@@ -11,6 +11,11 @@ import { commandSnippet } from './BackgroundTasksRow';
 import { isToolCallEntry } from './toolSegments';
 import { reasoningHeaderTitle } from './stewardTimeline';
 import { parseSwarmReportArchiveFields, type SwarmReportFullItem } from './SwarmReportFullText';
+import {
+  todoProgressFromMessage,
+  type TodoItem,
+  type TodoSourceMessage
+} from '../../utils/todoProgress';
 
 export const COLLAPSE_THRESHOLD = 4000;
 export const COLLAPSE_PREVIEW_LENGTH = 4000;
@@ -488,6 +493,38 @@ export function turnWorkHeaderLabel(
   const elapsed = elapsedMs === null || elapsedMs <= 0 ? '' : formatTurnElapsedSeconds(elapsedMs);
   if (running) return elapsed === '' ? '已处理' : `已处理 ${elapsed}`;
   return elapsed === '' ? '用时' : `用时 ${elapsed}`;
+}
+
+export interface TurnChecklistData {
+  items: TodoItem[];
+  done: number;
+  total: number;
+}
+
+function isChecklistTurnBoundary(message: TodoSourceMessage): boolean {
+  if (message.kind === 'host_event') return false;
+  return message.kind === 'user' || (!message.kind && message.role === 'user');
+}
+
+/**
+ * 提取本回合（用户消息到下一条用户消息之间）最后一条可解析为待办清单的工具消息；
+ * 复用 todoProgress.ts 的解析口径，没有清单时返回 null。
+ */
+export function turnChecklist(messages: readonly TodoSourceMessage[]): TurnChecklistData | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+    if (isChecklistTurnBoundary(message)) break;
+    const progress = todoProgressFromMessage(message);
+    if (progress) {
+      return {
+        items: progress.items,
+        done: progress.done,
+        total: progress.total
+      };
+    }
+  }
+  return null;
 }
 
 /** 组内仍在运行的工具条目（不看类别：只要还在跑就在组头提示）。 */

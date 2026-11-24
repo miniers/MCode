@@ -54,7 +54,6 @@ import { shouldAutoLoadOlder } from './thread/autoLoadOlder';
 import { useThreadQueue } from './thread/useThreadQueue';
 import { ContinueTurnPill } from './thread/ContinueTurnPill';
 import { QuestionMinimap, buildQuestionMinimapData } from './thread/QuestionMinimap';
-import { TodoProgressPill } from './thread/TodoProgressPill';
 import { taskContextDetail } from './taskContext';
 import {
   isUnresolvedAction,
@@ -2788,9 +2787,6 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             )}
           </>
         )}
-
-        {/* 待办进度胶囊：最新一份待办清单没做完时常驻在输入框上方，点开展开完整清单 */}
-        {!swarmState?.isBee && <TodoProgressPill messages={messages} isRunning={latestSummary.isRunning} />}
 
         {/* 继续胶囊：上一轮被中断或失败后，在输入框上方一键续跑（草稿非空、运行中、子代理页都不显示） */}
         {!swarmState?.isBee && canSend && !latestSummary.isRunning && !composerHasContent && (
