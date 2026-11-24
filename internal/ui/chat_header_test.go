@@ -56,7 +56,7 @@ func TestChatHeaderGitRefreshOnOpen(t *testing.T) {
 	fake.mu.Lock()
 	fake.gitState.Branches = append(fake.gitState.Branches, "new-branch")
 	fake.mu.Unlock()
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("new-branch") })
@@ -81,7 +81,7 @@ func TestChatHeaderGitLongMenuScrolls(t *testing.T) {
 	}
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("branch-00") })
@@ -250,9 +250,10 @@ func TestChatHeaderRenameEscapeCancels(t *testing.T) {
 // 胶囊显示分支名，在分支浮层中切换后调用 GitCheckout 并刷新胶囊。
 func TestChatHeaderGitCheckout(t *testing.T) {
 	fake := newGitFakeClient()
+	fake.gitState.Changes = 0
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 main"); return ok })
@@ -275,35 +276,11 @@ func TestChatHeaderGitCheckout(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("main") && !tt.HasText("feature/login") })
 }
 
-func TestChatHeaderGitSwitchWorktree(t *testing.T) {
-	fake := newGitFakeClient()
-	tt := ui.NewTester(Root(fake), 1000, 700)
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("切换分支"); err != nil {
-		t.Fatalf("click branch capsule failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("切换到 worktree hotfix")
-		return ok
-	})
-	if err := tt.Click("切换到 worktree hotfix"); err != nil {
-		t.Fatalf("click worktree failed: %v", err)
-	}
-
-	waitFor(t, tt, func() bool {
-		fake.mu.Lock()
-		defer fake.mu.Unlock()
-		return len(fake.gitWorktreeCalls) == 1 && fake.gitWorktreeCalls[0] == "/repo-wt/hotfix"
-	})
-	waitFor(t, tt, func() bool { return tt.HasText("hotfix · hotfix") })
-}
-
 func TestChatHeaderGitNewBranch(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTester(Root(fake), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("搜索分支"); return ok })
@@ -312,7 +289,7 @@ func TestChatHeaderGitNewBranch(t *testing.T) {
 	}
 	tt.Type("feat/window")
 	tt.Frame()
-	if !tt.HasText("＋ 新建分支 “feat/window”") {
+	if !tt.HasText("新建分支 “feat/window”") {
 		t.Fatalf("缺少新建项: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
@@ -998,7 +975,7 @@ func TestChatHeaderNonGitProjectKeepsOpenInAndScripts(t *testing.T) {
 	if _, ok := tt.Find("Git 面板"); ok {
 		t.Fatal("非 Git 会话不应显示分支胶囊")
 	}
-	if _, ok := tt.Find("切换分支"); ok {
+	if _, ok := tt.Find("切换分支与同步"); ok {
 		t.Fatal("非 Git 会话不应显示分支胶囊")
 	}
 	if _, ok := tt.Find("提交与推送"); ok {
@@ -1450,9 +1427,9 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("头部缺少分支胶囊左半「Git 面板」")
 	}
-	branch, ok := tt.Find("切换分支")
+	branch, ok := tt.Find("切换分支与同步")
 	if !ok {
-		t.Fatal("头部缺少分支胶囊右半「切换分支」")
+		t.Fatal("头部缺少分支胶囊右半「切换分支与同步」")
 	}
 	title, ok := tt.Find("会话标题拖动区")
 	if !ok {
@@ -1570,17 +1547,6 @@ func TestChatHeaderCommitOpensUncommittedReview(t *testing.T) {
 	}
 }
 
-func TestChatHeaderWorktreeVisibility(t *testing.T) {
-	for _, tc := range []struct {
-		branch string
-		want   bool
-	}{{"mcode/swarm/bee", false}, {"main", true}, {"mcode/swarmish", true}, {"", true}} {
-		if got := visibleHeaderWorktree(tc.branch); got != tc.want {
-			t.Errorf("visibleHeaderWorktree(%q) = %v", tc.branch, got)
-		}
-	}
-}
-
 func TestChatHeaderNoUnmergedBeesMenu(t *testing.T) {
 	s, root := buildRoot(newGitFakeClient())
 	tt := ui.NewTester(root, 1000, 700)
@@ -1675,41 +1641,12 @@ func TestFileManagerPlatformLabels(t *testing.T) {
 	}
 }
 
-func TestUIReview2MoveWorktreeTransferLabelOnce(t *testing.T) {
-	fake := newGitFakeClient()
-	fake.SetMessages("t1", []Message{{ID: "m1", Role: "user", Text: "hi"}})
-	tt := ui.NewTesterWith(Root(fake), 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
-	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-
-	if err := tt.Click("切换分支"); err != nil {
-		t.Fatalf("click branch capsule failed: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("迁入 Worktree…")
-		return ok
-	})
-	if err := tt.Click("迁入 Worktree…"); err != nil {
-		t.Fatalf("click move worktree failed: %v", err)
-	}
-	waitFor(t, tt, func() bool { return tt.HasText("同时迁移未提交的改动") })
-
-	count := 0
-	for _, txt := range tt.Texts() {
-		if txt == "同时迁移未提交的改动" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("「同时迁移未提交的改动」出现次数 = %d，期望 1，texts: %q", count, tt.Texts())
-	}
-}
-
 func TestUIReview2BranchPopoverSingleCard(t *testing.T) {
 	fake := newGitFakeClient()
 	tt := ui.NewTesterWith(Root(fake), 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
 
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatalf("click branch capsule failed: %v", err)
 	}
 	waitFor(t, tt, func() bool {
@@ -1723,15 +1660,11 @@ func TestUIReview2BranchPopoverSingleCard(t *testing.T) {
 
 	img := tt.Image()
 	y := int(card.Y + card.H/2)
-	outerPad := img.At(int(card.X)-2, y)
-	innerEdge := img.At(int(card.X), y)
-	innerPad := img.At(int(card.X)+2, y)
-	outside := img.At(int(card.X+card.W+Space1)+20, y)
-	if outerPad != innerEdge || innerEdge != innerPad {
-		t.Fatalf("分支浮层存在内层卡片边框或阴影：outerPad=%v innerEdge=%v innerPad=%v", outerPad, innerEdge, innerPad)
-	}
-	if outerPad == outside {
-		t.Fatalf("分支浮层外层缺少 popoverCard 底色：outerPad=%v outside=%v", outerPad, outside)
+	borderEdge := img.At(int(card.X), y)
+	cardBody := img.At(int(card.X)+2, y)
+	outside := img.At(int(card.X)-20, y)
+	if borderEdge == cardBody || cardBody == outside {
+		t.Fatalf("分支浮层应为单层 popoverCard 边框与底色：edge=%v body=%v outside=%v", borderEdge, cardBody, outside)
 	}
 
 	// 单独通过 gitPaneBranchPopover 打开时仍应保留一层 popoverCard。
@@ -1915,10 +1848,13 @@ func TestChatHeaderPRChipNoPRCreateButton(t *testing.T) {
 	if tt.HasText("创建 PR") {
 		t.Fatalf("「创建 PR」不应直接出现在标题栏，texts=%q", tt.Texts())
 	}
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatalf("打开分支菜单失败: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
+	waitFor(t, tt, func() bool { return tt.HasText("打开 Git 面板") })
+	if tt.HasText("创建 PR") {
+		t.Fatalf("分支浮层不应再包含「创建 PR」，texts=%q", tt.Texts())
+	}
 	tt.Advance(time.Second)
 	tt.Frame()
 	if tt.FramePending() {
@@ -2058,7 +1994,7 @@ func TestChatHeaderRedesign(t *testing.T) {
 
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderChatHeader(c, s, "t1", ThreadUsage{}, 0)
-	}, 1200, 320)
+	}, 1200, 720)
 	waitFor(t, tt, func() bool {
 		_, loaded := s.headerGitPR("t1")
 		return tt.HasText("feature/redesign") && tt.HasText("5") && loaded
@@ -2114,12 +2050,17 @@ func TestChatHeaderRedesign(t *testing.T) {
 		t.Fatalf("选择「转发到新会话」失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return forwardCallsContain(fake.FakeClient, "t1") })
+	tt.CloseMenu()
+	tt.Frame()
 
-	// 分支菜单含「创建 PR」。
-	if err := tt.Click("切换分支"); err != nil {
-		t.Fatalf("点击切换分支失败: %v", err)
+	// 分支浮层不再包含「创建 PR」，保留「打开 Git 面板」。
+	if err := tt.Click("切换分支与同步"); err != nil {
+		t.Fatalf("点击切换分支与同步失败: %v", err)
 	}
-	waitFor(t, tt, func() bool { return tt.HasText("创建 PR") })
+	waitFor(t, tt, func() bool { return tt.HasText("打开 Git 面板") })
+	if tt.HasText("创建 PR") {
+		t.Fatalf("分支浮层不应包含「创建 PR」，texts=%q", tt.Texts())
+	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 
@@ -2169,7 +2110,7 @@ func TestChatHeaderGitDirtyPill(t *testing.T) {
 
 	texts := tt.Texts()
 	branchIdx := slices.Index(texts, "feature/login")
-	caretIdx := slices.Index(texts, "切换分支")
+	caretIdx := slices.Index(texts, "切换分支与同步")
 	hasLeftPill := branchIdx >= 0 && caretIdx > branchIdx && slices.Contains(texts[branchIdx+1:caretIdx], "3")
 
 	inspectorRect, _ := tt.Find("右栏")

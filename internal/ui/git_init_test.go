@@ -29,7 +29,7 @@ func TestChatHeaderGitCapsuleSplit(t *testing.T) {
 	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool {
 		_, hasPaneBtn := tt.Find("Git 面板")
-		_, hasBranchBtn := tt.Find("切换分支")
+		_, hasBranchBtn := tt.Find("切换分支与同步")
 		return hasPaneBtn && hasBranchBtn && tt.HasText("feature/login")
 	})
 
@@ -56,7 +56,7 @@ func TestChatHeaderGitCapsuleSplit(t *testing.T) {
 		return st != nil && !st.Open
 	})
 
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatalf("点击胶囊右半失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {

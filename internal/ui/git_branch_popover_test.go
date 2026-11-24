@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/egoist/mygo/ui"
-	"mcode/internal/git"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/egoist/mygo/ui"
+	"mcode/internal/git"
+	"mcode/internal/testenv"
 )
 
 func TestGitBranchPopoverFilter(t *testing.T) {
@@ -58,6 +60,7 @@ func TestGitBranchPopoverReopenCached(t *testing.T) {
 		t.Fatal("首次加载应显示加载行")
 	}
 }
+
 func TestGitBranchPopoverOtherWorktree(t *testing.T) {
 	b := git.BranchInfo{WorktreePath: "/repo/other"}
 	if !branchOtherWorktree(b, "/repo/main") || branchOtherWorktree(b, "/repo/other/.") {
@@ -95,9 +98,10 @@ func (f *branchPopoverFake) GitRebase(context.Context, string, string) error    
 
 func TestGitBranchPopoverWorktree(t *testing.T) {
 	f := &branchPopoverFake{newGitFakeClient()}
+	f.gitState.Changes = 0
 	tt := ui.NewTester(Root(f), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 other"); return ok })
@@ -110,6 +114,7 @@ func TestGitBranchPopoverWorktree(t *testing.T) {
 		return len(f.gitWorktreeCalls) == 1 && f.gitWorktreeCalls[0] == "/repo-wt/hotfix"
 	})
 }
+
 func TestGitBranchPopoverForceDelete(t *testing.T) {
 	if !branchDeleteNeedsForce(errors.New("branch is not fully merged")) || branchDeleteNeedsForce(errors.New("permission denied")) || branchDeleteNeedsForce(nil) {
 		t.Fatal("强制删除确认判断错误")
@@ -120,7 +125,7 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	f := &branchPopoverFake{newGitFakeClient()}
 	tt := ui.NewTester(Root(f), 1000, 700)
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("分支操作 other"); return ok })
@@ -129,7 +134,7 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	if !ok {
 		t.Fatal("未找到后续分支")
 	}
-	if _, ok := tt.Find("复制名称"); ok {
+	if _, ok := tt.Find("复制分支名"); ok {
 		t.Fatal("菜单打开前不应显示操作项")
 	}
 	row, ok := tt.Find("切换到分支 other")
@@ -154,22 +159,22 @@ func TestGitBranchPopoverActionMenu(t *testing.T) {
 	deadline := time.Now().Add(uiWaitTimeout)
 	for time.Now().Before(deadline) {
 		tt.Frame()
-		if _, ok := tt.Find("复制名称"); ok {
+		if _, ok := tt.Find("复制分支名"); ok {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, ok := tt.Find("复制名称"); !ok {
+	if _, ok := tt.Find("复制分支名"); !ok {
 		t.Fatal("菜单未打开")
 	}
 	after, ok := tt.Find("切换到分支 unmerged")
 	if !ok || after.Y != before.Y {
 		t.Fatal("打开菜单不应改变列表中后续分支的位置")
 	}
-	if err := tt.Click("复制名称"); err != nil {
+	if err := tt.Click("复制分支名"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, tt, func() bool { _, ok := tt.Find("复制名称"); return !ok })
+	waitFor(t, tt, func() bool { _, ok := tt.Find("复制分支名"); return !ok })
 }
 
 type branchStashFake struct {
@@ -209,16 +214,17 @@ func TestGitBranchPopoverStashSwitch(t *testing.T) {
 	for _, failRetry := range []bool{false, true} {
 		t.Run(fmt.Sprintf("retry_failure_%v", failRetry), func(t *testing.T) {
 			f := &branchStashFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, failRetry: failRetry}
+			f.gitState.Changes = 0
 			tt := ui.NewTester(Root(f), 1000, 700)
 			waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-			if err := tt.Click("切换分支"); err != nil {
+			if err := tt.Click("切换分支与同步"); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })
 			if err := tt.Click("切换到分支 unmerged"); err != nil {
 				t.Fatal(err)
 			}
-			waitFor(t, tt, func() bool { return tt.HasText("先提交或贮藏改动") })
+			waitFor(t, tt, func() bool { return tt.HasText("当前有未提交改动") })
 			if err := tt.Click("贮藏后切换"); err != nil {
 				t.Fatal(err)
 			}
@@ -248,15 +254,17 @@ func (f *delayedBranchPopoverFake) GitCheckout(context.Context, string, string) 
 	<-f.release
 	return nil
 }
+
 func TestGitBranchPopoverBusyAndToast(t *testing.T) {
 	f := &delayedBranchPopoverFake{branchPopoverFake: &branchPopoverFake{newGitFakeClient()}, started: make(chan struct{}), release: make(chan struct{})}
+	f.gitState.Changes = 0
 	s, root := buildRoot(f)
 	tt := ui.NewTester(root, 1000, 700)
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(f.release) }) }
 	defer release()
 	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
-	if err := tt.Click("切换分支"); err != nil {
+	if err := tt.Click("切换分支与同步"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 unmerged"); return ok })
@@ -274,4 +282,118 @@ func TestGitBranchPopoverBusyAndToast(t *testing.T) {
 	release()
 	waitFor(t, tt, func() bool { p.mu.Lock(); defer p.mu.Unlock(); return !p.busy && p.busyName == "" })
 	waitFor(t, tt, func() bool { return tt.HasText("已切换到 unmerged") })
+}
+
+type designPopoverFake struct {
+	*branchStashFake
+}
+
+func (f *designPopoverFake) GitBranches(context.Context, string) ([]git.BranchInfo, error) {
+	return []git.BranchInfo{
+		{Name: "feature/login", Head: true},
+		{Name: "other", WorktreePath: "/repo-wt/hotfix"},
+		{Name: "main"},
+		{Name: "origin/main", Remote: true},
+		{Name: "origin/feature/login", Remote: true},
+	}, nil
+}
+
+func (f *designPopoverFake) GitRecentBranches(context.Context, string, int) ([]string, error) {
+	return []string{"feature/login", "other"}, nil
+}
+
+func (f *designPopoverFake) GitTags(context.Context, string) ([]git.TagInfo, error) {
+	return []git.TagInfo{{Name: "v1.0.0"}}, nil
+}
+
+func TestGitBranchPopoverMatchesDesign(t *testing.T) {
+	testenv.TempHome(t)
+	stubTerminals(t)
+
+	base := newGitFakeClient()
+	base.gitState.RemoteURL = "https://github.com/org/repo"
+	base.gitState.HasUpstream = false
+	base.gitState.Changes = 2
+	f := &designPopoverFake{branchStashFake: &branchStashFake{branchPopoverFake: &branchPopoverFake{base}}}
+
+	s, root := buildRoot(f)
+	t.Cleanup(func() {
+		closeTerminals(s)
+		s.close()
+	})
+	tt := ui.NewTesterWith(root, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true, TextScale: 1}})
+	waitFor(t, tt, func() bool { return tt.HasText("feature/login") })
+
+	if err := tt.Click("切换分支与同步"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("最近") && tt.HasText("全部本地")
+	})
+
+	if node, ok := tt.Access("搜索分支"); !ok || node.Placeholder != "搜索或输入新分支名…" {
+		t.Fatalf("搜索框占位符不匹配：ok=%v node=%+v", ok, node)
+	}
+	if _, ok := tt.Find("新建分支"); !ok {
+		t.Fatal("缺少「新建分支」按钮")
+	}
+	if !tt.HasText("发布分支") || !tt.HasText("尚未发布到远端 · 2 改动") {
+		t.Fatalf("同步条缺少「发布分支」或状态文案，texts=%q", tt.Texts())
+	}
+	for _, tab := range []string{"本地", "远端", "标签", "Worktree"} {
+		if _, ok := tt.Find(tab); !ok {
+			t.Fatalf("缺少 Tab %q，texts=%q", tab, tt.Texts())
+		}
+	}
+	if _, ok := tt.Find("打开 Git 面板"); !ok {
+		t.Fatal("缺少底部「打开 Git 面板」行")
+	}
+	if tt.HasText("创建 PR") || tt.HasText("迁入 Worktree…") {
+		t.Fatalf("浮层不应再包含「创建 PR」或「迁入 Worktree…」，texts=%q", tt.Texts())
+	}
+
+	// 最近分支在本地 Tab 只出现一次，且不出现远端分支/标签。
+	otherCount := 0
+	for _, txt := range tt.Texts() {
+		if txt == "other" {
+			otherCount++
+		}
+	}
+	if otherCount != 1 {
+		t.Fatalf("最近分支 other 在本地 Tab 出现 %d 次，期望 1 次，texts=%q", otherCount, tt.Texts())
+	}
+	if tt.HasText("origin/main") || tt.HasText("v1.0.0") {
+		t.Fatalf("本地 Tab 不应显示远端或标签，texts=%q", tt.Texts())
+	}
+
+	// 切到远端 Tab 后只显示远端分支。
+	if err := tt.Click("远端"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("origin/main") })
+	if _, ok := tt.Find("切换到分支 main"); ok {
+		t.Fatalf("远端 Tab 不应显示本地分支 main，texts=%q", tt.Texts())
+	}
+	if _, ok := tt.Find("切换到分支 other"); ok {
+		t.Fatalf("远端 Tab 不应显示本地分支 other，texts=%q", tt.Texts())
+	}
+
+	// 切回本地 Tab，有改动时点非当前分支出现「贮藏后切换」「查看改动」且未调用切换。
+	if err := tt.Click("本地"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("切换到分支 main"); return ok })
+	if err := tt.Click("切换到分支 main"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("贮藏后切换") && tt.HasText("查看改动")
+	})
+	f.mu.Lock()
+	checkoutCalls := len(f.gitCheckoutCalls)
+	stashCalls := len(f.calls)
+	f.mu.Unlock()
+	if checkoutCalls != 0 || stashCalls != 0 {
+		t.Fatalf("有改动点击非当前分支不应调用切换：checkoutCalls=%d stashCalls=%d", checkoutCalls, stashCalls)
+	}
 }

@@ -180,7 +180,7 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 	if _, ok := tt.Find("Git 面板"); ok {
 		t.Fatal("窄窗折叠级别下分支胶囊左半不应直接留在顶栏")
 	}
-	if _, ok := tt.Find("切换分支"); ok {
+	if _, ok := tt.Find("切换分支与同步"); ok {
 		t.Fatal("窄窗折叠级别下分支胶囊右半不应直接留在顶栏")
 	}
 
