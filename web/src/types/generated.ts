@@ -1069,6 +1069,7 @@ export type RemoteProvider = {
   available: boolean;
   unavailableReason: string | null;
   enabled?: boolean;
+  acp?: boolean;
 };
 
 export type RemoteModelCatalogEntry = {
