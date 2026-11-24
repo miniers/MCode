@@ -66,13 +66,25 @@ svg{max-width:100%%;height:auto;}
 </html>`, bg, fg, escapeInlineScript(script), html.EscapeString(code), theme)
 }
 
+// readMermaidVendorScript 从嵌入前端资源读取 Mermaid 运行时脚本。
+func readMermaidVendorScript() ([]byte, error) {
+	script, err := fs.ReadFile(webassets.FS(), mermaidVendorScriptPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(script) == 0 {
+		return nil, fmt.Errorf("mermaid 资源为空: %s", mermaidVendorScriptPath)
+	}
+	return script, nil
+}
+
 // openPreviewMermaid 从嵌入前端资源加载 Mermaid 并在隔离预览面板中渲染图表。
 func openPreviewMermaid(s *chatState, code string) {
 	if s == nil {
 		return
 	}
-	script, err := fs.ReadFile(webassets.FS(), mermaidVendorScriptPath)
-	if err != nil || len(script) == 0 {
+	script, err := readMermaidVendorScript()
+	if err != nil {
 		s.setToast("Mermaid 资源缺失")
 		return
 	}

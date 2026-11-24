@@ -594,10 +594,11 @@ type chatState struct {
 	threadListState ui.ListState
 	chatListState   ui.ListState
 	chatScroll      ui.ScrollState // 只用于「跳到最新」的平滑滚动
-	mdOpts          markdown.Options
-	mdStaticOpts    markdown.Options
-	imagePreview    *imagePreviewState // 正在放大的本地图片，nil 表示没有大图浮层
-	lastLiveID      string
+	mdOpts            markdown.Options
+	mdStaticOpts      markdown.Options
+	imagePreview      *imagePreviewState // 正在放大的本地图片，nil 表示没有大图浮层
+	mermaidShowSource map[string]bool    // 内联 Mermaid 图表与源码切换状态（受 s.mu 保护）
+	lastLiveID        string
 
 	// toolOutputScroll 按工具消息 ID 记录详情正文滚动区的位置（仅 UI 线程读写）；
 	// toolOutputDialog 是「显示完整输出」弹窗的快照，nil 表示未打开（由 s.mu 保护）。
@@ -656,6 +657,7 @@ func newChatState(client Client) *chatState {
 		expandedReasoning:    make(map[string]bool),
 		expandedTool:         make(map[string]bool),
 		expandedCommandSteps: make(map[string]bool),
+		mermaidShowSource:    make(map[string]bool),
 		revealedMsgs:        make(map[string]bool),
 		streamedRevealMsgs:  make(map[string]struct{}),
 		seenMsgIDs:          make(map[string]struct{}),
@@ -707,9 +709,9 @@ func newChatState(client Client) *chatState {
 	htmlCodeRenderer := previewCodeRenderer("预览 HTML", false, func(code string) {
 		openPreviewHTML(s, code)
 	})
-	mermaidCodeRenderer := previewCodeRenderer("预览 Mermaid", true, func(code string) {
-		openPreviewMermaid(s, code)
-	})
+	mermaidCodeRenderer := func(c *ui.Context, b *markdown.CodeBlockView) {
+		renderMermaidCodeBlock(c, s, b)
+	}
 	s.mdOpts.Code = map[string]func(c *ui.Context, b *markdown.CodeBlockView){
 		"html":      htmlCodeRenderer,
 		"mermaid":   mermaidCodeRenderer,
