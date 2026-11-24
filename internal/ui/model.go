@@ -374,13 +374,6 @@ type chatState struct {
 	composerHistoryEntries []string
 	composerHistoryValid   bool
 
-	// planPillRev/planPillRunning/planPillCache 缓存待办进度胶囊（按 messagesRev 与 running）：
-	// 每帧都会构建胶囊，命中时跳过全量消息扫描与 JSON 解析。
-	planPillRev     uint64
-	planPillRunning bool
-	planPillCache   planPillView
-	planPillValid   bool
-
 	// stewardDecisionRev/stewardDecisionResults/stewardDecisionLastID 缓存决策卡状态（按 messagesRev）：
 	// 命中时跳过每帧克隆消息及扫描全部消息。
 	stewardDecisionRev         uint64
