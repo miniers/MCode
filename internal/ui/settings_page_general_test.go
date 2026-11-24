@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 // TestSettingsPageGeneral_Tree 验证「通用」页已经走声明式页面树：
@@ -174,5 +175,53 @@ func TestUIReview14_GeneralGlobalShortcutStackedLayout(t *testing.T) {
 	}
 	if inputRect.X+inputRect.W > cardRect.X+cardRect.W || inputRect.X+inputRect.W > 640 {
 		t.Fatalf("640pt 窄窗下全局快捷键输入框溢出: input=%+v card=%+v", inputRect, cardRect)
+	}
+}
+
+func TestSettings_PermissionModeDisplayFollowsEditWhenNotLocked(t *testing.T) {
+	fake := NewFakeClient()
+	dataDir := settingsTestDir(t)
+	tt := ui.NewTester(Root(fake, WithSettings(dataDir, nil), WithLaunchMode(config.ModeFullAccess)), 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("设置")
+	})
+	if err := tt.Click("设置"); err != nil {
+		t.Fatalf("click '设置' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("默认权限") && tt.HasText("完全访问")
+	})
+
+	if err := tt.Click("完全访问"); err != nil {
+		t.Fatalf("open permission picker failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("监督") })
+	if err := tt.Click("监督"); err != nil {
+		t.Fatalf("click option '监督' failed: %v", err)
+	}
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("监督") && !tt.HasText("完全访问")
+	})
+}
+
+func TestSettings_PermissionModeDisplayUsesLaunchModeWhenLocked(t *testing.T) {
+	fake := NewFakeClient()
+	dataDir := settingsTestDir(t)
+	locked := map[string]bool{"mode": true}
+	tt := ui.NewTester(Root(fake, WithSettings(dataDir, locked), WithLaunchMode(config.ModeReadOnly)), 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("设置")
+	})
+	if err := tt.Click("设置"); err != nil {
+		t.Fatalf("click '设置' failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("默认权限") && tt.HasText("只读") && tt.HasText("由启动参数指定（当前："+config.ModeReadOnly+"）")
+	})
+	if tt.HasText("完全访问") {
+		t.Fatalf("锁定时不应显示磁盘默认的完全访问: %v", tt.Texts())
 	}
 }

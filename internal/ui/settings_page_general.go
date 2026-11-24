@@ -57,13 +57,15 @@ var pageGeneral = settingsPage{
 					"自动", "完全访问", "审批",
 				},
 				Lock: "mode",
-				// 被启动参数锁定时选中项跟着真正生效的档位走：Open() 会重新从磁盘 Load，
-				// 直接用内存里的配置会把锁定态显示成磁盘上的旧档（E-03）。
+				// 仅在被启动参数锁定时才显示启动档位；Open() 会重读磁盘，直接看配置会把锁定态显示成旧档（E-03）。
 				Control: choice(
 					val(func(c *config.Config) *string { return &c.Permissions.Mode }, config.ModeFullAccess),
 					permissionModeChoices(),
 				).withDisplay(func(st *SettingsState) string {
-					mode := st.launchPermissionMode()
+					var mode string
+					if st.isLocked("mode") {
+						mode = st.launchPermissionMode()
+					}
 					if mode == "" {
 						mode = st.cfg.Permissions.Mode
 					}
