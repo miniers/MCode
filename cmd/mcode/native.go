@@ -11,12 +11,12 @@ import (
 	"github.com/egoist/mygo"
 
 	"mcode/internal/app"
+	"mcode/internal/assets"
 	"mcode/internal/config"
 	"mcode/internal/native"
 	"mcode/internal/remote"
 	"mcode/internal/startuptrace"
 	mcodeui "mcode/internal/ui"
-	"mcode/resources"
 )
 
 // setupNative 初始化桌面端系统能力（通知、托盘、全局快捷键），并监听 StreamHub 的会话提醒。
@@ -28,8 +28,8 @@ import (
 func setupNative(hub *remote.StreamHub, client *app.Client, dataDir string, cfg config.Config, showWindow func(), activateThread func(threadID string), onForceQuit func()) (cleanup func(), trayActive bool, sendOwnerNotification func(title, body, threadID string) error, sendAutomationNotification func(title, body, threadID string) error) {
 	// Dock 图标设置在主线程上要花几十毫秒，挪到首个聊天窗口绘制完首帧之后再设，不挡首屏。
 	mcodeui.AfterFirstFrame(func() {
-		if len(resources.IconPNG) > 0 {
-			if err := mygo.App.Dock.SetIcon(resources.IconPNG); err != nil {
+		if len(assets.IconPNG) > 0 {
+			if err := mygo.App.Dock.SetIcon(assets.IconPNG); err != nil {
 				log.Printf("failed to set dock icon: %v", err)
 			}
 		}

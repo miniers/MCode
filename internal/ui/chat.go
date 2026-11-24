@@ -13,8 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"mcode/internal/assets"
 	"mcode/internal/config"
-	"mcode/resources"
 )
 
 // TrafficLightInset 是侧边栏隐藏时聊天标题栏为窗口交通灯预留的左边距（78pt）。
@@ -760,10 +760,10 @@ var (
 
 func appIconBitmap() *ui.Bitmap {
 	appIconOnce.Do(func() {
-		if len(resources.IconPNG) == 0 {
+		if len(assets.IconPNG) == 0 {
 			return
 		}
-		img, _, err := image.Decode(bytes.NewReader(resources.IconPNG))
+		img, _, err := image.Decode(bytes.NewReader(assets.IconPNG))
 		if err != nil {
 			return
 		}

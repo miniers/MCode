@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/egoist/mygo/ui"
-	"mcode/resources"
+	"mcode/internal/assets"
 )
 
 const (
@@ -13,7 +13,7 @@ const (
 	// 终端单元格宽度也按它的 ASCII 步进计算。没装等宽 Nerd Font 时它就是主字体。
 	terminalBaseFontFamily = "monospace"
 	// terminalFallbackFontFamily 是随应用打包的 Nerd Font 图标字体的家族名，
-	// 与 resources/fonts/SymbolsNerdFontMono-Regular.ttf 内部家族名一致。
+	// 与 internal/assets/fonts/SymbolsNerdFontMono-Regular.ttf 内部家族名一致。
 	terminalFallbackFontFamily = "Symbols Nerd Font Mono"
 	// terminalMaxSystemFallbacks 限制等宽、非等宽两组各自从系统里挑出的家族数量。
 	terminalMaxSystemFallbacks = 3
@@ -102,10 +102,10 @@ func isNerdFontFamily(name string) bool {
 // 注册过的家族名可以直接写进字体族列表，mygo 会优先用注册的字体来匹配。
 func registerTerminalFallbackFont() bool {
 	terminalFallbackOnce.Do(func() {
-		if len(resources.SymbolsNerdFontMonoTTF) == 0 {
+		if len(assets.SymbolsNerdFontMonoTTF) == 0 {
 			return
 		}
-		if err := ui.RegisterFont(resources.SymbolsNerdFontMonoTTF, terminalFallbackFontFamily); err != nil {
+		if err := ui.RegisterFont(assets.SymbolsNerdFontMonoTTF, terminalFallbackFontFamily); err != nil {
 			return
 		}
 		terminalFallbackRegistered = true

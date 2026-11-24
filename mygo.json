@@ -2,7 +2,7 @@
   "name": "MCode",
   "identifier": "com.miniers.mcode",
   "version": "0.2.34",
-  "icon": "resources/icon.png",
+  "icon": "internal/assets/icon.png",
   "main": "./cmd/mcode",
   "updates": {
     "publicKey": "q2Rzez1DsNSZmWFbY8N3+TG4XC1F4DkjlkeWPWsXo/0=",
