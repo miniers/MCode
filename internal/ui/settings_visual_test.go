@@ -94,7 +94,7 @@ func TestSettingsVisual_MCPNoDoubleInset(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.agentConfLoaded = true
 	st.mcpServers = []agentconf.MCPServer{{Agent: "custom", Name: "视觉测试 MCP 服务"}}
-	st.selectSettingsPage("extensions")
+	st.selectSettingsPage("mcp")
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDetail(c, st) }, 1000, 4000)
 	card, ok := tt.Find("设置卡片 mcp.custom")
 	if !ok {

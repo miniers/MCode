@@ -20,6 +20,7 @@ func TestSettingsPageMCP_Tree(t *testing.T) {
 	}
 	dir := settingsTestDir(t)
 	st := NewSettingsState(dir, nil, nil)
+	st.selectSettingsPage("mcp")
 	tt := ui.NewTester(func(c *ui.Context) { renderPageExtensions(c, st) }, 1000, 2000)
 	waitFor(t, tt, func() bool { return tt.HasText("tree-first-service") && tt.HasText("tree-second-service") })
 	for _, title := range []string{"折叠大量工具", "MCP 服务", "claude"} {

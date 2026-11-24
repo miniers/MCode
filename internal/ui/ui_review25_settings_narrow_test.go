@@ -179,7 +179,8 @@ func TestUIReview25_SettingsNarrow640_Workbench(t *testing.T) {
 }
 
 func TestUIReview25_SettingsNarrow640_Nowledge(t *testing.T) {
-	tt, _ := newUIReview25SettingsTester(t, "extensions", 640, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
+	tt, _ := newUIReview25SettingsTester(t, "extensions", 640, 700, func(fc *FakeClient, chat *chatState, st *SettingsState) {
+		st.extensionsTab = extensionsTabMemory
 		fc.SetMemorySpaces([]MemorySpace{{ID: "default", Name: "Default"}, {ID: "mcode", Name: "mcode"}})
 		chat.projects = []Project{
 			{ID: "p1", Name: "MCode", Path: "/repo/mcode"},
@@ -263,7 +264,8 @@ func TestUIReview25_SettingsWide960_PreserveSelectWidths(t *testing.T) {
 	})
 
 	t.Run("扩展页记忆空间Select保持160", func(t *testing.T) {
-		tt, _ := newUIReview25SettingsTester(t, "extensions", 960, 700, func(fc *FakeClient, chat *chatState, _ *SettingsState) {
+		tt, _ := newUIReview25SettingsTester(t, "extensions", 960, 700, func(fc *FakeClient, chat *chatState, st *SettingsState) {
+			st.extensionsTab = extensionsTabMemory
 			fc.SetMemorySpaces([]MemorySpace{{ID: "default", Name: "Default"}, {ID: "mcode", Name: "mcode"}})
 			chat.projects = []Project{{ID: "p1", Name: "MCode", Path: "/repo/mcode"}}
 		})

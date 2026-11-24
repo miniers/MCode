@@ -151,6 +151,8 @@ type SettingsState struct {
 
 	// advancedOpen 记录各页底部「高级」折叠区是否展开（键为页 id），默认收起。
 	advancedOpen map[string]bool
+	// extensionsTab 记录扩展页顶部三段切换当前选中的页签，默认技能。
+	extensionsTab extensionsTab
 
 	// numberDrafts 按行 id 保存数值行还没提交的输入文本（只在界面线程读写）。
 	// 逐位输入时中间值会越出区间（60..100 输入「7」），每帧按配置回填会把输入框
@@ -1217,6 +1219,9 @@ func (s *SettingsState) switchSettingsPageLocked(id string) (bool, func()) {
 	if jump := settingsLegacyPageJumpRow(id); jump != "" {
 		s.jumpToItemID = jump
 	}
+	if tab, ok := extensionsTabForLegacyPage(id); ok {
+		s.extensionsTab = tab
+	}
 	s.currentPage = target
 	// 任何显式切页都作废渲染期攒下的请求，免得下一帧的 applyPendingPageSwitch
 	// 把用户刚选的页又改回导航搜索算出的目标页。
@@ -1335,6 +1340,11 @@ resolved:
 	s.jumpToItemID = hit.Item.ID
 	s.highlightItemID = hit.Item.ID
 	s.highlightStartedAt = time.Now()
+	if hit.Item.Page == "extensions" {
+		if tab, ok := extensionsTabForTarget(hit.Item.ID, hit.Item.Sheet); ok {
+			s.extensionsTab = tab
+		}
+	}
 	if providerID != "" {
 		s.providerRows.currentProvider = providerID
 		s.providerRows.currentProviderKind = "cli"
@@ -1829,7 +1839,11 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 						// 页面树里的页面由声明式渲染器画，重置也按行派生；其余页面走原有实现。
 						page := normalizeSettingsPageID(st.currentPage)
 						if treePage, ok := settingsTreePageOf(page); ok {
-							renderSettingsTreePage(c, st, treePage)
+							if page == "extensions" {
+								renderPageExtensions(c, st)
+							} else {
+								renderSettingsTreePage(c, st, treePage)
+							}
 							renderSettingsResetArea(c, st, treePage.ID)
 						}
 					})

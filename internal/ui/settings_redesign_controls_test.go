@@ -75,6 +75,7 @@ func TestSettingsRedesignControls_MCPEmptyState(t *testing.T) {
 	}
 
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.selectSettingsPage("mcp")
 	tt := ui.NewTester(func(c *ui.Context) { renderPageExtensions(c, st) }, 1000, 2000)
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()

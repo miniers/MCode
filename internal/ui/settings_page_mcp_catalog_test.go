@@ -45,6 +45,10 @@ func openMCPPage(t *testing.T, tt *ui.Tester) {
 	if err := tt.Click("扩展"); err != nil {
 		t.Fatalf("click '扩展' failed: %v", err)
 	}
+	waitFor(t, tt, func() bool { return tt.HasText("MCP 服务") })
+	if err := tt.Click("MCP 服务"); err != nil {
+		t.Fatalf("click 'MCP 服务' failed: %v", err)
+	}
 	waitFor(t, tt, func() bool { return tt.HasText("+ 添加服务") })
 }
 
