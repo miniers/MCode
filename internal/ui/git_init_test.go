@@ -116,15 +116,15 @@ func TestChatHeaderGitInit(t *testing.T) {
 		t.Fatalf("点击「初始化 Git」失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("初始化")
+		_, ok := tt.Find("确认初始化")
 		return ok && tt.HasText("初始化 Git 仓库")
 	})
 	if calls := fake.GitInitCalls(); len(calls) != 0 {
 		t.Fatalf("确认前不应调用 GitInit: %v", calls)
 	}
 
-	if err := tt.Click("初始化"); err != nil {
-		t.Fatalf("点击确认「初始化」失败: %v", err)
+	if err := tt.Click("确认初始化"); err != nil {
+		t.Fatalf("点击确认「确认初始化」失败: %v", err)
 	}
 	select {
 	case <-started:

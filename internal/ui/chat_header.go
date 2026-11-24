@@ -687,6 +687,49 @@ func renderChatHeaderGit(c *ui.Context, s *chatState, threadID string) {
 	renderGitPRHeaderChip(c, s, hs, threadID, st)
 }
 
+// formatDisplayPathHome 将位于用户主目录下的路径前缀折叠为 ~，便于在窄浮层内展示。
+func formatDisplayPathHome(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return dir
+	}
+	home = filepath.Clean(home)
+	cleanDir := filepath.Clean(dir)
+	if cleanDir == home {
+		return "~"
+	}
+	prefix := home + string(filepath.Separator)
+	if strings.HasPrefix(cleanDir, prefix) {
+		return "~" + string(filepath.Separator) + strings.TrimPrefix(cleanDir, prefix)
+	}
+	return dir
+}
+
+// threadGitSyncing 读取指定会话 Git 面板当前的同步状态，不新建检查器槽位。
+func threadGitSyncing(s *chatState, threadID string) bool {
+	if s == nil || threadID == "" {
+		return false
+	}
+	s.mu.Lock()
+	slot := inspectorExistingSessionLocked(s, threadID)
+	var ps *gitPaneState
+	if slot != nil {
+		ps = slot.Git
+	}
+	s.mu.Unlock()
+	if ps == nil {
+		return false
+	}
+	ps.mu.Lock()
+	syncing := ps.syncing
+	ps.mu.Unlock()
+	return syncing
+}
+
 // renderGitInitCapsule 在非 Git 仓库时于分支胶囊位置渲染「初始化 Git」按钮与确认浮层。
 func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, threadID string) {
 	if !canGitInit(s) || threadID == "" {
@@ -717,19 +760,25 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 		trigger.Tooltip("会话运行中，暂不可初始化")
 	}
 
+	const initBtnBorderStrongOpacity = 0.22
 	fg := ThemeSecondaryText(c)
 	borderColor := ThemeBorder(c)
+	borderStyle := ui.BorderDashed
 	if hs.initConfirmOpen {
 		trigger.Background(ThemeOverlaySelected(c))
 		fg = ThemePrimaryText(c)
+		borderColor = ThemeOverlay(c, initBtnBorderStrongOpacity)
+		borderStyle = ui.BorderSolid
 	} else if !disabled && trigger.Hovered() {
 		trigger.Background(ThemeOverlayHover(c))
 		fg = ThemePrimaryText(c)
+		borderColor = ThemeOverlay(c, initBtnBorderStrongOpacity)
+		borderStyle = ui.BorderSolid
 	} else if disabled {
 		fg = ThemeTertiaryText(c)
 		borderColor = ThemeHairline(c)
 	}
-	trigger.Border(Hairline, borderColor)
+	trigger.Border(Hairline, borderColor).BorderStyle(borderStyle)
 	scale := motionPressScale(c, trigger, "button-press-scale", !disabled && trigger.Pressed())
 	trigger.Scale(scale, scale)
 	focusRing(c, trigger)
@@ -748,11 +797,16 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 	if threadRunning {
 		confirmTooltip = "会话运行中，暂不可初始化"
 	}
+	displayDir := formatDisplayPathHome(s.headerProjectDir(threadID))
+	monoFont := "monospace"
+	if cs := getChatSettings(s); cs != nil {
+		monoFont = codeFontFamily(cs.cfg.Appearance)
+	}
 	appPopover(c.Key("chat-header-git-init-popover"), trigger, &hs.initConfirmOpen, func() {
 		hs.initConfirmOpen = false
 	}, func() {
 		popoverCard(c, ui.Column(c.Key("chat-header-git-init-card")).
-			Width(220).
+			Width(248).
 			Padding(Space3).
 			Gap(Space3).
 			Children(func() {
@@ -760,13 +814,43 @@ func renderGitInitCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, thre
 					FontSize(uiFont(TypeBody)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
+				if displayDir != "" {
+					ui.Row(c.Key("chat-header-git-init-path")).
+						FillWidth().
+						MinWidth(0).
+						Padding(Space1, Space2).
+						Radius(RadiusSM).
+						Background(ThemeOverlayHover(c)).
+						Children(func() {
+							ui.Text(c, displayDir).
+								Font(monoFont).
+								FontSize(uiFont(TypeCode)).
+								TextColor(ThemeSecondaryText(c)).
+								Grow(1).
+								Shrink(1).
+								MinWidth(0).
+								SingleLine().
+								Ellipsis("…")
+						})
+				}
 				ui.Row(c.Key("chat-header-git-init-actions")).
 					FillWidth().
+					Gap(Space2).
 					Justify(ui.End).
 					Children(func() {
 						Button(c, ButtonOpts{
+							Key:     "chat-header-git-init-cancel-btn",
+							Text:    "取消",
+							Variant: ButtonSecondary,
+							Size:    ControlSM,
+							OnClick: func() {
+								hs.initConfirmOpen = false
+								s.invalidate()
+							},
+						})
+						Button(c, ButtonOpts{
 							Key:      "chat-header-git-init-confirm-btn",
-							Text:     "初始化",
+							Text:     "确认初始化",
 							Variant:  ButtonPrimary,
 							Size:     ControlSM,
 							Disabled: threadRunning,
@@ -929,13 +1013,43 @@ func renderGitBranchCapsule(c *ui.Context, s *chatState, hs *chatHeaderState, th
 		} else {
 			mainBtn.Tooltip(label)
 		}
+		syncing := threadGitSyncing(s, threadID)
 		mainBtn.Children(func() {
-			if switching {
-				LoadingIndicator(c, nil, "", IconSM)
+			if switching || syncing {
+				LoadingIndicator(c, nil, "", IconSM, fg)
 			} else {
 				ui.Icon(c, IconGitBranch()).Size(IconSM, IconSM).TextColor(fg)
 			}
-			ui.Text(c, label).FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(fg).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)
+			ui.Text(c, label).FontSize(uiFont(TypeFootnote)).FontWeight(500).TextColor(fg).SingleLine().Ellipsis("…").MaxWidth(112).Shrink(1).MinWidth(0)
+			if st.Changes > 0 && gitChangeBadgeVisible(s) {
+				pillBg := ThemeOverlayHover(c)
+				pillFg := ThemeSecondaryText(c)
+				if paneActive {
+					pillBg = ThemeOverlaySelected(c)
+					pillFg = ThemePrimaryText(c)
+				}
+				ui.Row(c.Key("chat-header-git-dirty-pill")).
+					Height(IconMD).
+					Padding(0, Space1).
+					Gap(Space0).
+					Radius(RadiusPill).
+					Background(pillBg).
+					AlignItems(ui.Center).
+					Shrink(0).
+					Tooltip(fmt.Sprintf("%d 个未提交改动", st.Changes)).
+					Children(func() {
+						ui.Box(c.Key("chat-header-git-dirty-dot")).
+							Size(Space1, Space1).
+							Radius(RadiusPill).
+							Background(ThemeWarning(c)).
+							Shrink(0)
+						ui.Text(c, strconv.Itoa(st.Changes)).
+							FontSize(uiFont(TypeCaption)).
+							FontWeight(500).
+							TextColor(pillFg).
+							SingleLine()
+					})
+			}
 			if st.Ahead > 0 {
 				ui.Text(c, fmt.Sprintf("↑%d", st.Ahead)).FontSize(uiFont(TypeCaption)).FontWeight(500).TextColor(ThemeSuccess(c)).Shrink(0)
 			}
@@ -2077,8 +2191,8 @@ func renderChatHeaderMorePopoverContent(
 			menuRow(c, menuRowProps{
 				Key:      "chat-header-more-git-pane",
 				Icon:     IconGitBranch(),
-				Title:    "Git 面板",
-				Trailing: gitBranchLabel(gitST),
+				Title:    fmt.Sprintf("Git 面板 (%s)", gitBranchLabel(gitST)),
+				Trailing: shortcutDisplay("⇧⌘G"),
 				Checked:  inspectorPaneOpen(s, sidePaneGitID),
 				OnClick: func() {
 					ts.morePopoverOpen = false
@@ -2088,7 +2202,7 @@ func renderChatHeaderMorePopoverContent(
 			menuRow(c, menuRowProps{
 				Key:   "chat-header-more-branches",
 				Icon:  IconChevronDown(),
-				Title: "切换分支",
+				Title: "切换分支与同步",
 				OnClick: func() {
 					hs.moreSubmenu = "branches"
 					s.loadGitState(selectedID)
@@ -2102,6 +2216,7 @@ func renderChatHeaderMorePopoverContent(
 				Key:      "chat-header-more-git-init",
 				Icon:     IconGitBranch(),
 				Title:    "初始化 Git",
+				Trailing: shortcutDisplay("⇧⌘G"),
 				Disabled: isGitInitBusy(s, selectedID) || s.isThreadRunning(selectedID),
 				OnClick: func() {
 					ts.morePopoverOpen = false

@@ -2092,12 +2092,15 @@ func TestChatHeaderRedesign(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少右栏按钮")
 	}
-	badgeRect, ok := tt.Find("5")
-	if !ok {
-		t.Fatalf("右栏按钮缺少改动数角标, texts=%q", tt.Texts())
+	foundInspectorBadge := false
+	for _, node := range tt.AccessAll() {
+		if node.Name == "5" && node.Bounds.X >= inspectorRect.X && node.Bounds.X <= inspectorRect.X+inspectorRect.W+8 {
+			foundInspectorBadge = true
+			break
+		}
 	}
-	if badgeRect.X < inspectorRect.X || badgeRect.X > inspectorRect.X+inspectorRect.W+8 {
-		t.Fatalf("改动数角标未定位在右栏按钮右上角: badge=%+v inspector=%+v", badgeRect, inspectorRect)
+	if !foundInspectorBadge {
+		t.Fatalf("右栏按钮缺少改动数角标或未定位在右上角, inspector=%+v texts=%q", inspectorRect, tt.Texts())
 	}
 
 	// 标题右键菜单含「转发到新会话」并触发转发。
@@ -2142,5 +2145,149 @@ func TestChatHeaderRedesign(t *testing.T) {
 	}
 	if _, ok := narrowTT.Find("更多工具"); ok {
 		t.Fatal("窄屏「…」弹层内不得嵌套第二个「…」按钮")
+	}
+}
+
+func TestChatHeaderGitDirtyPill(t *testing.T) {
+	testenv.TempHome(t)
+	stubTerminals(t)
+
+	fake := newGitFakeClient()
+	fake.gitState.Changes = 3
+	s, root := buildRoot(fake)
+	t.Cleanup(func() {
+		closeTerminals(s)
+		s.close()
+	})
+
+	tt := ui.NewTester(root, 1200, 700)
+	waitFor(t, tt, func() bool {
+		_, hasPane := tt.Find("Git 面板")
+		_, hasInspector := tt.Find("右栏")
+		return hasPane && hasInspector && tt.HasText("3")
+	})
+
+	texts := tt.Texts()
+	branchIdx := slices.Index(texts, "feature/login")
+	caretIdx := slices.Index(texts, "切换分支")
+	hasLeftPill := branchIdx >= 0 && caretIdx > branchIdx && slices.Contains(texts[branchIdx+1:caretIdx], "3")
+
+	inspectorRect, _ := tt.Find("右栏")
+	hasRightBadge := false
+	for _, node := range tt.AccessAll() {
+		if node.Name == "3" && node.Bounds.X >= inspectorRect.X && node.Bounds.X <= inspectorRect.X+inspectorRect.W+8 {
+			hasRightBadge = true
+			break
+		}
+	}
+	if !hasLeftPill {
+		t.Fatalf("分支胶囊左半缺少未提交改动数小药丸: texts=%q", texts)
+	}
+	if !hasRightBadge {
+		t.Fatalf("右栏按钮缺少改动数角标: inspector=%+v texts=%q", inspectorRect, texts)
+	}
+
+	fake.mu.Lock()
+	fake.gitState.Changes = 0
+	fake.mu.Unlock()
+	s.loadGitState("t1")
+	waitFor(t, tt, func() bool { return !tt.HasText("3") })
+}
+
+func TestChatHeaderGitInitConfirmCard(t *testing.T) {
+	home := testenv.TempHome(t)
+	stubTerminals(t)
+
+	projectDir := filepath.Join(home, "projects", "notes-app")
+	wantDisplayDir := filepath.Join("~", "projects", "notes-app")
+	fake := NewFakeClient()
+	fake.SetThreadWorkDir(projectDir)
+	fake.mu.Lock()
+	fake.gitErr = git.ErrNotRepo
+	fake.mu.Unlock()
+
+	s, root := buildRoot(fake)
+	t.Cleanup(func() {
+		closeTerminals(s)
+		s.close()
+	})
+
+	tt := ui.NewTester(root, 1200, 700)
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("初始化 Git")
+		return ok
+	})
+
+	if err := tt.Click("初始化 Git"); err != nil {
+		t.Fatalf("点击「初始化 Git」失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, hasCancel := tt.Find("取消")
+		_, hasConfirm := tt.Find("确认初始化")
+		return tt.HasText("初始化 Git 仓库") && tt.HasText(wantDisplayDir) && hasCancel && hasConfirm
+	})
+
+	if err := tt.Click("取消"); err != nil {
+		t.Fatalf("点击「取消」失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return !tt.HasText("初始化 Git 仓库")
+	})
+	if calls := fake.GitInitCalls(); len(calls) != 0 {
+		t.Fatalf("点击「取消」后不应调用 GitInit: %v", calls)
+	}
+}
+
+func TestChatHeaderNarrowMoreGitItems(t *testing.T) {
+	testenv.TempHome(t)
+	stubTerminals(t)
+
+	fake := newGitFakeClient()
+	fake.gitState.Branch = "main"
+	fake.gitState.Branches = []string{"main"}
+	fake.gitState.Worktrees = []GitWorktree{
+		{Path: "/repo", Branch: "main", Current: true},
+	}
+	s := newChatState(fake)
+	t.Cleanup(func() {
+		closeTerminals(s)
+		s.close()
+	})
+	setChatSettings(s, NewSettingsState(settingsTestDir(t), nil, s))
+
+	s.mu.Lock()
+	s.sidebarCollapsed = true
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{
+		ID:          "t1",
+		ProjectID:   "p1",
+		Title:       "窄窗 Git 菜单测试",
+		RuntimeMode: "auto",
+	}}
+	s.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderChatHeader(c, s, "t1", ThreadUsage{}, 0)
+	}, 460, 320)
+	waitFor(t, tt, func() bool {
+		_, hasMore := tt.Find("更多头部操作")
+		return hasMore
+	})
+	if err := tt.Click("更多头部操作"); err != nil {
+		t.Fatalf("打开「更多头部操作」失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		_, hasPane := tt.Find("Git 面板 (main)")
+		_, hasBranch := tt.Find("切换分支与同步")
+		return hasPane && hasBranch
+	})
+	if _, ok := tt.AccessByRole(ui.RoleButton, "Git 面板 (main)"); !ok {
+		t.Fatalf("窄窗更多菜单缺少「Git 面板 (main)」: %v", tt.Texts())
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, "切换分支与同步"); !ok {
+		t.Fatalf("窄窗更多菜单缺少「切换分支与同步」: %v", tt.Texts())
+	}
+	if !tt.HasText(shortcutDisplay("⇧⌘G")) {
+		t.Fatalf("窄窗更多菜单「Git 面板 (main)」缺少快捷键说明 %q: %v", shortcutDisplay("⇧⌘G"), tt.Texts())
 	}
 }
