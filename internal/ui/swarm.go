@@ -2343,6 +2343,9 @@ func renderSwarmBeeRow(c *ui.Context, s *chatState, h SwarmBee, idx int) {
 
 							// provider/model small (show short model name: last path segment of Model)
 							provModel := strings.TrimSpace(h.Provider)
+							if s != nil {
+								provModel = s.providerDisplayName(provModel)
+							}
 							shortModel := strings.TrimSpace(h.Model)
 							if idx := strings.LastIndex(shortModel, "/"); idx != -1 {
 								shortModel = shortModel[idx+1:]
@@ -3670,7 +3673,11 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 	model := e.Model
 	if model == "" && matchedBee != nil && matchedBee.Model != "" {
 		if matchedBee.Provider != "" {
-			model = matchedBee.Provider + "/" + matchedBee.Model
+			prov := matchedBee.Provider
+			if s != nil {
+				prov = s.providerDisplayName(prov)
+			}
+			model = prov + "/" + matchedBee.Model
 		} else {
 			model = matchedBee.Model
 		}

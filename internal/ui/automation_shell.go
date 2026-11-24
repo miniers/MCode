@@ -310,7 +310,9 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 						automationMu.Unlock()
 						s.invalidate()
 					}})
-					renderAutomationConfig(c, selected)
+					view := selected
+					view.Provider = s.providerDisplayName(selected.Provider)
+					renderAutomationConfig(c, view)
 				}
 			})
 		})

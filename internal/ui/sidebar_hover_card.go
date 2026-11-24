@@ -194,7 +194,7 @@ func renderSidebarHoverCardBody(c *ui.Context, s *chatState, thVal Thread) {
 	}
 
 	var modelParts []string
-	if provider := providerDisplayName(thVal.Provider); provider != "" {
+	if provider := s.providerDisplayName(thVal.Provider); provider != "" {
 		modelParts = append(modelParts, provider)
 	}
 	if thVal.Model != "" {

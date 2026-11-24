@@ -635,7 +635,11 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 	}
 	model := strings.TrimSpace(h.Model)
 	if model != "" && strings.TrimSpace(h.Provider) != "" {
-		model = strings.TrimSpace(h.Provider) + "/" + model
+		prov := strings.TrimSpace(h.Provider)
+		if s != nil {
+			prov = s.providerDisplayName(prov)
+		}
+		model = prov + "/" + model
 	}
 	violation := ""
 	if h.ReadOnlyViolation {

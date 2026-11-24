@@ -1909,7 +1909,7 @@ func renderComposerQuotaProviderGroup(c *ui.Context, s *chatState, th *Thread, p
 		groupTooltip = strings.Join(parts, " · ")
 	}
 	group := ui.ButtonBase(c.Key("composer-quota-provider-"+keySuffix)).
-		Label("额度 "+provider).
+		Label("额度 "+s.providerDisplayName(provider)).
 		Tooltip(groupTooltip).
 		// 纵向与横向都取半格间距：额度条在输入框上方的行高里只占一行，保持紧凑。
 		Padding(Space0, Space0, Space0, Space0).
