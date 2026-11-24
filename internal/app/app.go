@@ -1027,7 +1027,7 @@ func Open(opts Options) (*App, error) {
 		wireSwarmWithModes(context.Background(), swarmMgr, backend, mcpSrv, kanbanPreface, swarmModeResolver)
 	}
 
-	// 普通会话的「可以交给总管」提示只在首轮注入一次，挂在已有的首轮指导词机制上，
+	// 普通会话的计划清单规则与「可以交给总管」提示只在首轮注入一次，挂在已有的首轮指导词机制上，
 	// 不再每轮前置，避免随历史累积与每轮读磁盘。bee 和前台会话不带。
 	backend.SetFirstTurnExtra(func(threadID string) string {
 		if swarmMgr != nil {
@@ -1038,7 +1038,7 @@ func Open(opts Options) (*App, error) {
 		if id, _, err := dbStore.GetSetting(context.Background(), "steward.feed_thread_id"); err == nil && id == threadID {
 			return ""
 		}
-		return frontdeskHandoffSection(opts.DataDir, threadID)
+		return firstTurnExtraSection(opts.DataDir, threadID)
 	})
 
 	// Nowledge Mem 接入：客户端已在上方创建，拿到后首轮 Working Memory 注入与会话同步才生效。
