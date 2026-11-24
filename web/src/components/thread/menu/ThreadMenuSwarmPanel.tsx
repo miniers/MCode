@@ -11,6 +11,7 @@ import type { ThreadSwarmMode } from '../useThreadMetaActions';
 import { useRemoteMethodSupport } from '../useThreadMetaActions';
 import { overrideCount, parseBeeTiers, serializeBeeTiers } from '../../../utils/beeTiers';
 import type { TierOverrideDraft } from '../../../utils/beeTiers';
+import { providerDisplayName } from '../../../utils/modelLabel';
 
 // 会话级工作模式，文案与顺序照抄桌面端 internal/ui/swarm_mode_menu.go 的 swarmModeOptions
 const SWARM_MODE_OPTIONS: Array<{ mode: ThreadSwarmMode; label: string; detail: string }> = [
@@ -64,7 +65,7 @@ export function ThreadMenuSwarmPanel({
   swarmModeError,
   onSelectSwarmMode
 }: ThreadMenuSwarmPanelProps) {
-  const { getSwarmTiers, setThreadSwarmPlansOnly: setPlansOnlyRpc, setThreadSwarmBeeTiers: setBeeTiersRpc } =
+  const { providers, getSwarmTiers, setThreadSwarmPlansOnly: setPlansOnlyRpc, setThreadSwarmBeeTiers: setBeeTiersRpc } =
     useRemoteStatic();
   const supportsMethod = useRemoteMethodSupport();
 
@@ -373,7 +374,7 @@ export function ThreadMenuSwarmPanel({
                               type="text"
                               value={providerValue}
                               onChange={(event) => updateTierDraft(tier.id, 'provider', event.target.value)}
-                              placeholder={tier.provider || 'Provider'}
+                              placeholder={providerDisplayName(providers, tier.provider) || 'Provider'}
                               aria-label={`${tierLabel} 的 provider 覆盖`}
                               disabled={isSavingTiers}
                               className={TIER_INPUT_CLASS}

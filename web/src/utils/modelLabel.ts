@@ -1,5 +1,15 @@
 import type { RemoteProvider } from '../types/generated';
 
+// Provider ID → 显示名：在 providers 中按 id 精确查找，有非空 name 就返回 name，否则原样返回 ID。
+export function providerDisplayName(
+  providers: RemoteProvider[] | undefined | null,
+  providerID: string | null | undefined
+): string {
+  if (!providerID) return '';
+  const found = (providers ?? []).find((provider) => provider.id === providerID);
+  return found?.name || providerID;
+}
+
 // 模型 ID → 显示名：优先按 provider + 模型 ID 精确匹配（对应桌面 swarmPairModelLabel），
 // 再放宽到同一 provider 内不区分大小写、所有 provider 内精确匹配；
 // 都找不到时原样返回 ID。已关闭（enabled === false）的 provider 也参与名称解析。

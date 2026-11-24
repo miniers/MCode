@@ -2,7 +2,9 @@ import { SheetFrame } from './sheet/SheetFrame';
 // 移动端输入框额度详情底部弹层组件（点击额度条中某个 provider 组打开）
 
 import React, { useEffect, useState } from 'react';
+import type { RemoteProvider } from '../types/generated';
 import type { RemoteQuotaBudget, RemoteQuotaWindow } from '../types/quota';
+import { providerDisplayName } from '../utils/modelLabel';
 import {
   formatCompactReset,
   isAuxiliaryWindow,
@@ -32,6 +34,8 @@ export interface ComposerQuotaSheetProps {
   onClose: () => void;
   /** 当前查看的 provider；为空时弹层关闭 */
   provider: string | null;
+  /** 可选 provider 列表，用于在无 providerName 时映射显示名称 */
+  providers?: RemoteProvider[];
   /** 当前查看的角色：主代理或子代理 */
   role?: 'lead' | 'bees' | null;
   /** 该 provider 的全部 budget（含 loading / attention 等不可渲染状态） */
@@ -582,6 +586,7 @@ export interface ComposerQuotaSheetContentProps extends Omit<ComposerQuotaSheetP
 export const ComposerQuotaSheetContent: React.FC<ComposerQuotaSheetContentProps> = ({
   onClose,
   provider,
+  providers,
   role = null,
   budgets,
   activeAccount = null,
@@ -603,7 +608,7 @@ export const ComposerQuotaSheetContent: React.FC<ComposerQuotaSheetContentProps>
   const providerBudgets = budgets.filter(
     (budget) => budget.provider === provider && (!role || budget.role === role)
   );
-  const providerName = providerBudgets[0]?.providerName || provider;
+  const providerName = providerBudgets[0]?.providerName || providerDisplayName(providers, provider);
   const credits = providerBudgets.find((budget) => budget.amount !== null) ?? null;
   const anyWindows = providerBudgets.some((budget) => budget.windows.length > 0);
   const loading = providerBudgets.some((budget) => budget.state === 'loading');
@@ -1170,6 +1175,7 @@ export const ComposerQuotaSheet: React.FC<ComposerQuotaSheetProps> = ({
   isOpen,
   onClose,
   provider,
+  providers,
   role = null,
   budgets,
   activeAccount = null,
@@ -1195,7 +1201,7 @@ export const ComposerQuotaSheet: React.FC<ComposerQuotaSheetProps> = ({
   const providerBudgets = budgets.filter(
     (budget) => budget.provider === provider && (!role || budget.role === role)
   );
-  const providerName = providerBudgets[0]?.providerName || provider;
+  const providerName = providerBudgets[0]?.providerName || providerDisplayName(providers, provider);
 
   const handleToggleRow = (rowKey: string) => {
     setExpandedRowKey((prev) => (prev === rowKey ? null : rowKey));
@@ -1211,6 +1217,7 @@ export const ComposerQuotaSheet: React.FC<ComposerQuotaSheetProps> = ({
       <ComposerQuotaSheetContent
         onClose={onClose}
         provider={provider}
+        providers={providers}
         role={role}
         budgets={budgets}
         activeAccount={activeAccount}

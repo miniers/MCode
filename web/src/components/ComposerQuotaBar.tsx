@@ -198,7 +198,7 @@ export const ComposerQuotaBar: React.FC<ComposerQuotaBarProps> = ({
   onAccountError,
   floating = false
 }) => {
-  const { connectionState, capabilities, getComposerQuota, updateThread } = useRemoteStatic();
+  const { connectionState, capabilities, providers, getComposerQuota, updateThread } = useRemoteStatic();
   const threadID = scope.threadID;
   const projectID = scope.projectID;
   // capabilities 取失败会被置为 null，此时按宽松口径视为支持 composer.quota，避免额度条被永久隐藏。
@@ -398,6 +398,7 @@ export const ComposerQuotaBar: React.FC<ComposerQuotaBarProps> = ({
         isOpen={Boolean(sheetGroup)}
         onClose={closeSheet}
         provider={sheetProvider}
+        providers={providers}
         role={sheetRole}
         budgets={sheetBudgets}
         activeAccount={activeAccount}

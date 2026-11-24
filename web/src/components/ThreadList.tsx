@@ -3,7 +3,8 @@ import { SheetFrame } from './sheet/SheetFrame';
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import type { RemoteThreadSummary } from '../types/contract';
+import type { RemoteProvider, RemoteThreadSummary } from '../types/contract';
+import { providerDisplayName } from '../utils/modelLabel';
 import { useRemote } from '../context/RemoteContext';
 import { useRemoteCall } from '../context/useRemoteCall';
 import { formatHitCount, MESSAGE_SEARCH_LIMIT, searchMessages, type RemoteMessageSearchHit } from '../context/remoteMessageSearchApi';
@@ -89,6 +90,7 @@ interface ThreadRowProps {
   tabStop: boolean;
   isSelected?: boolean;
   thread: RemoteThreadSummary;
+  providers?: RemoteProvider[];
   projectName?: string;
   projectScoped: boolean;
   onOpen: (thread: RemoteThreadSummary) => void;
@@ -435,6 +437,7 @@ const ThreadRow = React.memo(function ThreadRow({
   tabStop,
   isSelected,
   thread,
+  providers,
   projectName,
   onOpen,
   onMenu,
@@ -556,7 +559,7 @@ const ThreadRow = React.memo(function ThreadRow({
   const rowStatus = threadRowStatus(thread);
   const rowStatusLabel = threadRowStatusAriaLabel(thread);
   const branch = (thread as { branch?: string }).branch;
-  const modelOrProvider = thread.model || thread.provider;
+  const modelOrProvider = thread.model || providerDisplayName(providers, thread.provider);
   const hasLine3 = Boolean(branch || modelOrProvider || thread.taskID || thread.goalID);
 
   return (
@@ -1157,6 +1160,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
     listArchivedThreads,
     resyncThreads,
     projects,
+    providers,
     capabilities,
     connectionState,
     isSyncing,
@@ -1818,6 +1822,7 @@ export const ThreadList: React.FC<ThreadListProps> = ({
                       <ThreadRow
                         key={thread.id}
                         thread={thread}
+                        providers={providers}
                         tabStop={thread.id === tabStopID}
                         isSelected={thread.id === selectedThreadID}
                         projectName={!projectID ? projects.find((project) => project.id === thread.projectID)?.name : undefined}

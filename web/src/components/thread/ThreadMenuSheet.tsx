@@ -179,7 +179,7 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
   menuButtonRef,
   renderExternalPage
 }: ThreadMenuSheetProps) {
-  const { projects, setThreadSwarmMode: setSwarmModeRpc } = useRemoteStatic();
+  const { projects, providers, setThreadSwarmMode: setSwarmModeRpc } = useRemoteStatic();
   const supportsMethod = useRemoteMethodSupport();
   const threadID = latestSummary.id;
   // 排队中的子代理也算未结束，与头部 ⋯ 上的角标口径一致
@@ -426,7 +426,7 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
       try {
         const messages = await loadFullHistory(threadID);
         const { buildThreadExport } = await import('../../utils/threadExport');
-        const file = buildThreadExport(latestSummary, messages, format);
+        const file = buildThreadExport(latestSummary, messages, format, new Date(), providers);
         downloadExportFile(file.fileName, file.mimeType, file.text);
         // 成功后回主页，提示落在分享组下方；失败则留在导出页显示错误
         dismissTop();
@@ -440,7 +440,7 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
         setIsExporting(false);
       }
     },
-    [dismissTop, downloadExportFile, isExporting, latestSummary, loadFullHistory, threadID]
+    [dismissTop, downloadExportFile, isExporting, latestSummary, loadFullHistory, providers, threadID]
   );
 
   const handleCopyThreadMarkdown = useCallback(async () => {
@@ -451,7 +451,7 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
       const messages = await loadFullHistory(threadID);
       // 与「导出 Markdown」走同一条渲染路径，保证剪贴板内容与导出文件一致
       const { buildThreadExport } = await import('../../utils/threadExport');
-      const file = buildThreadExport(latestSummary, messages, 'md');
+      const file = buildThreadExport(latestSummary, messages, 'md', new Date(), providers);
       if (!navigator.clipboard?.writeText) {
         throw new Error('当前浏览器环境不支持剪贴板写入');
       }
@@ -465,7 +465,7 @@ export const ThreadMenuSheet = React.memo(function ThreadMenuSheet({
     } finally {
       setIsCopyingMarkdown(false);
     }
-  }, [isCopyingMarkdown, latestSummary, loadFullHistory, threadID]);
+  }, [isCopyingMarkdown, latestSummary, loadFullHistory, providers, threadID]);
 
   // 分组可见性：分组内没有任何条目时整组不渲染
   const workspaceLabel =

@@ -4,7 +4,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { RemoteSwarmTier } from '../types/generated';
 import { useRemoteStatic } from '../context/RemoteContext';
-import { modelDisplayName } from '../utils/modelLabel';
+import { modelDisplayName, providerDisplayName } from '../utils/modelLabel';
 import { makeActionID } from '../context/remoteGuards';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
@@ -293,7 +293,7 @@ export const SwarmTiersSheet: React.FC<SwarmTiersSheetProps> = ({ isOpen, onClos
         <div className="flex flex-wrap items-center gap-1.5 text-mc-caption text-[var(--foreground-muted)]">
           {hasModel ? (
             <span className="px-1.5 py-0.5 rounded-md bg-[var(--border)]/40 font-mono break-all">
-              {[tier.provider, modelDisplayName(providers, tier.provider, tier.model)].filter(Boolean).join(' / ')}
+              {[providerDisplayName(providers, tier.provider), modelDisplayName(providers, tier.provider, tier.model)].filter(Boolean).join(' / ')}
             </span>
           ) : (
             <span className="italic">跟随会话子代理模型</span>

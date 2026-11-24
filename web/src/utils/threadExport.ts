@@ -4,8 +4,9 @@
 // 然后把工具调用折叠成计数，最后把思考压成头尾；较早回合先降一级，
 // 仍然超预算才硬截断。所有渲染函数都是纯函数，不碰 DOM 与网络。
 
-import type { RemoteMediaRef, RemoteThreadMessage, RemoteThreadSummary } from '../types/contract';
+import type { RemoteMediaRef, RemoteProvider, RemoteThreadMessage, RemoteThreadSummary } from '../types/contract';
 import { isHiddenTimelineMessage, type ThreadMessage } from '../components/ThreadTimeline';
+import { providerDisplayName } from './modelLabel';
 
 /** 与桌面端 threadExportBudgetChars 一致：Markdown / HTML / 剪贴板导出的字符上限。 */
 export const THREAD_EXPORT_BUDGET_CHARS = 150_000;
@@ -205,10 +206,10 @@ const isQuestionAnswer = (m: NormalizedMessage): boolean => m.kind === 'question
 const isEmptyMessage = (m: NormalizedMessage): boolean => m.text === '' && m.media.length === 0;
 
 /** 导出开头的标题与元信息，完整导出与预算版导出共用。 */
-const header = (thread: RemoteThreadSummary, exportedAt: Date): string => {
+const header = (thread: RemoteThreadSummary, exportedAt: Date, providers?: RemoteProvider[]): string => {
   const meta = [
     `- 会话 ID：${thread.id}`,
-    `- Provider：${thread.provider}`,
+    `- Provider：${providerDisplayName(providers, thread.provider)}`,
     `- Model：${thread.model ?? ''}`,
     `- 更新时间：${formatThreadExportTime(parseThreadDate(thread.updatedAt))}`,
     `- 导出时间：${formatThreadExportTime(exportedAt)}`
@@ -220,10 +221,11 @@ const header = (thread: RemoteThreadSummary, exportedAt: Date): string => {
 function buildThreadMarkdownFull(
   thread: RemoteThreadSummary,
   messages: RemoteThreadMessage[],
-  exportedAt: Date
+  exportedAt: Date,
+  providers?: RemoteProvider[]
 ): { text: string; messages: NormalizedMessage[] } {
   const normalized = normalizeMessages(messages);
-  let text = header(thread, exportedAt);
+  let text = header(thread, exportedAt, providers);
   for (const message of normalized) {
     if (isEmptyMessage(message)) continue;
     // 问答记录消息的正文是前端用的 JSON，Markdown 里没有可读内容，完整记录仍保留在 JSON 导出里。
@@ -301,16 +303,17 @@ export function buildThreadMarkdown(
   thread: RemoteThreadSummary,
   messages: RemoteThreadMessage[],
   exportedAt: Date,
-  budget: number = THREAD_EXPORT_BUDGET_CHARS
+  budget: number = THREAD_EXPORT_BUDGET_CHARS,
+  providers?: RemoteProvider[]
 ): ThreadExportRenderResult {
-  const full = buildThreadMarkdownFull(thread, messages, exportedAt);
+  const full = buildThreadMarkdownFull(thread, messages, exportedAt, providers);
   if (budget <= 0 || runeCount(full.text) <= budget) {
     return { text: full.text, degraded: false };
   }
 
   const normalized = full.messages;
   const levels = threadExportLevels(normalized, budget);
-  let out = header(thread, exportedAt) + THREAD_EXPORT_DEGRADE_NOTE;
+  let out = header(thread, exportedAt, providers) + THREAD_EXPORT_DEGRADE_NOTE;
 
   let omitted = 0;
   const flushOmitted = (): void => {
@@ -362,9 +365,10 @@ export function buildThreadHTML(
   thread: RemoteThreadSummary,
   messages: RemoteThreadMessage[],
   exportedAt: Date,
-  budget: number = THREAD_EXPORT_BUDGET_CHARS
+  budget: number = THREAD_EXPORT_BUDGET_CHARS,
+  providers?: RemoteProvider[]
 ): ThreadExportRenderResult {
-  const { text, degraded } = buildThreadMarkdown(thread, messages, exportedAt, budget);
+  const { text, degraded } = buildThreadMarkdown(thread, messages, exportedAt, budget, providers);
   const doc =
     '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<title>' +
     `${escapeHTML(thread.title)}</title>\n</head>\n<body>\n<pre>` +
@@ -423,20 +427,21 @@ export function buildThreadExport(
   thread: RemoteThreadSummary,
   messages: RemoteThreadMessage[],
   format: ThreadExportFormat,
-  exportedAt: Date = new Date()
+  exportedAt: Date = new Date(),
+  providers?: RemoteProvider[]
 ): ThreadExportFile {
   const ext: `.${ThreadExportFormat}` = `.${format}`;
   const fileName = threadExportFileName(thread.title, ext);
   const mimeType = MIME_TYPES[format];
   switch (format) {
     case 'html': {
-      const { text, degraded } = buildThreadHTML(thread, messages, exportedAt);
+      const { text, degraded } = buildThreadHTML(thread, messages, exportedAt, THREAD_EXPORT_BUDGET_CHARS, providers);
       return { fileName, mimeType, text, degraded };
     }
     case 'json':
       return { fileName, mimeType, text: buildThreadJSON(thread, messages, exportedAt), degraded: false };
     default: {
-      const { text, degraded } = buildThreadMarkdown(thread, messages, exportedAt);
+      const { text, degraded } = buildThreadMarkdown(thread, messages, exportedAt, THREAD_EXPORT_BUDGET_CHARS, providers);
       return { fileName, mimeType, text, degraded };
     }
   }

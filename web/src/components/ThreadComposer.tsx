@@ -28,7 +28,7 @@ import { useThreadMentionSendText } from '../hooks/useThreadMentionCandidates';
 import type { DraftThreadMention } from '../utils/threadMention';
 import { localCommandName } from '../utils/slashCommands';
 import type { CommandScope } from '../utils/slashCommands';
-import { modelDisplayName } from '../utils/modelLabel';
+import { modelDisplayName, providerDisplayName } from '../utils/modelLabel';
 import { isImeComposing } from '../utils/ime';
 import { nextStopPress } from './thread/stopSequence';
 import {
@@ -1732,13 +1732,13 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                   <div className="space-y-3">
                     {isMissingSelection(providers, composerOptions?.provider, composerOptions?.model) && (
                       <p className="text-xs text-[var(--danger-foreground)]">
-                        已保存的模型 {composerOptions?.provider}/{composerOptions?.model} 不在当前目录中，请重新选择
+                        已保存的模型 {providerDisplayName(providers, composerOptions?.provider)}/{composerOptions?.model} 不在当前目录中，请重新选择
                       </p>
                     )}
                     {beesAllowed &&
                       isMissingSelection(providers, composerOptions?.swarmBeesProvider, composerOptions?.swarmBeesModel) && (
                         <p className="text-xs text-[var(--danger-foreground)]">
-                          已保存的模型 {composerOptions?.swarmBeesProvider}/{composerOptions?.swarmBeesModel} 不在当前目录中，请重新选择
+                          已保存的模型 {providerDisplayName(providers, composerOptions?.swarmBeesProvider)}/{composerOptions?.swarmBeesModel} 不在当前目录中，请重新选择
                         </p>
                       )}
                     {onToggleSwarm && swarm && !swarm.enabled && (
@@ -1937,7 +1937,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
                                                   ))}
                                                   {/* 旧数据或自定义 provider 不在列表里时保留原值，避免一打开面板就被改掉 */}
                                                   {providerValue && !providerInList && (
-                                                    <option value={providerValue}>{`${providerValue}（不在列表中）`}</option>
+                                                    <option value={providerValue}>{`${providerDisplayName(providers, providerValue)}（不在列表中）`}</option>
                                                   )}
                                                 </select>
                                                 <select
