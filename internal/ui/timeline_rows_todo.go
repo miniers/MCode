@@ -435,47 +435,6 @@ func todoProgress(items []todoItem) (done, total int) {
 	return done, len(items)
 }
 
-// todoProgressRatio 返回进度条的填充比例（0..1）：完成数除以总数，空列表为 0。
-func todoProgressRatio(items []todoItem) float32 {
-	done, total := todoProgress(items)
-	if total <= 0 {
-		return 0
-	}
-	return float32(done) / float32(total)
-}
-
-// todoFocusItem 返回收起摘要要显示的那一项：优先进行中，其次第一项未完成；
-// 全部完成或空列表时 ok 为 false。
-func todoFocusItem(items []todoItem) (todoItem, bool) {
-	for _, it := range items {
-		if it.Status == "in_progress" {
-			return it, true
-		}
-	}
-	for _, it := range items {
-		if it.Status != "completed" {
-			return it, true
-		}
-	}
-	return todoItem{}, false
-}
-
-// todoCollapsedSummary 返回收起态那一行摘要：「完成数/总数 · 当前那一项」，
-// 全部完成时显示「已全部完成」，空列表显示「暂无待办」。
-func todoCollapsedSummary(items []todoItem) string {
-	done, total := todoProgress(items)
-	if total == 0 {
-		return "暂无待办"
-	}
-	if done == total {
-		return fmt.Sprintf("%d/%d · 已全部完成", done, total)
-	}
-	if it, ok := todoFocusItem(items); ok {
-		return fmt.Sprintf("%d/%d · %s", done, total, strings.Join(strings.Fields(it.Text), " "))
-	}
-	return fmt.Sprintf("%d/%d", done, total)
-}
-
 // todoInputLooksLikePlan 廉价预判一段文本是否可能是待办工具输入，
 // 让 latestTodoMessageID 不必为整段历史做 JSON 解析。
 func todoInputLooksLikePlan(raw string) bool {
@@ -502,13 +461,17 @@ func latestTodoMessageID(messages []Message) string {
 	return ""
 }
 
-// todoCardExpanded 返回待办卡片此刻是否展开：用户在卡片头部点过就以用户选择为准；
+// todoCardExpanded 返回待办卡片此刻是否展开：用户在步骤入口点过就以用户选择为准；
 // 否则只有「当前线程最新的一条待办，且线程正在运行」时默认展开，其余情况默认收起。
 // running 由调用方算好传入（s.isThreadRunning 内部自己加锁，不能在这里持锁调用）。
 func (s *chatState) todoCardExpanded(m Message, running bool) bool {
 	s.mu.Lock()
 	open, decided := s.expandedTool[todoCardKey(m.ID)]
-	latest := latestTodoMessageID(s.messages)
+	msgs := s.timelineCacheMsgs
+	if len(msgs) == 0 {
+		msgs = s.messages
+	}
+	latest := latestTodoMessageID(msgs)
 	s.mu.Unlock()
 	if decided {
 		return open
@@ -529,114 +492,48 @@ func (s *chatState) toggleTodoCard(msgID string, open bool) {
 	s.invalidate()
 }
 
-// renderTodoCard 把待办清单工具调用渲染成卡片：头部可折叠、下方一条 2px 进度条；
-// 展开时每项前是状态图标（空心圆、进行中、对勾），已完成项置灰并划掉；
-// 收起时只留一行摘要。
-func renderTodoCard(c *ui.Context, s *chatState, m Message, items []todoItem) ui.Element {
+// renderTodoCard 在回合头正下方渲染逐行打勾的清单卡片：展开/收起走 motionUnfoldBody，
+// 每步一行（左侧状态图标 + 步骤文本），不放标题行、摘要与进度条。
+func renderTodoCard(c *ui.Context, s *chatState, m Message, items []todoItem) {
 	running := s.isThreadRunning(selectedThreadIDSnapshot(s))
 	expanded := s.todoCardExpanded(m, running)
-	done, total := todoProgress(items)
 
-	return ui.Column(c.Key("msg-todo-"+m.ID)).
-		FillWidth().
-		MaxWidth(timelineContentMaxWidth(s)).
-		Padding(Space4).
-		Radius(RadiusLG).
-		Background(ThemeSurface(c)).
-		Border(1, ThemeBorder(c)).
-		Gap(Space2).
-		Children(func() {
-			renderTodoCardHeader(c, s, m, done, total, expanded)
-			renderTodoProgressBar(c, m, items)
-			if !expanded {
-				renderTodoCardSummary(c, m, items, running)
-				return
-			}
-			for i, it := range items {
-				ui.Row(c.Key(fmt.Sprintf("todo-item-%s-%d", m.ID, i))).
-					Gap(Space3).
-					AlignItems(ui.Start).
-					Children(func() {
-						renderTodoStatusIcon(c, fmt.Sprintf("todo-icon-%s-%d", m.ID, i), it.Status, running)
-						textColor := ThemePrimaryText(c)
-						if it.Status == "completed" {
-							textColor = ThemeSecondaryText(c).Alpha(0.75)
-						}
-						text := ui.Text(c, it.Text).FontSize(scaledFont(TypeFootnote)).LineHeight(1.4).TextColor(textColor)
-						if it.Status == "completed" {
-							text.Strikethrough()
-						}
-					})
-			}
-		})
-}
-
-// renderTodoCardHeader 渲染待办卡片头部：整行可点击折叠，右侧是完成数与折叠箭头。
-func renderTodoCardHeader(c *ui.Context, s *chatState, m Message, done, total int, expanded bool) {
-	toggleLabel := "展开待办清单"
-	chevronTarget := float32(0)
-	if expanded {
-		toggleLabel = "收起待办清单"
-		chevronTarget = 90
-	}
-	btn := ui.ButtonBase(c.Key("todo-header-" + m.ID)).
-		FillWidth().
-		Label(toggleLabel).
-		Tooltip(toggleLabel).
-		Cursor(ui.CursorPointer).
-		OnClick(func() {
-			s.toggleTodoCard(m.ID, !expanded)
-		})
-	// 展开/收起箭头：同一个右箭头按顺时针 90 度插值旋转成下箭头
-	rotation := btn.AnimateTo("todo-chevron-"+m.ID, chevronTarget, ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
-	btn.Children(func() {
-		ui.Row(c.Key("todo-header-row-" + m.ID)).FillWidth().Gap(Space2).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, IconListTodo()).Size(12, 12).TextColor(ThemeSecondaryText(c))
-			ui.Text(c, "待办清单").FontSize(scaledFont(TypeFootnote)).FontWeight(500).TextColor(ThemeSecondaryText(c))
-			ui.Spacer(c)
-			ui.Text(c, fmt.Sprintf("%d/%d", done, total)).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-			ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(ThemeSecondaryText(c)).Rotate(rotation)
-		})
+	motionUnfoldBody(c, "todo-body-"+m.ID, expanded, func() {
+		ui.Column(c.Key("msg-todo-"+m.ID)).
+			FillWidth().
+			MaxWidth(timelineContentMaxWidth(s)).
+			Padding(Space3, Space4).
+			Radius(RadiusLG).
+			Background(ThemeSurface(c)).
+			Border(1, ThemeBorder(c)).
+			Gap(Space2).
+			Children(func() {
+				for i, it := range items {
+					ui.Row(c.Key(fmt.Sprintf("todo-item-%s-%d", m.ID, i))).
+						Gap(Space3).
+						AlignItems(ui.Start).
+						Children(func() {
+							renderTodoStatusIcon(c, fmt.Sprintf("todo-icon-%s-%d", m.ID, i), it.Status, running)
+							ui.Text(c, it.Text).
+								FontSize(scaledFont(TypeFootnote)).
+								LineHeight(1.4).
+								TextColor(ThemePrimaryText(c))
+						})
+				}
+			})
 	})
 }
 
-// renderTodoProgressBar 渲染头部下方的 2px 进度条：轨道用分隔线色、填充用强调色，
-// 两段的 Grow 权重就是 todoProgressRatio。
-func renderTodoProgressBar(c *ui.Context, m Message, items []todoItem) {
-	ProgressBar(c, ProgressBarProps{
-		Key: "todo-progress-" + m.ID, Label: "待办进度", Ratio: todoProgressRatio(items),
-		Height: todoProgressBarHeight, Track: ThemeDivider(c), Fill: ThemeAccent(c),
-	})
-}
-
-// renderTodoCardSummary 渲染收起态的一行摘要：状态图标加 todoCollapsedSummary 的文本。
-func renderTodoCardSummary(c *ui.Context, m Message, items []todoItem, running bool) {
-	status := "pending"
-	if it, ok := todoFocusItem(items); ok {
-		status = it.Status
-	} else if done, total := todoProgress(items); total > 0 && done == total {
-		status = "completed"
-	}
-	ui.Row(c.Key("todo-summary-" + m.ID)).Gap(Space3).AlignItems(ui.Center).Children(func() {
-		renderTodoStatusIcon(c, "todo-summary-icon-"+m.ID, status, running)
-		ui.Text(c, todoCollapsedSummary(items)).
-			FontSize(scaledFont(TypeFootnote)).
-			LineHeight(1.4).
-			TextColor(ThemeSecondaryText(c)).
-			SingleLine()
-	})
-}
-
-// renderTodoStatusIcon 渲染待办项前的状态图标：待处理为空心圆，进行中为强调色圆点，已完成为绿色对勾。
-// 进行中的图标只在线程确实还在运行时才转（run 为 true）；线程停下后显示静态圆点，避免假装仍在进行。
+// renderTodoStatusIcon 渲染待办项前的状态图标：待处理为空心圆，进行中在运行时为点阵动效、
+// 停止后为强调色实心点，已完成为绿色圆圈对勾。
 func renderTodoStatusIcon(c *ui.Context, key, status string, run bool) {
 	switch status {
 	case "completed":
-		ui.Box(c.Key(key+"-box")).Size(11, 11).Center().Children(func() {
-			ui.Icon(c, IconCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
+		ui.Box(c.Key(key+"-box")).Size(11, 16).Center().Children(func() {
+			ui.Icon(c, IconCircleCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
 		})
 	case "in_progress":
-		ui.Box(c.Key(key+"-box")).Size(11, 11).Center().Children(func() {
+		ui.Box(c.Key(key+"-box")).Size(11, 16).Center().Children(func() {
 			if run {
 				renderRunningGlyph(c, key+"-run", 9, ThemeAccent(c))
 				return
@@ -644,7 +541,7 @@ func renderTodoStatusIcon(c *ui.Context, key, status string, run bool) {
 			ui.Box(c.Key(key+"-dot")).Size(9, 9).Radius(RadiusPill).Background(ThemeAccent(c))
 		})
 	default:
-		ui.Box(c.Key(key+"-box")).Size(11, 11).Center().Children(func() {
+		ui.Box(c.Key(key+"-box")).Size(11, 16).Center().Children(func() {
 			ui.Box(c.Key(key+"-ring")).Size(9, 9).Radius(RadiusPill).Border(1.5, ThemeBorder(c))
 		})
 	}

@@ -204,9 +204,9 @@ func toolCallRowLabel(verb, target, detail string) string {
 
 // renderSingleToolItem 渲染单条工具调用：一个左对齐的动作胶囊，点开后下方展开详情（按 2.4 节）。
 func renderSingleToolItem(c *ui.Context, s *chatState, m Message) ui.Element {
-	// 待办清单类工具（TodoWrite / update_plan）渲染成带状态图标的卡片
-	if items, ok := todoItemsFromMessage(m); ok {
-		return renderTodoCard(c, s, m, items)
+	// 待办清单只在回合头渲染，活动列表跳过。
+	if _, ok := todoItemsFromMessage(m); ok {
+		return ui.Element{}
 	}
 
 	open := s.toolMessageExpanded(m)

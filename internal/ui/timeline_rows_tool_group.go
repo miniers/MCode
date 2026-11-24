@@ -58,6 +58,9 @@ func classifyToolCategory(name string) toolCategory {
 func countToolGroupCategories(items []Message) toolGroupCounts {
 	var counts toolGroupCounts
 	for _, m := range items {
+		if isTodoTimelineMessage(m) {
+			continue
+		}
 		counts.total++
 		switch {
 		case isReasoningMessage(m):
@@ -587,7 +590,7 @@ func toolGroupPreviewTools(tools []Message, limit int) []Message {
 	}
 	picked := make([]Message, 0, limit)
 	for i := len(tools) - 1; i >= 0 && len(picked) < limit; i-- {
-		if tools[i].Role != "tool" {
+		if tools[i].Role != "tool" || isTodoTimelineMessage(tools[i]) {
 			continue
 		}
 		picked = append(picked, tools[i])

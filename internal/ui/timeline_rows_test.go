@@ -1522,81 +1522,6 @@ func TestParseTodoItems(t *testing.T) {
 	}
 }
 
-// TestTodoCollapsedSummary 验证待办卡片收起态摘要的文本规则：有进行中项取进行中项，
-// 没有进行中项取第一项未完成，全部完成显示「已全部完成」，空列表显示「暂无待办」。
-func TestTodoCollapsedSummary(t *testing.T) {
-	cases := []struct {
-		name  string
-		items []todoItem
-		want  string
-	}{
-		{
-			name: "有进行中项",
-			items: []todoItem{
-				{Text: "读代码", Status: "completed"},
-				{Text: "改代码", Status: "in_progress"},
-				{Text: "跑测试", Status: "pending"},
-			},
-			want: "1/3 · 改代码",
-		},
-		{
-			name: "没有进行中项",
-			items: []todoItem{
-				{Text: "读代码", Status: "completed"},
-				{Text: "改代码", Status: "pending"},
-				{Text: "跑测试", Status: "pending"},
-			},
-			want: "1/3 · 改代码",
-		},
-		{
-			name: "进行中项排在已完成项之前",
-			items: []todoItem{
-				{Text: "改代码", Status: "in_progress"},
-				{Text: "读代码", Status: "completed"},
-			},
-			want: "1/2 · 改代码",
-		},
-		{
-			name: "全部完成",
-			items: []todoItem{
-				{Text: "读代码", Status: "completed"},
-				{Text: "改代码", Status: "completed"},
-			},
-			want: "2/2 · 已全部完成",
-		},
-		{name: "空列表", items: nil, want: "暂无待办"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := todoCollapsedSummary(tc.items); got != tc.want {
-				t.Fatalf("todoCollapsedSummary() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestTodoProgressRatio 验证进度条填充比例：完成数除以总数，空列表为 0。
-func TestTodoProgressRatio(t *testing.T) {
-	cases := []struct {
-		name  string
-		items []todoItem
-		want  float32
-	}{
-		{"没有完成", []todoItem{{Status: "in_progress"}, {Status: "pending"}, {Status: "pending"}}, 0},
-		{"完成一项", []todoItem{{Status: "completed"}, {Status: "in_progress"}, {Status: "pending"}}, 1.0 / 3.0},
-		{"完成两项", []todoItem{{Status: "completed"}, {Status: "completed"}, {Status: "pending"}}, 2.0 / 3.0},
-		{"全部完成", []todoItem{{Status: "completed"}, {Status: "completed"}}, 1},
-		{"空列表", nil, 0},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := todoProgressRatio(tc.items); got != tc.want {
-				t.Fatalf("todoProgressRatio() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // TestLatestTodoMessageID 验证只把最后一条待办消息当作「当前待办」，
 // 普通工具调用与普通文本不被误认。
 func TestLatestTodoMessageID(t *testing.T) {
@@ -1705,7 +1630,8 @@ func TestAssistantMetaText(t *testing.T) {
 	}
 }
 
-// TestTimelineRows_TodoCard 验证 TodoWrite 工具调用渲染成带进度与状态的待办卡片。
+// TestTimelineRows_GroupedTodoCard 验证 TodoWrite 工具调用从工具组移到回合头步骤入口，
+// 不在工具组或活动列表渲染，点击回合头入口可展开步骤清单。
 func TestTimelineRows_GroupedTodoCard(t *testing.T) {
 	input := `{"todos":[{"content":"读代码","status":"completed"},{"content":"改代码","status":"completed"},{"content":"跑测试","status":"in_progress"}]}`
 	msgs := []Message{
@@ -1721,7 +1647,7 @@ func TestTimelineRows_GroupedTodoCard(t *testing.T) {
 			defer s.close()
 			s.embeddedBee = bee
 			s.messages = msgs
-			items := buildTimelineItems(msgs, map[string]bool{"toolgroup-r1": true})
+			items := applyTurnWorkFold(s, "t1", buildTimelineItems(msgs, map[string]bool{"toolgroup-r1": true}))
 			tt := ui.NewTester(func(c *ui.Context) {
 				ui.Column(c.Key("timeline")).Children(func() {
 					for _, item := range items {
@@ -1729,7 +1655,7 @@ func TestTimelineRows_GroupedTodoCard(t *testing.T) {
 					}
 				})
 			}, 1000, 700)
-			for _, want := range []string{"待办清单", "2/3", "$ go test"} {
+			for _, want := range []string{"2/3 步", "$ go test"} {
 				if !tt.HasText(want) {
 					t.Fatalf("缺少 %q: %q", want, tt.Texts())
 				}
@@ -1737,10 +1663,11 @@ func TestTimelineRows_GroupedTodoCard(t *testing.T) {
 			if _, ok := tt.Find("a.go"); !ok {
 				t.Fatalf("缺少读取胶囊: %q", tt.Texts())
 			}
-			if tt.HasText("todo_write") {
-				t.Fatalf("待办不应显示普通工具胶囊: %q", tt.Texts())
+			if tt.HasText("todo_write") || tt.HasText("待办清单") {
+				t.Fatalf("待办不应出现在工具组或显示旧卡片标题: %q", tt.Texts())
 			}
-			clickText(t, tt, "展开待办清单")
+			clickText(t, tt, "展开步骤清单，已完成 2/3 步")
+			tt.Advance(motionUnfold + 40*time.Millisecond)
 			for _, want := range []string{"读代码", "改代码", "跑测试"} {
 				if !tt.HasText(want) {
 					t.Fatalf("展开后缺少 %q: %q", want, tt.Texts())
@@ -1755,18 +1682,17 @@ func TestTimelineRows_TodoCard(t *testing.T) {
 		{ID: "u1", Role: "user", Text: "规划一下", TurnIndex: 1, IsFinal: true},
 		{ID: "t1", Role: "tool", TurnIndex: 1, Text: `TodoWrite {"todos":[{"content":"读代码","status":"completed"},{"content":"改代码","status":"in_progress"},{"content":"跑测试","status":"pending"}]}`},
 	}
-	tt := newTimelineTester(t, msgs, "待办清单")
-	// 线程未运行时卡片默认收起：头部显示进度，摘要只给进行中的一项
-	for _, want := range []string{"1/3", "1/3 · 改代码"} {
-		if !tt.HasText(want) {
-			t.Fatalf("收起态待办卡片缺少 %q: %q", want, tt.Texts())
-		}
+	tt := newTimelineTester(t, msgs, "1/3 步")
+	// 线程未运行时清单默认收起，只在回合头显示步骤入口
+	if tt.HasText("待办清单") {
+		t.Fatalf("新清单卡片不应再显示「待办清单」标题行: %q", tt.Texts())
 	}
 	if tt.HasText("读代码") {
 		t.Fatalf("收起态不应列出待办项: %q", tt.Texts())
 	}
-	// 点击头部展开后完整列出每一项
-	clickText(t, tt, "展开待办清单")
+	// 点击回合头步骤入口展开后完整列出每一项
+	clickText(t, tt, "展开步骤清单，已完成 1/3 步")
+	tt.Advance(motionUnfold + 40*time.Millisecond)
 	for _, want := range []string{"读代码", "改代码", "跑测试"} {
 		if !tt.HasText(want) {
 			t.Fatalf("展开后待办卡片缺少 %q: %q", want, tt.Texts())

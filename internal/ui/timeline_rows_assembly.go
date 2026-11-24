@@ -58,6 +58,16 @@ func isReasoningMessage(m Message) bool {
 	return m.Kind == "reasoning" || m.Role == "reasoning"
 }
 
+// isTodoTimelineMessage 判断消息是否属于待办清单工具调用：这类消息只在回合头步骤入口展示，
+// 不进工具组计数与预览，也不在活动列表或折叠体内渲染成卡片。
+func isTodoTimelineMessage(m Message) bool {
+	if !isTodoToolMessage(m) {
+		return false
+	}
+	_, ok := todoItemsFromMessage(m)
+	return ok
+}
+
 // isActivityMessage 判断消息是否属于时间线里的“活动”行（思考过程与工具调用）；
 // 同一回合内连续的活动行会合并成一个可折叠的工具组。
 func isActivityMessage(m Message) bool {
@@ -82,24 +92,41 @@ func liveToolGroupID(messages []Message, running bool) string {
 	if !running || len(messages) == 0 {
 		return ""
 	}
-	last := messages[len(messages)-1]
+	lastTurn := messages[len(messages)-1].TurnIndex
+	end := len(messages) - 1
+	for end >= 0 && isTodoTimelineMessage(messages[end]) && messages[end].TurnIndex == lastTurn {
+		end--
+	}
+	if end < 0 {
+		return ""
+	}
+	last := messages[end]
 	if !isActivityMessage(last) {
 		return ""
 	}
-	start := len(messages) - 1
+	start := end
 	for start > 0 && isActivityMessage(messages[start-1]) && messages[start-1].TurnIndex == last.TurnIndex {
 		start--
 	}
-	run := messages[start:]
-	if len(run) < 2 {
-		return ""
-	}
-	for _, m := range run {
+	var firstNonTodo string
+	nonTodoCount := 0
+	hasTool := false
+	for _, m := range messages[start : end+1] {
+		if isTodoTimelineMessage(m) {
+			continue
+		}
+		if firstNonTodo == "" {
+			firstNonTodo = m.ID
+		}
+		nonTodoCount++
 		if m.Role == "tool" {
-			return "toolgroup-" + run[0].ID
+			hasTool = true
 		}
 	}
-	return ""
+	if nonTodoCount < 2 || !hasTool {
+		return ""
+	}
+	return "toolgroup-" + firstNonTodo
 }
 
 // buildTimelineItemsLive 与 buildTimelineItems 相同，另外接收当前正在进行的活动组 ID。
@@ -134,7 +161,25 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 			for i < n && isActivityMessage(messages[i]) && messages[i].TurnIndex == turnIndex {
 				i++
 			}
-			run := messages[start:i]
+			rawRun := messages[start:i]
+			run := make([]Message, 0, len(rawRun))
+			runIndices := make([]int, 0, len(rawRun))
+			var todoItems []timelineItem
+			for idx, rm := range rawRun {
+				if isTodoTimelineMessage(rm) {
+					todoItems = append(todoItems, timelineItem{
+						kind:       timelineItemSingle,
+						msg:        rm,
+						id:         rm.ID,
+						turnIndex:  rm.TurnIndex,
+						finishedAt: messageFinishedAt(rm),
+						msgIndex:   start + idx,
+					})
+					continue
+				}
+				run = append(run, rm)
+				runIndices = append(runIndices, start+idx)
+			}
 			hasTool := false
 			for _, rm := range run {
 				if rm.Role == "tool" {
@@ -147,6 +192,10 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 				// 各组按调用方给的默认值开合（通常折叠；关闭自动折叠思考时默认展开）；
 				// 用户显式设置过开合状态时仍以设置为准。
 				groupExpanded := toolGroupOpen(exp, groupID, groupsOpenByDefault)
+				groupLastIdx := 0
+				if len(todoItems) > 0 {
+					groupLastIdx = i - 1
+				}
 				// 组头项在折叠与展开状态都存在，展开时再追加组内各段行
 				items = append(items, timelineItem{
 					kind:          timelineItemToolGroup,
@@ -157,6 +206,7 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 					groupID:       groupID,
 					groupExpanded: groupExpanded,
 					msgIndex:      start,
+					msgLastIndex:  groupLastIdx,
 				})
 				if groupExpanded {
 					items = appendGroupSegmentItems(items, run, start, groupID)
@@ -170,10 +220,11 @@ func buildTimelineItemsFiltered(messages []Message, exp map[string]bool, liveGro
 						id:         msg.ID,
 						turnIndex:  msg.TurnIndex,
 						finishedAt: messageFinishedAt(msg),
-						msgIndex:   start + j,
+						msgIndex:   runIndices[j],
 					})
 				}
 			}
+			items = append(items, todoItems...)
 			continue
 		}
 
@@ -635,12 +686,37 @@ func inlineRunningTurnHeader(segment []timelineItem) []timelineItem {
 	return out
 }
 
+// turnChecklistFromSegment 从本回合条目里求出最后一条 todoItemsFromMessage 能解析的消息，
+// 并返回剔除所有独立待办条目后的条目切片（待办只由回合头承担，不占时间线独立行）。
+// 若上一帧的运行态头已经携带有待办消息且本段里没有更新的待办条目，prevTodo/prevIdx 作为回退保留。
+func turnChecklistFromSegment(segment []timelineItem, prevTodo Message, prevIdx int) ([]timelineItem, Message, int) {
+	todoMsg := prevTodo
+	todoIdx := prevIdx
+	clean := make([]timelineItem, 0, len(segment))
+	for _, it := range segment {
+		if it.kind == timelineItemSingle && isTodoTimelineMessage(it.msg) {
+			todoMsg = it.msg
+			todoIdx = it.msgIndex
+			continue
+		}
+		clean = append(clean, it)
+	}
+	return clean, todoMsg, todoIdx
+}
+
 // runningTurnHeaderItem 为运行中的回合造一个临时折叠头：把用户消息之后、第一条助手正文之前的
 // 思考与工具调用收进头里，只留一行「已处理 Ns」实时计时；没有可折叠的活动时折叠区为空，
 // 头只负责计时。回合结束后这个头会被摘掉，再由 applyTurnWorkFold 正常折叠整段。
 // segment 里可能已经有一个上一帧的运行态头，先摊平再重建，保证重复调用得到同样的结果。
 func runningTurnHeaderItem(s *chatState, threadID string, segment []timelineItem) (timelineItem, []timelineItem, bool) {
+	var prevTodo Message
+	var prevTodoIdx int
+	if len(segment) >= 2 && segment[1].kind == timelineItemTurnWork && segment[1].workRunning && isTodoTimelineMessage(segment[1].msg) {
+		prevTodo = segment[1].msg
+		prevTodoIdx = segment[1].msgIndex
+	}
 	segment = inlineRunningTurnHeader(segment)
+	segment, todoMsg, _ := turnChecklistFromSegment(segment, prevTodo, prevTodoIdx)
 	if len(segment) == 0 || segment[0].kind != timelineItemSingle || segment[0].msg.Role != "user" {
 		return timelineItem{}, segment, false
 	}
@@ -698,6 +774,7 @@ func runningTurnHeaderItem(s *chatState, threadID string, segment []timelineItem
 		id:            turnWorkFoldID(segment[0].msg.ID),
 		threadID:      threadID,
 		turnIndex:     segment[0].turnIndex,
+		msg:           todoMsg,
 		workRunning:   true,
 		workStartedAt: turnStartTimeFor(s, segment[0].turnIndex),
 		tools:         msgs,
@@ -749,8 +826,6 @@ func applyTurnWorkFold(s *chatState, threadID string, items []timelineItem) []ti
 		}
 		segment := items[i:end]
 		isRunningTurn := runningTurn >= 0 && items[i].turnIndex == runningTurn
-		// 上一帧的运行态头先摊回过程条目：运行中的回合要按最新消息重建，结束的回合要正常折叠。
-		segment = inlineRunningTurnHeader(segment)
 		if isRunningTurn {
 			// 运行中的回合不折叠整段，只在用户消息之后放一行计时头，收住已经跑过的过程消息。
 			// 已经出现的答复或中途正文留在头外，仍在生成的文字不能被藏起来。
@@ -771,23 +846,72 @@ func applyTurnWorkFold(s *chatState, threadID string, items []timelineItem) []ti
 				out = append(out, header)
 				out = append(out, rest[1:]...)
 			} else {
-				out = append(out, segment...)
+				clean, _, _ := turnChecklistFromSegment(segment, Message{}, 0)
+				out = append(out, clean...)
 			}
 			i = end
 			continue
 		}
-		if fold, ok := findTurnWorkFold(segment, lastAssistant, runningTurn, skipIDs); ok {
-			folded := buildTurnWorkItem(s, threadID, segment, fold)
-			tail := append([]timelineItem(nil), segment[fold.answerIdx:]...)
+		// 上一帧的运行态头先摊回过程条目并保留其携带的待办消息：结束的回合要正常折叠并继承清单。
+		var prevTodo Message
+		var prevTodoIdx int
+		if len(segment) >= 2 && segment[1].kind == timelineItemTurnWork && segment[1].workRunning && isTodoTimelineMessage(segment[1].msg) {
+			prevTodo = segment[1].msg
+			prevTodoIdx = segment[1].msgIndex
+		}
+		segment = inlineRunningTurnHeader(segment)
+		cleanSegment, todoMsg, todoIdx := turnChecklistFromSegment(segment, prevTodo, prevTodoIdx)
+
+		// 若增量复用了上一帧已经折叠好的头，把本段新到的待办同步给它即可。
+		if len(cleanSegment) >= 2 && cleanSegment[1].kind == timelineItemTurnWork {
+			if todoMsg.ID != "" {
+				cleanSegment[1].msg = todoMsg
+			}
+			out = append(out, cleanSegment...)
+			i = end
+			continue
+		}
+
+		if fold, ok := findTurnWorkFold(cleanSegment, lastAssistant, runningTurn, skipIDs); ok {
+			folded := buildTurnWorkItem(s, threadID, cleanSegment, fold)
+			folded.msg = todoMsg
+			tail := append([]timelineItem(nil), cleanSegment[fold.answerIdx:]...)
 			if len(tail) > 0 {
 				// 完成信息已经由折叠头承载：负责收尾的答复只保留改动文件卡片，不再画第二条完成行。
 				tail[0].workHeaderID = folded.id
 			}
-			out = append(out, segment[:fold.foldStart]...)
+			out = append(out, cleanSegment[:fold.foldStart]...)
 			out = append(out, folded)
 			out = append(out, tail...)
+		} else if todoMsg.ID != "" && len(cleanSegment) > 0 && cleanSegment[0].kind == timelineItemSingle && cleanSegment[0].msg.Role == "user" {
+			// 回合只有清单（或未出收尾正文）：仍在用户消息下方放回合头，展示「N/M 步」入口与清单卡片。
+			head := cleanSegment[0]
+			folded := timelineItem{
+				kind:         timelineItemTurnWork,
+				id:           turnWorkFoldID(head.msg.ID),
+				threadID:     threadID,
+				turnIndex:    head.turnIndex,
+				msg:          todoMsg,
+				msgIndex:     todoIdx,
+				msgLastIndex: todoIdx,
+			}
+			if answerID := lastAssistant[head.turnIndex]; answerID != "" {
+				for j := 1; j < len(cleanSegment); j++ {
+					if cleanSegment[j].kind == timelineItemSingle && cleanSegment[j].msg.ID == answerID && strings.TrimSpace(cleanSegment[j].msg.Text) != "" {
+						start, spanEnd := turnFinishedSpanFor(s, cleanSegment[j].msg)
+						if d := spanEnd.Sub(start); d >= time.Second {
+							folded.workElapsed = formatShortDuration(d)
+						}
+						folded.finishedAt = spanEnd
+						cleanSegment[j].workHeaderID = folded.id
+						break
+					}
+				}
+			}
+			out = append(out, head, folded)
+			out = append(out, cleanSegment[1:]...)
 		} else {
-			out = append(out, segment...)
+			out = append(out, cleanSegment...)
 		}
 		i = end
 	}

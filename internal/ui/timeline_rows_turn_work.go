@@ -2,6 +2,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 	"strings"
@@ -196,53 +197,73 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 		}
 	}
 
+	todoItems, hasTodo := todoItemsFromMessage(item.msg)
+	canToggleFold := !running && (len(item.workItems) > 0 || hasUsage || item.workTaskSpan.ok)
+
 	return ui.Column(c.Key("msg-" + item.id)).
 		FillWidth().
 		MaxWidth(timelineContentMaxWidth(s)).
 		Children(func() {
-			header := ui.Row(c.Key("turnwork-header-"+item.id)).
-				Gap(Space2).
-				AlignItems(ui.Center).
-				Padding(Space0, Space2).
-				Radius(RadiusSM).
-				MinHeight(24).
-				Label(headerLabel).
-				Tooltip(tooltip)
-			if !running {
-				header = header.Role(ui.RoleButton).Focusable()
+			renderHeader := func() {
+				header := ui.Row(c.Key("turnwork-header-"+item.id)).
+					Gap(Space2).
+					AlignItems(ui.Center).
+					Padding(Space0, Space2).
+					Radius(RadiusSM).
+					MinHeight(24).
+					Label(headerLabel).
+					Tooltip(tooltip)
+				if canToggleFold {
+					header = header.Role(ui.RoleButton).Focusable()
+				}
+				textColor := ThemeSecondaryText(c)
+				var rotation float32
+				if canToggleFold {
+					header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) })
+					focusRing(c, header)
+					if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
+						s.setToolGroupOpen(item.id, !open)
+						s.invalidate()
+					}
+					if header.Hovered() {
+						header.Background(ThemeHover(c).Alpha(0.35))
+						textColor = ThemePrimaryText(c)
+					}
+					rotation = header.AnimateTo(item.id+"/chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
+				}
+				header.Children(func() {
+					if item.workAttention {
+						ui.Icon(c, IconAlertTriangle()).Size(11, 11).Label("工具执行失败").TextColor(ThemeDanger(c))
+					}
+					if running {
+						// 运行中的头只扫一道光；本回合已有工具胶囊在扫光时让位，避免同一屏两处同步高光。
+						renderShimmerTitle(c, item.id+"/turn-header-shimmer", turnHeaderShimmerLabel,
+							!runningTurnHasRunningTool(s, item), func() ui.Element {
+								return ui.Text(c, headerText).FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
+							})
+						// 只有运行态需要每秒重建这一行来更新计时；结束态不再持续重绘。
+						afterNextSecond(c)
+						return
+					}
+					renderTurnWorkHeaderText(c, item, counts, textColor)
+					if canToggleFold {
+						ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(textColor).Rotate(rotation)
+					}
+				})
 			}
-			textColor := ThemeSecondaryText(c)
-			var rotation float32
-			if !running {
-				header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) })
-				focusRing(c, header)
-				if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
-					s.setToolGroupOpen(item.id, !open)
-					s.invalidate()
-				}
-				if header.Hovered() {
-					header.Background(ThemeHover(c).Alpha(0.35))
-					textColor = ThemePrimaryText(c)
-				}
-				rotation = header.AnimateTo(item.id+"/chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
+
+			if hasTodo {
+				ui.Row(c.Key("turnwork-header-line-"+item.id)).
+					AlignItems(ui.Center).
+					Gap(Space1).
+					Children(func() {
+						renderHeader()
+						renderTurnChecklistToggle(c, s, item.msg, todoItems)
+					})
+				renderTodoCard(c, s, item.msg, todoItems)
+			} else {
+				renderHeader()
 			}
-			header.Children(func() {
-				if item.workAttention {
-					ui.Icon(c, IconAlertTriangle()).Size(11, 11).Label("工具执行失败").TextColor(ThemeDanger(c))
-				}
-				if running {
-					// 运行中的头只扫一道光；本回合已有工具胶囊在扫光时让位，避免同一屏两处同步高光。
-					renderShimmerTitle(c, item.id+"/turn-header-shimmer", turnHeaderShimmerLabel,
-						!runningTurnHasRunningTool(s, item), func() ui.Element {
-							return ui.Text(c, headerText).FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
-						})
-					// 只有运行态需要每秒重建这一行来更新计时；结束态不再持续重绘。
-					afterNextSecond(c)
-					return
-				}
-				renderTurnWorkHeaderText(c, item, counts, textColor)
-				ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(textColor).Rotate(rotation)
-			})
 			// 展开体统一走 motionUnfoldBody：展开时高度从 0 长到完整高度，收起时反向收拢。
 			motionUnfoldBody(c, "turnwork-body-"+item.id, open, func() {
 				for idx, inner := range item.workItems {
@@ -251,6 +272,55 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 				renderTurnWorkFooter(c, s, item, usage, hasUsage)
 			})
 		})
+}
+
+// renderTurnChecklistToggle 渲染回合头右侧可独立点击的步骤清单入口（"› ○ done/total 步"）：
+// 作为回合头折叠按钮的兄弟元素存在，点击只开合清单卡片，不触及「用时」折叠体。
+func renderTurnChecklistToggle(c *ui.Context, s *chatState, m Message, items []todoItem) {
+	running := s.isThreadRunning(selectedThreadIDSnapshot(s))
+	expanded := s.todoCardExpanded(m, running)
+	done, total := todoProgress(items)
+	allDone := total > 0 && done == total
+	action := "展开"
+	if expanded {
+		action = "收起"
+	}
+	label := fmt.Sprintf("%s步骤清单，已完成 %d/%d 步", action, done, total)
+
+	btn := ui.Row(c.Key("turnwork-todo-toggle-"+m.ID)).
+		Gap(Space1).
+		AlignItems(ui.Center).
+		Padding(Space0, Space2).
+		Radius(RadiusSM).
+		MinHeight(24).
+		Cursor(ui.CursorPointer).
+		Focusable().
+		Role(ui.RoleButton).
+		Label(label).
+		Tooltip(label).
+		OnClick(func() {
+			s.toggleTodoCard(m.ID, !expanded)
+		})
+	focusRing(c, btn)
+	if btn.Focused() && (btn.Shortcut(0, ui.KeyEnter) || btn.Shortcut(0, ui.KeySpace)) {
+		s.toggleTodoCard(m.ID, !expanded)
+	}
+	textColor := ThemeSecondaryText(c)
+	if btn.Hovered() {
+		btn.Background(ThemeHover(c).Alpha(0.35))
+		textColor = ThemePrimaryText(c)
+	}
+	btn.Children(func() {
+		ui.Text(c, "›").FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
+		if allDone {
+			ui.Icon(c, IconCircleCheck()).Size(11, 11).TextColor(ThemeSuccess(c))
+		} else {
+			ui.Box(c.Key("turnwork-todo-ring-"+m.ID)).Size(11, 11).Center().Children(func() {
+				ui.Box(c.Key("turnwork-todo-circle-"+m.ID)).Size(9, 9).Radius(RadiusPill).Border(1.5, ThemeBorder(c))
+			})
+		}
+		ui.Text(c, fmt.Sprintf("%d/%d 步", done, total)).FontSize(scaledFont(TypeBody)).TextColor(textColor).SingleLine()
+	})
 }
 
 // turnEndMessageFor 返回本回合最后一条助手正文消息（原来挂完成行的就是它），
@@ -330,8 +400,7 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 					Children(func() {
 						opened := false
 						for _, toolMsg := range beatTools {
-							if items, ok := todoItemsFromMessage(toolMsg); ok {
-								renderTodoCard(c, s, toolMsg, items)
+							if _, ok := todoItemsFromMessage(toolMsg); ok {
 								continue
 							}
 							ui.Row(c.Key("tool-beat-chip-row-"+toolMsg.ID)).

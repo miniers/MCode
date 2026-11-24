@@ -25,7 +25,11 @@ type messageFingerprint struct {
 func makeMessageFingerprint(m Message) messageFingerprint {
 	var todoInput string
 	if _, ok := todoItemsFromMessage(m); ok {
-		todoInput = m.ToolInput
+		if m.ToolInput != "" {
+			todoInput = m.ToolInput
+		} else {
+			todoInput = m.Text
+		}
 	}
 	return messageFingerprint{
 		id:              m.ID,
