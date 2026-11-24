@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -392,4 +393,76 @@ func TestSettingsPageNowledge_Tree(t *testing.T) {
 	waitFor(t, tt, func() bool {
 		return st.cfg.Memory.BeeRecall != nil && *st.cfg.Memory.BeeRecall != initial
 	})
+}
+
+// TestSettingsSectionCollapsed_MemoryAdvanced 验证记忆页与扩展页共用的「高级设置」默认折叠，
+// 点击标题后展开、搜索命中其中一行或旧名「记忆高级」时可用，且动画完成后不再请求下一帧。
+func TestSettingsSectionCollapsed_MemoryAdvanced(t *testing.T) {
+	setAppReduceMotion(t, false)
+	setSettingsSectionExpanded(advancedMemory.ID, false)
+	t.Cleanup(func() { setSettingsSectionExpanded(advancedMemory.ID, false) })
+
+	if !advancedMemory.Collapsed || advancedMemory.Title != "高级设置" {
+		t.Fatalf("advancedMemory 配置不符: Collapsed=%v Title=%q", advancedMemory.Collapsed, advancedMemory.Title)
+	}
+
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+	st := NewSettingsState(settingsTestDir(t), nil, s)
+	tt := ui.NewTester(func(c *ui.Context) { renderPageNowledge(c, st) }, 1000, 1600)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("初始静止时不应请求下一帧")
+	}
+
+	if !tt.HasText("高级设置") {
+		t.Fatalf("记忆页缺少折叠标题「高级设置」: %v", tt.Texts())
+	}
+	advancedRows := []string{
+		"向新会话说明记忆工具用法",
+		"Working Memory 字数上限",
+		"同步编排子代理会话",
+		"同步自动化运行会话",
+	}
+	for _, row := range advancedRows {
+		if tt.HasText(row) {
+			t.Fatalf("默认折叠时不应显示高级设置行 %q: %v", row, tt.Texts())
+		}
+	}
+
+	if err := tt.Click("高级设置"); err != nil {
+		t.Fatalf("点击高级设置标题失败: %v", err)
+	}
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("展开动画完成后不应继续请求下一帧")
+	}
+	for _, row := range advancedRows {
+		if !tt.HasText(row) {
+			t.Fatalf("点击高级设置后缺少行 %q: %v", row, tt.Texts())
+		}
+	}
+
+	// 改名后仍保留「记忆高级」别名检索。
+	hits := matchSettingsItems("记忆高级")
+	if len(hits) == 0 {
+		t.Fatal("搜索旧名「记忆高级」应仍能命中高级设置行")
+	}
+
+	// 收起后通过搜索跳转字段强制展开。
+	setSettingsSectionExpanded(advancedMemory.ID, false)
+	st.mu.Lock()
+	st.jumpToItemID = "row-nowledge-working-memory-budget"
+	st.highlightItemID = "row-nowledge-working-memory-budget"
+	st.mu.Unlock()
+	tt.Frame()
+	if !tt.HasText("Working Memory 字数上限") {
+		t.Fatalf("搜索定位命中高级设置行时应自动展开: %v", tt.Texts())
+	}
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("搜索自动展开动画完成后不应继续请求下一帧")
+	}
 }

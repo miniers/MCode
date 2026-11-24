@@ -49,7 +49,7 @@ row row-nowledge-bee-recall 派发子代理时附带相关记忆
 row row-nowledge-sync-threads 同步会话到 Nowledge
 section nowledge.spaces 项目记忆空间
 row row-nowledge-project-spaces 
-section advanced.memory 记忆高级
+section advanced.memory 高级设置
 row row-nowledge-inject-memory-tools-note 向新会话说明记忆工具用法
 row row-nowledge-working-memory-budget Working Memory 字数上限
 row row-nowledge-sync-helper-threads 同步编排子代理会话

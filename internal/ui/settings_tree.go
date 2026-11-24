@@ -25,12 +25,14 @@ type settingsPage struct {
 
 // settingsSection 是页面或面板里的一组行；Visible 非空时由渲染器判断是否渲染。
 // Module 为同页多模块时的模块分组名；相邻可见分节的 Module 变化时渲染模块分隔。
+// Collapsed 为真时默认收起成可点击标题行，点击或搜索定位其中行时展开。
 type settingsSection struct {
-	ID      string
-	Title   string
-	Module  string
-	Rows    []setting
-	Visible func(st *SettingsState) bool
+	ID        string
+	Title     string
+	Module    string
+	Collapsed bool
+	Rows      []setting
+	Visible   func(st *SettingsState) bool
 }
 
 // withSettingsModule 批量复制分节并设置模块分组名。
@@ -532,7 +534,164 @@ func renderStackedSettingRow(c *ui.Context, key, title string, control func()) {
 	renderSettingRowState(c, key, title, true, false, control)
 }
 
+var (
+	settingsSectionExpandedMu sync.Mutex
+	settingsSectionExpanded   = make(map[string]bool)
+)
+
+// isSettingsSectionExpanded 返回分节当前是否处于展开状态；非折叠分节恒为 true。
+func isSettingsSectionExpanded(section settingsSection) bool {
+	if !section.Collapsed {
+		return true
+	}
+	settingsSectionExpandedMu.Lock()
+	expanded := settingsSectionExpanded[section.ID]
+	settingsSectionExpandedMu.Unlock()
+	return expanded
+}
+
+// setSettingsSectionExpanded 更新折叠分节的展开状态（按分节 ID 存储）。
+func setSettingsSectionExpanded(sectionID string, expanded bool) {
+	if sectionID == "" {
+		return
+	}
+	settingsSectionExpandedMu.Lock()
+	if expanded {
+		settingsSectionExpanded[sectionID] = true
+	} else {
+		delete(settingsSectionExpanded, sectionID)
+	}
+	settingsSectionExpandedMu.Unlock()
+}
+
+// settingsSectionContainsRow 判断一行 ID（含 list 前缀）是否属于给定行列表。
+func settingsSectionContainsRow(rows []setting, id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, s := range rows {
+		if s.ID == id {
+			return true
+		}
+		if lc, ok := s.Control.(listControl); ok && lc.prefix != "" && (lc.prefix == id || strings.HasPrefix(id, lc.prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+// settingsSectionTargetIDs 在锁内读取 SettingsState 的跳转或高亮目标行 ID。
+func settingsSectionTargetIDs(st *SettingsState) (jumpID, highlightID string) {
+	if st != nil {
+		st.mu.Lock()
+		jumpID = st.jumpToItemID
+		highlightID = st.highlightItemID
+		st.mu.Unlock()
+	}
+	if jumpID == "" {
+		jumpID = settingsRowFocus.jumpID
+	}
+	if highlightID == "" {
+		highlightID = settingsRowFocus.highlightID
+	}
+	return jumpID, highlightID
+}
+
+// renderCollapsedSettingsSection 渲染默认折叠的分节卡片：头部整行可点击展开/收起，
+// 若搜索定位或高亮指向分节内某一行则自动强制展开。
+func renderCollapsedSettingsSection(c *ui.Context, st *SettingsState, section settingsSection, title string, rows []setting) {
+	expanded := isSettingsSectionExpanded(section)
+	if !expanded {
+		jumpID, highlightID := settingsSectionTargetIDs(st)
+		if settingsSectionContainsRow(rows, jumpID) || settingsSectionContainsRow(rows, highlightID) {
+			setSettingsSectionExpanded(section.ID, true)
+			expanded = true
+		}
+	}
+
+	ui.Column(c.Key(section.ID)).FillWidth().Children(func() {
+		SectionCard(c, section.ID+"-card", "", func() {
+			header := ui.ButtonBase(c.Key(section.ID+"-collapse-toggle")).
+				FillWidth().
+				MinHeight(settingsRowMinHeight).
+				Padding(settingsRowPadY, settingsRowPadX).
+				AlignItems(ui.Center).
+				Gap(Space4).
+				Label(title).
+				Expanded(expanded).
+				Cursor(ui.CursorPointer)
+			if !expanded {
+				header.Radius(RadiusLG)
+			}
+			if header.Hovered() {
+				header.Background(ThemeHover(c))
+			}
+			focusRing(c, header)
+			header.OnClick(func() {
+				next := !expanded
+				setSettingsSectionExpanded(section.ID, next)
+				if !next && st != nil {
+					st.mu.Lock()
+					if settingsSectionContainsRow(rows, st.jumpToItemID) {
+						st.jumpToItemID = ""
+					}
+					if settingsSectionContainsRow(rows, st.highlightItemID) {
+						st.highlightItemID = ""
+					}
+					st.mu.Unlock()
+				}
+				if st != nil {
+					st.invalidate()
+				}
+			})
+			header.Children(func() {
+				ui.Text(c, title).
+					FontSize(uiFont(TypeBody)).
+					FontWeight(400).
+					TextColor(ThemePrimaryText(c)).
+					Grow(1).
+					MinWidth(0).
+					SingleLine()
+				chevron := ui.Icon(c.Key(section.ID+"-chevron"), IconChevronRight()).
+					Size(IconSM, IconSM).
+					TextColor(ThemeSecondaryText(c)).
+					Shrink(0)
+				targetAngle := float32(0)
+				if expanded {
+					targetAngle = 90
+				}
+				if reduceMotion(c) {
+					chevron.Jump(section.ID+"-chevron", targetAngle)
+					chevron.Rotate(targetAngle)
+				} else {
+					chevron.Rotate(chevron.AnimateTo(section.ID+"-chevron", targetAngle, ui.Animation{Duration: DurFast, Ease: EaseSnap}))
+				}
+			})
+
+			if expanded {
+				ui.Column(c.Key(section.ID + "-collapse-body")).
+					FillWidth().
+					BorderWidth(Hairline, 0, 0, 0).
+					BorderColor(ThemeHairline(c)).
+					Transition(motionCollapse(c)).
+					Children(func() {
+						for i, s := range rows {
+							if i > 0 {
+								renderSettingsDivider(c, section.ID+"-divider-"+s.ID)
+							}
+							renderSettingsTreeSetting(c, st, s)
+						}
+					})
+			}
+		}).Label("设置卡片 " + section.ID).Clip()
+	})
+}
+
 func renderSettingsTreeSectionRows(c *ui.Context, st *SettingsState, section settingsSection, title string, rows []setting) {
+	if section.Collapsed {
+		renderCollapsedSettingsSection(c, st, section, title, rows)
+		return
+	}
 	renderSettingsSection(c, section.ID, title, func() {
 		for i, s := range rows {
 			if i > 0 {

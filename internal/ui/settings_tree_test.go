@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
@@ -445,5 +446,159 @@ func TestSettingsTreeSnapshot_Format(t *testing.T) {
 	}, "\n")
 	if got != want {
 		t.Fatalf("序列化格式 = %q，想要 %q", got, want)
+	}
+}
+
+// TestSettingsSectionCollapsed_ToggleAndMotion 验证折叠分节默认收起、点击标题展开与收起、
+// 尊重 ReduceMotion 并在动画结束后不再请求下一帧。
+func TestSettingsSectionCollapsed_ToggleAndMotion(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		reduced bool
+	}{
+		{"normal", false},
+		{"reduced", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setAppReduceMotion(t, tc.reduced)
+			const secID = "test.collapsed.toggle"
+			setSettingsSectionExpanded(secID, false)
+			t.Cleanup(func() { setSettingsSectionExpanded(secID, false) })
+
+			st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+			page := settingsPage{
+				ID:    "test-collapsed",
+				Title: "折叠测试",
+				Sections: []settingsSection{{
+					ID:        secID,
+					Title:     "高级设置",
+					Collapsed: true,
+					Rows: []setting{{
+						ID:      "row-collapsed-toggle",
+						Title:   "折叠内开关",
+						Control: toggle(ptr(func(c *config.Config) **bool { return &c.Memory.InjectMemoryToolsNote }, true)),
+					}},
+				}},
+			}
+
+			tt := ui.NewTesterWith(func(c *ui.Context) {
+				renderSettingsTreePage(c, st, page)
+			}, 800, 600, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: tc.reduced}})
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("初始静止时不应请求下一帧")
+			}
+			if !tt.HasText("高级设置") {
+				t.Fatalf("缺少折叠分节标题: %v", tt.Texts())
+			}
+			if tt.HasText("折叠内开关") {
+				t.Fatalf("默认折叠分节不应显示内部行: %v", tt.Texts())
+			}
+
+			if err := tt.Click("高级设置"); err != nil {
+				t.Fatalf("点击展开折叠分节失败: %v", err)
+			}
+			if !tc.reduced {
+				tt.Advance(DurBase + time.Second)
+			}
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("展开动画完成后不应继续请求下一帧")
+			}
+			if !tt.HasText("折叠内开关") {
+				t.Fatalf("点击标题后应显示内部行: %v", tt.Texts())
+			}
+
+			if err := tt.Click("切换折叠内开关"); err != nil {
+				t.Fatalf("点击展开后的内部开关失败: %v", err)
+			}
+			waitFor(t, tt, func() bool {
+				return st.cfg.Memory.InjectMemoryToolsNote != nil && !*st.cfg.Memory.InjectMemoryToolsNote
+			})
+
+			if err := tt.Click("高级设置"); err != nil {
+				t.Fatalf("点击收起折叠分节失败: %v", err)
+			}
+			if !tc.reduced {
+				tt.Advance(DurBase + time.Second)
+			}
+			tt.Frame()
+			if tt.FramePending() {
+				tt.Advance(time.Millisecond)
+				t.Logf("after +1ms pending=%v", tt.FramePending())
+				tt.Advance(DurBase)
+				t.Logf("after +DurBase pending=%v", tt.FramePending())
+				t.Fatal("收起动画完成后不应继续请求下一帧")
+			}
+			if tt.HasText("折叠内开关") {
+				t.Fatalf("收起后不应再显示内部行: %v", tt.Texts())
+			}
+		})
+	}
+}
+
+// TestSettingsSectionCollapsed_SearchJumpAndHighlight 验证 jumpToItemID 与 highlightItemID
+// 命中折叠分节内的行时自动强制展开，定位并高亮目标行。
+func TestSettingsSectionCollapsed_SearchJumpAndHighlight(t *testing.T) {
+	oldFocus := settingsRowFocus
+	t.Cleanup(func() { settingsRowFocus = oldFocus })
+
+	for _, mode := range []string{"jump", "highlight"} {
+		t.Run(mode, func(t *testing.T) {
+			const secID = "test.collapsed.search"
+			setSettingsSectionExpanded(secID, false)
+			t.Cleanup(func() { setSettingsSectionExpanded(secID, false) })
+
+			st := NewSettingsState(settingsTestDir(t), nil, newChatState(NewFakeClient()))
+			st.mu.Lock()
+			if mode == "jump" {
+				st.jumpToItemID = "row-collapsed-target"
+			} else {
+				st.highlightItemID = "row-collapsed-target"
+				st.highlightStartedAt = time.Now()
+			}
+			st.mu.Unlock()
+
+			page := settingsPage{
+				ID:    "test-collapsed-search",
+				Title: "搜索直达",
+				Sections: []settingsSection{{
+					ID:        secID,
+					Title:     "高级设置",
+					Collapsed: true,
+					Rows: []setting{{
+						ID:      "row-collapsed-target",
+						Title:   "目标高级项",
+						Control: toggle(ptr(func(c *config.Config) **bool { return &c.Memory.InjectMemoryToolsNote }, true)),
+					}},
+				}},
+			}
+
+			tt := ui.NewTester(func(c *ui.Context) {
+				st.syncSettingsRowFocus()
+				ui.Scroll(c.Key("test-collapsed-scroll")).Fill().Children(func() {
+					renderSettingsTreePage(c, st, page)
+				})
+			}, 800, 600)
+			tt.Frame()
+
+			if !tt.HasText("目标高级项") {
+				t.Fatalf("%s 命中折叠分节后应自动展开并渲染目标行: %v", mode, tt.Texts())
+			}
+			if mode == "jump" {
+				st.mu.Lock()
+				jump := st.jumpToItemID
+				st.mu.Unlock()
+				if jump != "" {
+					t.Fatalf("定位消费后 jumpToItemID 应清空，实际 %q", jump)
+				}
+			}
+
+			tt.Advance(settingsItemHighlightDuration + DurBase + time.Second)
+			tt.Frame()
+			if tt.FramePending() {
+				t.Fatal("搜索展开与高亮动画结束后不应继续请求下一帧")
+			}
+		})
 	}
 }

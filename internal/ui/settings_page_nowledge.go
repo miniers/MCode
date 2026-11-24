@@ -100,7 +100,7 @@ var pageNowledge = settingsPage{
 	ID:       "nowledge",
 	Title:    "记忆",
 	Icon:     IconBrain(),
-	Keywords: []string{"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆", "上下文"},
+	Keywords: []string{"nowledge", "nmem", "memory", "working memory", "threads", "sync", "记忆", "上下文", "记忆高级", "高级设置"},
 }
 
 func init() {
@@ -113,19 +113,20 @@ func renderPageNowledge(c *ui.Context, st *SettingsState) {
 
 // advancedMemory 是记忆页的高级设置。
 var advancedMemory = settingsSection{
-	ID:    "advanced.memory",
-	Title: "记忆高级",
+	ID:        "advanced.memory",
+	Title:     "高级设置",
+	Collapsed: true,
 	Rows: []setting{
 		{
 			ID:      "row-nowledge-inject-memory-tools-note",
 			Title:   "向新会话说明记忆工具用法",
-			Aliases: []string{"记忆工具", "工具用法", "提示词", "首轮"},
+			Aliases: []string{"记忆工具", "工具用法", "提示词", "首轮", "记忆高级"},
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Memory.InjectMemoryToolsNote }, true)),
 		},
 		{
 			ID:      "row-nowledge-working-memory-budget",
 			Title:   "Working Memory 字数上限",
-			Aliases: []string{"工作记忆预算", "字符上限", "上限", "记忆预算", "截断", "8000"},
+			Aliases: []string{"工作记忆预算", "字符上限", "上限", "记忆预算", "截断", "8000", "记忆高级"},
 			Control: number(
 				val(func(c *config.Config) *int { return &c.Memory.WorkingMemoryMaxCharacters }, config.DefaultWorkingMemoryMaxCharacters),
 				"字符",
@@ -136,14 +137,14 @@ var advancedMemory = settingsSection{
 		{
 			ID:      "row-nowledge-sync-helper-threads",
 			Title:   "同步编排子代理会话",
-			Aliases: []string{"子代理", "bee", "辅助线程", "同步"},
+			Aliases: []string{"子代理", "bee", "辅助线程", "同步", "记忆高级"},
 			Enabled: memoryBackendNmem,
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Memory.SyncHelperThreads }, false)),
 		},
 		{
 			ID:      "row-nowledge-sync-automation-threads",
 			Title:   "同步自动化运行会话",
-			Aliases: []string{"自动化", "运行会话", "同步"},
+			Aliases: []string{"自动化", "运行会话", "同步", "记忆高级"},
 			Enabled: memoryBackendNmem,
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Memory.SyncAutomationThreads }, false)),
 		},
