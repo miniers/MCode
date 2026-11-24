@@ -256,9 +256,13 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 	defer renderSkillDeleteDialog(c, st)
 	renderSkillsActions(c, st, page, len(skills))
 
-	// 按全字段过滤，空值显示全部。
+	// 按全字段过滤，空值显示全部；SearchField 带 Grow: true，放在横向 Row 里占满行宽而不在纵向测试容器里撑高。
 	searchText := getSkillsSearchText(st)
-	renderSkillsSearchBox(c, st, searchText)
+	ui.Row(c.Key("skills-search-row")).
+		FillWidth().
+		Children(func() {
+			renderSkillsSearchBox(c, st, searchText)
+		})
 	searchQuery := strings.TrimSpace(*searchText)
 
 	if loading || operating {
@@ -534,7 +538,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, gr
 	}
 }
 
-// renderSkillRowMenu 渲染技能行右侧 ··· 按钮及其浮层菜单（路径、在访达中显示、移到废纸篓）。
+// renderSkillRowMenu 渲染技能行右侧 ··· 按钮及其浮层菜单（Agent 来源、路径、在访达中显示、移到废纸篓）。
 func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState, skillKey string, skVal agentconf.Skill) {
 	moreBtn := IconButton(c, IconButtonProps{
 		Key:     skillKey + "-btn-more",
@@ -567,15 +571,27 @@ func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState,
 			Gap(Space0).
 			FocusGroup(ui.Vertical).
 			Children(func() {
-				if skVal.Path != "" {
-					ui.Box(c.Key(skillKey + "-menu-path")).
+				// 作用域已由分组标题表达，全局组标题亦包含供应商，仅保留组内仍有区分意义的 Agent 标签。
+				showAgent := !strings.EqualFold(skVal.Scope, "global") && skVal.Agent != ""
+				if showAgent || skVal.Path != "" {
+					ui.Column(c.Key(skillKey + "-menu-meta")).
 						FillWidth().
 						Padding(Space1, Space3).
+						Gap(Space1).
 						Children(func() {
-							ui.Text(c, skVal.Path).
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeTertiaryText(c)).
-								FillWidth()
+							if showAgent {
+								ui.Row(c.Key(skillKey + "-menu-agent")).
+									AlignItems(ui.Center).
+									Children(func() {
+										settingBadge(c, skillKey+"-badge-agent", skillAgentLabel(skVal.Agent))
+									})
+							}
+							if skVal.Path != "" {
+								ui.Text(c, skVal.Path).
+									FontSize(uiFont(TypeCaption)).
+									TextColor(ThemeTertiaryText(c)).
+									FillWidth()
+							}
 						})
 					ui.Box(c.Key(skillKey + "-menu-div")).
 						FillWidth().

@@ -50,6 +50,9 @@ func TestSkillsDeleteButtonAndConfirm(t *testing.T) {
 	if _, ok := tt.Find("删除技能「plugin-skill」"); ok {
 		t.Fatal("插件技能菜单不应有删除按钮")
 	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
 	if err := tt.Click("更多操作「local-skill」"); err != nil {
 		t.Fatal(err)
 	}
@@ -734,13 +737,28 @@ func TestSkillsRowMenu(t *testing.T) {
 			t.Fatalf("第一行菜单缺少 %q，当前文本=%v", want, tt.Texts())
 		}
 	}
+	if st.skillsPage == nil || !st.skillsPage.rowMenuOpen || st.skillsPage.rowMenuKey == "" {
+		t.Fatalf("第一行菜单打开后行菜单状态异常: %+v", st.skillsPage)
+	}
+	firstMenuKey := st.skillsPage.rowMenuKey
 
-	// 点击第二行 ···：切换到第二行菜单，同时第一行菜单关闭（同一时刻最多开一个行菜单）；插件技能无移到废纸篓。
+	// 先按 Escape 关闭第一行菜单，再点第二行 ···（浮层打开时点别处先收起浮层；同一时刻最多开一个行菜单）。
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if st.skillsPage.rowMenuOpen || tt.HasText(skill1.Path) {
+		t.Fatalf("按 Escape 后第一行菜单应关闭，rowMenuOpen=%v", st.skillsPage.rowMenuOpen)
+	}
+
+	// 点击第二行 ···：打开第二行菜单，行菜单状态切换且第一行菜单不重现；插件技能无移到废纸篓。
 	if err := tt.Click("更多操作「menu-skill-two」"); err != nil {
 		t.Fatalf("点击第二行菜单失败: %v", err)
 	}
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
+	if !st.skillsPage.rowMenuOpen || st.skillsPage.rowMenuKey == "" || st.skillsPage.rowMenuKey == firstMenuKey {
+		t.Fatalf("第二行菜单打开后状态应切换（同一时刻最多开一个行菜单），first=%q got=%+v", firstMenuKey, st.skillsPage)
+	}
 	if tt.HasText(skill1.Path) {
 		t.Fatalf("切换行菜单后第一行菜单应关闭，仍见 %q", skill1.Path)
 	}

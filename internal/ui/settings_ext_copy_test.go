@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
@@ -138,7 +139,8 @@ func TestSkillSearchMatchesDescription(t *testing.T) {
 }
 
 // TestSkillBadgesDeduplicatedByGroup 覆盖：分组标题已表达的作用域和全局供应商徽标不再重复显示，
-// 组内仍有区分意义的标签（如非全局组的 Agent、插件名）保留。
+// 主行只留名称与插件名等标签；点开行菜单 ··· 后，组内有区分意义的 Agent 标签才出现在菜单里，
+// 全局组无区分意义的 Agent 标签仍不出现。
 func TestSkillBadgesDeduplicatedByGroup(t *testing.T) {
 	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
@@ -151,14 +153,52 @@ func TestSkillBadgesDeduplicatedByGroup(t *testing.T) {
 
 	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 2000)
 
-	for _, redundant := range []string{"全局", "项目", "外部", "Claude"} {
-		if _, ok := tt.Find(redundant); ok {
-			t.Fatalf("分组标题已表达的重复徽标不应渲染 %q；全部文本=%v", redundant, tt.Texts())
+	// 主行不显示重复的作用域与供应商徽标，也不直接露出 Agent 名。
+	for _, hidden := range []string{"全局", "项目", "外部", "Claude", "Codex", "Cursor"} {
+		if _, ok := tt.Find(hidden); ok {
+			t.Fatalf("主行不应直接渲染标签 %q；全部文本=%v", hidden, tt.Texts())
 		}
 	}
-	for _, kept := range []string{"Codex", "Cursor", "插件 · demo-plugin"} {
-		if _, ok := tt.Find(kept); !ok {
-			t.Fatalf("组内有区分意义的标签应保留 %q；全部文本=%v", kept, tt.Texts())
-		}
+	if _, ok := tt.Find("插件 · demo-plugin"); !ok {
+		t.Fatalf("主行应保留插件标签 %q；全部文本=%v", "插件 · demo-plugin", tt.Texts())
+	}
+
+	// 全局组菜单：分组标题已含供应商，菜单里不重复显示 "Claude"。
+	if err := tt.Click("更多操作「g-skill」"); err != nil {
+		t.Fatalf("点击全局技能菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if _, ok := tt.Find("Claude"); ok {
+		t.Fatalf("全局组行菜单不应重复显示 %q；全部文本=%v", "Claude", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+
+	// 项目组菜单：组内有区分意义的 "Codex" 应出现在菜单里。
+	if err := tt.Click("更多操作「p-skill」"); err != nil {
+		t.Fatalf("点击项目技能菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if _, ok := tt.Find("Codex"); !ok {
+		t.Fatalf("项目组行菜单应显示 %q；全部文本=%v", "Codex", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+
+	// 外部组菜单：组内有区分意义的 "Cursor" 应出现在菜单里，上一行菜单已关闭。
+	if err := tt.Click("更多操作「e-skill」"); err != nil {
+		t.Fatalf("点击外部技能菜单失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+	if _, ok := tt.Find("Cursor"); !ok {
+		t.Fatalf("外部组行菜单应显示 %q；全部文本=%v", "Cursor", tt.Texts())
+	}
+	if _, ok := tt.Find("Codex"); ok {
+		t.Fatalf("切换行菜单后上一行的 %q 不应继续显示；全部文本=%v", "Codex", tt.Texts())
 	}
 }
