@@ -141,6 +141,12 @@ func setExtensionsTab(st *SettingsState, tab extensionsTab) {
 	st.mu.Lock()
 	changed := st.extensionsTab != tab
 	st.extensionsTab = tab
+	if targetTab, ok := extensionsTabForRowID(st.jumpToItemID); ok && targetTab != tab {
+		st.jumpToItemID = ""
+	}
+	if targetTab, ok := extensionsTabForRowID(st.highlightItemID); ok && targetTab != tab {
+		st.highlightItemID = ""
+	}
 	st.mu.Unlock()
 	if changed {
 		st.invalidate()

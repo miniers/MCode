@@ -269,6 +269,47 @@ func TestExtensionsTab_SearchJumpAutoSwitches(t *testing.T) {
 	}
 }
 
+func TestExtensionsTab_ManualSwitchDuringHighlight(t *testing.T) {
+	testenv.TempHome(t)
+	chat := newChatState(NewFakeClient())
+	t.Cleanup(chat.close)
+	st := NewSettingsState(settingsTestDir(t), nil, chat)
+	st.open = true
+	st.agentConfLoaded = true
+	st.selectSettingsPage("extensions")
+	startedAt := time.Now()
+	st.mu.Lock()
+	st.highlightItemID = "row-mcp-fold-tools"
+	st.highlightStartedAt = startedAt
+	st.mu.Unlock()
+
+	tt := ui.NewTester(func(c *ui.Context) { renderSettingsDetail(c, st) }, 1000, 2400)
+	tt.Frame()
+	if st.extensionsTab != extensionsTabMCP || !tt.HasText("折叠大量工具") {
+		t.Fatalf("高亮 MCP 行时应切到 MCP 段: tab=%v", st.extensionsTab)
+	}
+
+	if err := tt.Click("技能"); err != nil {
+		t.Fatalf("点击技能失败: %v", err)
+	}
+	for range 3 {
+		tt.Advance(50 * time.Millisecond)
+		tt.Frame()
+	}
+	if time.Since(startedAt) >= settingsItemHighlightDuration {
+		t.Fatalf("测试帧渲染耗时超出高亮窗口: %v", time.Since(startedAt))
+	}
+	if st.extensionsTab != extensionsTabSkills {
+		t.Fatalf("高亮期间手动切到技能段后被切回: tab=%v", st.extensionsTab)
+	}
+	if _, ok := tt.Find("设置卡片 skills.list"); !ok {
+		t.Fatalf("高亮期间切到技能段后未渲染技能卡片: %v", tt.Texts())
+	}
+	if _, ok := tt.Find("设置卡片 mcp.custom"); ok {
+		t.Fatal("高亮期间切到技能段后不应继续渲染 MCP 卡片")
+	}
+}
+
 func TestExtensionsTab_LegacyDeepLinks(t *testing.T) {
 	testenv.TempHome(t)
 	for _, tc := range []struct {
