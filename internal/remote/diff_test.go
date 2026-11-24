@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -638,7 +639,7 @@ func TestMemoryBackend_GetDiffStatOnlyNumStatError(t *testing.T) {
 }
 
 // TestMemoryBackend_GetDiffSessionRangeIgnoresOutOfSessionEdits 验证会话整体区间不吞入区间外的改动：
-// 已完成轮次之后用户手改的文件，即使末轮仍在进行，也不得计入会话统计。
+// 全部轮次结束后用户手改的文件，不得计入会话统计。
 func TestMemoryBackend_GetDiffSessionRangeIgnoresOutOfSessionEdits(t *testing.T) {
 	gitBin, err := exec.LookPath("git")
 	if err != nil {
@@ -887,5 +888,199 @@ func TestMemoryBackend_GetDiffZeroChangeTurnKeepsPathFilter(t *testing.T) {
 	}
 	if len(got.FilesChanged) != 1 || got.FilesChanged[0] != "session.txt" {
 		t.Fatalf("expected filesChanged=[session.txt], got %v", got.FilesChanged)
+	}
+}
+
+// TestMemoryBackend_GetDiffReusesTurnPaths 验证非 StatOnly 的 GetDiff 在逐轮 TouchedFiles 缺失时，
+// 同一轮次仅触发一次 git numstat 回退并在轮次摘要与会话区间汇总之间复用结果，不重复起子进程。
+func TestMemoryBackend_GetDiffReusesTurnPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 下不支持 sh 包装脚本统计 git numstat 调用次数，跳过测试")
+	}
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	if err := os.WriteFile(filepath.Join(repoDir, "base.txt"), []byte("baseline\n"), 0644); err != nil {
+		t.Fatalf("write base.txt: %v", err)
+	}
+	runGit("add", "base.txt")
+	runGit("commit", "-m", "initial commit")
+
+	numstatLog := filepath.Join(t.TempDir(), "numstat.log")
+	wrapper := filepath.Join(t.TempDir(), "git")
+	esc := func(s string) string {
+		return strings.ReplaceAll(s, "'", "'\\''")
+	}
+	script := "#!/bin/sh\n" +
+		"for arg in \"$@\"; do\n" +
+		"  if [ \"$arg\" = \"--numstat\" ]; then\n" +
+		"    printf '1\\n' >> '" + esc(numstatLog) + "'\n" +
+		"    break\n" +
+		"  fi\n" +
+		"done\n" +
+		"exec '" + esc(gitBin) + "' \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatalf("write git wrapper: %v", err)
+	}
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "turns.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	ctx := context.Background()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+	// git.Runner 直接执行 r.Bin 且内部会覆盖 cmd.Env 为 loginenv.Environ()，通过既有 SetGitRunner 注入包装脚本。
+	backend.SetGitRunner(git.NewRunner(wrapper, 2))
+
+	var (
+		turnCount int
+		turnIDs   []string
+	)
+	mock := &mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		turnCount++
+		turnIDs = append(turnIDs, turn.ID)
+		switch turnCount {
+		case 1:
+			p := filepath.Join(turn.WorkDir, "session-1.txt")
+			if err := os.WriteFile(p, []byte("a1\na2\n"), 0644); err != nil {
+				return err
+			}
+			input, err := json.Marshal(map[string]string{"file_path": p})
+			if err != nil {
+				return err
+			}
+			emit(harness.Event{Type: harness.EventToolStart, ToolID: "call-1", ToolName: "Write", Input: input})
+		case 2:
+			// 零改动轮次，仅结束轮次。
+		case 3:
+			p := filepath.Join(turn.WorkDir, "session-3.txt")
+			if err := os.WriteFile(p, []byte("b1\n"), 0644); err != nil {
+				return err
+			}
+			input, err := json.Marshal(map[string]string{"file_path": p})
+			if err != nil {
+				return err
+			}
+			emit(harness.Event{Type: harness.EventToolStart, ToolID: "call-3", ToolName: "Write", Input: input})
+		}
+		emit(harness.Event{Type: harness.EventDone})
+		return nil
+	}}
+	backend.SetHarness(mock, repoDir, harness.ModeAgent)
+
+	projID := newUUID()
+	backend.AddProject(wire.ProjectSummary{ID: projID, Name: "reuse-turn-paths", Path: repoDir})
+	thread, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: projID})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: thread.ThreadID, Text: "step"}); err != nil {
+			t.Fatalf("SendMessage turn %d: %v", i+1, err)
+		}
+		waitThreadIdle(t, backend, ctx, thread.ThreadID)
+	}
+	if len(turnIDs) != 3 {
+		t.Fatalf("expected 3 turns, got %d", len(turnIDs))
+	}
+
+	// 清掉所有轮次的 TouchedFiles，强制 GetDiff 走 turnPaths 的 numstat 回退路径。
+	for _, id := range turnIDs {
+		rec, err := st.GetTurn(ctx, id)
+		if err != nil {
+			t.Fatalf("GetTurn %s: %v", id, err)
+		}
+		rec.TouchedFiles = nil
+		if err := st.UpdateTurn(ctx, rec); err != nil {
+			t.Fatalf("UpdateTurn %s: %v", id, err)
+		}
+	}
+
+	// 只统计本次 GetDiff 调用期间触发的 git --numstat 次数。
+	if err := os.WriteFile(numstatLog, nil, 0o644); err != nil {
+		t.Fatalf("reset numstat log: %v", err)
+	}
+
+	res, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: thread.ThreadID, StatOnly: false})
+	if err != nil {
+		t.Fatalf("GetDiff: %v", err)
+	}
+	if res.FailureReason != nil {
+		t.Fatalf("unexpected failure reason: %s", *res.FailureReason)
+	}
+
+	logBytes, err := os.ReadFile(numstatLog)
+	if err != nil {
+		t.Fatalf("read numstat log: %v", err)
+	}
+	var numstatCalls int
+	for _, line := range strings.Split(strings.TrimSpace(string(logBytes)), "\n") {
+		if line != "" {
+			numstatCalls++
+		}
+	}
+	// 上限推导：轮次摘要循环对每轮调用 turnPaths 触发 1 次 numstat（hasChanges 直接复用其结果，不再二次调用），
+	// 会话区间汇总循环再调 turnPaths 命中局部缓存（0 次），最后会话整体汇总再调 1 次 NumStat；
+	// 因此总次数上限为 轮数 + 1（3 轮即 4 次；改动前每轮 3 次，共 3*3+1=10 次）。
+	maxCalls := len(turnIDs) + 1
+	if numstatCalls == 0 || numstatCalls > maxCalls {
+		t.Fatalf("expected numstat calls in [1, %d], got %d", maxCalls, numstatCalls)
+	}
+
+	wantFiles := []string{"session-1.txt", "session-3.txt"}
+	if strings.Join(res.FilesChanged, "|") != strings.Join(wantFiles, "|") {
+		t.Fatalf("expected filesChanged=%v, got %v", wantFiles, res.FilesChanged)
+	}
+	if res.Additions != 3 || res.Deletions != 0 {
+		t.Fatalf("expected additions=3 deletions=0, got additions=%d deletions=%d", res.Additions, res.Deletions)
+	}
+	if res.Diff == "" {
+		t.Fatalf("expected non-empty diff for StatOnly=false")
+	}
+
+	wantHasChanges := map[string]bool{
+		turnIDs[0]: true,
+		turnIDs[1]: false,
+		turnIDs[2]: true,
+	}
+	if len(res.Turns) != len(turnIDs) {
+		t.Fatalf("expected %d turns in result, got %d", len(turnIDs), len(res.Turns))
+	}
+	for _, tr := range res.Turns {
+		want, ok := wantHasChanges[tr.TurnID]
+		if !ok {
+			t.Fatalf("unexpected turnID %s in result", tr.TurnID)
+		}
+		if tr.HasChanges != want {
+			t.Fatalf("turn %s HasChanges=%v, want %v", tr.TurnID, tr.HasChanges, want)
+		}
+		delete(wantHasChanges, tr.TurnID)
+	}
+	if len(wantHasChanges) != 0 {
+		t.Fatalf("missing turns in result: %v", wantHasChanges)
 	}
 }

@@ -405,32 +405,48 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 		return tr.endRef
 	}
-	// turnPaths 返回该轮的文件集合（相对仓库根目录规范化）与是否已知。
+	type turnPathsEntry struct {
+		paths       []string
+		known       bool
+		fromNumStat bool
+	}
+	turnPathsCache := make(map[string]turnPathsEntry)
+
+	// turnPaths 返回该轮的文件集合（相对仓库根目录规范化）、是否已知，以及是否由 numstat 计算得到。
 	// store 里记录了 TouchedFiles 时直接用；历史数据缺失时，回退到该轮检查点之间的 numstat，
 	// 否则缺失一轮就会让整个区间的路径过滤降级为全库 diff。
 	// 该轮 numstat 为空（这一轮确实没改文件）时返回空集合且 known=true。
-	turnPaths := func(tr *turnRefPair) ([]string, bool) {
+	// 结果只在本次 GetDiff 调用内缓存，避免轮次摘要与区间汇总对同一轮重复拉起 git numstat 子进程。
+	turnPaths := func(tr *turnRefPair) ([]string, bool, bool) {
+		if cached, ok := turnPathsCache[tr.turnID]; ok {
+			return cached.paths, cached.known, cached.fromNumStat
+		}
+		var entry turnPathsEntry
 		if st, ok := storeTurns[tr.turnID]; ok && len(st.TouchedFiles) > 0 {
-			return normalizeTouchedFiles(repoRoot, repoRoot, st.TouchedFiles), true
-		}
-		start := turnStart(tr)
-		if start == "" {
-			return nil, false
-		}
-		stats, err := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), nil)
-		if err != nil {
-			return nil, false
-		}
-		paths := make([]string, 0, len(stats))
-		for _, st := range stats {
-			if st.Path != "" {
-				paths = append(paths, st.Path)
+			entry = turnPathsEntry{
+				paths: normalizeTouchedFiles(repoRoot, repoRoot, st.TouchedFiles),
+				known: true,
 			}
-			if st.OldPath != "" {
-				paths = append(paths, st.OldPath)
+		} else if start := turnStart(tr); start != "" {
+			if stats, err := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), nil); err == nil {
+				paths := make([]string, 0, len(stats))
+				for _, st := range stats {
+					if st.Path != "" {
+						paths = append(paths, st.Path)
+					}
+					if st.OldPath != "" {
+						paths = append(paths, st.OldPath)
+					}
+				}
+				entry = turnPathsEntry{
+					paths:       normalizeTouchedFiles(repoRoot, repoRoot, paths),
+					known:       true,
+					fromNumStat: true,
+				}
 			}
 		}
-		return normalizeTouchedFiles(repoRoot, repoRoot, paths), true
+		turnPathsCache[tr.turnID] = entry
+		return entry.paths, entry.known, entry.fromNumStat
 	}
 
 	// 构造 turns 摘要列表（只统计最近 turnMetadataLimit 轮：截断后的轮次不会下发，
@@ -458,10 +474,15 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 
 		hasChanges := false
 		if start := turnStart(tr); start != "" {
-			paths, _ := turnPaths(tr)
-			stats, sErr := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), paths)
-			if sErr == nil && len(stats) > 0 {
-				hasChanges = true
+			paths, known, fromNumStat := turnPaths(tr)
+			if fromNumStat && known {
+				// 路径来自同一 start→finish 区间的 numstat 时，直接以非空判断是否有改动，避免再起一次子进程。
+				hasChanges = len(paths) > 0
+			} else {
+				stats, sErr := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), paths)
+				if sErr == nil && len(stats) > 0 {
+					hasChanges = true
+				}
 			}
 		}
 
@@ -500,7 +521,7 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		if tr, ok := turnMap[tID]; ok {
 			diffFrom = turnStart(tr)
 			diffTo = turnFinish(tr) // 若该轮没有结束检查点，则与当前工作区比较
-			diffPaths, _ = turnPaths(tr)
+			diffPaths, _, _ = turnPaths(tr)
 		} else if st, ok := storeTurns[tID]; ok && !takenBack[tID] {
 			diffFrom = st.BaseCheckpoint
 			diffTo = st.FinishCheckpoint
@@ -542,7 +563,7 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 			complete := true
 			var union []string
 			for _, tr := range orderedTurns[firstIdx : endIdx+1] {
-				paths, known := turnPaths(tr)
+				paths, known, _ := turnPaths(tr)
 				if !known {
 					complete = false
 					break
