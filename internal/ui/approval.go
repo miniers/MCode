@@ -729,9 +729,12 @@ func renderApproval(c *ui.Context, s *chatState) {
 		var curChoicesCount int
 		var qDraft *questionDraft
 		var curQ ApprovalQuestion
+		pickerOpen := false
 		if top.Kind == ApprovalKindQuestion {
 			s.mu.Lock()
 			qDraft = s.questionDraftFor(top)
+			// 题号浮层展开时，数字键、回车与 Esc 归浮层，卡片自己的快捷键不触发。
+			pickerOpen = qDraft.pickerOpen
 			qs := top.Questions
 			unanswered := unansweredQuestionCount(qs, qDraft.selected, qDraft.others)
 			questionAllAnswered = (unanswered == 0 && len(qs) > 0)
@@ -746,7 +749,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 
 		// 数字键 1~9
 		for k := ui.Key1; k <= ui.Key9; k++ {
-			if !shouldHoldApprovalShortcut(top, k, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, k) {
+			if !pickerOpen && !shouldHoldApprovalShortcut(top, k, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, k) {
 				action := approvalShortcutAction(top, k, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 				switch action.Kind {
 				case ApprovalActionSelectChoice:
@@ -778,7 +781,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 		}
 
 		// Enter 键
-		if top.Kind != ApprovalKindPlan && !shouldHoldApprovalShortcut(top, ui.KeyEnter, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, ui.KeyEnter) {
+		if top.Kind != ApprovalKindPlan && !pickerOpen && !shouldHoldApprovalShortcut(top, ui.KeyEnter, composerFocused, now, draftChangedAt, firstSeenAt) && c.Shortcut(0, ui.KeyEnter) {
 			action := approvalShortcutAction(top, ui.KeyEnter, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
 			case ApprovalActionNext:
@@ -808,7 +811,7 @@ func renderApproval(c *ui.Context, s *chatState) {
 		}
 
 		// Esc 键
-		if c.Shortcut(0, ui.KeyEscape) {
+		if !pickerOpen && c.Shortcut(0, ui.KeyEscape) {
 			action := approvalShortcutAction(top, ui.KeyEscape, 0, responding, composerFocused, composerHasDraft, otherFocused, questionAllAnswered, questionHasNext, curChoicesCount)
 			switch action.Kind {
 			case ApprovalActionDecline:
@@ -1431,6 +1434,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 							if draft.current < len(qs)-1 {
 								draft.current++
 							}
+							draft.pickerOpen = false
 							s.mu.Unlock()
 							s.invalidate()
 						},
@@ -1455,6 +1459,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 						cancelQuestionAutoAdvance(s, id)
 						s.mu.Lock()
 						answers := buildQuestionAnswers(qs, draft.selected, draft.others)
+						draft.pickerOpen = false
 						s.mu.Unlock()
 						setActiveApprovalKey(s, submitKey)
 						s.respondAnswers(approval, "", answers, false)
@@ -1464,7 +1469,7 @@ func renderQuestionCard(c *ui.Context, s *chatState, approval Approval, respondi
 		})
 }
 
-// renderQuestionBody 渲染当前题目：题目与分段进度、选项列表和填空行。换题时整块淡入。
+// renderQuestionBody 渲染当前题目：题目与题号触发器、选项列表和填空行。换题时整块淡入。
 func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, responding bool) {
 	id := approval.RequestID
 	qs := approval.Questions
@@ -1521,7 +1526,7 @@ func renderQuestionBody(c *ui.Context, s *chatState, approval Approval, draft *q
 	})
 }
 
-// renderQuestionHead 渲染题目（Prompt，为空时用 Header）与多题时右侧的分段进度；题目超过 6 行在题目区内滚动。
+// renderQuestionHead 渲染题目（Prompt，为空时用 Header）与多题时右侧的题号触发器；题目超过 6 行在题目区内滚动。
 func renderQuestionHead(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, qi int, answered []bool, responding bool) {
 	id := approval.RequestID
 	q := approval.Questions[qi]
@@ -1530,7 +1535,8 @@ func renderQuestionHead(c *ui.Context, s *chatState, approval Approval, draft *q
 		title = strings.TrimSpace(q.Header)
 	}
 	lineHeight := uiFont(TypeProse) * questionTextLineHeight
-	ui.Row(c.Key(fmt.Sprintf("question-head-%s-%d", id, qi))).FillWidth().AlignItems(ui.Center).Gap(Space4).Padding(Space4, Space5, Space2, Space5).Children(func() {
+	// 顶对齐：题目多行时触发器贴在右上，与题目首行对齐。
+	ui.Row(c.Key(fmt.Sprintf("question-head-%s-%d", id, qi))).FillWidth().AlignItems(ui.Start).Gap(Space4).Padding(Space4, Space5, Space2, Space5).Children(func() {
 		if title != "" {
 			ui.Scroll(c.Key(fmt.Sprintf("question-title-scroll-%s-%d", id, qi))).Grow(1).MinWidth(0).MaxHeight(lineHeight * questionPromptMaxLines).Children(func() {
 				ui.Column(c.Key(fmt.Sprintf("question-title-%s-%d", id, qi))).FillWidth().Children(func() {
@@ -1541,36 +1547,161 @@ func renderQuestionHead(c *ui.Context, s *chatState, approval Approval, draft *q
 			ui.Spacer(c)
 		}
 		if len(answered) > 1 {
-			renderQuestionProgress(c, s, id, draft, qi, answered, responding)
+			renderQuestionProgress(c, s, approval, draft, qi, answered, responding)
 		}
 	})
 }
 
-// renderQuestionProgress 渲染多题的分段进度：每段 16×4，当前题、已答题、未答题颜色不同，点某段跳到那一题。
-func renderQuestionProgress(c *ui.Context, s *chatState, id string, draft *questionDraft, current int, answered []bool, responding bool) {
+// 题号浮层（设计稿 C 版）：每行最多 6 格，超过 6 行滚动；格子里的题目最多取 24 个字。
+const (
+	questionPickerCols       = 6
+	questionPickerRows       = 6
+	questionPickerTitleRunes = 24
+)
+
+// questionPickerLabel 拼出题号格的名称与提示：「第 n 题：题目」，题目取 Prompt，为空取 Header，过长截断。
+func questionPickerLabel(q ApprovalQuestion, n int) string {
+	title := strings.Join(strings.Fields(q.Prompt), " ")
+	if title == "" {
+		title = strings.Join(strings.Fields(q.Header), " ")
+	}
+	if title == "" {
+		return fmt.Sprintf("第 %d 题", n+1)
+	}
+	if r := []rune(title); len(r) > questionPickerTitleRunes {
+		title = string(r[:questionPickerTitleRunes]) + "…"
+	}
+	return fmt.Sprintf("第 %d 题：%s", n+1, title)
+}
+
+// renderQuestionProgress 渲染多题的进度触发器「2/5 ▾」，点开后在下方浮出题号格，点哪格跳哪题；提交中禁用。
+func renderQuestionProgress(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, current int, answered []bool, responding bool) {
+	id := approval.RequestID
+	total := len(answered)
+	if responding {
+		draft.pickerOpen = false
+	}
+	open := draft.pickerOpen
 	accent := ThemeAccent(c)
-	ui.Row(c.Key("question-progress-" + id)).Gap(Space1).Shrink(0).Children(func() {
-		for n := range answered {
-			n := n
-			seg := ui.ButtonBase(c.Key(fmt.Sprintf("question-dot-%s-%d", id, n))).
-				Label(fmt.Sprintf("第 %d 题", n+1)).
-				Disabled(responding).
-				Padding(Space2, 0).
-				OnClick(func() {
-					cancelQuestionAutoAdvance(s, id)
-					s.mu.Lock()
-					draft.current = n
-					s.mu.Unlock()
-					s.invalidate()
-				})
-			curK := seg.AnimateTo("question-dot-cur", questionStep(n == current), questionAnim(c, DurBase))
-			doneK := seg.AnimateTo("question-dot-done", questionStep(answered[n]), questionAnim(c, DurBase))
-			color := ThemeBorder(c).Mix(accent.Alpha(0.45), doneK).Mix(accent, curK)
-			focusRing(c, seg)
-			seg.Children(func() {
-				ui.Box(c.Key(fmt.Sprintf("question-dot-bar-%s-%d", id, n))).Size(questionSlotSize, Space1).Radius(RadiusPill).Background(color)
+	trigger := ui.ButtonBase(c.Key("question-progress-"+id)).
+		Label(fmt.Sprintf("第 %d 题，共 %d 题", current+1, total)).
+		HasPopup(ui.PopupDialog).
+		Expanded(open).
+		Disabled(responding).
+		Height(ControlXS).
+		Padding(0, Space2, 0, Space3).
+		Radius(RadiusSM).
+		Shrink(0).
+		OnClick(func() {
+			if togglePopoverOpen(&draft.pickerOpen) {
+				draft.pickerFocus = current + 1
+			}
+			s.invalidate()
+		})
+	if responding {
+		trigger.Opacity(0.4)
+	}
+	hover := trigger.AnimateTo("question-progress-hover", questionStep(!responding && trigger.Hovered()), questionAnim(c, DurFast))
+	openK := trigger.AnimateTo("question-progress-open", questionStep(open), questionAnim(c, DurFast))
+	okK := trigger.AnimateTo("question-progress-ok", questionStep(answered[current]), questionAnim(c, DurBase))
+	trigger.Background(ui.Transparent.Mix(ThemeOverlayHover(c), hover).Mix(ThemeOverlaySelected(c), openK))
+	focusRing(c, trigger)
+	// 数字区宽度按总题数的字符数定死（「10/12」为 5 个字符，按 0.6 倍字号估宽），换题时不抖、不挤题目。
+	numWidth := float32(2*len(strconv.Itoa(total))+1) * uiFont(TypeFootnote) * 0.6
+	trigger.Children(func() {
+		ui.Row(c.Key("question-progress-row-"+id)).AlignItems(ui.Center).Gap(Space1).Children(func() {
+			ui.Row(c.Key("question-progress-num-"+id)).Width(numWidth).Justify(ui.Center).Children(func() {
+				ui.RichText(c.Key("question-progress-text-"+id),
+					ui.Span{Text: strconv.Itoa(current + 1), Weight: 600, Color: ThemePrimaryText(c).Mix(accent, okK)},
+					ui.Span{Text: "/" + strconv.Itoa(total), Color: ThemeTertiaryText(c)},
+				).FontSize(uiFont(TypeFootnote))
 			})
+			chevron := ui.Icon(c, IconChevronDown()).Size(IconSM, IconSM).TextColor(ThemeTertiaryText(c)).Shrink(0)
+			chevron.Rotate(chevron.AnimateTo("question-progress-chevron", 180*questionStep(open), questionAnim(c, DurBase)))
+		})
+	})
+	anchoredPopover(c, trigger, anchoredPopoverProps{Key: "question-picker-" + id, Open: &draft.pickerOpen, Align: BelowEnd}, func(_ ui.Element) {
+		renderQuestionPicker(c, s, approval, draft, current, answered)
+	})
+}
+
+// renderQuestionPicker 渲染题号浮层的内容：题号格按行排列，已答用 accent-subtle 底，当前题加 accent 描边与粗体。
+func renderQuestionPicker(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, current int, answered []bool) {
+	id := approval.RequestID
+	total := len(answered)
+	cols := min(total, questionPickerCols)
+	gridWidth := float32(cols)*ControlMD + float32(cols-1)*Space1
+	maxHeight := float32(questionPickerRows)*ControlMD + float32(questionPickerRows-1)*Space1
+	popoverCard(c, ui.Column(c.Key("question-picker-card-"+id))).Padding(Space3).Children(func() {
+		ui.Scroll(c.Key("question-picker-scroll-"+id)).MaxHeight(maxHeight).Children(func() {
+			ui.Column(c.Key("question-picker-grid-"+id)).Width(gridWidth).Gap(Space1).Role(ui.RoleGroup).Label("题号").Children(func() {
+				for start := 0; start < total; start += cols {
+					ui.Row(c.Key(fmt.Sprintf("question-picker-row-%s-%d", id, start/cols))).Gap(Space1).Children(func() {
+						for n := start; n < min(start+cols, total); n++ {
+							renderQuestionPickerCell(c, s, approval, draft, n, current, cols, answered)
+						}
+					})
+				}
+			})
+		})
+	})
+}
+
+// renderQuestionPickerCell 渲染一个题号格：点击跳题并关浮层（点当前题只关浮层），方向键在格子间移动焦点。
+func renderQuestionPickerCell(c *ui.Context, s *chatState, approval Approval, draft *questionDraft, n, current, cols int, answered []bool) {
+	id := approval.RequestID
+	label := questionPickerLabel(approval.Questions[n], n)
+	cell := ui.ButtonBase(c.Key(fmt.Sprintf("question-picker-cell-%s-%d", id, n))).
+		Label(label).
+		Tooltip(label).
+		Size(ControlMD, ControlMD).
+		Radius(RadiusMD).
+		Shrink(0).
+		OnClick(func() {
+			cancelQuestionAutoAdvance(s, id)
+			s.mu.Lock()
+			draft.current = n
+			draft.pickerOpen = false
+			s.mu.Unlock()
+			s.invalidate()
+		})
+	if draft.pickerFocus == n+1 {
+		draft.pickerFocus = 0
+		cell.Focus()
+	}
+	if cell.Focused() {
+		to := n
+		switch {
+		case cell.Shortcut(0, ui.KeyLeft):
+			to--
+		case cell.Shortcut(0, ui.KeyRight):
+			to++
+		case cell.Shortcut(0, ui.KeyUp):
+			to -= cols
+		case cell.Shortcut(0, ui.KeyDown):
+			to += cols
 		}
+		if to != n && to >= 0 && to < len(answered) {
+			draft.pickerFocus = to + 1
+			s.invalidate()
+		}
+	}
+	accent := ThemeAccent(c)
+	hover := cell.AnimateTo("question-picker-hover", questionStep(cell.Hovered()), questionAnim(c, DurFast))
+	press := cell.AnimateTo("question-picker-press", questionStep(cell.Pressed()), questionAnim(c, DurFast))
+	doneK := cell.AnimateTo("question-picker-done", questionStep(answered[n]), questionAnim(c, DurSnap))
+	curK := cell.AnimateTo("question-picker-cur", questionStep(n == current), questionAnim(c, DurSnap))
+	border := ThemeBorder(c)
+	cell.Background(ui.Transparent.Mix(ThemeOverlayHover(c), hover).Mix(ThemeAccentSubtle(c), doneK).Mix(ThemeOverlayPressed(c), press)).
+		Border(Hairline, border.Mix(border.Alpha(0), doneK).Mix(accent, curK))
+	focusRing(c, cell)
+	cell.Children(func() {
+		ui.Row(c.Key(fmt.Sprintf("question-picker-num-%s-%d", id, n))).Fill().Justify(ui.Center).AlignItems(ui.Center).Children(func() {
+			num := ui.Text(c, strconv.Itoa(n+1)).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c).Mix(ThemePrimaryText(c), curK).Mix(accent, doneK))
+			if n == current {
+				num.Bold()
+			}
+		})
 	})
 }
 

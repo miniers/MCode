@@ -336,7 +336,7 @@ func questionApproval() Approval {
 func TestQuestionCardSubmit(t *testing.T) {
 	fake, tt := newApprovalTester(t, []Approval{questionApproval()})
 	waitFor(t, tt, func() bool {
-		return tt.HasText("选择实现方案") && tt.HasText("第 2 题")
+		return tt.HasText("选择实现方案") && tt.HasText("1/2")
 	})
 
 	if tt.HasText("提交") {
@@ -1968,8 +1968,17 @@ func compactQuestionDraft(s *chatState, a Approval) (selected [][]int, current i
 	return slices.Clone(d.selected), d.current
 }
 
-// TestQuestionCardCompactProgressJumpsBetweenQuestions 多题时只有分段进度：没有「第 n / m 题」、「上一题」与未答计数，
-// 点进度段可以直接跳题（替代旧的上一题按钮）。
+// openQuestionPickerForTest 点开右上角的题号触发器（当前第 cur 题、共 total 题）并等浮层入场结束。
+func openQuestionPickerForTest(t *testing.T, tt *ui.Tester, cur, total int) {
+	t.Helper()
+	if err := tt.Click(fmt.Sprintf("第 %d 题，共 %d 题", cur, total)); err != nil {
+		t.Fatalf("点题号触发器失败: %v", err)
+	}
+	tt.Advance(time.Second)
+}
+
+// TestQuestionCardCompactProgressJumpsBetweenQuestions 多题时只有「n/m ▾」触发器：没有「第 n / m 题」、「上一题」与未答计数，
+// 点开浮层再点题号格可以直接跳题（替代旧的上一题按钮）。
 func TestQuestionCardCompactProgressJumpsBetweenQuestions(t *testing.T) {
 	a := questionApproval()
 	s, tt := compactQuestionTester(t, a, false)
@@ -1982,25 +1991,25 @@ func TestQuestionCardCompactProgressJumpsBetweenQuestions(t *testing.T) {
 	if !tt.HasText("选择实现方案") || tt.HasText("包含哪些模块") {
 		t.Fatalf("应从第一题开始：%q", tt.Texts())
 	}
-	for _, seg := range []string{"第 1 题", "第 2 题"} {
-		if _, ok := tt.Find(seg); !ok {
-			t.Fatalf("缺少进度段 %q：%q", seg, tt.Texts())
-		}
+	if _, ok := tt.Find("第 1 题，共 2 题"); !ok {
+		t.Fatalf("缺少题号触发器：%q", tt.Texts())
 	}
 
-	if err := tt.Click("第 2 题"); err != nil {
-		t.Fatalf("点进度段失败: %v", err)
+	openQuestionPickerForTest(t, tt, 1, 2)
+	if err := tt.Click("第 2 题：包含哪些模块"); err != nil {
+		t.Fatalf("点题号格失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("包含哪些模块") && !tt.HasText("选择实现方案") })
 	if _, cur := compactQuestionDraft(s, a); cur != 1 {
-		t.Fatalf("点第 2 段后当前题应为 1，got %d", cur)
+		t.Fatalf("点第 2 题后当前题应为 1，got %d", cur)
 	}
-	if err := tt.Click("第 1 题"); err != nil {
-		t.Fatalf("点进度段失败: %v", err)
+	openQuestionPickerForTest(t, tt, 2, 2)
+	if err := tt.Click("第 1 题：选择实现方案"); err != nil {
+		t.Fatalf("点题号格失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("选择实现方案") && !tt.HasText("包含哪些模块") })
 	if _, cur := compactQuestionDraft(s, a); cur != 0 {
-		t.Fatalf("点第 1 段后当前题应为 0，got %d", cur)
+		t.Fatalf("点第 1 题后当前题应为 0，got %d", cur)
 	}
 }
 
@@ -2163,7 +2172,8 @@ func TestQuestionCardCompactStaticFrameAfterAnimations(t *testing.T) {
 				t.Fatal("勾选动画结束后不应再请求下一帧")
 			}
 
-			if err := tt.Click("第 2 题"); err != nil {
+			openQuestionPickerForTest(t, tt, 1, 2)
+			if err := tt.Click("第 2 题：第二问"); err != nil {
 				t.Fatal(err)
 			}
 			if reduced && tt.FramePending() {
@@ -2178,6 +2188,201 @@ func TestQuestionCardCompactStaticFrameAfterAnimations(t *testing.T) {
 			}
 			if !tt.HasText("第二问") {
 				t.Fatalf("应已换到第二题：%q", tt.Texts())
+			}
+		})
+	}
+}
+
+// questionPickerApproval 造 n 道单选题，题目为 "题目N" 加 tail。
+func questionPickerApproval(id string, n int, tail string) Approval {
+	qs := make([]ApprovalQuestion, n)
+	for i := range qs {
+		qs[i] = ApprovalQuestion{
+			ID:      fmt.Sprintf("q%d", i+1),
+			Prompt:  fmt.Sprintf("题目%d%s", i+1, tail),
+			Choices: []ApprovalQuestionChoice{{Label: "选项甲"}, {Label: "选项乙"}},
+		}
+	}
+	return Approval{ThreadID: "t1", RequestID: id, Kind: ApprovalKindQuestion, Questions: qs}
+}
+
+// 12 题且题目很长时，触发器宽度不超过 72px，也不挤到题目上。
+func TestQuestionProgressPickerTriggerWidth(t *testing.T) {
+	long := "：这次重构要覆盖到哪个范围？每个方案的影响面都不同，有的只改一个包，有的会连带改动调用方与历史卡片。"
+	a := questionPickerApproval("r-picker-width", 12, long)
+	// 第 10 题的「10/12」字符最多，宽度最大。
+	s, tt := compactQuestionTester(t, a, false)
+	s.mu.Lock()
+	s.questionDraftFor(a).current = 9
+	s.mu.Unlock()
+	tt.Advance(time.Second)
+	trigger, ok := tt.Find("第 10 题，共 12 题")
+	if !ok {
+		t.Fatalf("缺少题号触发器：%q", tt.Texts())
+	}
+	if trigger.W > 72 {
+		t.Fatalf("触发器宽度 %.1f 超过 72", trigger.W)
+	}
+	title, ok := tt.Find("题目10" + long)
+	if !ok {
+		t.Fatalf("缺少题目：%q", tt.Texts())
+	}
+	if title.X+title.W > trigger.X+0.5 {
+		t.Fatalf("题目与触发器重叠：title=%+v trigger=%+v", title, trigger)
+	}
+}
+
+// 触发器显示「当前题号/总数」。
+func TestQuestionProgressPickerTriggerText(t *testing.T) {
+	a := questionPickerApproval("r-picker-text", 5, "")
+	s, tt := compactQuestionTester(t, a, false)
+	s.mu.Lock()
+	s.questionDraftFor(a).current = 1
+	s.mu.Unlock()
+	tt.Advance(time.Second)
+	if !tt.HasText("2/5") {
+		t.Fatalf("触发器应显示 2/5：%q", tt.Texts())
+	}
+	if _, ok := tt.Find("第 2 题，共 5 题"); !ok {
+		t.Fatalf("触发器缺少名称：%q", tt.Texts())
+	}
+}
+
+// 点开浮层跳到第 3 题后浮层关闭；跳回第 1 题时之前的选择还在。
+func TestQuestionProgressPickerJumpKeepsSelection(t *testing.T) {
+	oldDelay := questionAutoAdvanceDelay
+	questionAutoAdvanceDelay = time.Hour
+	defer func() { questionAutoAdvanceDelay = oldDelay }()
+
+	a := questionPickerApproval("r-picker-jump", 5, "")
+	s, tt := compactQuestionTester(t, a, false)
+	tt.Advance(time.Second)
+	if err := tt.Click("选项乙"); err != nil {
+		t.Fatal(err)
+	}
+	if sel, _ := compactQuestionDraft(s, a); !reflect.DeepEqual(sel[0], []int{1}) {
+		t.Fatalf("第 1 题应选中选项乙，got %v", sel)
+	}
+
+	openQuestionPickerForTest(t, tt, 1, 5)
+	if err := tt.Click("第 3 题：题目3"); err != nil {
+		t.Fatalf("点第 3 题格失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("第 3 题：题目3"); return !ok })
+	if _, cur := compactQuestionDraft(s, a); cur != 2 {
+		t.Fatalf("应跳到第 3 题，got %d", cur)
+	}
+	if !tt.HasText("3/5") {
+		t.Fatalf("触发器应显示 3/5：%q", tt.Texts())
+	}
+
+	openQuestionPickerForTest(t, tt, 3, 5)
+	if err := tt.Click("第 1 题：题目1"); err != nil {
+		t.Fatalf("点第 1 题格失败: %v", err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("第 1 题：题目1"); return !ok })
+	sel, cur := compactQuestionDraft(s, a)
+	if cur != 0 || !reflect.DeepEqual(sel[0], []int{1}) {
+		t.Fatalf("跳回第 1 题后选择应保留：current=%d selected=%v", cur, sel)
+	}
+}
+
+// 提交中触发器禁用，已展开的浮层被关掉。
+func TestQuestionProgressPickerDisabledWhileResponding(t *testing.T) {
+	a := questionPickerApproval("r-picker-busy", 5, "")
+	s := newChatState(NewFakeClient())
+	responding := false
+	tt := ui.NewTester(func(c *ui.Context) { renderQuestionCard(c, s, a, responding) }, 720, 520)
+	tt.Advance(time.Second)
+	if info, ok := tt.Access("第 1 题，共 5 题"); !ok || info.Disabled {
+		t.Fatalf("空闲时触发器应可点：%+v 存在=%v", info, ok)
+	}
+
+	openQuestionPickerForTest(t, tt, 1, 5)
+	if _, ok := tt.Find("第 2 题：题目2"); !ok {
+		t.Fatalf("浮层应已展开：%q", tt.Texts())
+	}
+	responding = true
+	tt.Frame()
+	tt.Advance(time.Second)
+	if info, ok := tt.Access("第 1 题，共 5 题"); !ok || !info.Disabled {
+		t.Fatalf("提交中触发器应禁用：%+v 存在=%v", info, ok)
+	}
+	if _, ok := tt.Find("第 2 题：题目2"); ok {
+		t.Fatal("提交中浮层应关闭")
+	}
+	s.mu.Lock()
+	open := s.questionDraftFor(a).pickerOpen
+	s.mu.Unlock()
+	if open {
+		t.Fatal("提交中应清掉浮层开关")
+	}
+}
+
+// 浮层展开时，数字键与回车不触发卡片自己的快捷键。
+func TestQuestionProgressPickerHoldsCardShortcuts(t *testing.T) {
+	oldDelay := questionAutoAdvanceDelay
+	questionAutoAdvanceDelay = time.Hour
+	defer func() { questionAutoAdvanceDelay = oldDelay }()
+
+	a := questionPickerApproval("r-picker-keys", 1, "")
+	a.Questions = append(a.Questions, questionPickerApproval("", 2, "").Questions[1])
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	s.mu.Lock()
+	s.approvals = []Approval{a}
+	s.composerFocused = false
+	s.questionDraftFor(a).pickerOpen = true
+	s.mu.Unlock()
+	tt := ui.NewTester(func(c *ui.Context) { renderApproval(c, s) }, 800, 600)
+	waitFor(t, tt, func() bool { _, ok := tt.Find("第 2 题：题目2"); return ok })
+	tt.Key(0, ui.Key1)
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	sel, cur := compactQuestionDraft(s, a)
+	if cur != 0 || len(sel[0]) != 0 {
+		t.Fatalf("浮层展开时数字键与回车应被忽略：current=%d selected=%v", cur, sel)
+	}
+}
+
+// 浮层开合与跳题的动画结束后不再请求下一帧，减少动效时直接到终点。
+func TestQuestionProgressPickerStaticFrame(t *testing.T) {
+	for _, reduced := range []bool{false, true} {
+		t.Run(map[bool]string{false: "normal", true: "reduced"}[reduced], func(t *testing.T) {
+			a := questionPickerApproval("r-picker-motion", 5, "")
+			_, tt := compactQuestionTester(t, a, reduced)
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("初始动画结束后界面静止，不应再请求下一帧")
+			}
+
+			if err := tt.Click("第 1 题，共 5 题"); err != nil {
+				t.Fatal(err)
+			}
+			if reduced && tt.FramePending() {
+				t.Fatal("减少动效时展开浮层应直接到终点")
+			}
+			if !reduced && !tt.FramePending() {
+				t.Fatal("普通模式展开浮层应有过渡")
+			}
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("展开动画结束后不应再请求下一帧")
+			}
+
+			if err := tt.Click("第 4 题：题目4"); err != nil {
+				t.Fatal(err)
+			}
+			tt.Advance(time.Second)
+			if tt.FramePending() {
+				t.Fatal("跳题与收起动画结束后不应再请求下一帧")
+			}
+			if _, ok := tt.Find("第 4 题：题目4"); ok {
+				t.Fatal("跳题后浮层应关闭")
+			}
+			if !tt.HasText("4/5") {
+				t.Fatalf("应已换到第 4 题：%q", tt.Texts())
 			}
 		})
 	}

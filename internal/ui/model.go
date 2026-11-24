@@ -2654,10 +2654,13 @@ func (s *chatState) respondAnswers(a Approval, optionID string, answers map[stri
 }
 
 // questionDraft 记录提问卡片的草稿：每题选中的选项下标（升序）、填空文本与当前题号。
+// pickerOpen 是题号浮层的开合状态，pickerFocus 是待落焦的格子序号加 1（0 为无）；两者只在界面线程读写。
 type questionDraft struct {
-	selected [][]int
-	others   []string
-	current  int
+	selected    [][]int
+	others      []string
+	current     int
+	pickerOpen  bool
+	pickerFocus int
 }
 
 // questionDraftFor 返回指定提问请求的草稿，首次访问时按 recommended 预选初始化；调用方需持有 s.mu。
