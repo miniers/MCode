@@ -1769,7 +1769,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 				}
 				ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 			})
-			if (row.Clicked() && !childClicked) || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
+			if row.Clicked() && !childClicked {
 				openProviderSheet(st, e.Kind, e.ID)
 			}
 		}
@@ -1787,7 +1787,7 @@ func renderProvidersCard(c *ui.Context, st *SettingsState, lib *modelsLibraryVie
 		ui.Box(c.Key("provider-add-spacer")).Grow(1)
 		ui.Icon(c, IconChevronRight()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 	})
-	if row.Clicked() || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
+	if row.Clicked() {
 		openSettingsSheet(st, "provider-add", "")
 	}
 }

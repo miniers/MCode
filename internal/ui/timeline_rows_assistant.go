@@ -449,10 +449,6 @@ func renderReasoningMessage(c *ui.Context, s *chatState, m Message, liveID strin
 		if !isLive {
 			header.Cursor(ui.CursorPointer).Focusable().Role(ui.RoleButton)
 			focusRing(c, header)
-			if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
-				s.toggleReasoning(m.ID)
-				s.invalidate()
-			}
 		}
 		chevronRotation := header.AnimateTo("think-chevron", chevronTarget, ui.Animation{Duration: animateDuration(c, motionUnfold), Ease: motionEaseStandard})
 		header.Children(func() {

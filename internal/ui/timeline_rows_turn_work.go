@@ -221,10 +221,6 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 				if canToggleFold {
 					header.Cursor(ui.CursorPointer).OnClick(func() { s.setToolGroupOpen(item.id, !open) })
 					focusRing(c, header)
-					if header.Focused() && (header.Shortcut(0, ui.KeyEnter) || header.Shortcut(0, ui.KeySpace)) {
-						s.setToolGroupOpen(item.id, !open)
-						s.invalidate()
-					}
 					if header.Hovered() {
 						header.Background(ThemeHover(c).Alpha(0.35))
 						textColor = ThemePrimaryText(c)
@@ -302,9 +298,6 @@ func renderTurnChecklistToggle(c *ui.Context, s *chatState, m Message, items []t
 			s.toggleTodoCard(m.ID, !expanded)
 		})
 	focusRing(c, btn)
-	if btn.Focused() && (btn.Shortcut(0, ui.KeyEnter) || btn.Shortcut(0, ui.KeySpace)) {
-		s.toggleTodoCard(m.ID, !expanded)
-	}
 	textColor := ThemeSecondaryText(c)
 	if btn.Hovered() {
 		btn.Background(ThemeHover(c).Alpha(0.35))

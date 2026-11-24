@@ -186,3 +186,45 @@ func TestFocusP1FindAndBackgroundTaskButtons(t *testing.T) {
 		assertButtonMinHitArea(t, waitTester, "等待后台任务")
 	})
 }
+
+// TestClickableSpaceActivatesOnRelease 验证可点元素获焦后，Space 按下不触发、抬起时激活一次，且 Enter 原生触发。
+func TestClickableSpaceActivatesOnRelease(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	tools := []Message{{ID: "tool-1", ToolName: "read", ToolStatus: "completed"}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderToolGroupItem(c, s, tools, "group-space-release", "", false)
+	}, 800, 300)
+	tt.Frame()
+
+	tt.Key(0, ui.KeyTab)
+	if !tt.Focused("展开") {
+		t.Fatal("按 Tab 后工具组折叠头应获焦")
+	}
+
+	tt.KeyDown(ui.KeySpace)
+	s.mu.Lock()
+	openOnDown := s.expandedTool["group-space-release"]
+	revOnDown := s.expandedRev
+	s.mu.Unlock()
+	if openOnDown || revOnDown != 0 {
+		t.Fatalf("Space 按下时不应切换状态: open=%v, rev=%d", openOnDown, revOnDown)
+	}
+
+	tt.KeyUp(ui.KeySpace)
+	s.mu.Lock()
+	openOnUp := s.expandedTool["group-space-release"]
+	revOnUp := s.expandedRev
+	s.mu.Unlock()
+	if !openOnUp || revOnUp != 1 {
+		t.Fatalf("Space 抬起后应切换恰好一次: open=%v, rev=%d", openOnUp, revOnUp)
+	}
+
+	tt.Key(0, ui.KeyEnter)
+	s.mu.Lock()
+	openOnEnter := s.expandedTool["group-space-release"]
+	revOnEnter := s.expandedRev
+	s.mu.Unlock()
+	if openOnEnter || revOnEnter != 2 {
+		t.Fatalf("Enter 应原生激活并再切换一次: open=%v, rev=%d", openOnEnter, revOnEnter)
+	}
+}

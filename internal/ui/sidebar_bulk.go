@@ -144,7 +144,7 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 							checkRow.Background(ThemeHover(c).Alpha(0.2))
 						}
 						focusRing(c, checkRow)
-						if checkRow.Clicked() || (checkRow.Focused() && (checkRow.Shortcut(0, ui.KeyEnter) || checkRow.Shortcut(0, ui.KeySpace))) {
+						if checkRow.Clicked() {
 							toggle()
 						}
 						checkRow.Children(func() {

@@ -307,7 +307,7 @@ func renderAutomationRunHistory(c *ui.Context, s *chatState, as *automationState
 				if row.Hovered() {
 					row.Background(ThemeHover(c))
 				}
-				if row.Clicked() || (row.Focused() && (row.Shortcut(0, ui.KeyEnter) || row.Shortcut(0, ui.KeySpace))) {
+				if row.Clicked() {
 					open()
 				}
 				row.Children(func() {
