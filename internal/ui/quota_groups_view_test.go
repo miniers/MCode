@@ -554,10 +554,10 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 			tt.Move(rowRect.X+rowRect.W/2, rowRect.Y+rowRect.H/2)
 			tt.Frame()
 
-			detail := model.Groups[0].Accounts[0].hoverLeft
-			if detail == "" {
-				detail = model.Groups[0].Accounts[0].HoverDetail
-			}
+			acc := model.Groups[0].Accounts[0]
+			detail := quotaRowTooltipText(acc.hoverLeft, acc.hoverRight, acc.HoverDetail)
+			tt.Advance(700 * time.Millisecond)
+			tt.Frame()
 			if !tt.HasText(detail) {
 				t.Fatalf("悬停后应浮出完整详情 %q: %v", detail, tt.Texts())
 			}
@@ -568,7 +568,7 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 				t.Fatal("悬停详情与虚影动效完成后不应继续请求下一帧")
 			}
 
-			// 移开指针后浮条退出并停止请求帧。
+			// 移开指针后 Tooltip 退出并停止请求帧。
 			tt.Move(0, 0)
 			tt.Advance(DurBase + time.Second)
 			tt.Frame()
@@ -576,7 +576,7 @@ func TestQuotaRedesign_HoverAndExpandMotionSettles(t *testing.T) {
 				t.Fatal("离开悬停动效完成后不应继续请求下一帧")
 			}
 			if tt.HasText(detail) {
-				t.Fatalf("离开悬停后浮条应消失: %v", tt.Texts())
+				t.Fatalf("离开悬停后 Tooltip 应消失: %v", tt.Texts())
 			}
 
 			// 展开无读数折叠项后动画结束不再请求下一帧。

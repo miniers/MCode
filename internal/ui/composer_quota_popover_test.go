@@ -306,9 +306,11 @@ func TestQuotaResetDayInPopoverAndTray(t *testing.T) {
 		t.Fatalf("多账号状态列右边缘应对齐：mon=%+v h3=%+v", sMon, s3h)
 	}
 
-	// 悬停 a@example.com 行应展示完整用尽与重置日详情。
+	// 悬停 a@example.com 行并在停留超过原生 tooltip 延迟后应展示完整用尽与重置日详情。
 	rA := mustFind(tt, "a@example.com")
 	tt.Move(rA.X+rA.W/2, rA.Y+rA.H/2)
+	tt.Frame()
+	tt.Advance(700 * time.Millisecond)
 	tt.Frame()
 	if !tt.HasText("周 60% · 周一用尽 · 周三重置") {
 		t.Fatalf("悬停提前用尽账号行应展示完整详情，texts=%q", tt.Texts())
