@@ -66,11 +66,27 @@ function updateRemoteManifest(webBuildID: string): void {
   }
 }
 
+// 仅保留 KaTeX 字体的 woff2 格式，避免把冗余的 woff 与 ttf 编入产物。
+function katexWoff2Only() {
+  return {
+    name: 'katex-woff2-only',
+    enforce: 'pre' as const,
+    transform(code: string, id: string) {
+      const normalized = id.split('\\').join('/').split('?')[0];
+      if (!/\/katex\/dist\/katex(\.min)?\.css$/.test(normalized)) return null;
+      return {
+        code: code.replace(/,\s*url\([^)]+\)\s*format\(["'](?:woff|truetype)["']\)/g, ''),
+        map: null
+      };
+    }
+  };
+}
+
 const mermaidSourcePath = fileURLToPath(new URL('./node_modules/mermaid/dist/mermaid.min.js', import.meta.url));
 const mermaidPublicPath = fileURLToPath(new URL('./public/vendor/mermaid.min.js', import.meta.url));
 
 export default defineConfig({
-  plugins: [react(), {
+  plugins: [react(), katexWoff2Only(), {
     name: 'copy-mermaid-vendor',
     buildStart() {
       mkdirSync(dirname(mermaidPublicPath), { recursive: true });
