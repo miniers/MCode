@@ -734,6 +734,9 @@ func newChatState(client Client) *chatState {
 	// 本地图片由 loadLocalImage 加载；点击图片看大图由 Block 钩子接管整段图片段落。
 	installImagePreviewHooks(&s.mdOpts, s)
 	installImagePreviewHooks(&s.mdStaticOpts, s)
+	// HTML 块里的 <img>/<picture> 按图片显示，HTML 注释不渲染。
+	installMarkdownHTMLImageHook(&s.mdOpts, s, "")
+	installMarkdownHTMLImageHook(&s.mdStaticOpts, s, "")
 	// 表格太宽会被消息列横向裁切：右上角加「展开」按钮，点击后在可缩放的浮窗里完整查看。
 	installTableExpandHook(&s.mdOpts, s)
 	installTableExpandHook(&s.mdStaticOpts, s)

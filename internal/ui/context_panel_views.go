@@ -426,7 +426,7 @@ func renderContextDocView(c *ui.Context, s *chatState) {
 			} else {
 				mdOpts := &s.mdStaticOpts
 				if snap.path != "" && filepath.IsAbs(filePath) {
-					mdOpts = markdownDocOptions(c, s, 13, filepath.Dir(filePath))
+					mdOpts = markdownDocOptions(c, s, TypeBody, filepath.Dir(filePath))
 				}
 				ui.Scroll(c.Key("context-preview-scroll")).Grow(1).FillWidth().Children(func() {
 					markdown.View(c.Key("context-markdown-"+doc.File), draft, mdOpts)

@@ -155,3 +155,14 @@ func TestMarkdownDocOptions(t *testing.T) {
 		t.Fatalf("LoadImage 相对路径加载失败：src=%v err=%v", src, err)
 	}
 }
+
+// TestMarkdownHTMLImageHookOnChatOptions 验证 chatState 主选项与静态选项都已安装 HTML 图片钩子。
+func TestMarkdownHTMLImageHookOnChatOptions(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(s.close)
+
+	if s.mdOpts.HTML == nil || s.mdStaticOpts.HTML == nil {
+		t.Fatalf("chatState Markdown 选项缺少 HTML 钩子：mdOpts.HTML=%v mdStaticOpts.HTML=%v",
+			s.mdOpts.HTML != nil, s.mdStaticOpts.HTML != nil)
+	}
+}
