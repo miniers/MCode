@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,133 @@ func TestTruncateAcceptanceOutput(t *testing.T) {
 	}
 	if !strings.HasSuffix(body, "中文结尾") {
 		t.Fatalf("应保留末尾内容，实际 %q", body)
+	}
+}
+
+func TestAcceptanceOutputKeepsErrorAnchors(t *testing.T) {
+	t.Parallel()
+
+	// a. 开头有 undefined 报错，中间 20KB 噪声，末尾有 FAIL 行。
+	var caseA strings.Builder
+	caseA.WriteString("pre-ctx-1\npre-ctx-2\npre-ctx-3\n")
+	caseA.WriteString("./foo.go:12:3: undefined: bar\n")
+	caseA.WriteString("post-ctx-1\npost-ctx-2\npost-ctx-3\n")
+	caseA.WriteString("noise-outside-context\n")
+	for i := 0; i < 400; i++ {
+		fmt.Fprintf(&caseA, "noise line %04d: %s\n", i, strings.Repeat("n", 40))
+	}
+	caseA.WriteString("FAIL\tpkg 0.1s")
+
+	// b. 无报错词的超长输出：与旧纯尾部行为完全一致。
+	var caseB strings.Builder
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&caseB, "ok step %04d: %s\n", i, strings.Repeat("x", 40))
+	}
+	rawCaseB := caseB.String()
+	wantCaseB := acceptanceTruncatedPrefix + trimTailUTF8(rawCaseB, acceptanceOutputLimit-len(acceptanceTruncatedPrefix))
+
+	// c. 报错行很多、超出预算：长度不超上限，末尾仍在。
+	var caseC strings.Builder
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&caseC, "error #%03d: compile failure detail %s\n", i, strings.Repeat("e", 30))
+		for j := 0; j < 9; j++ {
+			fmt.Fprintf(&caseC, "step %03d-%d ok\n", i, j)
+		}
+	}
+	caseC.WriteString("final tail line: summary done")
+
+	// d. 含多字节中文的超长输出（含超长单行报错与中文末尾）。
+	var caseD strings.Builder
+	caseD.WriteString("error: 编译失败 ")
+	caseD.WriteString(strings.Repeat("中文报错", 600))
+	caseD.WriteByte('\n')
+	for i := 0; i < 300; i++ {
+		fmt.Fprintf(&caseD, "正常进度日志第%d行：继续构建中\n", i)
+	}
+	caseD.WriteString("末尾汇总：全部检查结束")
+
+	cases := []struct {
+		name  string
+		input string
+		check func(t *testing.T, got string)
+	}{
+		{
+			name:  "开头报错保留上下文与末尾",
+			input: caseA.String(),
+			check: func(t *testing.T, got string) {
+				t.Helper()
+				if !strings.HasPrefix(got, acceptanceTruncatedPrefix) {
+					t.Fatalf("缺少截断前缀: %q", got)
+				}
+				for _, want := range []string{
+					"pre-ctx-1", "pre-ctx-2", "pre-ctx-3",
+					"./foo.go:12:3: undefined: bar",
+					"post-ctx-1", "post-ctx-2", "post-ctx-3",
+					"\n" + acceptanceEllipsisLine + "\n",
+					"FAIL\tpkg 0.1s",
+				} {
+					if !strings.Contains(got, want) {
+						t.Fatalf("结果缺少期望片段 %q\n实际:\n%s", want, got)
+					}
+				}
+				if strings.Contains(got, "noise-outside-context") {
+					t.Fatalf("上下文之外的噪声行不应保留")
+				}
+			},
+		},
+		{
+			name:  "无报错词超长输出与旧行为一致",
+			input: rawCaseB,
+			check: func(t *testing.T, got string) {
+				t.Helper()
+				if got != wantCaseB {
+					t.Fatalf("无报错词时应与纯尾部截断一致\ngot len=%d\nwant len=%d", len(got), len(wantCaseB))
+				}
+			},
+		},
+		{
+			name:  "报错行过多超出预算保留末尾",
+			input: caseC.String(),
+			check: func(t *testing.T, got string) {
+				t.Helper()
+				if !strings.Contains(got, "error #000:") {
+					t.Fatalf("应优先保留最先出现的报错行")
+				}
+				if strings.Contains(got, "error #080:") {
+					t.Fatalf("超出预算的靠后报错区块应被丢弃")
+				}
+				if !strings.Contains(got, "final tail line: summary done") {
+					t.Fatalf("超出预算时仍应保留末尾")
+				}
+			},
+		},
+		{
+			name:  "含多字节中文超长输出保持合法UTF8",
+			input: caseD.String(),
+			check: func(t *testing.T, got string) {
+				t.Helper()
+				if !strings.Contains(got, "error: 编译失败") {
+					t.Fatalf("应保留超长中文报错行前缀")
+				}
+				if !strings.Contains(got, "末尾汇总：全部检查结束") {
+					t.Fatalf("应保留中文末尾")
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncateAcceptanceOutput(tc.input)
+			if len(got) > acceptanceOutputLimit {
+				t.Fatalf("截断后长度 %d 超过上限 %d", len(got), acceptanceOutputLimit)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("截断结果不是合法 UTF-8")
+			}
+			tc.check(t, got)
+		})
 	}
 }
 

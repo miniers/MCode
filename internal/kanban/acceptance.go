@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,10 +27,15 @@ const (
 )
 
 const (
-	// acceptanceOutputLimit 为单条命令保留的输出上限（4KB，只留末尾）。
+	// acceptanceOutputLimit 为单条命令保留的输出上限（4KB）。
 	acceptanceOutputLimit = 4 * 1024
-	// acceptanceTruncatedPrefix 是输出被截断时加在末尾内容前面的提示。
+	// acceptanceCaptureLimit 为单条命令运行期间捕获的输出上限（256KB）。
+	// shortcut: 只捕获最后 256KB，更早的报错会丢；遇到真实漏报再改为流式提取报错行
+	acceptanceCaptureLimit = 256 * 1024
+	// acceptanceTruncatedPrefix 是输出被截断时加在内容前面的提示。
 	acceptanceTruncatedPrefix = "…（前文已截断）\n"
+	// acceptanceEllipsisLine 是报错区块之间、区块与末尾之间存在省略时插入的分隔行。
+	acceptanceEllipsisLine = "…"
 	// acceptanceCommandTag 是验收标准里标记「宿主执行命令」的行首标签。
 	acceptanceCommandTag = "[命令]"
 	// acceptanceUserVerifyTag 是验收标准里标记「需要用户确认」的行首标签。
@@ -288,7 +294,7 @@ func (s *Service) runAcceptanceCommands(ctx context.Context, taskID string, comm
 		procutil.SetProcessGroup(cmd)
 		cmd.Cancel = func() error { return procutil.KillProcessGroup(cmd, os.Kill) }
 		cmd.WaitDelay = 2 * time.Second
-		out := procutil.NewTailBuffer(acceptanceOutputLimit + 1)
+		out := procutil.NewTailBuffer(acceptanceCaptureLimit)
 		cmd.Stdout = out
 		cmd.Stderr = out
 		runErr := cmd.Run()
@@ -325,18 +331,240 @@ func (s *Service) runAcceptanceCommands(ctx context.Context, taskID string, comm
 	return results, nil
 }
 
-// truncateAcceptanceOutput 只保留输出末尾 4KB，并按 UTF-8 rune 边界裁剪，截断时在开头加提示。
+// acceptanceErrorPattern 匹配常见编译与测试报错关键词，用于在截断时保留报错上下文。
+var acceptanceErrorPattern = regexp.MustCompile(`(?i)(?:error|fail|panic|fatal|undefined:|cannot |exception|traceback)`)
+
+type acceptanceLineRange struct {
+	start int
+	end   int
+}
+
+// truncateAcceptanceOutput 在输出超过 4KB 时进行截断，按 UTF-8 rune 边界保证结果合法且不超过上限：
+// 无报错行时只保留末尾并加前缀；有报错行时保留至少一半预算的末尾完整行，
+// 其余预算按出现顺序填入报错行及其前后各 3 行上下文，省略处以 "…" 行分隔且不与末尾重复。
 func truncateAcceptanceOutput(out string) string {
 	if len(out) <= acceptanceOutputLimit {
 		return out
 	}
-	cut := out[len(out)-(acceptanceOutputLimit-len(acceptanceTruncatedPrefix)):]
+
+	// 捕获缓冲区可能从多字节字符中间截断，先剥离开头不完整的 UTF-8 续字节。
+	for len(out) > 0 && !utf8.RuneStart(out[0]) {
+		out = out[1:]
+	}
+	if len(out) <= acceptanceOutputLimit {
+		return out
+	}
+
+	lines := strings.Split(out, "\n")
+	anchors := collectAcceptanceErrorAnchors(lines)
+	if len(anchors) == 0 {
+		return acceptanceTruncatedPrefix + trimTailUTF8(out, acceptanceOutputLimit-len(acceptanceTruncatedPrefix))
+	}
+
+	tailBudget := acceptanceOutputLimit / 2
+	tailText, tailStart, tailHasPrefixCut := takeAcceptanceTail(lines, tailBudget)
+
+	maxBodyBytes := acceptanceOutputLimit - len(acceptanceTruncatedPrefix)
+	avail := maxBodyBytes - len(tailText)
+
+	var selected []string
+	var lastEnd int
+	usedBytes := 0
+	ellipsisSep := "\n" + acceptanceEllipsisLine + "\n"
+
+	for _, anchor := range anchors {
+		// 仅保留不与末尾重叠的前半部分；若末尾单行被截断且报错就在该行，则保留其前缀片段。
+		var blockLines []string
+		end := anchor.end
+		if anchor.start >= tailStart {
+			if !tailHasPrefixCut || anchor.start > tailStart {
+				continue
+			}
+			blockLines = lines[tailStart : tailStart+1]
+			end = tailStart + 1
+		} else {
+			if end > tailStart {
+				end = tailStart
+			}
+			blockLines = lines[anchor.start:end]
+		}
+
+		prefixSepLen := 0
+		if len(selected) > 0 {
+			prefixSepLen = len(ellipsisSep)
+		}
+		tailSepLen := len(ellipsisSep)
+		if !tailHasPrefixCut && end == tailStart {
+			tailSepLen = 1
+		}
+		maxBlockLen := avail - usedBytes - prefixSepLen - tailSepLen
+		if maxBlockLen <= 0 {
+			continue
+		}
+
+		blockText, ok := fitAcceptanceAnchorBlock(blockLines, maxBlockLen)
+		if !ok {
+			continue
+		}
+
+		if len(selected) > 0 {
+			selected = append(selected, acceptanceEllipsisLine)
+		}
+		selected = append(selected, blockText)
+		usedBytes += prefixSepLen + len(blockText)
+		lastEnd = end
+	}
+
+	if len(selected) == 0 {
+		return acceptanceTruncatedPrefix + tailText
+	}
+
+	var b strings.Builder
+	b.Grow(acceptanceOutputLimit)
+	b.WriteString(acceptanceTruncatedPrefix)
+	for i, part := range selected {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(part)
+	}
+	if !tailHasPrefixCut && lastEnd == tailStart {
+		b.WriteByte('\n')
+	} else {
+		b.WriteString(ellipsisSep)
+	}
+	b.WriteString(tailText)
+	return b.String()
+}
+
+// collectAcceptanceErrorAnchors 找出所有报错行并向前后各扩展 3 行，合并相邻或重叠的区间。
+func collectAcceptanceErrorAnchors(lines []string) []acceptanceLineRange {
+	var anchors []acceptanceLineRange
+	for i, line := range lines {
+		if !acceptanceErrorPattern.MatchString(line) {
+			continue
+		}
+		s := max(0, i-3)
+		e := min(len(lines), i+4)
+		if len(anchors) > 0 && s <= anchors[len(anchors)-1].end {
+			if e > anchors[len(anchors)-1].end {
+				anchors[len(anchors)-1].end = e
+			}
+			continue
+		}
+		anchors = append(anchors, acceptanceLineRange{start: s, end: e})
+	}
+	return anchors
+}
+
+// takeAcceptanceTail 从后往前按完整行收集末尾内容，单行超出预算时按 rune 边界裁剪尾部。
+func takeAcceptanceTail(lines []string, tailBudget int) (text string, start int, hasPrefixCut bool) {
+	start = len(lines)
+	tailLen := 0
+	for i := len(lines) - 1; i >= 0; i-- {
+		add := len(lines[i])
+		if start < len(lines) {
+			add++
+		}
+		if tailLen+add > tailBudget {
+			break
+		}
+		tailLen += add
+		start = i
+	}
+
+	if start == len(lines) {
+		idx := len(lines) - 1
+		return trimTailUTF8(lines[idx], tailBudget), idx, true
+	}
+	if start == len(lines)-1 && lines[start] == "" && len(lines) >= 2 && lines[len(lines)-2] != "" {
+		idx := len(lines) - 2
+		return trimTailUTF8(lines[idx], tailBudget-1) + "\n", idx, true
+	}
+	return strings.Join(lines[start:], "\n"), start, false
+}
+
+// fitAcceptanceAnchorBlock 尽量完整放入报错区块；存在超出所剩预算的单行时按 rune 边界截断。
+func fitAcceptanceAnchorBlock(blockLines []string, maxLen int) (string, bool) {
+	text := strings.Join(blockLines, "\n")
+	if len(text) <= maxLen {
+		return text, true
+	}
+
+	hasOversizeLine := false
+	for _, line := range blockLines {
+		if len(line) > maxLen {
+			hasOversizeLine = true
+			break
+		}
+	}
+	if !hasOversizeLine {
+		return "", false
+	}
+
+	// 计算非超长行与换行符占用的空间，尽量保留上下文并对超长行按 rune 边界截断。
+	fixedLen := len(blockLines) - 1
+	oversizeCount := 0
+	for _, line := range blockLines {
+		if len(line) > maxLen {
+			oversizeCount++
+		} else {
+			fixedLen += len(line)
+		}
+	}
+
+	if oversizeCount == 1 && fixedLen < maxLen {
+		out := make([]string, len(blockLines))
+		for i, line := range blockLines {
+			if len(line) > maxLen {
+				out[i] = trimHeadUTF8(line, maxLen-fixedLen)
+			} else {
+				out[i] = line
+			}
+		}
+		return strings.Join(out, "\n"), true
+	}
+
+	// 多行超长时优先保留首条匹配报错关键词的行并裁剪至可用预算。
+	for _, line := range blockLines {
+		if acceptanceErrorPattern.MatchString(line) {
+			return trimHeadUTF8(line, maxLen), true
+		}
+	}
+	return trimHeadUTF8(blockLines[0], maxLen), true
+}
+
+// trimTailUTF8 从字符串末尾截取不超过 maxBytes 字节，并按 rune 边界对齐以保证合法 UTF-8。
+func trimTailUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) > maxBytes {
+		s = s[len(s)-maxBytes:]
+	}
 	// 丢掉落在 rune 中间的起始字节，再削掉尾部不完整 rune，保证结果仍是合法 UTF-8。
-	for len(cut) > 0 && !utf8.RuneStart(cut[0]) {
-		cut = cut[1:]
+	for len(s) > 0 && !utf8.RuneStart(s[0]) {
+		s = s[1:]
 	}
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
 	}
-	return acceptanceTruncatedPrefix + cut
+	return s
+}
+
+// trimHeadUTF8 从字符串开头截取不超过 maxBytes 字节，并按 rune 边界对齐以保证合法 UTF-8。
+func trimHeadUTF8(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	for len(s) > 0 && !utf8.RuneStart(s[0]) {
+		s = s[1:]
+	}
+	if len(s) > maxBytes {
+		s = s[:maxBytes]
+	}
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
