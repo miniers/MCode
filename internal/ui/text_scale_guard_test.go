@@ -21,7 +21,7 @@ var chatScaleFiles = map[string]bool{
 	"timeline_rows_context.go": true, "timeline_rows_notice.go": true, "timeline_rows_todo.go": true,
 	"timeline_rows_tool.go": true, "timeline_rows_tool_group.go": true, "timeline_rows_turn_work.go": true,
 	"timeline_rows_user.go": true, "timeline_diff.go": true, "tool_output_dialog.go": true,
-	"pr_review_card.go": true, "turn_files_card.go": true, "controls_message.go": true,
+	"mermaid_inline.go": true, "pr_review_card.go": true, "turn_files_card.go": true, "controls_message.go": true,
 }
 var sidebarScaleFiles = map[string]bool{
 	"sidebar.go": true, "sidebar_activity.go": true, "sidebar_bees.go": true,
