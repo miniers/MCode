@@ -136,13 +136,14 @@ func (s *RemoteService) runTailscale(ctx context.Context, opts tailnet.Options, 
 		return
 	}
 	srv := remote.NewServer(remote.ServerOptions{
-		Handler:       dispatcher,
-		Assets:        webassets.FS(),
-		ListenAddr:    ":443",
-		Entry:         remote.EntryTailscale,
-		AllowedHosts:  []string{st.FQDN},
-		AdminRoutes:   s.adminRoutesLocked(),
-		AnswerHandler: s.answerHandlerLocked(remote.EntryTailscale),
+		Handler:        dispatcher,
+		Assets:         webassets.FS(),
+		ListenAddr:     ":443",
+		Entry:          remote.EntryTailscale,
+		AllowedHosts:   []string{st.FQDN},
+		AdminRoutes:    s.adminRoutesLocked(),
+		AnswerHandler:  s.answerHandlerLocked(remote.EntryTailscale),
+		PreviewHandler: s.previewHandlerLocked(),
 		WhoIs: func(whoCtx context.Context, remoteAddr string) (remote.ClientIdentity, error) {
 			return s.identifyTailnetPeer(mgr, whoCtx, remoteAddr)
 		},

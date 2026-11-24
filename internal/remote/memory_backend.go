@@ -278,6 +278,8 @@ type MemoryBackend struct {
 	// inspectorPreview 是文件预览专用的 loopback 内容服务，懒启动；由 inspectorPreviewMu 保护。
 	inspectorPreviewMu     sync.Mutex
 	inspectorPreview       *inspectorPreviewServer
+	inspectorPreviewGrants map[string]inspectorPreviewGrant
+	inspectorPreviewNow    func() time.Time
 	inspectorPreviewClosed bool
 	// swarmEnablerFunc 在新建会话需要立即开启编排时启用它，由宿主注入 threads.swarm.set 背后的同一实现。
 	swarmEnablerFunc func(threadID string, enabled bool)

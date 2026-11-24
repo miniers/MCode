@@ -990,6 +990,7 @@ type SwarmBee struct {
 	LinesDeleted          int               `json:"linesDeleted,omitempty"`
 	Credibility           *SwarmCredibility `json:"credibility,omitempty"`
 	PendingQuestion       *SwarmBeeQuestion `json:"pendingQuestion,omitempty"`
+	AwaitingFinalize      bool              `json:"awaitingFinalize,omitempty"`
 }
 
 // SwarmState 对应 RemoteSwarmState
@@ -1061,6 +1062,24 @@ type SwarmForwardQuestionParams struct {
 	BeeThreadID string `json:"beeThreadID"`
 	RequestID   string `json:"requestID"`
 	ActionID    string `json:"actionID"`
+}
+
+// SwarmFinalizeDesignParams 对应 threads.swarm.finalizeDesign 请求参数
+type SwarmFinalizeDesignParams struct {
+	ThreadID    string `json:"threadID"`
+	BeeThreadID string `json:"beeThreadID"`
+	ActionID    string `json:"actionID"`
+}
+
+// ThreadsPreviewOpenParams 对应 threads.preview.open 请求参数
+type ThreadsPreviewOpenParams struct {
+	ThreadID string `json:"threadID"`
+	Path     string `json:"path"`
+}
+
+// ThreadsPreviewOpenResult 对应 threads.preview.open 成功结果
+type ThreadsPreviewOpenResult struct {
+	URL string `json:"url"`
 }
 
 // SwarmMergeDiffParams 对应 threads.swarm.mergeDiff 请求参数

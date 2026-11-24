@@ -69,6 +69,8 @@ type ServerOptions struct {
 	AdminRoutes []http.HandlerFunc
 	// AnswerHandler 处理通知内联作答的一次性请求；仅安全入口放行，未配置时该路径 404。
 	AnswerHandler http.Handler
+	// PreviewHandler 处理远程沙箱文件预览（/p/...）；未配置时该路径 404。
+	PreviewHandler http.Handler
 	// WhoIs 在连接建立时解析传输层身份（如 tsnet 的 WhoIs），仅用于展示与审计，不参与鉴权。
 	// 调用带 2 秒超时；返回错误时连接照常建立，TailnetUser / TailnetNode 留空。
 	WhoIs func(ctx context.Context, remoteAddr string) (ClientIdentity, error)
@@ -594,6 +596,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 校验 Host 与 Origin
 	if !s.validateHostAndOrigin(r) {
 		http.Error(w, "Forbidden: invalid host or origin", http.StatusForbidden)
+		return
+	}
+
+	// 远程沙箱文件预览：/p/<token>/<path>
+	if strings.HasPrefix(r.URL.Path, inspectorPreviewURLPrefix) {
+		if s.opts.PreviewHandler == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.opts.PreviewHandler.ServeHTTP(w, r)
 		return
 	}
 

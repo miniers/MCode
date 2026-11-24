@@ -73,6 +73,11 @@ func (x headlessSwarmExtras) ForwardBeeQuestion(ctx context.Context, leadThreadI
 	return errHeadlessSwarmUnsupported
 }
 
+// FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
+func (x headlessSwarmExtras) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+	return x.mgr.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+}
+
 // SwarmMergeDiff 返回 bee 待审查的补丁，并带上该 bee 记录的改动文件列表。
 func (x headlessSwarmExtras) SwarmMergeDiff(ctx context.Context, leadThreadID, beeThreadID string) (string, bool, []string, error) {
 	patch, err := x.mgr.MergeDiff(ctx, leadThreadID, beeThreadID)

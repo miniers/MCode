@@ -241,6 +241,15 @@ func (s *RemoteService) answerHandlerLocked(entry remote.Entry) http.Handler {
 	})
 }
 
+// previewHandlerLocked 返回远程沙箱预览处理器；后端缺失时不注入，路径自然 404。
+// 调用方需持有 s.mu。
+func (s *RemoteService) previewHandlerLocked() http.Handler {
+	if s.backend == nil {
+		return nil
+	}
+	return s.backend.RemotePreviewHandler()
+}
+
 // Start 启动远程控制服务。如果服务已在运行则直接返回 nil。
 func (s *RemoteService) Start(listen string, extraHosts []string) error {
 	s.lifecycle.Lock()
@@ -311,13 +320,14 @@ func (s *RemoteService) Start(listen string, extraHosts []string) error {
 	}
 
 	srv := remote.NewServer(remote.ServerOptions{
-		Handler:       dispatcher,
-		Assets:        webassets.FS(),
-		ListenAddr:    ln.Addr().String(),
-		Entry:         remote.EntryLAN,
-		AllowedHosts:  hosts,
-		AdminRoutes:   s.adminRoutesLocked(),
-		AnswerHandler: s.answerHandlerLocked(remote.EntryLAN),
+		Handler:        dispatcher,
+		Assets:         webassets.FS(),
+		ListenAddr:     ln.Addr().String(),
+		Entry:          remote.EntryLAN,
+		AllowedHosts:   hosts,
+		AdminRoutes:    s.adminRoutesLocked(),
+		AnswerHandler:  s.answerHandlerLocked(remote.EntryLAN),
+		PreviewHandler: s.previewHandlerLocked(),
 	})
 
 	// TLS 先启动，推送的 VAPID sub 才能拿到 TLS 域名。

@@ -31,6 +31,8 @@ type SwarmRemoteExtras interface {
 	PendingBeeQuestion(ctx context.Context, beeThreadID string) *wire.SwarmBeeQuestion
 	// ForwardBeeQuestion 把 bee 的提问转交主线程回答。
 	ForwardBeeQuestion(ctx context.Context, leadThreadID, beeThreadID, requestID string) error
+	// FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
+	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error
 	// SwarmMergeDiff 返回 bee 待审查的补丁、是否被截断以及改动文件列表。
 	SwarmMergeDiff(ctx context.Context, leadThreadID, beeThreadID string) (diff string, truncated bool, files []string, err error)
 	// ApproveSwarmMerge 批准并应用 bee 的改动。
@@ -145,6 +147,7 @@ func swarmBeeToWire(h swarm.Bee) wire.SwarmBee {
 		LinesAdded:        h.LinesAdded,
 		LinesDeleted:      h.LinesDeleted,
 		Credibility:       credibility,
+		AwaitingFinalize:  h.AwaitingFinalize,
 	}
 	applyReviewFunnelWire(&bee, h.ReviewLayer, h.ReviewConcerns, h.ReviewTokens, h.ReviewTokensEstimated)
 	return bee
@@ -570,6 +573,40 @@ func (d *Dispatcher) handleThreadsSwarmForwardQuestion(ctx context.Context, para
 
 	leadID := d.swarmLeadID(p.ThreadID)
 	if err := d.swarmExtras.ForwardBeeQuestion(ctx, leadID, p.BeeThreadID, p.RequestID); err != nil {
+		return mapSwarmError(err, replyErr, replyWithBackendErr)
+	}
+
+	st := d.swarm.State(p.ThreadID)
+	d.NotifySwarmChanged(leadID)
+	return replySuccess(d.swarmWireState(ctx, p.ThreadID, st))
+}
+
+// handleThreadsSwarmFinalizeDesign 处理 threads.swarm.finalizeDesign：通知设计档位子代理用户已定稿并触发最终汇报。
+func (d *Dispatcher) handleThreadsSwarmFinalizeDesign(ctx context.Context, params json.RawMessage, replySuccess func(any) *wire.Response, replyErr func(int, string) *wire.Response, replyWithBackendErr func(error) *wire.Response) *wire.Response {
+	var p wire.SwarmFinalizeDesignParams
+	if err := decodeStrict(params, &p); err != nil {
+		return replyErr(wire.InvalidParams, "Invalid params: "+err.Error())
+	}
+	if !isValidUUID(p.ThreadID) {
+		return replyErr(wire.InvalidParams, "Invalid params: 'threadID' must be a valid UUID")
+	}
+	if !isValidUUID(p.BeeThreadID) {
+		return replyErr(wire.InvalidParams, "Invalid params: 'beeThreadID' must be a valid UUID")
+	}
+	if strings.TrimSpace(p.ActionID) == "" {
+		return replyErr(wire.InvalidParams, "Invalid params: 'actionID' is required")
+	}
+	if d.swarm == nil || d.swarmExtras == nil {
+		return replyErr(wire.ErrCodeOperationRejected, "编排服务不可用")
+	}
+	if d.backend != nil {
+		if _, err := d.backend.GetThread(ctx, p.ThreadID); err != nil {
+			return replyWithBackendErr(err)
+		}
+	}
+
+	leadID := d.swarmLeadID(p.ThreadID)
+	if err := d.swarmExtras.FinalizeDesignBee(ctx, leadID, p.BeeThreadID); err != nil {
 		return mapSwarmError(err, replyErr, replyWithBackendErr)
 	}
 

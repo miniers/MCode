@@ -1172,3 +1172,163 @@ func TestApplyReviewFunnelWire(t *testing.T) {
 		t.Fatalf("空 concerns 应保持空，得到 %v", empty.ReviewConcerns)
 	}
 }
+
+type mockSwarmExtras struct {
+	mu           sync.Mutex
+	finalizeErr  error
+	finalizeLead string
+	finalizeBee  string
+	finalizeCnt  int
+	onFinalize   func(leadID, beeID string)
+}
+
+func (m *mockSwarmExtras) PendingBeeQuestion(context.Context, string) *wire.SwarmBeeQuestion {
+	return nil
+}
+
+func (m *mockSwarmExtras) ForwardBeeQuestion(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *mockSwarmExtras) FinalizeDesignBee(_ context.Context, leadThreadID, beeThreadID string) error {
+	m.mu.Lock()
+	m.finalizeLead = leadThreadID
+	m.finalizeBee = beeThreadID
+	m.finalizeCnt++
+	fn := m.onFinalize
+	err := m.finalizeErr
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if fn != nil {
+		fn(leadThreadID, beeThreadID)
+	}
+	return nil
+}
+
+func (m *mockSwarmExtras) SwarmMergeDiff(context.Context, string, string) (string, bool, []string, error) {
+	return "", false, nil, nil
+}
+
+func (m *mockSwarmExtras) ApproveSwarmMerge(context.Context, string, string) error { return nil }
+func (m *mockSwarmExtras) DiscardSwarmMerge(context.Context, string, string) error { return nil }
+func (m *mockSwarmExtras) SetSwarmPlansOnly(context.Context, string, *bool) error  { return nil }
+func (m *mockSwarmExtras) SwarmPlansOnly(string) (bool, bool)                      { return false, false }
+func (m *mockSwarmExtras) SwarmTiers() []wire.SwarmTier                            { return nil }
+func (m *mockSwarmExtras) SaveSwarmTiers(context.Context, []wire.SwarmTier) ([]wire.SwarmTier, error) {
+	return nil, nil
+}
+
+// 18. 验证 threads.swarm.finalizeDesign RPC 与 swarmBeeToWire 的 awaitingFinalize 映射
+func TestThreadsSwarmFinalizeDesign(t *testing.T) {
+	leadID := "11111111-1111-1111-1111-111111111111"
+	beeID := "22222222-2222-2222-2222-222222222222"
+	actionID := "33333333-3333-3333-3333-333333333333"
+
+	if !swarmBeeToWire(swarm.Bee{AwaitingFinalize: true}).AwaitingFinalize {
+		t.Fatal("swarmBeeToWire 应保留 AwaitingFinalize=true")
+	}
+	if swarmBeeToWire(swarm.Bee{AwaitingFinalize: false}).AwaitingFinalize {
+		t.Fatal("swarmBeeToWire 不应把 false 映射成 true")
+	}
+
+	mockSvc := newMockSwarmService()
+	mockSvc.owners[beeID] = leadID
+	mockSvc.states[leadID] = swarm.State{
+		LeadThreadID: leadID,
+		Enabled:      true,
+		Bees: []swarm.Bee{
+			{
+				ThreadID:         beeID,
+				Index:            0,
+				Name:             "Design Bee",
+				Task:             "Design page",
+				Status:           swarm.StatusCompleted,
+				StartedAt:        time.Now().UTC(),
+				AwaitingFinalize: true,
+			},
+		},
+	}
+
+	extras := &mockSwarmExtras{
+		onFinalize: func(lead, bee string) {
+			mockSvc.mu.Lock()
+			defer mockSvc.mu.Unlock()
+			st := mockSvc.states[lead]
+			for i := range st.Bees {
+				if st.Bees[i].ThreadID == bee {
+					st.Bees[i].AwaitingFinalize = false
+					st.Bees[i].Status = swarm.StatusRunning
+				}
+			}
+			mockSvc.states[lead] = st
+		},
+	}
+
+	backend := &fakeBackend{
+		getThreadFunc: func(ctx context.Context, threadID string) (wire.ThreadSummary, error) {
+			return wire.ThreadSummary{ID: threadID}, nil
+		},
+	}
+
+	d := NewDispatcher(&fakeAuth{}, backend)
+	conn := &swarmRecordConn{fakeConn: fakeConn{info: ClientInfo{Authenticated: true}}}
+	d.addAuthedConn(conn)
+
+	// 未注入 swarm/extras 时拒绝操作
+	resp := executeSwarmRPC(t, d, conn, fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q},"id":1}`, leadID, beeID, actionID))
+	if resp.Error == nil || resp.Error.Code != wire.ErrCodeOperationRejected {
+		t.Fatalf("expected ErrCodeOperationRejected when unavailable, got %+v", resp.Error)
+	}
+
+	d.SetSwarm(mockSvc)
+	d.SetSwarmExtras(extras)
+	d.swarmNotifyInterval = 10 * time.Millisecond
+
+	// 参数校验
+	for _, bad := range []string{
+		fmt.Sprintf(`{"threadID":"bad","beeThreadID":%q,"actionID":%q}`, beeID, actionID),
+		fmt.Sprintf(`{"threadID":%q,"beeThreadID":"bad","actionID":%q}`, leadID, actionID),
+		fmt.Sprintf(`{"threadID":%q,"beeThreadID":%q,"actionID":"   "}`, leadID, beeID),
+		fmt.Sprintf(`{"threadID":%q,"beeThreadID":%q,"actionID":%q,"extra":1}`, leadID, beeID, actionID),
+	} {
+		r := executeSwarmRPC(t, d, conn, `{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":`+bad+`,"id":2}`)
+		if r.Error == nil || r.Error.Code != wire.InvalidParams {
+			t.Fatalf("params %s: expected InvalidParams, got %+v", bad, r.Error)
+		}
+	}
+
+	// 成功调用（传入主会话 threadID）
+	resp = executeSwarmRPC(t, d, conn, fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q},"id":3}`, leadID, beeID, actionID))
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	if extras.finalizeCnt != 1 || extras.finalizeLead != leadID || extras.finalizeBee != beeID {
+		t.Fatalf("unexpected finalize call: cnt=%d lead=%q bee=%q", extras.finalizeCnt, extras.finalizeLead, extras.finalizeBee)
+	}
+	var st wire.SwarmState
+	rawResult, _ := json.Marshal(resp.Result)
+	if err := json.Unmarshal(rawResult, &st); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(st.Bees) != 1 || st.Bees[0].AwaitingFinalize {
+		t.Fatalf("expected updated bee with AwaitingFinalize=false, got %+v", st.Bees)
+	}
+
+	// 传入 beeThreadID 也能归一到 leadID 调到 extras
+	resp = executeSwarmRPC(t, d, conn, fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q},"id":4}`, beeID, beeID, actionID))
+	if resp.Error != nil {
+		t.Fatalf("unexpected error when called with bee threadID: %+v", resp.Error)
+	}
+	if extras.finalizeCnt != 2 || extras.finalizeLead != leadID {
+		t.Fatalf("expected normalized leadID=%q, got cnt=%d lead=%q", leadID, extras.finalizeCnt, extras.finalizeLead)
+	}
+
+	// ErrBeeNotFound 映射为 ErrCodeResourceNotFound
+	extras.finalizeErr = swarm.ErrBeeNotFound
+	resp = executeSwarmRPC(t, d, conn, fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q},"id":5}`, leadID, beeID, actionID))
+	if resp.Error == nil || resp.Error.Code != wire.ErrCodeResourceNotFound {
+		t.Fatalf("expected ErrCodeResourceNotFound, got %+v", resp.Error)
+	}
+}

@@ -86,13 +86,14 @@ func (s *RemoteService) startTLSLocked(cfg config.RemoteConfig, lanHosts []strin
 	}
 
 	srv := remote.NewServer(remote.ServerOptions{
-		Handler:       dispatcher,
-		Assets:        webassets.FS(),
-		ListenAddr:    ln.Addr().String(),
-		Entry:         remote.EntryTLS,
-		AllowedHosts:  tlsHosts,
-		AdminRoutes:   s.adminRoutesLocked(),
-		AnswerHandler: s.answerHandlerLocked(remote.EntryTLS),
+		Handler:        dispatcher,
+		Assets:         webassets.FS(),
+		ListenAddr:     ln.Addr().String(),
+		Entry:          remote.EntryTLS,
+		AllowedHosts:   tlsHosts,
+		AdminRoutes:    s.adminRoutesLocked(),
+		AnswerHandler:  s.answerHandlerLocked(remote.EntryTLS),
+		PreviewHandler: s.previewHandlerLocked(),
 	})
 
 	if cfg.TLSDomain != "" {

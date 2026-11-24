@@ -601,7 +601,6 @@ func (c *Client) forwardBeeQuestion(ctx context.Context, leadThreadID, beeThread
 }
 
 // FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-// shortcut: 仅桌面本地调用，未暴露远程 RPC；远程客户端需要定稿时再加 threads.swarm.finalizeDesign
 func (c *Client) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
 	c.kanbanMu.Lock()
 	m := c.swarm

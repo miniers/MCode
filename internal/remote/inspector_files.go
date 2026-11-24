@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"mcode/internal/remote/wire"
@@ -29,12 +29,18 @@ const (
 	inspectorPreviewTokenBytes    = 32
 	inspectorPreviewMaxFileBytes  = 50 << 20
 	inspectorPreviewShutdownGrace = 2 * time.Second
+	remotePreviewTokenTTL         = 1 * time.Hour
 )
 
 // inspectorPreviewCSP 是 HTML 响应的内容安全策略：放行同源与内联脚本以支持可交互设计稿，跨源连接、表单、对象仍全部关闭。
 const inspectorPreviewCSP = "default-src 'none'; script-src 'self' 'unsafe-inline'; object-src 'none'; " +
 	"base-uri 'none'; frame-ancestors 'none'; form-action 'none'; connect-src 'none'; " +
 	"img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self'"
+
+// remotePreviewCSP 在桌面端预览策略的基础上允许同源 iframe 嵌入并强制沙箱执行（不授 allow-same-origin），
+// 防止设计稿脚本读取主应用存储在同源下的登录凭据。
+var remotePreviewCSP = strings.Replace(inspectorPreviewCSP, "frame-ancestors 'none'", "frame-ancestors 'self'", 1) +
+	"; sandbox allow-scripts"
 
 // inspectorPreviewSVGCSP 为 SVG 顶层预览保留严格禁脚本策略。
 const inspectorPreviewSVGCSP = "default-src 'none'; script-src 'none'; object-src 'none'; " +
@@ -43,11 +49,14 @@ const inspectorPreviewSVGCSP = "default-src 'none'; script-src 'none'; object-sr
 
 // inspectorPreviewGrant 是一个能力 Token 的作用域：绑定会话、工作区根与入口文件。
 // html 为真时允许同一 root 内的相对资源；否则只允许入口文件本身。
+// remote 为真表示远程端沙箱预览令牌，受 expiresAt 有效期约束且仅可经远程服务访问。
 type inspectorPreviewGrant struct {
-	threadID string
-	root     string
-	entry    string
-	html     bool
+	threadID  string
+	root      string
+	entry     string
+	html      bool
+	remote    bool
+	expiresAt time.Time
 }
 
 // inspectorPreviewServer 是与 remote 管理服务完全隔离的 loopback 内容服务：独立监听地址、独立处理器。
@@ -55,17 +64,12 @@ type inspectorPreviewServer struct {
 	backend *MemoryBackend
 	addr    string
 	http    *http.Server
-
-	mu     sync.Mutex
-	grants map[string]inspectorPreviewGrant
-	closed bool
 }
 
 func newInspectorPreviewServer(b *MemoryBackend, addr string) *inspectorPreviewServer {
 	return &inspectorPreviewServer{
 		backend: b,
 		addr:    addr,
-		grants:  make(map[string]inspectorPreviewGrant),
 	}
 }
 
@@ -111,61 +115,73 @@ func (b *MemoryBackend) closeInspectorPreviewServer() {
 	srv := b.inspectorPreview
 	b.inspectorPreview = nil
 	b.inspectorPreviewMu.Unlock()
-	if srv == nil {
-		return
+	if srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), inspectorPreviewShutdownGrace)
+		defer cancel()
+		if err := srv.http.Shutdown(ctx); err != nil {
+			_ = srv.http.Close()
+		}
+	}
+	b.inspectorPreviewMu.Lock()
+	b.inspectorPreviewGrants = nil
+	b.inspectorPreviewMu.Unlock()
+}
+
+func (b *MemoryBackend) previewNow() time.Time {
+	if b.inspectorPreviewNow != nil {
+		return b.inspectorPreviewNow()
+	}
+	return time.Now()
+}
+
+// resolvePreviewTarget 校验预览请求的会话、路径与安全边界，返回会话工作区根与归一化的相对入口路径。
+func (b *MemoryBackend) resolvePreviewTarget(ctx context.Context, threadID, relPath string) (string, string, error) {
+	if threadID == "" {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "threadID is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "path is required"}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), inspectorPreviewShutdownGrace)
-	defer cancel()
-	if err := srv.http.Shutdown(ctx); err != nil {
-		_ = srv.http.Close()
+	root, err := b.threadWorkspaceRoot(threadID)
+	if err != nil {
+		return "", "", err
 	}
-	srv.mu.Lock()
-	srv.closed = true
-	srv.grants = nil
-	srv.mu.Unlock()
+	target, err := resolveWorkspacePath(root, relPath)
+	if err != nil {
+		return "", "", err
+	}
+	if isGitRelated(relPath, target) {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "cannot preview .git internals"}
+	}
+	if isProtected(relPath, target) {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "file is protected and cannot be previewed"}
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return "", "", &wire.RPCError{Code: wire.ErrCodeFileNotFound, Message: fmt.Sprintf("file not found: %s", relPath)}
+	}
+	if !info.Mode().IsRegular() {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "not a regular file"}
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "path escapes workspace root"}
+	}
+	return root, filepath.ToSlash(rel), nil
 }
 
 // InspectorPreviewURL 为会话工作区里的一个文件签发短生命周期的 loopback URL。
 // 每次调用都重新解析会话根、工作区路径与保护规则，Token 绑定 (threadID, root, 入口相对路径)。
 func (b *MemoryBackend) InspectorPreviewURL(ctx context.Context, threadID, relPath string) (string, error) {
-	if threadID == "" {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "threadID is required"}
-	}
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	relPath = strings.TrimSpace(relPath)
-	if relPath == "" {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "path is required"}
-	}
-
-	root, err := b.threadWorkspaceRoot(threadID)
+	root, entry, err := b.resolvePreviewTarget(ctx, threadID, relPath)
 	if err != nil {
 		return "", err
 	}
-	target, err := resolveWorkspacePath(root, relPath)
-	if err != nil {
-		return "", err
-	}
-	if isGitRelated(relPath, target) {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "cannot preview .git internals"}
-	}
-	if isProtected(relPath, target) {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "file is protected and cannot be previewed"}
-	}
-	info, err := os.Stat(target)
-	if err != nil {
-		return "", &wire.RPCError{Code: wire.ErrCodeFileNotFound, Message: fmt.Sprintf("file not found: %s", relPath)}
-	}
-	if !info.Mode().IsRegular() {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "not a regular file"}
-	}
-	rel, err := filepath.Rel(root, target)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", &wire.RPCError{Code: wire.InvalidParams, Message: "path escapes workspace root"}
-	}
-	entry := filepath.ToSlash(rel)
 
 	srv, err := b.inspectorPreviewServer()
 	if err != nil {
@@ -181,10 +197,46 @@ func (b *MemoryBackend) InspectorPreviewURL(ctx context.Context, threadID, relPa
 		entry:    entry,
 		html:     inspectorPreviewHTMLPath(entry),
 	}
-	if !srv.addGrant(token, grant) {
+	if !b.addPreviewGrant(token, grant) {
 		return "", errors.New("本地预览服务已关闭")
 	}
 	return "http://" + srv.addr + inspectorPreviewURLPrefix + token + "/" + escapeInspectorPreviewPath(entry), nil
+}
+
+// RemotePreviewPath 为远程端沙箱预览签发有效期 1 小时的能力令牌，返回同源相对路径 /p/<token>/<entry>。
+// 不会触发本地回环内容服务的懒启动。
+func (b *MemoryBackend) RemotePreviewPath(ctx context.Context, threadID, relPath string) (string, error) {
+	root, entry, err := b.resolvePreviewTarget(ctx, threadID, relPath)
+	if err != nil {
+		return "", err
+	}
+	token, err := newInspectorPreviewToken()
+	if err != nil {
+		return "", fmt.Errorf("生成预览令牌失败: %w", err)
+	}
+	grant := inspectorPreviewGrant{
+		threadID:  threadID,
+		root:      root,
+		entry:     entry,
+		html:      inspectorPreviewHTMLPath(entry),
+		remote:    true,
+		expiresAt: b.previewNow().Add(remotePreviewTokenTTL),
+	}
+	if !b.addPreviewGrant(token, grant) {
+		return "", errors.New("本地预览服务已关闭")
+	}
+	return inspectorPreviewURLPrefix + token + "/" + escapeInspectorPreviewPath(entry), nil
+}
+
+// RemotePreviewHandler 返回挂载在远程服务 /p/ 路由下的沙箱预览处理器。
+func (b *MemoryBackend) RemotePreviewHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if b == nil {
+			inspectorPreviewError(w, http.StatusNotFound, "not found")
+			return
+		}
+		b.servePreview(w, r, true)
+	})
 }
 
 // RevokeInspectorPreviewURL 只撤销本服务签发的单个 Token，不影响同会话的兄弟标签。
@@ -199,27 +251,24 @@ func (b *MemoryBackend) RevokeInspectorPreviewURL(previewURL string) {
 	}
 	b.inspectorPreviewMu.Lock()
 	srv := b.inspectorPreview
-	b.inspectorPreviewMu.Unlock()
-	if srv == nil || u.Host != srv.addr {
-		return
+	if srv != nil && u.Host == srv.addr {
+		delete(b.inspectorPreviewGrants, token)
 	}
-	srv.mu.Lock()
-	delete(srv.grants, token)
-	srv.mu.Unlock()
+	b.inspectorPreviewMu.Unlock()
 }
 
-// RevokeInspectorPreviews 撤销某个会话的全部预览 Token；服务未启动时无事发生。
+// RevokeInspectorPreviews 撤销某个会话的全部预览 Token（含桌面端与远程端）。
 func (b *MemoryBackend) RevokeInspectorPreviews(threadID string) {
 	if threadID == "" {
 		return
 	}
 	b.inspectorPreviewMu.Lock()
-	srv := b.inspectorPreview
-	b.inspectorPreviewMu.Unlock()
-	if srv == nil {
-		return
+	defer b.inspectorPreviewMu.Unlock()
+	for token, grant := range b.inspectorPreviewGrants {
+		if grant.threadID == threadID {
+			delete(b.inspectorPreviewGrants, token)
+		}
 	}
-	srv.revokeThread(threadID)
 }
 
 func newInspectorPreviewToken() (string, error) {
@@ -230,37 +279,40 @@ func newInspectorPreviewToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-func (srv *inspectorPreviewServer) addGrant(token string, grant inspectorPreviewGrant) bool {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	if srv.closed {
+func (b *MemoryBackend) addPreviewGrant(token string, grant inspectorPreviewGrant) bool {
+	b.inspectorPreviewMu.Lock()
+	defer b.inspectorPreviewMu.Unlock()
+	if b.inspectorPreviewClosed {
 		return false
 	}
-	if srv.grants == nil {
-		srv.grants = make(map[string]inspectorPreviewGrant)
+	if b.inspectorPreviewGrants == nil {
+		b.inspectorPreviewGrants = make(map[string]inspectorPreviewGrant)
 	}
-	srv.grants[token] = grant
+	b.inspectorPreviewGrants[token] = grant
 	return true
 }
 
-func (srv *inspectorPreviewServer) grant(token string) (inspectorPreviewGrant, bool) {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	grant, ok := srv.grants[token]
-	return grant, ok
-}
-
-func (srv *inspectorPreviewServer) revokeThread(threadID string) {
-	srv.mu.Lock()
-	defer srv.mu.Unlock()
-	for token, grant := range srv.grants {
-		if grant.threadID == threadID {
-			delete(srv.grants, token)
-		}
+func (b *MemoryBackend) lookupPreviewGrant(token string, wantRemote bool) (inspectorPreviewGrant, bool) {
+	b.inspectorPreviewMu.Lock()
+	defer b.inspectorPreviewMu.Unlock()
+	if b.inspectorPreviewClosed {
+		return inspectorPreviewGrant{}, false
 	}
+	grant, ok := b.inspectorPreviewGrants[token]
+	if !ok {
+		return inspectorPreviewGrant{}, false
+	}
+	if grant.remote != wantRemote {
+		return inspectorPreviewGrant{}, false
+	}
+	if !grant.expiresAt.IsZero() && !b.previewNow().Before(grant.expiresAt) {
+		delete(b.inspectorPreviewGrants, token)
+		return inspectorPreviewGrant{}, false
+	}
+	return grant, true
 }
 
-// ServeHTTP 处理内容请求：校验 Host、方法、Token、会话根与路径，再按扩展名返回文件。
+// ServeHTTP 处理回环内容请求：校验方法与回环 Host 后转交共用的 servePreview 逻辑。
 func (srv *inspectorPreviewServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -271,17 +323,27 @@ func (srv *inspectorPreviewServer) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		inspectorPreviewError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	srv.backend.servePreview(w, r, false)
+}
+
+// servePreview 统一处理桌面回环预览与远程沙箱预览的令牌校验、路径清理、安全拦截与响应头写入。
+func (b *MemoryBackend) servePreview(w http.ResponseWriter, r *http.Request, remoteMode bool) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		inspectorPreviewError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
 	token, rawRel, ok := inspectorPreviewRequestPath(r.URL.Path)
 	if !ok {
 		inspectorPreviewError(w, http.StatusNotFound, "not found")
 		return
 	}
-	grant, ok := srv.grant(token)
+	grant, ok := b.lookupPreviewGrant(token, remoteMode)
 	if !ok {
 		inspectorPreviewError(w, http.StatusNotFound, "not found")
 		return
 	}
-	root, err := srv.backend.threadWorkspaceRoot(grant.threadID)
+	root, err := b.threadWorkspaceRoot(grant.threadID)
 	if err != nil || root != grant.root {
 		inspectorPreviewError(w, http.StatusNotFound, "not found")
 		return
@@ -323,12 +385,51 @@ func (srv *inspectorPreviewServer) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	// SVG 作为顶层文档打开时也可能执行脚本；虽然 UI 不在 WebView 里渲染 SVG，
 	// 这里仍为 SVG 保留严格禁脚本策略，避免被 HTML 里的同源链接带进可执行上下文。
 	if inspectorPreviewHTMLPath(target) {
-		w.Header().Set("Content-Security-Policy", inspectorPreviewCSP)
+		if remoteMode {
+			w.Header().Set("Content-Security-Policy", remotePreviewCSP)
+		} else {
+			w.Header().Set("Content-Security-Policy", inspectorPreviewCSP)
+		}
 	} else if strings.EqualFold(filepath.Ext(target), ".svg") {
 		w.Header().Set("Content-Security-Policy", inspectorPreviewSVGCSP)
 	}
 	// 不传修改时间：no-store 下不做 304，Range 仍由 ServeContent 处理。
 	http.ServeContent(w, r, filepath.Base(target), time.Time{}, f)
+}
+
+// RemotePreviewProvider 为 Dispatcher 提供签发远程沙箱预览路径的可选后端接口。
+type RemotePreviewProvider interface {
+	RemotePreviewPath(ctx context.Context, threadID, relPath string) (string, error)
+}
+
+// handleThreadsPreviewOpen 处理 threads.preview.open JSON-RPC 请求。
+func (d *Dispatcher) handleThreadsPreviewOpen(
+	ctx context.Context,
+	params json.RawMessage,
+	replySuccess func(any) *wire.Response,
+	replyErr func(int, string) *wire.Response,
+	replyWithBackendErr func(error) *wire.Response,
+) *wire.Response {
+	var p wire.ThreadsPreviewOpenParams
+	if err := decodeStrict(params, &p); err != nil {
+		return replyErr(wire.InvalidParams, "Invalid params: "+err.Error())
+	}
+	if !isValidUUID(p.ThreadID) {
+		return replyErr(wire.InvalidParams, "Invalid params: 'threadID' must be a valid UUID")
+	}
+	if strings.TrimSpace(p.Path) == "" {
+		return replyErr(wire.InvalidParams, "Invalid params: 'path' is required")
+	}
+
+	provider, ok := d.backend.(RemotePreviewProvider)
+	if !ok {
+		return replyErr(wire.ErrCodeOperationRejected, "preview backend unavailable")
+	}
+	previewPath, err := provider.RemotePreviewPath(ctx, p.ThreadID, p.Path)
+	if err != nil {
+		return replyWithBackendErr(err)
+	}
+	return replySuccess(wire.ThreadsPreviewOpenResult{URL: previewPath})
 }
 
 func inspectorPreviewError(w http.ResponseWriter, status int, message string) {

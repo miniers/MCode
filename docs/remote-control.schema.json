@@ -424,6 +424,12 @@
       "$ref": "#/$defs/RemoteThreadsSwarmForwardQuestionResponse"
     },
     {
+      "$ref": "#/$defs/RemoteThreadsSwarmFinalizeDesignRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteThreadsSwarmFinalizeDesignResponse"
+    },
+    {
       "$ref": "#/$defs/RemoteThreadsSwarmMergeDiffRequest"
     },
     {
@@ -482,6 +488,12 @@
     },
     {
       "$ref": "#/$defs/RemoteThreadsMediaReadResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteThreadsPreviewOpenRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteThreadsPreviewOpenResponse"
     },
     {
       "$ref": "#/$defs/RemoteGitStatusRequest"
@@ -8624,6 +8636,9 @@
         "pendingQuestion": {
           "$ref": "#/$defs/RemoteSwarmPendingQuestion"
         },
+        "awaitingFinalize": {
+          "type": "boolean"
+        },
         "canOpen": {
           "type": "boolean"
         },
@@ -8837,6 +8852,26 @@
         "threadID",
         "beeThreadID",
         "requestID",
+        "actionID"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsSwarmFinalizeDesignParams": {
+      "type": "object",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        },
+        "beeThreadID": {
+          "$ref": "#/$defs/UUID"
+        },
+        "actionID": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadID",
+        "beeThreadID",
         "actionID"
       ],
       "additionalProperties": false
@@ -9252,6 +9287,50 @@
       "additionalProperties": false
     },
     "RemoteThreadsSwarmForwardQuestionResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteSwarmState"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsSwarmFinalizeDesignRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "threads.swarm.finalizeDesign"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteThreadsSwarmFinalizeDesignParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsSwarmFinalizeDesignResponse": {
       "type": "object",
       "properties": {
         "jsonrpc": {
@@ -10402,6 +10481,80 @@
       ],
       "additionalProperties": false
     },
+    "RemoteThreadsPreviewOpenParams": {
+      "type": "object",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "threadID",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsPreviewOpenResult": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsPreviewOpenRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "threads.preview.open"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteThreadsPreviewOpenParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteThreadsPreviewOpenResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteThreadsPreviewOpenResult"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
+      "additionalProperties": false
+    },
     "RemoteGitStatusParams": {
       "type": "object",
       "properties": {
@@ -11142,6 +11295,9 @@
             "$ref": "#/$defs/RemoteThreadsMediaReadRequest"
           },
           {
+            "$ref": "#/$defs/RemoteThreadsPreviewOpenRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteGitStatusRequest"
           },
           {
@@ -11173,6 +11329,9 @@
           },
           {
             "$ref": "#/$defs/RemoteThreadsSwarmClearFinishedRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteThreadsSwarmFinalizeDesignRequest"
           },
           {
             "$ref": "#/$defs/RuntimeQueueEditRequest"
@@ -11612,6 +11771,9 @@
             "$ref": "#/$defs/RemoteThreadsMediaReadResponse"
           },
           {
+            "$ref": "#/$defs/RemoteThreadsPreviewOpenResponse"
+          },
+          {
             "$ref": "#/$defs/RemoteGitStatusResponse"
           },
           {
@@ -11643,6 +11805,9 @@
           },
           {
             "$ref": "#/$defs/RemoteThreadsSwarmResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteThreadsSwarmFinalizeDesignResponse"
           },
           {
             "$ref": "#/$defs/RemoteThreadsSwarmSetBeeTiersResponse"

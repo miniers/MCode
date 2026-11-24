@@ -651,6 +651,9 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 	case "threads.swarm.forwardQuestion", "threads.hydra.forwardQuestion": // 过渡期兼容旧方法名，下个版本移除
 		return d.handleThreadsSwarmForwardQuestion(ctx, env.Params, replySuccess, replyErr, replyWithBackendErr)
 
+	case "threads.swarm.finalizeDesign":
+		return d.handleThreadsSwarmFinalizeDesign(ctx, env.Params, replySuccess, replyErr, replyWithBackendErr)
+
 	case "threads.swarm.mergeDiff", "threads.hydra.mergeDiff": // 过渡期兼容旧方法名，下个版本移除
 		return d.handleThreadsSwarmMergeDiff(ctx, env.Params, replySuccess, replyErr, replyWithBackendErr)
 
@@ -813,6 +816,9 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 
 	case "threads.media.read":
 		return d.handleThreadsMediaRead(ctx, env.Params, replySuccess, replyErr, replyWithBackendErr)
+
+	case "threads.preview.open":
+		return d.handleThreadsPreviewOpen(ctx, env.Params, replySuccess, replyErr, replyWithBackendErr)
 
 	case "projects.list":
 		if !checkEmptyParams(env.Params) {
