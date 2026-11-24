@@ -365,8 +365,8 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 	}
 
-	// 对于不在消息历史中但在 Git 检查点中存在的 turn（例如测试或未记录消息的轮次），
-	// 按 turnID 升序排序作为保底，确保返回顺序确定性
+	// 对于不在消息历史中但在 Git 检查点中存在的 turn（例如未记录消息的轮次），
+	// 按轮次序号排序，序号缺失时退回 turnID 升序，确保返回顺序确定。
 	var remaining []*turnRefPair
 	for tID, tr := range turnMap {
 		if !processed[tID] {
@@ -374,7 +374,17 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 	}
 	if len(remaining) > 0 {
+		indexOf := func(id string) int {
+			if st, ok := storeTurns[id]; ok {
+				return st.TurnIndex
+			}
+			return -1
+		}
 		sort.Slice(remaining, func(i, j int) bool {
+			ii, ij := indexOf(remaining[i].turnID), indexOf(remaining[j].turnID)
+			if ii != ij {
+				return ii < ij
+			}
 			return remaining[i].turnID < remaining[j].turnID
 		})
 		for _, tr := range remaining {
@@ -395,13 +405,32 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 		return tr.endRef
 	}
-	// turnPaths 返回该轮记录的文件集合（相对仓库根目录规范化）；空集合表示历史数据缺失。
-	turnPaths := func(turnID string) []string {
-		st, ok := storeTurns[turnID]
-		if !ok || len(st.TouchedFiles) == 0 {
-			return nil
+	// turnPaths 返回该轮的文件集合（相对仓库根目录规范化）与是否已知。
+	// store 里记录了 TouchedFiles 时直接用；历史数据缺失时，回退到该轮检查点之间的 numstat，
+	// 否则缺失一轮就会让整个区间的路径过滤降级为全库 diff。
+	// 该轮 numstat 为空（这一轮确实没改文件）时返回空集合且 known=true。
+	turnPaths := func(tr *turnRefPair) ([]string, bool) {
+		if st, ok := storeTurns[tr.turnID]; ok && len(st.TouchedFiles) > 0 {
+			return normalizeTouchedFiles(repoRoot, repoRoot, st.TouchedFiles), true
 		}
-		return normalizeTouchedFiles(repoRoot, repoRoot, st.TouchedFiles)
+		start := turnStart(tr)
+		if start == "" {
+			return nil, false
+		}
+		stats, err := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), nil)
+		if err != nil {
+			return nil, false
+		}
+		paths := make([]string, 0, len(stats))
+		for _, st := range stats {
+			if st.Path != "" {
+				paths = append(paths, st.Path)
+			}
+			if st.OldPath != "" {
+				paths = append(paths, st.OldPath)
+			}
+		}
+		return normalizeTouchedFiles(repoRoot, repoRoot, paths), true
 	}
 
 	// 构造 turns 摘要列表（只统计最近 turnMetadataLimit 轮：截断后的轮次不会下发，
@@ -429,7 +458,8 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 
 		hasChanges := false
 		if start := turnStart(tr); start != "" {
-			stats, sErr := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), turnPaths(tr.turnID))
+			paths, _ := turnPaths(tr)
+			stats, sErr := gitRunner.NumStat(ctx, repoRoot, start, turnFinish(tr), paths)
 			if sErr == nil && len(stats) > 0 {
 				hasChanges = true
 			}
@@ -459,6 +489,7 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		diffText     string
 		truncated    bool
 		diffPaths    []string
+		diffFiltered bool // diffPaths 已确定（即使为空集，也不得当成「不过滤」）
 		filesChanged = []string{}
 	)
 
@@ -469,11 +500,12 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		if tr, ok := turnMap[tID]; ok {
 			diffFrom = turnStart(tr)
 			diffTo = turnFinish(tr) // 若该轮没有结束检查点，则与当前工作区比较
+			diffPaths, _ = turnPaths(tr)
 		} else if st, ok := storeTurns[tID]; ok && !takenBack[tID] {
 			diffFrom = st.BaseCheckpoint
 			diffTo = st.FinishCheckpoint
+			diffPaths = normalizeTouchedFiles(repoRoot, repoRoot, st.TouchedFiles)
 		}
-		diffPaths = turnPaths(tID)
 	} else if len(orderedTurns) > 0 {
 		firstIdx := -1
 		for i, tr := range orderedTurns {
@@ -484,39 +516,52 @@ func (b *MemoryBackend) GetDiff(ctx context.Context, params wire.ThreadsGetDiffP
 		}
 		if firstIdx >= 0 {
 			diffFrom = turnStart(orderedTurns[firstIdx])
-			lastEndIdx := -1
+			endIdx := -1
 			for i, tr := range orderedTurns {
 				if end := turnFinish(tr); end != "" {
-					lastEndIdx = i
+					endIdx = i
 					diffTo = end
 				}
 			}
-			endIdx := lastEndIdx
 			if endIdx < firstIdx {
-				// 没有任何轮次记录结束检查点：退回与当前工作区比较。
+				// 没有任何轮次记录结束检查点：只能与当前工作区比较。
 				diffTo = ""
 				endIdx = len(orderedTurns) - 1
+			} else if endIdx < len(orderedTurns)-1 {
+				// 最后结束检查点之后只剩当前进行中的那一轮（其余单边轮次不跨越检查点）：
+				// 补它这一段，与工作区比较，避免把会话区间外的改动算进这个会话。
+				tail := orderedTurns[endIdx+1:]
+				onlyRunning := len(tail) == 1 && runningTurnID != "" && tail[0].turnID == runningTurnID
+				if onlyRunning {
+					endIdx = len(orderedTurns) - 1
+					diffTo = ""
+				}
 			}
-			// 只有区间内所有轮次都有 TouchedFiles 时才按路径过滤；历史数据缺少该字段时
-			// 退回全库 diff，避免旧会话因过滤变成空态。
+			// 区间内每轮的文件集合视为该轮的实际改动范围；仍有一轮无从得知时
+			// 才退回全库 diff，避免旧会话因过滤变成空态。
 			complete := true
 			var union []string
 			for _, tr := range orderedTurns[firstIdx : endIdx+1] {
-				paths := turnPaths(tr.turnID)
-				if len(paths) == 0 {
+				paths, known := turnPaths(tr)
+				if !known {
 					complete = false
 					break
 				}
 				union = append(union, paths...)
 			}
 			if complete {
+				// union 为空表示区间内没有任何轮次改过文件：结果就是空集，
+				// 不能退回全库 diff（否则会把会话外的改动算进来）。
 				diffPaths = normalizeTouchedFiles(repoRoot, repoRoot, union)
+				diffFiltered = true
 			}
 		}
 	}
 
 	additions, deletions := 0, 0
-	if diffFrom != "" {
+	if diffFrom != "" && diffFiltered && len(diffPaths) == 0 {
+		// 路径集合已确定为空：这一范围内没有本会话改动的文件。
+	} else if diffFrom != "" {
 		if !params.StatOnly {
 			dt, trunc, dErr := gitRunner.DiffText(ctx, repoRoot, diffFrom, diffTo, diffPaths, maxDiffBytes)
 			if dErr != nil {

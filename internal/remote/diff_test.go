@@ -636,3 +636,256 @@ func TestMemoryBackend_GetDiffStatOnlyNumStatError(t *testing.T) {
 		t.Fatalf("expected FailureReason with prefix %q, got %v", "git numstat failed: ", res.FailureReason)
 	}
 }
+
+// TestMemoryBackend_GetDiffSessionRangeIgnoresOutOfSessionEdits 验证会话整体区间不吞入区间外的改动：
+// 已完成轮次之后用户手改的文件，即使末轮仍在进行，也不得计入会话统计。
+func TestMemoryBackend_GetDiffSessionRangeIgnoresOutOfSessionEdits(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	if err := os.WriteFile(filepath.Join(repoDir, "base.txt"), []byte("baseline\n"), 0644); err != nil {
+		t.Fatalf("write base.txt: %v", err)
+	}
+	runGit("add", "base.txt")
+	runGit("commit", "-m", "initial commit")
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "turns.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	ctx := context.Background()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+	backend.SetGitRunner(git.NewRunner(gitBin, 2))
+
+	var turnIDs []string
+	mock := &mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		turnIDs = append(turnIDs, turn.ID)
+		sessionPath := filepath.Join(turn.WorkDir, fmt.Sprintf("session-%d.txt", len(turnIDs)))
+		if err := os.WriteFile(sessionPath, []byte("session change\n"), 0644); err != nil {
+			return err
+		}
+		input, err := json.Marshal(map[string]string{"file_path": sessionPath})
+		if err != nil {
+			return err
+		}
+		emit(harness.Event{Type: harness.EventToolStart, ToolID: "call-1", ToolName: "Write", Input: input})
+		emit(harness.Event{Type: harness.EventDone})
+		return nil
+	}}
+	backend.SetHarness(mock, repoDir, harness.ModeAgent)
+
+	projID := newUUID()
+	backend.AddProject(wire.ProjectSummary{ID: projID, Name: "session-range", Path: repoDir})
+	thread, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: projID})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: thread.ThreadID, Text: "edit"}); err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+		waitThreadIdle(t, backend, ctx, thread.ThreadID)
+	}
+
+	// 两轮都已完成后，用户手改一个从未被工具触碰的文件。
+	if err := os.WriteFile(filepath.Join(repoDir, "manual-after.txt"), []byte("manual\n"), 0644); err != nil {
+		t.Fatalf("write manual-after.txt: %v", err)
+	}
+
+	res, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: thread.ThreadID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("GetDiff statOnly: %v", err)
+	}
+	if res.FailureReason != nil {
+		t.Fatalf("unexpected failure reason: %s", *res.FailureReason)
+	}
+	for _, name := range res.FilesChanged {
+		if name == "manual-after.txt" {
+			t.Fatalf("会话区间外的改动不应计入统计: %v", res.FilesChanged)
+		}
+	}
+	if len(res.FilesChanged) != 2 {
+		t.Fatalf("expected 2 session files, got %v", res.FilesChanged)
+	}
+}
+
+// TestMemoryBackend_GetDiffFallsBackToTurnNumStat 验证 TouchedFiles 缺失时按该轮检查点的 numstat 补文件集合：
+// 轮次之外的并发改动（包括轮次之间用户手改的文件）不得计入会话统计。
+func TestMemoryBackend_GetDiffFallsBackToTurnNumStat(t *testing.T) {
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git 可执行文件在 PATH 中未找到，跳过测试")
+	}
+
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = repoDir
+		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v: %s", strings.Join(args, " "), err, string(out))
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init")
+	runGit("config", "user.name", "test-user")
+	runGit("config", "user.email", "test@localhost")
+	if err := os.WriteFile(filepath.Join(repoDir, "base.txt"), []byte("baseline\n"), 0644); err != nil {
+		t.Fatalf("write base.txt: %v", err)
+	}
+	runGit("add", "base.txt")
+	runGit("commit", "-m", "initial commit")
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "turns.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	ctx := context.Background()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+	backend.SetGitRunner(git.NewRunner(gitBin, 2))
+
+	var turnIDs []string
+	mock := &mockHarness{runFunc: func(ctx context.Context, turn harness.Turn, emit func(harness.Event)) error {
+		turnIDs = append(turnIDs, turn.ID)
+		sessionPath := filepath.Join(turn.WorkDir, fmt.Sprintf("session-%d.txt", len(turnIDs)))
+		if err := os.WriteFile(sessionPath, []byte("session change\n"), 0644); err != nil {
+			return err
+		}
+		input, err := json.Marshal(map[string]string{"file_path": sessionPath})
+		if err != nil {
+			return err
+		}
+		emit(harness.Event{Type: harness.EventToolStart, ToolID: "call-1", ToolName: "Write", Input: input})
+		emit(harness.Event{Type: harness.EventDone})
+		return nil
+	}}
+	backend.SetHarness(mock, repoDir, harness.ModeAgent)
+
+	projID := newUUID()
+	backend.AddProject(wire.ProjectSummary{ID: projID, Name: "numstat-fallback", Path: repoDir})
+	thread, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: projID})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: thread.ThreadID, Text: "edit"}); err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+		waitThreadIdle(t, backend, ctx, thread.ThreadID)
+		if i == 0 {
+			// 第一轮结束后、第二轮开始前用户手改的文件，不属于任何轮次。
+			if err := os.WriteFile(filepath.Join(repoDir, "between-turns.txt"), []byte("manual\n"), 0644); err != nil {
+				t.Fatalf("write between-turns.txt: %v", err)
+			}
+		}
+	}
+
+	// 模拟历史会话：两轮的 TouchedFiles 都没有落库。
+	for _, id := range turnIDs {
+		rec, err := st.GetTurn(ctx, id)
+		if err != nil {
+			t.Fatalf("GetTurn: %v", err)
+		}
+		rec.TouchedFiles = nil
+		if err := st.UpdateTurn(ctx, rec); err != nil {
+			t.Fatalf("UpdateTurn: %v", err)
+		}
+	}
+
+	res, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: thread.ThreadID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("GetDiff statOnly: %v", err)
+	}
+	if res.FailureReason != nil {
+		t.Fatalf("unexpected failure reason: %s", *res.FailureReason)
+	}
+	want := []string{"session-1.txt", "session-2.txt"}
+	if strings.Join(res.FilesChanged, "|") != strings.Join(want, "|") {
+		t.Fatalf("expected filesChanged=%v, got %v", want, res.FilesChanged)
+	}
+}
+
+// TestMemoryBackend_GetDiffZeroChangeTurnKeepsPathFilter 验证没有改文件的轮次不被当成「无从得知」：
+// 它只是空集合，不能让整个会话的统计退回全库 diff、吞入会话外的改动。
+func TestMemoryBackend_GetDiffZeroChangeTurnKeepsPathFilter(t *testing.T) {
+	backend, st, runner, repoDir := newRevertTestEnv(t)
+	ctx := context.Background()
+
+	res, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread: %v", err)
+	}
+	thID := res.ThreadID
+
+	const idleTurn = "idle-turn"
+	const editTurn = "edit-turn"
+
+	// 第 1 轮：什么都没改。
+	start1 := checkpoint(t, runner, repoDir, thID, idleTurn, "start")
+	end1 := checkpoint(t, runner, repoDir, thID, idleTurn, "end")
+
+	// 第 2 轮：写 session.txt。
+	start2 := checkpoint(t, runner, repoDir, thID, editTurn, "start")
+	writeRepoFile(t, repoDir, "session.txt", "session change\n")
+	end2 := checkpoint(t, runner, repoDir, thID, editTurn, "end")
+
+	now := time.Now().UTC()
+	for i, turn := range []struct{ id, base, finish string }{
+		{idleTurn, start1, end1},
+		{editTurn, start2, end2},
+	} {
+		if err := st.CreateTurn(ctx, store.Turn{
+			ID: turn.id, ThreadID: thID, TurnIndex: i, Status: "completed", StartedAt: now,
+			BaseCheckpoint: turn.base, FinishCheckpoint: turn.finish, UserPrompt: "u",
+		}); err != nil {
+			t.Fatalf("CreateTurn %s: %v", turn.id, err)
+		}
+	}
+
+	// 用户自己的改动，不属于本会话。
+	writeRepoFile(t, repoDir, "manual.txt", "manual\n")
+
+	got, err := backend.GetDiff(ctx, wire.ThreadsGetDiffParams{ThreadID: thID, StatOnly: true})
+	if err != nil {
+		t.Fatalf("GetDiff statOnly: %v", err)
+	}
+	if got.FailureReason != nil {
+		t.Fatalf("unexpected failure reason: %s", *got.FailureReason)
+	}
+	if len(got.FilesChanged) != 1 || got.FilesChanged[0] != "session.txt" {
+		t.Fatalf("expected filesChanged=[session.txt], got %v", got.FilesChanged)
+	}
+}
