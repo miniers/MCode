@@ -149,6 +149,7 @@ func ProviderWireToUI(p wire.Provider) mcodeui.ProviderInfo {
 		ID:                p.ID,
 		Name:              p.Name,
 		Available:         p.Available,
+		ACP:               p.ACP,
 		UnavailableReason: derefString(p.UnavailableReason),
 		Models:            models,
 	}

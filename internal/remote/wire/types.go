@@ -891,6 +891,10 @@ type Provider struct {
 	// Enabled 表示该 provider 在桌面设置里是否启用：nil 表示启用，false 表示桌面设置中已关闭
 	// （选择器默认隐藏，但仍可用于解析名称和已有会话）。
 	Enabled *bool `json:"enabled,omitempty"`
+	// ACP 表示该 provider 是 ACP agent（内置 droid/cursor/opencode 等与 providers.acp
+	// 里注册的自定义 id）。ACP 的 usage_update.cost 是整次会话的累计花费（见 ACP 规范
+	// "Session Context Size and Cost"），客户端只能后帧替换前帧，不能逐轮相加。
+	ACP bool `json:"acp,omitempty"`
 }
 
 // SwarmTierOverride 描述针对特定档位的配对级覆盖配置

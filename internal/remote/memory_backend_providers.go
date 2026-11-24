@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"mcode/internal/config"
 	"mcode/internal/harness"
+	"mcode/internal/providers/acp"
 	"mcode/internal/remote/wire"
 	"mcode/internal/startuptrace"
 	"strings"
@@ -395,6 +396,25 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 	}, nil
 }
 
+// providerIsACP 判断 provider 是否按 ACP 协议通信：ACP harness 都实现 ProbeModels，
+// 内置 droid 与配置里注册的自定义 agent 共用这条判定。没有 harness（未安装）时按内置
+// agent 名单判断，避免未启动的 ACP provider 被当成逐轮增量计费。
+func providerIsACP(id string, h harness.Harness) bool {
+	if h != nil {
+		if _, ok := h.(interface {
+			ProbeModels(context.Context) ([]acp.ProbedModel, error)
+		}); ok {
+			return true
+		}
+	}
+	for _, a := range acp.Agents() {
+		if string(a) == id {
+			return true
+		}
+	}
+	return false
+}
+
 // ListProviders 列出已注册的所有 Provider。
 func (b *MemoryBackend) ListProviders(ctx context.Context) (wire.ProvidersListResult, error) {
 	kinds := b.Providers()
@@ -512,6 +532,7 @@ func (b *MemoryBackend) ListProviders(ctx context.Context) (wire.ProvidersListRe
 			Available:         available,
 			UnavailableReason: unavailableReason,
 			Enabled:           enabledFlag,
+			ACP:               providerIsACP(k, harnesses[k]),
 		})
 	}
 

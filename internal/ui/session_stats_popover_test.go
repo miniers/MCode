@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -276,6 +277,149 @@ func TestSessionStatsLiveRequiresSelectedRunningThread(t *testing.T) {
 				t.Fatalf("非实时不应安排刷新: %d -> %d", before, renders)
 			}
 		})
+	}
+}
+
+// TestSessionStatsCostSumsReportedTurns 验证上报金额的累加方式随 provider 语义变化：
+// pi/omp 报的是本轮增量，逐轮相加；ACP 家族与 claude 报的是整次会话累计，
+// 只取最后一轮的值，相加会把同一个递增数字重复计费。一轮都没上报时才退回目录参考价估算。
+func TestSessionStatsCostSumsReportedTurns(t *testing.T) {
+	providers := []ProviderInfo{{ID: "omp", Models: []ModelInfo{{
+		ID:   "m",
+		Cost: &ModelCost{Input: 1000, Output: 1000},
+	}}}, {ID: "maki", ACP: true}}
+	usage := ThreadUsage{
+		Total: TokenUsage{Input: 1_000_000, Output: 0},
+		Turns: map[int]TokenUsage{
+			0: {Input: 500_000, CostUSD: 0.25},
+			1: {Input: 500_000, CostUSD: 0.75},
+		},
+	}
+	got, reported, ok := sessionStatsCost(usage, providers, "omp", "m")
+	if !ok || !reported || math.Abs(got-1.0) > 1e-9 {
+		t.Fatalf("逐轮增量语义应等于各轮之和 1.0，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+
+	cumulative := ThreadUsage{
+		Total: TokenUsage{Input: 1_000_000, Output: 0},
+		Turns: map[int]TokenUsage{
+			0: {CostUSD: 0.7266606},
+			1: {CostUSD: 0.7423316},
+			2: {CostUSD: 7.8463124},
+		},
+	}
+	got, reported, ok = sessionStatsCost(cumulative, providers, "maki", "m")
+	if !ok || !reported || math.Abs(got-7.8463124) > 1e-9 {
+		t.Fatalf("会话累计语义应取最后一轮 7.8463124，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+	if got, _, _ := sessionStatsCost(cumulative, providers, "claude", "m"); math.Abs(got-7.8463124) > 1e-9 {
+		t.Fatalf("claude 的 total_cost_usd 同样是会话累计，得到 %v", got)
+	}
+	if got, reported, ok := sessionStatsCost(cumulative, providers, "cursor", "m"); !ok || !reported || math.Abs(got-9.3153046) > 1e-9 {
+		t.Fatalf("provider 表里未标记 ACP 时应按逐轮增量求和，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+
+	usage.Turns = map[int]TokenUsage{0: {Input: 500_000}, 1: {Input: 500_000}}
+	got, reported, ok = sessionStatsCost(usage, providers, "omp", "m")
+	if !ok || reported || math.Abs(got-1000) > 1e-9 {
+		t.Fatalf("无上报时按目录价估算应为 1000，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+
+	usage.Turns = nil
+	usage.Total = TokenUsage{}
+	if _, _, ok := sessionStatsCost(usage, nil, "", ""); ok {
+		t.Fatal("既无上报金额也无用量时不应显示花费")
+	}
+}
+
+// TestSessionStatsCostLatestIgnoresMapOrder 验证累计语义取轮次索引最大的那一轮，
+// 与 map 迭代顺序无关；末尾轮次没有金额时回退到更早有金额的轮次。
+func TestSessionStatsCostLatestIgnoresMapOrder(t *testing.T) {
+	providers := []ProviderInfo{{ID: "maki", ACP: true}}
+	usage := ThreadUsage{
+		Turns: map[int]TokenUsage{
+			9:  {CostUSD: 3.0},
+			2:  {CostUSD: 1.0},
+			11: {},
+			5:  {CostUSD: 2.0},
+		},
+	}
+	got, reported, ok := sessionStatsCost(usage, providers, "maki", "")
+	if !ok || !reported || math.Abs(got-3.0) > 1e-9 {
+		t.Fatalf("ACP provider 应取索引 9 的 3.0，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+	if got, _, _ := sessionStatsCost(usage, nil, "pi", ""); math.Abs(got-6.0) > 1e-9 {
+		t.Fatalf("逐轮增量语义应求和 6.0，得到 %v", got)
+	}
+}
+
+// TestSessionStatsCostRowRendered 验证累计花费在有上报金额时出现在统计卡片里。
+func TestSessionStatsCostRowRendered(t *testing.T) {
+	s := &chatState{
+		selectedThreadID: "t1",
+		threads:          []Thread{{ID: "t1", Provider: "omp"}},
+		threadUsage: ThreadUsage{
+			Turns: map[int]TokenUsage{0: {Input: 10, CostUSD: 1.5}},
+			Total: TokenUsage{Input: 10},
+		},
+	}
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSessionStatsPopover(c, s, "t1", "stats", true)
+	}, 330, 400)
+	if !hasExactText(tt, "累计花费") || !hasExactText(tt, "$1.50") {
+		t.Fatalf("应显示累计花费行: %v", tt.Texts())
+	}
+}
+
+// TestSessionStatsCostIncludesBees 验证 bee 会话的花费并入累计花费：bee 是独立会话，
+// 主会话上报的累计值不含它们，统计必须自己加总。
+func TestSessionStatsCostIncludesBees(t *testing.T) {
+	s := &chatState{
+		selectedThreadID: "t1",
+		threads:          []Thread{{ID: "t1", Provider: "omp"}},
+		threadUsage: ThreadUsage{
+			Turns: map[int]TokenUsage{0: {Input: 10, CostUSD: 1.5}},
+			Total: TokenUsage{Input: 10},
+		},
+	}
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.setStateLocked(SwarmState{Bees: []SwarmBee{
+		{ThreadID: "b1", Tokens: 100, CostUSD: 2.25},
+		{ThreadID: "b2", Tokens: 50, CostUSD: 0.75},
+	}})
+	swarmPanelMu.Unlock()
+
+	st := collectSessionStats(s, "t1", time.Time{})
+	if !st.hasCost || math.Abs(st.costUSD-4.5) > 1e-9 {
+		t.Fatalf("累计花费应为 1.5 + 2.25 + 0.75 = 4.5，得到 %v (hasCost=%v)", st.costUSD, st.hasCost)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderSessionStatsPopover(c, s, "t1", "stats", true)
+	}, 330, 500)
+	if !hasExactText(tt, "$4.50") || !hasExactText(tt, "含子代理累计花费") {
+		t.Fatalf("卡片应显示含子代理的累计花费: %v", tt.Texts())
+	}
+	if !hasExactText(tt, "$3.00") {
+		t.Fatalf("子代理分组应显示自身累计花费 2.25 + 0.75: %v", tt.Texts())
+	}
+}
+
+// TestSessionStatsCostBeesOnly 验证主会话没有上报金额、只有 bee 上报时仍显示累计花费。
+func TestSessionStatsCostBeesOnly(t *testing.T) {
+	s := &chatState{
+		selectedThreadID: "t1",
+		threads:          []Thread{{ID: "t1", Provider: "pi"}},
+	}
+	hp := getSwarmPanelState(s)
+	swarmPanelMu.Lock()
+	hp.setStateLocked(SwarmState{Bees: []SwarmBee{{ThreadID: "b1", CostUSD: 3.0}}})
+	swarmPanelMu.Unlock()
+
+	st := collectSessionStats(s, "t1", time.Time{})
+	if !st.hasCost || !st.costReported || math.Abs(st.costUSD-3.0) > 1e-9 {
+		t.Fatalf("只有 bee 上报时应显示 3.0，得到 %v (hasCost=%v reported=%v)", st.costUSD, st.hasCost, st.costReported)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"mcode/internal/config"
+	"mcode/internal/harness"
+	"mcode/internal/providers/acp"
 	"mcode/internal/swarm"
 	mcodeui "mcode/internal/ui"
 )
@@ -181,14 +183,17 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 			if cached, ok := c.cachedSwarmBeeProgress(h.ThreadID); ok {
 				h.Provider, h.Model, h.Activity = cached.provider, cached.model, cached.activity
 				h.Tokens, h.ToolCalls = cached.tokens, cached.toolCalls
+				h.CostUSD = cached.costUSD
 				continue
 			}
 		}
 		// 查询失败时保留已有字段值，并且不把降级结果写进缓存。
-		progress := swarmBeeProgress{provider: h.Provider, model: h.Model, activity: h.Activity, tokens: h.Tokens, toolCalls: h.ToolCalls}
+		progress := swarmBeeProgress{provider: h.Provider, model: h.Model, activity: h.Activity, tokens: h.Tokens, toolCalls: h.ToolCalls, costUSD: h.CostUSD}
 		cacheable := true
+		provider := h.Provider
 		if thread, err := c.backend.GetThread(ctx, h.ThreadID); err == nil {
 			progress.provider = thread.Provider
+			provider = thread.Provider
 			if thread.Model != nil {
 				progress.model = *thread.Model
 			}
@@ -200,8 +205,9 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 		}
 		// 用量与工具计数共用一次历史遍历：Usage 内部还会再拉一遍历史，逐 bee 调用会让
 		// 查询次数翻倍。
-		if _, total, err := c.backend.ThreadUsage(ctx, h.ThreadID); err == nil {
+		if turns, total, err := c.backend.ThreadUsage(ctx, h.ThreadID); err == nil {
 			progress.tokens = int(total.InputTokens + total.OutputTokens)
+			progress.costUSD = beeSessionCost(turns, provider)
 		} else {
 			cacheable = false
 		}
@@ -219,7 +225,7 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 			cacheable = false
 		}
 		h.Provider, h.Model, h.Activity = progress.provider, progress.model, progress.activity
-		h.Tokens, h.ToolCalls = progress.tokens, progress.toolCalls
+		h.Tokens, h.ToolCalls, h.CostUSD = progress.tokens, progress.toolCalls, progress.costUSD
 		if running {
 			h.PendingQuestion = c.pendingBeeQuestion(ctx, h.ThreadID)
 			continue
@@ -231,6 +237,37 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 	// 实时活动文本会覆盖「思考中」提示，最后按无进展时长补回。
 	applySwarmThinking(st.Bees, result.Bees)
 	return result
+}
+
+// beeSessionCost 算一个 bee 会话的花费（美元）。bee 会话与主会话一样受 provider 上报语义约束：
+// ACP agent 与 claude 报整次会话累计，取轮次索引最大的一轮；其余逐轮求和。
+// 没有任何上报时返回 0（bee 会话通常没有模型目录价格，不做估算）。
+func beeSessionCost(turns map[int]harness.Usage, provider string) float64 {
+	cumulative := provider == "claude"
+	if !cumulative {
+		for _, a := range acp.Agents() {
+			if string(a) == provider {
+				cumulative = true
+				break
+			}
+		}
+	}
+	latestIndex := -1
+	latest := 0.0
+	sum := 0.0
+	for index, u := range turns {
+		if u.CostUSD <= 0 {
+			continue
+		}
+		sum += u.CostUSD
+		if index > latestIndex {
+			latestIndex, latest = index, u.CostUSD
+		}
+	}
+	if cumulative {
+		return latest
+	}
+	return sum
 }
 
 // cachedSwarmBeeProgress 读取已结束 bee 的进度缓存；未命中时返回 false，由调用方重新查询。

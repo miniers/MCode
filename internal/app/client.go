@@ -193,6 +193,7 @@ type swarmBeeProgress struct {
 	activity  string
 	tokens    int
 	toolCalls int
+	costUSD   float64
 }
 
 // SetMCPOAuth 设置 MCP OAuth 管理器。
