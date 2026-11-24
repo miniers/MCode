@@ -319,7 +319,7 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 	for _, test := range []struct {
 		key   string
 		count int
-	}{{"设置卡片 theme-section-canvas", 5}, {"设置卡片 theme-fonts", 6}} {
+	}{{"设置卡片 theme-section-canvas", 6}, {"设置卡片 theme-fonts", 6}} {
 		rect, ok := tt.Find(test.key)
 		if !ok {
 			t.Fatalf("缺少卡片 %s", test.key)
@@ -334,7 +334,7 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 func TestUIReview14_ThemeSheetA11yAndResetPlaceholder(t *testing.T) {
 	st, tt := newThemesTester(t)
 
-	colorTitles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "主文字", "次要文字", "辅助文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
+	colorTitles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "代码底色", "主文字", "次要文字", "辅助文字", "代码文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
 	fontTitles := []string{"侧栏", "对话", "界面", "代码", "终端", "编辑器"}
 
 	beforeColorRect, ok := tt.Find("编辑强调色")

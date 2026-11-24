@@ -133,8 +133,8 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 	page := themesPage(st, c)
 	id := page.editingID
 	palette := resolvePalette(st.cfg.Appearance, id)
-	colors := []ui.Color{palette.Canvas, palette.Main, palette.Card, palette.Raised, palette.Popover, palette.Text, palette.TextSecondary, palette.TextTertiary, palette.Accent, palette.Danger, palette.Warning, palette.Success, palette.Caution, palette.Plan, palette.Border, palette.Divider}
-	titles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "主文字", "次要文字", "辅助文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
+	colors := []ui.Color{palette.Canvas, palette.Main, palette.Card, palette.Raised, palette.Popover, palette.CodeBackground, palette.Text, palette.TextSecondary, palette.TextTertiary, palette.CodeText, palette.Accent, palette.Danger, palette.Warning, palette.Success, palette.Caution, palette.Plan, palette.Border, palette.Divider}
+	titles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "代码底色", "主文字", "次要文字", "辅助文字", "代码文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
 	ui.Column(c.Key("themes-editor")).FillWidth().Gap(settingsSectionGap).Children(func() {
 		renderThemeTiles(c, st, page)
 		if !config.IsBuiltinTheme(id) {
@@ -143,7 +143,7 @@ func renderThemesSheet(c *ui.Context, st *SettingsState) {
 		sections := []struct {
 			title      string
 			start, end int
-		}{{"强调", 8, 9}, {"背景", 0, 5}, {"文字", 5, 8}, {"状态与线条", 9, 16}}
+		}{{"强调", 10, 11}, {"背景", 0, 6}, {"文字", 6, 10}, {"状态与线条", 11, 18}}
 		for _, section := range sections {
 			renderSettingsSection(c, "theme-section-"+config.ThemeColorKeys[section.start], section.title, func() {
 				for i := section.start; i < section.end; i++ {
@@ -313,7 +313,7 @@ func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, i
 
 func renderThemeReset(c *ui.Context, key, title string, changed bool, reset func()) {
 	if !changed {
-		ui.Box(c.Key(key + "-spacer")).Size(Space6, Space6).Shrink(0)
+		ui.Box(c.Key(key+"-spacer")).Size(Space6, Space6).Shrink(0)
 		return
 	}
 	IconButton(c, IconButtonProps{Key: key, Icon: IconRefreshCw(), Label: "还原" + title, Tooltip: "还原", Size: Space6, Variant: ButtonGhost, OnClick: reset}).Transition(themeFeedbackFade(c))
