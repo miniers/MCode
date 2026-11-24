@@ -727,3 +727,46 @@ func TestDesignTierLegacySystemPromptUpgraded(t *testing.T) {
 		t.Errorf("designTierSystemPrompt 应包含「大白话」，got=%q", designTierSystemPrompt)
 	}
 }
+
+func TestDesignTierPreviousTextsUpgraded(t *testing.T) {
+	const (
+		prevDesc   = "UI 方案与可交互 HTML 设计稿：出稿前向用户提问确认细节，用户在预览里标注改稿，不改业务代码"
+		prevPrompt = "你负责 UI 设计稿，按 design-mockup 技能做。先读项目的设计 token 和相关界面代码。需要用户拍板时按技能里的提问规则问：问题和选项用大白话，只写用户能看到的结果，不用术语；要看图才好选的，先在设计稿里并排画出 A、B、C 几版再问选哪一版。设计稿写成可交互的 HTML，放在 .mcode/design/<主题>.html，只用项目真实的 token，不画 ASCII 线稿，不引用外链和远程字体。写完调用 preview_open 打开。用户在预览里标注或写意见后会发消息给你：有拿不准的先问清楚再改，改完再次调用 preview_open 刷新。只写 .mcode/design/ 下的文件，不改业务代码、配置和测试，不执行 git 命令。汇报时给出设计稿路径，以及需要主代理落地时注意的取舍。"
+	)
+
+	cfg := Defaults()
+	cfg.Orchestration.Tiers = DefaultSwarmTiers()
+	found := false
+	for i := range cfg.Orchestration.Tiers {
+		if cfg.Orchestration.Tiers[i].ID == "design" {
+			cfg.Orchestration.Tiers[i].Description = prevDesc
+			cfg.Orchestration.Tiers[i].SystemPrompt = prevPrompt
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("DefaultSwarmTiers 应包含 design 档位")
+	}
+
+	norm := Normalize(cfg)
+	var got *SwarmTier
+	for i := range norm.Orchestration.Tiers {
+		if norm.Orchestration.Tiers[i].ID == "design" {
+			got = &norm.Orchestration.Tiers[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatal("Normalize 后应包含 design 档位")
+	}
+	if got.Description != designTierDescription {
+		t.Errorf("design 档旧说明未升级：got=%q want=%q", got.Description, designTierDescription)
+	}
+	if got.SystemPrompt != designTierSystemPrompt {
+		t.Errorf("design 档旧提示词未升级：got=%q want=%q", got.SystemPrompt, designTierSystemPrompt)
+	}
+	if !strings.Contains(designTierSystemPrompt, "结束本轮") {
+		t.Errorf("designTierSystemPrompt 应包含「结束本轮」，got=%q", designTierSystemPrompt)
+	}
+}
