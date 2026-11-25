@@ -91,3 +91,46 @@ func TestLogRefs(t *testing.T) {
 		}
 	}
 }
+
+func TestLogAllExcludesMcodeRefs(t *testing.T) {
+	t.Parallel()
+	r, dir := setupTestRepo(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(dir, "main.txt"), []byte("main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGitOutput(t, r, dir, "add", "main.txt")
+	runGitOutput(t, r, dir, "commit", "-qm", "main commit")
+
+	mcodeSHA := strings.TrimSpace(runGitOutput(t, r, dir, "commit-tree", emptyTree, "-m", "turn x start"))
+	runGitOutput(t, r, dir, "update-ref", "refs/mcode/checkpoints/t/x/start", mcodeSHA)
+
+	runGitOutput(t, r, dir, "checkout", "-qb", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGitOutput(t, r, dir, "add", "feature.txt")
+	runGitOutput(t, r, dir, "commit", "-qm", "feature commit")
+	featureSHA := strings.TrimSpace(runGitOutput(t, r, dir, "rev-parse", "HEAD"))
+	runGitOutput(t, r, dir, "checkout", "-q", "-")
+
+	commits, err := r.Log(ctx, dir, LogOptions{All: true})
+	if err != nil {
+		t.Fatalf("Log All: %v", err)
+	}
+	var gotFeature, gotMcode bool
+	for _, c := range commits {
+		if c.SHA == featureSHA {
+			gotFeature = true
+		}
+		if c.SHA == mcodeSHA || c.Subject == "turn x start" {
+			gotMcode = true
+		}
+	}
+	if !gotFeature {
+		t.Fatalf("Log All 缺少 feature 提交 %s: %+v", featureSHA, commits)
+	}
+	if gotMcode {
+		t.Fatalf("Log All 不应包含 refs/mcode 提交 %s: %+v", mcodeSHA, commits)
+	}
+}

@@ -107,7 +107,8 @@ func (r *Runner) Log(ctx context.Context, root string, opts LogOptions) ([]LogCo
 	}
 	rangeArgs := []string{ref}
 	if opts.All {
-		rangeArgs = []string{"--all"}
+		// refs/mcode 下是检查点和 swarm 内部引用，不属于用户历史。
+		rangeArgs = []string{"--exclude=refs/mcode/*", "--all"}
 	}
 	// 空仓库仅在 HEAD 不存在时返回空结果；其他无效引用仍报告错误。
 	if !opts.All && opts.Ref == "" {
