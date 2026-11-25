@@ -522,6 +522,65 @@ func (s *chatState) interruptTaskToTodo(task KanbanTask) {
 	}()
 }
 
+// cancelKanbanTask 取消指定任务（流转为 cancelled），更新本地状态并刷新看板。
+func (s *chatState) cancelKanbanTask(taskID string, revision int) {
+	if s == nil || s.client == nil || taskID == "" {
+		return
+	}
+	ks := getKanbanState(s)
+	if ks == nil {
+		return
+	}
+	if !beginKanbanTask(ks, taskID) {
+		return
+	}
+	s.invalidate()
+	go func() {
+		defer func() { endKanbanTask(ks, taskID); s.invalidate() }()
+		updated, err := s.client.MoveTask(context.Background(), taskID, "cancelled", revision)
+		if err != nil {
+			if errors.Is(err, ErrRevisionConflict) {
+				kanbanMu.Lock()
+				ks.conflict = true
+				if ks.detailTaskID == taskID {
+					ks.detailConflict = true
+				}
+				kanbanMu.Unlock()
+			} else {
+				s.setToast("取消任务失败: " + err.Error())
+			}
+			s.refreshKanban()
+			s.invalidate()
+			return
+		}
+		kanbanMu.Lock()
+		for i := range ks.board.Tasks {
+			if ks.board.Tasks[i].ID == taskID {
+				ks.board.Tasks[i] = updated
+				break
+			}
+		}
+		kanbanMu.Unlock()
+		s.mu.Lock()
+		if s.stewardTask.ID == taskID {
+			s.stewardTask.Status = updated.Status
+			s.stewardTask.Column = updated.Column
+			s.stewardTask.Revision = updated.Revision
+			if s.stewardTaskCancelID == taskID {
+				s.stewardTaskCancelID = ""
+			}
+		}
+		for i := range s.stewardBoard.tasks {
+			if s.stewardBoard.tasks[i].ID == taskID {
+				s.stewardBoard.tasks[i] = updated
+				break
+			}
+		}
+		s.mu.Unlock()
+		s.refreshKanban()
+	}()
+}
+
 // moveTask 移动任务到指定状态。
 func (s *chatState) moveTask(taskID, status string, revision int) {
 	if s == nil || s.client == nil {

@@ -84,6 +84,10 @@ func kanbanActions(task KanbanTask, busy bool) kanbanTaskActions {
 	return actions
 }
 
+func kanbanTaskCanCancel(status string) bool {
+	return status != string(kanban.TaskStatusCancelled) && kanban.CanTransition(kanban.TaskStatus(status), kanban.TaskStatusCancelled)
+}
+
 func (s *chatState) performKanbanTarget(task KanbanTask, target string) {
 	ks := getKanbanState(s)
 	switch kanbanActions(task, kanbanTaskBusy(ks, task.ID)).targets[target] {

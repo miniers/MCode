@@ -305,6 +305,7 @@ type chatState struct {
 	timelineLoadErrors    map[string]string
 	stewardTaskThreadID   string
 	stewardTask           stewardTaskSnapshot
+	stewardTaskCancelID   string
 	stewardTaskWatchStop  func()
 	stewardTaskLoadSeq    uint64
 	// beeBusyFrame 非 nil 时表示 renderSidebar 本帧已算好的「名下还有子代理在跑的主会话 ID」集合，

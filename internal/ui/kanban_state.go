@@ -89,6 +89,7 @@ type kanbanState struct {
 	detailGoalID            string
 	detailMoreOpen          bool
 	detailDeleteOpen        bool
+	detailCancelOpen        bool
 	detailEditField         string
 	detailEditTaskID        string
 	detailEditTitle         string

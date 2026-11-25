@@ -23,6 +23,7 @@ type stewardTaskSnapshot struct {
 	ID            string
 	Status        string
 	Column        string
+	Revision      int
 	ResultSummary string
 	WaitKind      string
 	WakeAt        string
@@ -92,9 +93,14 @@ func openStewardTask(s *chatState, result stewardResult) {
 		return
 	}
 	markStewardTaskSeenByID(s, result.Task)
+	var revision int
+	if live, ok := s.stewardBoardTaskByID(result.Task); ok {
+		revision = live.Revision
+	}
 	s.mu.Lock()
 	s.stewardTaskThreadID = result.Thread
-	s.stewardTask = stewardTaskSnapshot{ID: result.Task, Status: result.Status, ResultSummary: result.Summary}
+	s.stewardTask = stewardTaskSnapshot{ID: result.Task, Status: result.Status, Revision: revision, ResultSummary: result.Summary}
+	s.stewardTaskCancelID = ""
 	s.mu.Unlock()
 	s.selectThread(result.Thread)
 }
@@ -102,6 +108,7 @@ func openStewardTask(s *chatState, result stewardResult) {
 // stopStewardTaskWatchLocked 调用方必须持有 s.mu。
 func stopStewardTaskWatchLocked(s *chatState) {
 	s.stewardTaskLoadSeq++
+	s.stewardTaskCancelID = ""
 	if s.stewardTaskWatchStop != nil {
 		s.stewardTaskWatchStop()
 		s.stewardTaskWatchStop = nil
@@ -135,11 +142,15 @@ func loadStewardTaskForThread(s *chatState, threadID string) {
 			s.mu.Lock()
 			started := false
 			if !s.closed && s.selectedThreadID == threadID && s.stewardTaskLoadSeq == seq {
+				if s.stewardTask.ID != task.ID {
+					s.stewardTaskCancelID = ""
+				}
 				s.stewardTaskThreadID = threadID
 				s.stewardTask = stewardTaskSnapshot{
 					ID:            task.ID,
 					Status:        task.Status,
 					Column:        task.Column,
+					Revision:      task.Revision,
 					ResultSummary: task.ResultSummary,
 					WaitKind:      task.WaitKind,
 					WakeAt:        task.WakeAt,
@@ -168,11 +179,32 @@ func loadStewardTaskForThread(s *chatState, threadID string) {
 		if !s.closed && s.selectedThreadID == threadID && s.stewardTaskLoadSeq == seq && s.stewardTaskThreadID == threadID {
 			s.stewardTaskThreadID = ""
 			s.stewardTask = stewardTaskSnapshot{}
+			s.stewardTaskCancelID = ""
 			stopStewardTaskWatchLocked(s)
 		}
 		s.mu.Unlock()
 		s.invalidate()
 	}()
+}
+
+func (s *chatState) stewardTaskRevision(snapshot stewardTaskSnapshot) int {
+	if snapshot.Revision != 0 {
+		return snapshot.Revision
+	}
+	if live, ok := s.stewardBoardTaskByID(snapshot.ID); ok && live.Revision != 0 {
+		return live.Revision
+	}
+	if ks := getKanbanState(s); ks != nil {
+		kanbanMu.Lock()
+		for _, task := range ks.board.Tasks {
+			if task.ID == snapshot.ID && task.Revision != 0 {
+				kanbanMu.Unlock()
+				return task.Revision
+			}
+		}
+		kanbanMu.Unlock()
+	}
+	return 0
 }
 
 func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
@@ -185,6 +217,7 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 		return
 	}
 	snapshot := s.stewardTask
+	cancelOpen := s.stewardTaskCancelID == snapshot.ID
 	s.mu.Unlock()
 
 	task := KanbanTask{ID: snapshot.ID, Status: snapshot.Status, Column: snapshot.Column}
@@ -213,6 +246,11 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 			reason += " · " + at
 		}
 	}
+	canCancel := kanbanTaskCanCancel(snapshot.Status)
+	var busy bool
+	if ks := getKanbanState(s); ks != nil {
+		busy = kanbanTaskBusy(ks, snapshot.ID)
+	}
 	band := ui.Row(c.Key("steward-task-band-"+snapshot.ID)).
 		FillWidth().MaxWidth(timelineContentMaxWidth(s)).AlignSelf(ui.Center).
 		AlignItems(ui.Center).Gap(Space3).Padding(Space2, Space3).
@@ -223,8 +261,38 @@ func renderStewardTaskBand(c *ui.Context, s *chatState, selectedID string) {
 		if reason != "" {
 			ui.Text(c, reason).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(reason).
 				FontSize(scaledFont(TypeBody)).TextColor(ThemeSecondaryText(c))
+		} else if canCancel {
+			ui.Box(c.Key("steward-task-band-spacer-" + snapshot.ID)).Grow(1)
+		}
+		if canCancel {
+			Button(c.Key("steward-task-cancel-"+snapshot.ID), ButtonOpts{
+				Text:     "取消任务",
+				Variant:  ButtonSecondary,
+				Size:     ControlSM,
+				Disabled: busy,
+				OnClick: func() {
+					s.mu.Lock()
+					s.stewardTaskCancelID = snapshot.ID
+					s.mu.Unlock()
+					s.invalidate()
+				},
+			})
 		}
 	})
+	renderCancelTaskConfirmDialog(c, "steward-task-cancel-dialog-"+snapshot.ID, cancelOpen && canCancel, busy,
+		func() {
+			s.mu.Lock()
+			s.stewardTaskCancelID = ""
+			s.mu.Unlock()
+			s.cancelKanbanTask(snapshot.ID, s.stewardTaskRevision(snapshot))
+		},
+		func() {
+			s.mu.Lock()
+			s.stewardTaskCancelID = ""
+			s.mu.Unlock()
+			s.invalidate()
+		},
+	)
 }
 
 func stewardWakeLocalTime(value string) string {

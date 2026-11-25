@@ -22,6 +22,7 @@ func (s *chatState) openTaskDetailFromGoal(task KanbanTask, fromGoal bool) {
 	}
 	ks.detailMoreOpen = false
 	ks.detailDeleteOpen = false
+	ks.detailCancelOpen = false
 	ks.detailFocusReturnID = ""
 	ks.detailTab = "result"
 	if task.Status == "review" || task.Column == "review" {
@@ -48,6 +49,7 @@ func (s *chatState) closeTaskDetail() {
 	ks.detailGoalID = ""
 	ks.detailMoreOpen = false
 	ks.detailDeleteOpen = false
+	ks.detailCancelOpen = false
 	ks.detailLoading = false
 	ks.detailErr = ""
 	ks.detailMessages = nil
@@ -197,6 +199,9 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 							Button(c.Key("kanban-detail-move-"+opt.status), ButtonOpts{Text: "移至" + opt.label, Label: "kanban-detail-move-" + opt.status, Variant: ButtonGhost, OnClick: func() { ks.detailMoreOpen = false; s.performKanbanTarget(*task, opt.status) }})
 						}
 						Button(c.Key("kanban-detail-copy-id"), ButtonOpts{Text: "复制任务 ID", Variant: ButtonGhost, OnClick: func() { c.WriteClipboard(task.ID); ks.detailMoreOpen = false }})
+						if kanbanTaskCanCancel(task.Status) {
+							Button(c.Key("kanban-detail-cancel"), ButtonOpts{Text: "取消任务", Label: "kanban-detail-cancel", Variant: ButtonGhost, Disabled: busy, OnClick: func() { ks.detailMoreOpen = false; ks.detailCancelOpen = true }})
+						}
 						Button(c.Key("kanban-detail-delete"), ButtonOpts{Text: "删除", Label: "kanban-detail-delete", Variant: ButtonDanger, Disabled: busy, OnClick: func() { ks.detailMoreOpen = false; ks.detailDeleteOpen = true }})
 					})
 				})
@@ -253,6 +258,10 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 			OnConfirm:       func() { ks.detailDeleteOpen = false; s.deleteKanbanTask(*task) },
 			OnCancel:        func() { ks.detailDeleteOpen = false },
 		})
+		renderCancelTaskConfirmDialog(c, "kanban-detail-cancel-dialog", ks.detailCancelOpen && kanbanTaskCanCancel(task.Status), kanbanTaskBusy(ks, task.ID),
+			func() { ks.detailCancelOpen = false; s.cancelKanbanTask(task.ID, task.Revision) },
+			func() { ks.detailCancelOpen = false },
+		)
 		if task.ThreadID != threadID || task.Revision != revision {
 			s.loadTaskDetail(*task, false)
 		}
@@ -429,5 +438,22 @@ func renderTaskDetailContent(c *ui.Context, s *chatState, ks *kanbanState) {
 				Button(c.Key("kanban-task-detail-start"), ButtonOpts{Text: "开始", Label: "kanban-task-detail-start", Variant: ButtonPrimary, Loading: kanbanTaskBusy(ks, task.ID), Disabled: kanbanTaskBusy(ks, task.ID) || task.Blocked, OnClick: func() { s.performKanbanTarget(*task, "in_progress") }})
 			}
 		})
+	})
+}
+
+func renderCancelTaskConfirmDialog(c *ui.Context, key string, open, busy bool, onConfirm, onCancel func()) {
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             key,
+		Open:            open,
+		Tone:            ConfirmDanger,
+		Title:           "取消任务",
+		Body:            "会停止正在运行的执行会话",
+		ConfirmLabel:    "取消任务",
+		ConfirmA11y:     key + "-confirm",
+		CancelLabel:     "取消",
+		CancelA11y:      key + "-cancel",
+		ConfirmDisabled: busy,
+		OnConfirm:       onConfirm,
+		OnCancel:        onCancel,
 	})
 }
