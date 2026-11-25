@@ -35,7 +35,7 @@ var DeepSeek = Preset{
 var Zai = Preset{
 	ID: "zai", Kind: harness.Kind("zai"), DisplayName: "Z.ai",
 	DefaultBaseURL: "https://api.z.ai/api/coding/paas/v4", CodingPlanBaseURL: "https://api.z.ai/api/coding/paas/v4",
-	DefaultModel: "glm-5.3", Models: []string{"glm-5.3", "glm-5.3-flash"},
+	DefaultModel: "glm-5.4", Models: []string{"glm-5.4", "glm-5.3", "glm-5.3-flash"},
 	APIKeyAccount: "zai.apiKey", APIKeyEnv: "ZAI_API_KEY", SignupURL: "https://z.ai/manage-apikey/apikey-list",
 }
 

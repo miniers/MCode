@@ -2,8 +2,8 @@ package mcodeui
 
 // Swarm 预设组合（Swarm Preset）：预置的主代理 / 子代理模型搭配，用户一键添加为 Swarm 组合。
 //
-// 外部 Provider（DeepSeek、Z.ai、Cursor、Meta 等）mcode 暂未原生内置支持；
-// 预设组合仍然列出，评估环境时判定为 Waiting，缺项原因标明“mcode 暂不支持 X”。
+// 外部 Provider（DeepSeek、Z.ai、Cursor、Meta 等）已原生接入；
+// 预设组合仍全部列出，当对应 Provider 未启用或未配置时判定为 Waiting。
 
 import (
 	"fmt"
@@ -39,10 +39,10 @@ func swarmStringPtr(s string) *string {
 var swarmPresets = []swarmPreset{
 	{
 		ID:      "claude-fable-opus",
-		Title:   "Fable 5.1 leads Opus 5.5",
+		Title:   "Fable 5.2 leads Opus 5.5",
 		Summary: "Fable 拆解需求、把关审查，Opus 按简报写代码。适合难度高、返工代价大的任务；两边的思考强度都能单独调。",
 		Pair: config.SwarmPair{
-			Name:           "Fable 5.1 leads Opus 5.5",
+			Name:           "Fable 5.2 leads Opus 5.5",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Fable",
 			WorkerProvider: config.ProviderClaude,
@@ -50,53 +50,67 @@ var swarmPresets = []swarmPreset{
 		},
 	},
 	{
-		ID:      "claude-opus-gemini-flash",
-		Title:   "Opus 5.5 leads Gemini 3.8 Flash",
-		Summary: "Opus 写清楚每份简报，Gemini Flash 多路并行落地。任务能拆成很多独立小块时最划算。",
+		ID:      "claude-opus-gemini-hydrogen",
+		Title:   "Opus 5.5 leads Gemini 4 Hydrogen",
+		Summary: "Opus 写清楚每份简报，Gemini Hydrogen 多路并行落地。任务能拆成很多独立小块时最划算。",
 		Pair: config.SwarmPair{
-			Name:           "Opus 5.5 leads Gemini 3.8 Flash",
+			Name:           "Opus 5.5 leads Gemini 4 Hydrogen",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Opus",
 			LeadEffort:     swarmStringPtr("high"),
 			WorkerProvider: config.ProviderAgy,
-			WorkerModel:    "Gemini 3.8 Flash",
+			WorkerModel:    "Hydrogen",
+			WorkerEffort:   swarmStringPtr("medium"),
+		},
+	},
+	{
+		ID:      "claude-opus-haiku",
+		Title:   "Opus 5.5 leads Haiku 5.5",
+		Summary: "Opus 拆任务、做复核，Haiku 便宜又快，适合大量并行的小改动。",
+		Pair: config.SwarmPair{
+			Name:           "Opus 5.5 leads Haiku 5.5",
+			LeadProvider:   config.ProviderClaude,
+			LeadModel:      "Opus",
+			LeadEffort:     swarmStringPtr("high"),
+			WorkerProvider: config.ProviderClaude,
+			WorkerModel:    "Haiku",
 			WorkerEffort:   swarmStringPtr("medium"),
 		},
 	},
 	{
 		ID:      "claude-opus-deepseek",
-		Title:   "Opus 5.5 leads DeepSeek V4.1",
+		Title:   "Opus 5.5 leads DeepSeek V4.1 Flash",
 		Summary: "方案和审查交给 Opus，体力活交给 DeepSeek V4.1 Flash，在质量和花费之间取个平衡。",
 		Pair: config.SwarmPair{
-			Name:           "Opus 5.5 leads DeepSeek V4.1",
+			Name:           "Opus 5.5 leads DeepSeek V4.1 Flash",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Opus",
 			LeadEffort:     swarmStringPtr("high"),
 			WorkerProvider: "deepseek",
-			WorkerModel:    "DeepSeek V4.1",
+			WorkerModel:    "deepseek-flash",
 			WorkerEffort:   swarmStringPtr("high"),
 		},
 	},
 	{
 		ID:      "claude-opus-glm",
-		Title:   "Opus 5.5 leads GLM-5.3 Flash",
-		Summary: "Opus 定方向，Z.ai 的 GLM-5.3 Flash 动手实现，适合预算有限又不想降低规划质量的场景。",
+		Title:   "Opus 5.5 leads GLM-5.4",
+		Summary: "Opus 定方向，Z.ai 的 GLM-5.4 动手实现，适合预算有限又不想降低规划质量的场景。",
 		Pair: config.SwarmPair{
-			Name:           "Opus 5.5 leads GLM-5.3 Flash",
+			Name:           "Opus 5.5 leads GLM-5.4",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Opus",
 			LeadEffort:     swarmStringPtr("high"),
 			WorkerProvider: "zai",
-			WorkerModel:    "GLM-5.3 Flash",
+			WorkerModel:    "GLM",
 			WorkerEffort:   swarmStringPtr("high"),
 		},
 	},
 	{
 		ID:      "claude-fable-composer",
-		Title:   "Fable 5.1 leads Composer 2.5",
+		Title:   "Fable 5.2 leads Composer 2.5",
 		Summary: "Fable 想清楚要改什么，Cursor Composer 快速把改动写进代码，追求出活速度时用。",
 		Pair: config.SwarmPair{
-			Name:           "Fable 5.1 leads Composer 2.5",
+			Name:           "Fable 5.2 leads Composer 2.5",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Fable",
 			LeadEffort:     swarmStringPtr("high"),
@@ -106,10 +120,10 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "astra-spark",
-		Title:   "Astra 6 leads Spark 1.3 Contributor",
-		Summary: "Astra（high 档）负责拆分和协调，Spark Contributor（medium 档）承担具体实现。",
+		Title:   "Astra 6.2 leads Muse Spark 1.3 Contributor",
+		Summary: "Astra（high 档）负责拆分和协调，Muse Spark Contributor（medium 档）承担具体实现。",
 		Pair: config.SwarmPair{
-			Name:           "Astra 6 leads Spark 1.3 Contributor",
+			Name:           "Astra 6.2 leads Muse Spark 1.3 Contributor",
 			LeadProvider:   config.ProviderCodex,
 			LeadModel:      "Astra",
 			LeadEffort:     swarmStringPtr("high"),
@@ -120,10 +134,10 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "astra-terra",
-		Title:   "Astra 6 leads Terra 5.6",
+		Title:   "Astra 6.2 leads Terra 6.1",
 		Summary: "只用 OpenAI 模型：Astra 规划和复核，Terra（medium 档）写日常代码。",
 		Pair: config.SwarmPair{
-			Name:           "Astra 6 leads Terra 5.6",
+			Name:           "Astra 6.2 leads Terra 6.1",
 			LeadProvider:   config.ProviderCodex,
 			LeadModel:      "Astra",
 			LeadEffort:     swarmStringPtr("high"),
@@ -134,10 +148,10 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "astra-sol",
-		Title:   "Astra 6 leads Sol 5.6",
+		Title:   "Astra 6.2 leads Sol 6.2",
 		Summary: "Astra 规划和复核，Sol（medium 档）啃逻辑较重的模块。",
 		Pair: config.SwarmPair{
-			Name:           "Astra 6 leads Sol 5.6",
+			Name:           "Astra 6.2 leads Sol 6.2",
 			LeadProvider:   config.ProviderCodex,
 			LeadModel:      "Astra",
 			LeadEffort:     swarmStringPtr("high"),
@@ -148,10 +162,10 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "sol-luna",
-		Title:   "Sol 5.6 leads Luna 5.6",
+		Title:   "Sol 6.2 leads Luna 6",
 		Summary: "Sol 拿技术方案，轻快的 Luna（medium 档）批量处理琐碎改动。",
 		Pair: config.SwarmPair{
-			Name:           "Sol 5.6 leads Luna 5.6",
+			Name:           "Sol 6.2 leads Luna 6",
 			LeadProvider:   config.ProviderCodex,
 			LeadModel:      "Sol",
 			LeadEffort:     swarmStringPtr("high"),
@@ -162,10 +176,10 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "astra-astra",
-		Title:   "Astra 6 high, Astra 6 medium",
+		Title:   "Astra 6.2 high, Astra 6.2 medium",
 		Summary: "同一个 Astra 分两档：high 档想方案、做审查，medium 档写代码，风格前后一致。",
 		Pair: config.SwarmPair{
-			Name:           "Astra 6 high, Astra 6 medium",
+			Name:           "Astra 6.2 high, Astra 6.2 medium",
 			LeadProvider:   config.ProviderCodex,
 			LeadModel:      "Astra",
 			LeadEffort:     swarmStringPtr("high"),
@@ -190,15 +204,29 @@ var swarmPresets = []swarmPreset{
 	},
 	{
 		ID:      "claude-fable-fable",
-		Title:   "Fable 5.1 high, Fable 5.1 medium",
+		Title:   "Fable 5.2 high, Fable 5.2 medium",
 		Summary: "全程用 Fable：主代理 high 档、子代理 medium 档，留给最棘手的问题。",
 		Pair: config.SwarmPair{
-			Name:           "Fable 5.1 high, Fable 5.1 medium",
+			Name:           "Fable 5.2 high, Fable 5.2 medium",
 			LeadProvider:   config.ProviderClaude,
 			LeadModel:      "Fable",
 			LeadEffort:     swarmStringPtr("high"),
 			WorkerProvider: config.ProviderClaude,
 			WorkerModel:    "Fable",
+			WorkerEffort:   swarmStringPtr("medium"),
+		},
+	},
+	{
+		ID:      "gemini-carbon-hydrogen",
+		Title:   "Gemini 4 Carbon leads Gemini 4 Hydrogen",
+		Summary: "只用 Gemini：Carbon 深度推理和把关，Hydrogen 快速落地。",
+		Pair: config.SwarmPair{
+			Name:           "Gemini 4 Carbon leads Gemini 4 Hydrogen",
+			LeadProvider:   config.ProviderAgy,
+			LeadModel:      "Carbon",
+			LeadEffort:     swarmStringPtr("high"),
+			WorkerProvider: config.ProviderAgy,
+			WorkerModel:    "Hydrogen",
 			WorkerEffort:   swarmStringPtr("medium"),
 		},
 	},
@@ -214,13 +242,13 @@ func missingProviderDesc(providerID string) string {
 	case config.ProviderAgy:
 		return "需要配置 agy"
 	case "deepseek":
-		return "MCode 暂不支持 DeepSeek"
+		return "需要配置 DeepSeek"
 	case "zai":
-		return "MCode 暂不支持 Z.ai"
+		return "需要配置 Z.ai"
 	case "cursor":
-		return "MCode 暂不支持 Cursor"
+		return "需要配置 Cursor"
 	case "meta":
-		return "MCode 暂不支持 Meta"
+		return "需要配置 Meta"
 	default:
 		return "MCode 暂不支持 " + providerID
 	}
@@ -240,32 +268,24 @@ var swarmModelVersion = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)?`)
 
 // 预设组合按模型家族查找，优先名称片段，再取最新版本；同版本保留目录顺序。
 func resolveSwarmPresetModel(models []ModelInfo, target string) (ModelInfo, bool) {
-	names := []string{target}
-	if target == "Gemini 3.8 Flash" {
-		names = append(names, "Gemini", "Flash")
-	}
-	for _, name := range names {
-		var best ModelInfo
-		bestVersion := -1.0
-		found := false
-		for _, model := range models {
-			if !strings.Contains(strings.ToLower(model.ID), strings.ToLower(name)) &&
-				!strings.Contains(strings.ToLower(model.Name), strings.ToLower(name)) {
-				continue
-			}
-			version := -1.0
-			if raw := swarmModelVersion.FindString(model.Name); raw != "" {
-				version, _ = strconv.ParseFloat(raw, 64)
-			}
-			if !found || version > bestVersion {
-				best, bestVersion, found = model, version, true
-			}
+	var best ModelInfo
+	bestVersion := -1.0
+	found := false
+	lowerTarget := strings.ToLower(target)
+	for _, model := range models {
+		if !strings.Contains(strings.ToLower(model.ID), lowerTarget) &&
+			!strings.Contains(strings.ToLower(model.Name), lowerTarget) {
+			continue
 		}
-		if found {
-			return best, true
+		version := -1.0
+		if raw := swarmModelVersion.FindString(model.Name); raw != "" {
+			version, _ = strconv.ParseFloat(raw, 64)
+		}
+		if !found || version > bestVersion {
+			best, bestVersion, found = model, version, true
 		}
 	}
-	return ModelInfo{}, false
+	return best, found
 }
 
 func swarmPresetEffort(wanted *string, model ModelInfo) *string {

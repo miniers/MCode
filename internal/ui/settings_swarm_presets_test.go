@@ -20,6 +20,7 @@ func TestSwarmPreset_AllAvailableReady(t *testing.T) {
 			Models: []ModelInfo{
 				{ID: "Fable", Name: "Fable"},
 				{ID: "Opus", Name: "Opus"},
+				{ID: "Haiku", Name: "Haiku"},
 			},
 		},
 		{
@@ -38,7 +39,8 @@ func TestSwarmPreset_AllAvailableReady(t *testing.T) {
 			Name:      "Antigravity",
 			Available: true,
 			Models: []ModelInfo{
-				{ID: "Gemini 3.8 Flash", Name: "Gemini 3.8 Flash"},
+				{ID: "gemini-4-carbon", Name: "Gemini 4 Carbon"},
+				{ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen"},
 			},
 		},
 	}
@@ -49,14 +51,16 @@ func TestSwarmPreset_AllAvailableReady(t *testing.T) {
 	}
 
 	supportedIDs := map[string]bool{
-		"claude-fable-opus":        true,
-		"claude-opus-gemini-flash": true,
-		"astra-terra":              true,
-		"astra-sol":                true,
-		"sol-luna":                 true,
-		"astra-astra":              true,
-		"claude-opus-opus":         true,
-		"claude-fable-fable":       true,
+		"claude-fable-opus":           true,
+		"claude-opus-gemini-hydrogen": true,
+		"claude-opus-haiku":           true,
+		"astra-terra":                 true,
+		"astra-sol":                   true,
+		"sol-luna":                    true,
+		"astra-astra":                 true,
+		"claude-opus-opus":            true,
+		"claude-fable-fable":          true,
+		"gemini-carbon-hydrogen":      true,
 	}
 
 	for _, s := range states {
@@ -89,6 +93,7 @@ func TestSwarmPreset_CodexUnavailable(t *testing.T) {
 			Models: []ModelInfo{
 				{ID: "Fable", Name: "Fable"},
 				{ID: "Opus", Name: "Opus"},
+				{ID: "Haiku", Name: "Haiku"},
 			},
 		},
 		{
@@ -107,7 +112,8 @@ func TestSwarmPreset_CodexUnavailable(t *testing.T) {
 			Name:      "Antigravity",
 			Available: true,
 			Models: []ModelInfo{
-				{ID: "Gemini 3.8 Flash", Name: "Gemini 3.8 Flash"},
+				{ID: "gemini-4-carbon", Name: "Gemini 4 Carbon"},
+				{ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen"},
 			},
 		},
 	}
@@ -188,7 +194,7 @@ func TestSwarmPreset_AddPresetPersistence(t *testing.T) {
 	dataDir := settingsTestDir(t)
 	st := NewSettingsState(dataDir, nil, nil)
 
-	preset := swarmPresets[1] // claude-opus-gemini-flash
+	preset := swarmPresets[1] // claude-opus-gemini-hydrogen
 	added := addSwarmPreset(st, preset)
 
 	if added.ID == "" {
@@ -281,15 +287,16 @@ func TestSwarmPreset_ResolvesCatalogIDsAndSupportedEfforts(t *testing.T) {
 			{ID: "claude-opus-5-5-tie", Name: "Opus 5.5"},
 		}},
 		{ID: config.ProviderAgy, Available: true, Models: []ModelInfo{
-			{ID: "gemini-3-flash", Name: "Gemini 3 Flash"},
+			{ID: "gemini-4-carbon", Name: "Gemini 4 Carbon"},
+			{ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen"},
 		}},
 	}
 	for _, state := range evaluateSwarmPresets(providers, nil) {
 		switch state.Preset.ID {
-		case "claude-opus-gemini-flash":
+		case "claude-opus-gemini-hydrogen":
 			pair := state.Preset.Pair
-			if !state.Ready || pair.LeadModel != "claude-opus-5-5" || pair.WorkerModel != "gemini-3-flash" {
-				t.Fatalf("preset must resolve catalog IDs and Gemini fallback: %+v", state)
+			if !state.Ready || pair.LeadModel != "claude-opus-5-5" || pair.WorkerModel != "gemini-4-hydrogen" {
+				t.Fatalf("preset must resolve catalog IDs: %+v", state)
 			}
 			if pair.LeadEffort == nil || *pair.LeadEffort != "high" || pair.WorkerEffort != nil {
 				t.Fatalf("preset must retain only supported efforts: %+v", pair)
@@ -297,7 +304,7 @@ func TestSwarmPreset_ResolvesCatalogIDsAndSupportedEfforts(t *testing.T) {
 			st := NewSettingsState(settingsTestDir(t), nil, nil)
 			addSwarmPreset(st, state.Preset)
 			loaded, err := config.Load(st.dataDir)
-			if err != nil || len(loaded.Orchestration.Pairs) != 1 || loaded.Orchestration.Pairs[0].WorkerModel != "gemini-3-flash" {
+			if err != nil || len(loaded.Orchestration.Pairs) != 1 || loaded.Orchestration.Pairs[0].WorkerModel != "gemini-4-hydrogen" {
 				t.Fatalf("resolved model ID must persist: %+v, %v", loaded.Orchestration.Pairs, err)
 			}
 		case "claude-opus-opus":
@@ -391,5 +398,94 @@ func TestSwarmPreset_Flyout(t *testing.T) {
 	loaded, err := config.Load(st.dataDir)
 	if err != nil || len(loaded.Orchestration.Pairs) != 1 {
 		t.Fatalf("预设未保存: %+v, %v", loaded.Orchestration.Pairs, err)
+	}
+}
+
+func TestSwarmPreset_ResolvesLatestVersions(t *testing.T) {
+	testenv.TempHome(t)
+
+	providers := []ProviderInfo{
+		{
+			ID:        config.ProviderClaude,
+			Name:      "Claude",
+			Available: true,
+			Models: []ModelInfo{
+				{ID: "claude-fable-5-1", Name: "Claude Fable 5.1"},
+				{ID: "claude-fable-5-2", Name: "Claude Fable 5.2"},
+				{ID: "claude-opus-5-5", Name: "Claude Opus 5.5"},
+				{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5"},
+			},
+		},
+		{
+			ID:        config.ProviderAgy,
+			Name:      "Antigravity",
+			Available: true,
+			Models: []ModelInfo{
+				{ID: "gemini-4-carbon", Name: "Gemini 4 Carbon"},
+				{ID: "gemini-4-hydrogen", Name: "Gemini 4 Hydrogen"},
+				{ID: "gemini-3-8-flash", Name: "Gemini 3.8 Flash"},
+			},
+		},
+		{
+			ID:        "deepseek",
+			Name:      "DeepSeek",
+			Available: true,
+			Models: []ModelInfo{
+				{ID: "deepseek-v4-pro", Name: "DeepSeek V4 Pro"},
+				{ID: "deepseek-flash", Name: "DeepSeek V4.1 Flash"},
+			},
+		},
+		{
+			ID:        "zai",
+			Name:      "Z.ai",
+			Available: true,
+			Models: []ModelInfo{
+				{ID: "glm-5.4", Name: "GLM-5.4"},
+				{ID: "glm-5.3", Name: "GLM-5.3"},
+				{ID: "glm-5.3-flash", Name: "GLM-5.3 Flash"},
+			},
+		},
+	}
+
+	byID := make(map[string]swarmPresetState)
+	for _, s := range evaluateSwarmPresets(providers, nil) {
+		byID[s.Preset.ID] = s
+	}
+
+	if s := byID["claude-fable-opus"]; !s.Ready || s.Preset.Pair.LeadModel != "claude-fable-5-2" {
+		t.Fatalf("claude-fable-opus = %+v, want Ready with LeadModel claude-fable-5-2", s)
+	}
+	if s := byID["claude-opus-gemini-hydrogen"]; !s.Ready || s.Preset.Pair.WorkerModel != "gemini-4-hydrogen" {
+		t.Fatalf("claude-opus-gemini-hydrogen = %+v, want Ready with WorkerModel gemini-4-hydrogen", s)
+	}
+	if s := byID["claude-opus-deepseek"]; !s.Ready || s.Preset.Pair.WorkerModel != "deepseek-flash" {
+		t.Fatalf("claude-opus-deepseek = %+v, want Ready with WorkerModel deepseek-flash", s)
+	}
+	if s := byID["claude-opus-glm"]; !s.Ready || s.Preset.Pair.WorkerModel != "glm-5.4" {
+		t.Fatalf("claude-opus-glm = %+v, want Ready with WorkerModel glm-5.4", s)
+	}
+	if s := byID["gemini-carbon-hydrogen"]; !s.Ready {
+		t.Fatalf("gemini-carbon-hydrogen = %+v, want Ready", s)
+	}
+
+	// zai 不可用时，claude-opus-glm 的 Missing 应包含「需要配置 Z.ai」。
+	providers[3].Available = false
+	for _, s := range evaluateSwarmPresets(providers, nil) {
+		if s.Preset.ID != "claude-opus-glm" {
+			continue
+		}
+		if s.Ready {
+			t.Fatalf("claude-opus-glm with zai unavailable expected Waiting, got Ready")
+		}
+		found := false
+		for _, m := range s.Missing {
+			if strings.Contains(m, "需要配置 Z.ai") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("claude-opus-glm Missing = %v, want substring '需要配置 Z.ai'", s.Missing)
+		}
 	}
 }
