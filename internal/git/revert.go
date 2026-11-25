@@ -65,6 +65,11 @@ func (r *Runner) RestoreFiles(ctx context.Context, root, commit string, paths []
 	}
 
 	cleanRoot := filepath.Clean(root)
+	resolvedCommit, err := r.resolveCheckpointRev(ctx, cleanRoot, commit)
+	if err != nil {
+		return fmt.Errorf("restore resolve commit %s: %w", commit, err)
+	}
+	readEnv := r.checkpointReadEnv(ctx, cleanRoot)
 
 	for _, p := range paths {
 		relPath, err := cleanAndVerifyPath(cleanRoot, p)
@@ -75,7 +80,7 @@ func (r *Runner) RestoreFiles(ctx context.Context, root, commit string, paths []
 		fullPath := filepath.Join(cleanRoot, filepath.FromSlash(relPath))
 
 		// ls-tree 同时给出该路径在检查点中的存在性与文件模式（100644/100755/120000/160000）。
-		entry, exists, treeErr := r.lsTreePath(ctx, cleanRoot, commit, relPath)
+		entry, exists, treeErr := r.lsTreePath(ctx, cleanRoot, resolvedCommit, relPath)
 		if treeErr != nil {
 			return fmt.Errorf("restore read %s mode from commit %s: %w", relPath, commit, treeErr)
 		}
@@ -97,7 +102,7 @@ func (r *Runner) RestoreFiles(ctx context.Context, root, commit string, paths []
 			continue
 		case "120000":
 			// 符号链接：blob 内容是链接目标
-			target, showErr := r.run(ctx, cleanRoot, nil, "show", fmt.Sprintf("%s:%s", commit, relPath))
+			target, showErr := r.run(ctx, cleanRoot, readEnv, "show", fmt.Sprintf("%s:%s", resolvedCommit, relPath))
 			if showErr != nil {
 				return fmt.Errorf("restore read symlink %s from commit %s: %w", relPath, commit, showErr)
 			}
@@ -118,7 +123,7 @@ func (r *Runner) RestoreFiles(ctx context.Context, root, commit string, paths []
 		}
 
 		// 普通文件：读取内容并还原
-		content, showErr := r.run(ctx, cleanRoot, nil, "show", fmt.Sprintf("%s:%s", commit, relPath))
+		content, showErr := r.run(ctx, cleanRoot, readEnv, "show", fmt.Sprintf("%s:%s", resolvedCommit, relPath))
 		if showErr != nil {
 			return fmt.Errorf("restore read %s from commit %s: %w", relPath, commit, showErr)
 		}
@@ -163,7 +168,8 @@ type treeEntry struct {
 // lsTreePath 读取 commit 中单个路径的 ls-tree 条目；路径不在该提交中时 exists=false。
 // GIT_LITERAL_PATHSPECS 让文件名中的 '*'、'?' 等按字面匹配。
 func (r *Runner) lsTreePath(ctx context.Context, root, commit, path string) (treeEntry, bool, error) {
-	out, err := r.run(ctx, root, []string{"GIT_LITERAL_PATHSPECS=1"}, "ls-tree", "-z", commit, "--", path)
+	env := append([]string{"GIT_LITERAL_PATHSPECS=1"}, r.checkpointReadEnv(ctx, root)...)
+	out, err := r.run(ctx, root, env, "ls-tree", "-z", commit, "--", path)
 	if err != nil {
 		return treeEntry{}, false, err
 	}
@@ -258,7 +264,16 @@ func (p *RestorePreview) Kept() []string {
 // InBase 表示路径在 base 检查点中是否存在；不存在即区间内新增的文件，回退时会被删除。
 // 越界路径（逃出仓库根目录）直接跳过。
 func (r *Runner) PreviewRestore(ctx context.Context, root, base, finish string) (*RestorePreview, error) {
-	numstatOut, err := r.run(ctx, root, nil, "diff", "--numstat", "-z", "--no-renames", base, finish)
+	resolvedBase, err := r.resolveCheckpointRev(ctx, root, base)
+	if err != nil {
+		return nil, fmt.Errorf("preview restore resolve base: %w", err)
+	}
+	resolvedFinish, err := r.resolveCheckpointRev(ctx, root, finish)
+	if err != nil {
+		return nil, fmt.Errorf("preview restore resolve finish: %w", err)
+	}
+	readEnv := r.checkpointReadEnv(ctx, root)
+	numstatOut, err := r.run(ctx, root, readEnv, "diff", "--numstat", "-z", "--no-renames", resolvedBase, resolvedFinish)
 	if err != nil {
 		return nil, fmt.Errorf("preview restore numstat: %w", err)
 	}
@@ -299,7 +314,7 @@ func (r *Runner) PreviewRestore(ctx context.Context, root, base, finish string) 
 		return preview, nil
 	}
 
-	leftBlobs, err := r.treeBlobs(ctx, root, finish, paths)
+	leftBlobs, err := r.treeBlobs(ctx, root, resolvedFinish, paths)
 	if err != nil {
 		return nil, fmt.Errorf("preview restore read finish blobs: %w", err)
 	}
@@ -307,7 +322,7 @@ func (r *Runner) PreviewRestore(ctx context.Context, root, base, finish string) 
 	if err != nil {
 		return nil, fmt.Errorf("preview restore hash worktree files: %w", err)
 	}
-	baseBlobs, err := r.treeBlobs(ctx, root, base, paths)
+	baseBlobs, err := r.treeBlobs(ctx, root, resolvedBase, paths)
 	if err != nil {
 		return nil, fmt.Errorf("preview restore read base blobs: %w", err)
 	}
@@ -342,7 +357,8 @@ func (r *Runner) ExecuteRevert(ctx context.Context, root, base, finish string) (
 func (r *Runner) treeBlobs(ctx context.Context, root, ref string, paths []string) (map[string]string, error) {
 	const chunkSize = 400
 	result := make(map[string]string, len(paths))
-	env := []string{"GIT_LITERAL_PATHSPECS=1"}
+	readEnv := r.checkpointReadEnv(ctx, root)
+	env := append([]string{"GIT_LITERAL_PATHSPECS=1"}, readEnv...)
 	for start := 0; start < len(paths); start += chunkSize {
 		end := start + chunkSize
 		if end > len(paths) {
@@ -351,7 +367,7 @@ func (r *Runner) treeBlobs(ctx context.Context, root, ref string, paths []string
 		args := append([]string{"ls-tree", "-r", "-z", ref, "--"}, paths[start:end]...)
 		out, err := r.run(ctx, root, env, args...)
 		if err != nil {
-			if _, chkErr := r.run(ctx, root, nil, "cat-file", "-e", ref); chkErr != nil {
+			if _, chkErr := r.run(ctx, root, readEnv, "cat-file", "-e", ref); chkErr != nil {
 				return nil, fmt.Errorf("%w: %s", ErrCheckpointPruned, ref)
 			}
 			return nil, err

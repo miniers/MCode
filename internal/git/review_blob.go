@@ -29,7 +29,15 @@ type ReviewBlobFile struct {
 func (r *Runner) ReviewRevision(ctx context.Context, root, revision string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, reviewGitTimeout)
 	defer cancel()
-	out, err := r.run(ctx, root, nil, "rev-parse", "--verify", "--end-of-options", revision+"^{object}")
+	var env []string
+	if isCheckpointRef(revision) {
+		if storeDir, ok := r.existingCheckpointStore(ctx, root); ok {
+			env = checkpointEnv(storeDir, root)
+		}
+	} else {
+		env = r.checkpointReadEnv(ctx, root)
+	}
+	out, err := r.run(ctx, root, env, "rev-parse", "--verify", "--end-of-options", revision+"^{object}")
 	if err == nil {
 		return strings.TrimSpace(string(out)), nil
 	}
@@ -72,15 +80,24 @@ func (r *Runner) ReviewWorkingTree(ctx context.Context, root string) (string, ma
 func (r *Runner) ReviewFiles(ctx context.Context, root, base, head string, untracked map[string]bool) ([]ReviewBlobFile, error) {
 	ctx, cancel := context.WithTimeout(ctx, reviewGitTimeout)
 	defer cancel()
-	out, err := r.run(ctx, root, nil, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-z", "-M", base, head, "--")
+	resolvedBase, err := r.resolveCheckpointRev(ctx, root, base)
+	if err != nil {
+		return nil, err
+	}
+	resolvedHead, err := r.resolveCheckpointRev(ctx, root, head)
+	if err != nil {
+		return nil, err
+	}
+	readEnv := r.checkpointReadEnv(ctx, root)
+	out, err := r.run(ctx, root, readEnv, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-z", "-M", resolvedBase, resolvedHead, "--")
 	if err != nil && ctx.Err() == nil {
 		// 缺 blob 时重命名检测可能失败，仍可从树中读出路径与对象号。
-		out, err = r.run(ctx, root, nil, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-z", "--no-renames", base, head, "--")
+		out, err = r.run(ctx, root, readEnv, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "-z", "--no-renames", resolvedBase, resolvedHead, "--")
 	}
 	if err != nil {
 		return nil, err
 	}
-	stats, statErr := r.NumStat(ctx, root, base, head, nil)
+	stats, statErr := r.NumStat(ctx, root, resolvedBase, resolvedHead, nil)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -132,7 +149,7 @@ func (r *Runner) ReviewFiles(ctx context.Context, root, base, head string, untra
 			if side.hash == "" {
 				continue
 			}
-			size, e := r.run(ctx, root, nil, "cat-file", "-s", side.hash)
+			size, e := r.run(ctx, root, readEnv, "cat-file", "-s", side.hash)
 			if e != nil {
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
@@ -170,13 +187,14 @@ func (r *Runner) ReviewTexts(ctx context.Context, root string, f ReviewBlobFile)
 	if binary || tooLarge || missing {
 		return
 	}
+	readEnv := r.checkpointReadEnv(ctx, root)
 	texts := []*string{&oldText, &newText}
 	for i, hash := range []string{f.OldHash, f.NewHash} {
 		if hash == "" {
 			continue
 		}
 		var out []byte
-		out, err = r.run(ctx, root, nil, "cat-file", "blob", hash)
+		out, err = r.run(ctx, root, readEnv, "cat-file", "blob", hash)
 		if err != nil {
 			if ctx.Err() != nil {
 				err = ctx.Err()

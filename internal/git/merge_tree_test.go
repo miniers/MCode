@@ -59,7 +59,7 @@ func TestMergeTreeOnto_CleanMerge(t *testing.T) {
 	if err := os.WriteFile(aPath, []byte(ontoContent), 0644); err != nil {
 		t.Fatalf("write main a.txt: %v", err)
 	}
-	ontoRef := CheckpointRef("thread-test", "onto-clean")
+	ontoRef := "refs/mcode/swarm-land/thread-test/onto-clean"
 	ontoCommit, err := runner.Checkpoint(ctx, dir, ontoRef, "onto checkpoint")
 	if err != nil {
 		t.Fatalf("Checkpoint: %v", err)
@@ -155,7 +155,7 @@ func TestMergeTreeOnto_Conflict(t *testing.T) {
 	if err := os.WriteFile(aPath, []byte(ontoContent), 0644); err != nil {
 		t.Fatalf("write main a.txt: %v", err)
 	}
-	ontoRef := CheckpointRef("thread-test", "onto-conflict")
+	ontoRef := "refs/mcode/swarm-land/thread-test/onto-conflict"
 	ontoCommit, err := runner.Checkpoint(ctx, dir, ontoRef, "onto conflict checkpoint")
 	if err != nil {
 		t.Fatalf("Checkpoint: %v", err)

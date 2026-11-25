@@ -122,9 +122,14 @@ type watchedSnapshot struct {
 	tree string
 }
 
+type watchedKey struct {
+	root  string
+	store bool
+}
+
 var (
 	watchedMu     sync.Mutex
-	watchedByRoot = map[string]watchedSnapshot{}
+	watchedByRoot = map[watchedKey]watchedSnapshot{}
 )
 
 // checkpointCommitEnv 是检查点提交使用的作者与提交者环境变量，与 Checkpoint 保持一致。
@@ -147,19 +152,28 @@ func (r *Runner) CheckpointWatched(ctx context.Context, w Watcher, root, ref, me
 		return r.Checkpoint(ctx, root, ref, message)
 	}
 
+	var storeDir string
+	if isCheckpointRef(ref) {
+		storeDir, err = r.checkpointStore(ctx, root)
+		if err != nil {
+			return "", err
+		}
+	}
+	useStore := storeDir != ""
+
 	// 当前 HEAD：空仓库时为空串，提交不再带父提交
 	head := ""
 	if out, herr := r.run(ctx, root, nil, "rev-parse", "-q", "--verify", "HEAD"); herr == nil {
 		head = strings.TrimSpace(string(out))
 	}
 
-	key := filepath.Clean(root)
+	key := watchedKey{root: filepath.Clean(root), store: useStore}
 	watchedMu.Lock()
 	cached, ok := watchedByRoot[key]
 	watchedMu.Unlock()
 
 	if ok && cached.w == w && cached.gen == gen && cached.head == head && cached.tree != "" {
-		if commit, cerr := r.commitTree(ctx, root, ref, cached.tree, head, message); cerr == nil {
+		if commit, cerr := r.commitTree(ctx, root, ref, cached.tree, head, message, storeDir); cerr == nil {
 			return commit, nil
 		}
 		// 复用失败时退回完整快照，避免把错误暴露给调用方
@@ -169,7 +183,11 @@ func (r *Runner) CheckpointWatched(ctx context.Context, w Watcher, root, ref, me
 	if err != nil {
 		return "", err
 	}
-	if out, terr := r.run(ctx, root, nil, "rev-parse", commit+"^{tree}"); terr == nil {
+	var revEnv []string
+	if useStore {
+		revEnv = checkpointEnv(storeDir, root)
+	}
+	if out, terr := r.run(ctx, root, revEnv, "rev-parse", commit+"^{tree}"); terr == nil {
 		tree := strings.TrimSpace(string(out))
 		watchedMu.Lock()
 		watchedByRoot[key] = watchedSnapshot{w: w, gen: gen, head: head, tree: tree}
@@ -179,7 +197,7 @@ func (r *Runner) CheckpointWatched(ctx context.Context, w Watcher, root, ref, me
 }
 
 // commitTree 基于已有 tree 直接生成提交并更新引用，不触碰工作区与暂存区。
-func (r *Runner) commitTree(ctx context.Context, root, ref, tree, head, message string) (string, error) {
+func (r *Runner) commitTree(ctx context.Context, root, ref, tree, head, message, storeDir string) (string, error) {
 	if message == "" {
 		message = "mcode checkpoint"
 	}
@@ -187,12 +205,16 @@ func (r *Runner) commitTree(ctx context.Context, root, ref, tree, head, message 
 	if head != "" {
 		args = append(args, "-p", head)
 	}
-	out, err := r.run(ctx, root, checkpointCommitEnv, args...)
+	env := checkpointCommitEnv
+	if storeDir != "" {
+		env = append(checkpointEnv(storeDir, root), checkpointCommitEnv...)
+	}
+	out, err := r.run(ctx, root, env, args...)
 	if err != nil {
 		return "", err
 	}
 	commit := strings.TrimSpace(string(out))
-	if _, err := r.run(ctx, root, checkpointCommitEnv, "update-ref", ref, commit); err != nil {
+	if _, err := r.runWithLockRetry(ctx, root, env, "update-ref", ref, commit); err != nil {
 		return "", err
 	}
 	return commit, nil

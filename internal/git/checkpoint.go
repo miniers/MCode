@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -99,16 +100,35 @@ func (r *Runner) sparseCheckoutEnabled(ctx context.Context, root string) bool {
 	return strings.TrimSpace(string(out)) == "true"
 }
 
+// sparseCheckoutConeEnabled 判断仓库是否启用了 cone 模式稀疏检出。
+func (r *Runner) sparseCheckoutConeEnabled(ctx context.Context, root string) bool {
+	out, err := r.run(ctx, root, nil, "config", "--bool", "core.sparseCheckoutCone")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
+}
+
+// headCommit 解析用户仓库当前 HEAD 的提交哈希；空仓库时返回 ("", false)。
+func (r *Runner) headCommit(ctx context.Context, root string) (string, bool) {
+	out, err := r.run(ctx, root, nil, "rev-parse", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return "", false
+	}
+	sha := strings.TrimSpace(string(out))
+	return sha, sha != ""
+}
+
 // hasCommits 检查指定仓库根目录下是否已存在至少一个提交（即 HEAD 是否有效）。
 func (r *Runner) hasCommits(ctx context.Context, root string) bool {
-	_, err := r.run(ctx, root, nil, "rev-parse", "--verify", "--quiet", "HEAD")
-	return err == nil
+	_, ok := r.headCommit(ctx, root)
+	return ok
 }
 
 // Checkpoint 在不修改用户的暂存区（index）、HEAD 和工作区的前提下，
 // 将当前工作区的全部文件状态（含未跟踪但未被 .gitignore 忽略的新文件）快照为一个新的 commit，
 // 并将其更新到指定的 ref（通常由 CheckpointRef 生成）。
-func (r *Runner) Checkpoint(ctx context.Context, root, ref string, message string) (string, error) {
+func (r *Runner) Checkpoint(ctx context.Context, root, ref, message string) (string, error) {
 	return r.checkpoint(ctx, root, ref, message, false)
 }
 
@@ -118,7 +138,49 @@ func (r *Runner) CheckpointNormalized(ctx context.Context, root, ref, message st
 }
 
 func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, normalized bool) (string, error) {
-	args := func(extra ...string) []string { return checkpointArgsWithLineEndings(normalized, extra...) }
+	var storeDir string
+	if isCheckpointRef(ref) {
+		var storeErr error
+		storeDir, storeErr = r.checkpointStore(ctx, root)
+		if storeErr != nil {
+			return "", storeErr
+		}
+	}
+	useStore := storeDir != ""
+
+	// HEAD 的 SHA 与稀疏检出配置先在用户仓库里解析出来。
+	headSHA, hasHead := r.headCommit(ctx, root)
+	sparse := hasHead && r.sparseCheckoutEnabled(ctx, root)
+	var extraStoreCfg []string
+	if useStore {
+		commonDir := filepath.Dir(filepath.Dir(storeDir))
+		if err := syncInfoFile(filepath.Join(commonDir, "info", "exclude"), filepath.Join(storeDir, "info", "exclude")); err != nil {
+			return "", fmt.Errorf("sync checkpoint exclude: %w", err)
+		}
+		if sparse {
+			sparseCone := r.sparseCheckoutConeEnabled(ctx, root)
+			if srcSparse, gpErr := r.gitPath(ctx, root, "info/sparse-checkout"); gpErr == nil {
+				if err := syncInfoFile(srcSparse, filepath.Join(storeDir, "info", "sparse-checkout")); err != nil {
+					return "", fmt.Errorf("sync checkpoint sparse-checkout: %w", err)
+				}
+			}
+			coneVal := "false"
+			if sparseCone {
+				coneVal = "true"
+			}
+			extraStoreCfg = []string{"-c", "core.sparseCheckout=true", "-c", "core.sparseCheckoutCone=" + coneVal}
+		}
+	}
+
+	args := func(extra ...string) []string {
+		if len(extraStoreCfg) > 0 {
+			combined := make([]string, 0, len(extraStoreCfg)+len(extra))
+			combined = append(combined, extraStoreCfg...)
+			combined = append(combined, extra...)
+			return checkpointArgsWithLineEndings(normalized, combined...)
+		}
+		return checkpointArgsWithLineEndings(normalized, extra...)
+	}
 	// 创建隔离的临时目录存放专用的 GIT_INDEX_FILE，用完后立即清理
 	tmpDir, err := os.MkdirTemp("", "mcode-git-checkpoint-*")
 	if err != nil {
@@ -127,35 +189,26 @@ func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, norm
 	defer os.RemoveAll(tmpDir)
 
 	tmpIndex := filepath.Join(tmpDir, "index")
-	checkpointEnv := []string{
+	cpEnv := []string{
 		"GIT_INDEX_FILE=" + tmpIndex,
 		"GIT_AUTHOR_NAME=mcode",
 		"GIT_AUTHOR_EMAIL=mcode@localhost",
 		"GIT_COMMITTER_NAME=mcode",
 		"GIT_COMMITTER_EMAIL=mcode@localhost",
 	}
-
-	// 临时 index 由 read-tree 新建（空仓库时为空索引），完全不继承用户索引里的 stat 缓存，
-	// 因此不存在 racy mtime 导致 add 漏判的问题，也不需要复制用户索引后回写时间戳——
-	// 那是 t3code 复用用户索引方案才需要的处理。
-	hasHead := r.hasCommits(ctx, root)
-
-	// 稀疏检出仓库：临时 index 只会包含模式内的文件。按 t3code captureCheckpoint 的做法，
-	// 用 -c index.sparse=true read-tree --reset 让模式外的已跟踪路径带上 skip-worktree 标记，
-	// 再给 add 加 --sparse，这样模式外文件既不会被误判为“已删除”从快照中消失，
-	// 用户新建在模式外的文件也能进入快照。若直接关掉 core.sparseCheckout 执行 add，
-	// 模式外文件会被当成删除写出一条假删除的树。
-	sparse := hasHead && r.sparseCheckoutEnabled(ctx, root)
+	if useStore {
+		cpEnv = append(checkpointEnv(storeDir, root), cpEnv...)
+	}
 
 	// 1. 若仓库已有提交，先将 HEAD 的树载入临时 index；若为空仓库则跳过
 	if hasHead {
 		var readTreeArgs []string
 		if sparse {
-			readTreeArgs = args("-c", "index.sparse=true", "read-tree", "--reset", "HEAD")
+			readTreeArgs = args("-c", "index.sparse=true", "read-tree", "--reset", headSHA)
 		} else {
-			readTreeArgs = args("read-tree", "HEAD")
+			readTreeArgs = args("read-tree", headSHA)
 		}
-		if _, err := r.run(ctx, root, checkpointEnv, readTreeArgs...); err != nil {
+		if _, err := r.run(ctx, root, cpEnv, readTreeArgs...); err != nil {
 			return "", fmt.Errorf("checkpoint read-tree: %w", err)
 		}
 	}
@@ -170,11 +223,11 @@ func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, norm
 		}
 		return append(args, addTail...)
 	}
-	_, addErr := r.run(ctx, root, checkpointEnv, stageArgs(sparse)...)
+	_, addErr := r.run(ctx, root, cpEnv, stageArgs(sparse)...)
 	if addErr != nil && sparse && strings.Contains(addErr.Error(), "--sparse") {
 		// git < 2.35 的 add 不认识 --sparse：退回普通 add。模式外的已跟踪文件仍有
 		// skip-worktree 保护，只是模式外新建的未跟踪文件不会进入快照。
-		_, addErr = r.run(ctx, root, checkpointEnv, stageArgs(false)...)
+		_, addErr = r.run(ctx, root, cpEnv, stageArgs(false)...)
 	}
 	if addErr != nil {
 		return "", fmt.Errorf("checkpoint add: %w", addErr)
@@ -182,7 +235,7 @@ func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, norm
 
 	// 3. 基于临时 index 生成 tree 对象
 	writeTreeArgs := args("write-tree")
-	treeOut, err := r.run(ctx, root, checkpointEnv, writeTreeArgs...)
+	treeOut, err := r.run(ctx, root, cpEnv, writeTreeArgs...)
 	if err != nil {
 		return "", fmt.Errorf("checkpoint write-tree: %w", err)
 	}
@@ -194,10 +247,10 @@ func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, norm
 	}
 	commitArgs := args("commit-tree", tree, "-m", message)
 	if hasHead {
-		commitArgs = append(commitArgs, "-p", "HEAD")
+		commitArgs = append(commitArgs, "-p", headSHA)
 	}
 
-	commitOut, err := r.run(ctx, root, checkpointEnv, commitArgs...)
+	commitOut, err := r.run(ctx, root, cpEnv, commitArgs...)
 	if err != nil {
 		return "", fmt.Errorf("checkpoint commit-tree: %w", err)
 	}
@@ -205,14 +258,13 @@ func (r *Runner) checkpoint(ctx context.Context, root, ref, message string, norm
 
 	// 5. 更新目标引用指向该 commit（refs 下的锁文件可能被并发 git 进程短暂占用，做一次短重试）
 	updateRefArgs := args("update-ref", ref, commit)
-	if _, err := r.runWithLockRetry(ctx, root, checkpointEnv, updateRefArgs...); err != nil {
+	if _, err := r.runWithLockRetry(ctx, root, cpEnv, updateRefArgs...); err != nil {
 		return "", fmt.Errorf("checkpoint update-ref %s: %w", ref, err)
 	}
 
 	// 检查点成功写入后，尽力按保留策略清理历史检查点，失败只忽略
-	const cpPrefix = "refs/mcode/checkpoints/"
-	if strings.HasPrefix(ref, cpPrefix) {
-		trimmed := strings.TrimPrefix(ref, cpPrefix)
+	if isCheckpointRef(ref) {
+		trimmed := strings.TrimPrefix(ref, checkpointRefRootPrefix)
 		parts := strings.Split(trimmed, "/")
 		if len(parts) > 0 && parts[0] != "" {
 			_ = r.PruneCheckpoints(ctx, root, parts[0], DefaultCheckpointRetention)
@@ -228,8 +280,14 @@ func (r *Runner) PruneCheckpoints(ctx context.Context, root, threadID string, ke
 	if keep <= 0 {
 		return nil
 	}
+	var env []string
+	useStore := false
+	if storeDir, ok := r.existingCheckpointStore(ctx, root); ok {
+		env = checkpointEnv(storeDir, root)
+		useStore = true
+	}
 	prefix := checkpointsRefPrefix(threadID)
-	out, err := r.run(ctx, root, nil, "for-each-ref", "--sort=-creatordate", "--format=%(refname)", prefix)
+	out, err := r.run(ctx, root, env, "for-each-ref", "--sort=-creatordate", "--format=%(refname)", prefix)
 	if err != nil {
 		return fmt.Errorf("list checkpoints %s: %w", prefix, err)
 	}
@@ -246,10 +304,15 @@ func (r *Runner) PruneCheckpoints(ctx context.Context, root, threadID string, ke
 		return nil
 	}
 
+	var stdin bytes.Buffer
 	for _, ref := range refs[keep:] {
-		if _, err := r.runWithLockRetry(ctx, root, nil, "update-ref", "-d", ref); err != nil {
-			return fmt.Errorf("delete pruned checkpoint ref %s: %w", ref, err)
-		}
+		fmt.Fprintf(&stdin, "delete %s\n", ref)
+	}
+	if _, err := r.runWithStdinLockRetry(ctx, root, env, stdin.Bytes(), "update-ref", "--stdin"); err != nil {
+		return fmt.Errorf("delete pruned checkpoint refs %s: %w", prefix, err)
+	}
+	if useStore {
+		_, _ = r.run(ctx, root, env, "gc", "--auto", "--quiet")
 	}
 	return nil
 }
@@ -257,19 +320,28 @@ func (r *Runner) PruneCheckpoints(ctx context.Context, root, threadID string, ke
 // DeleteCheckpoints 删除指定线程名下的全部检查点引用（refs/mcode/checkpoints/<threadID>/...）。
 // 在会话被永久删除时调用，避免游离 ref 随长期使用不断累积；该线程没有任何检查点时返回 nil。
 func (r *Runner) DeleteCheckpoints(ctx context.Context, root, threadID string) error {
+	var env []string
+	if storeDir, ok := r.existingCheckpointStore(ctx, root); ok {
+		env = checkpointEnv(storeDir, root)
+	}
 	prefix := checkpointsRefPrefix(threadID)
-	out, err := r.run(ctx, root, nil, "for-each-ref", "--format=%(refname)", prefix)
+	out, err := r.run(ctx, root, env, "for-each-ref", "--format=%(refname)", prefix)
 	if err != nil {
 		return fmt.Errorf("list checkpoints %s: %w", prefix, err)
 	}
+	var stdin bytes.Buffer
 	for _, ref := range strings.Split(string(out), "\n") {
 		ref = strings.TrimSpace(ref)
 		if ref == "" {
 			continue
 		}
-		if _, err := r.runWithLockRetry(ctx, root, nil, "update-ref", "-d", ref); err != nil {
-			return fmt.Errorf("delete checkpoint ref %s: %w", ref, err)
-		}
+		fmt.Fprintf(&stdin, "delete %s\n", ref)
+	}
+	if stdin.Len() == 0 {
+		return nil
+	}
+	if _, err := r.runWithStdinLockRetry(ctx, root, env, stdin.Bytes(), "update-ref", "--stdin"); err != nil {
+		return fmt.Errorf("delete checkpoint refs %s: %w", prefix, err)
 	}
 	return nil
 }

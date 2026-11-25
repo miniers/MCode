@@ -50,7 +50,14 @@ func (r *Runner) ListRefs(ctx context.Context, root, prefix string) ([]Ref, erro
 		args = append(args, prefix)
 	}
 
-	out, err := r.run(ctx, root, nil, args...)
+	var env []string
+	if isCheckpointRefPrefix(prefix) {
+		if storeDir, ok := r.existingCheckpointStore(ctx, root); ok {
+			env = checkpointEnv(storeDir, root)
+		}
+	}
+
+	out, err := r.run(ctx, root, env, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +93,10 @@ func (r *Runner) ListRefs(ctx context.Context, root, prefix string) ([]Ref, erro
 // paths 非空时仅比较这些路径（相对仓库根目录，按字面量匹配）；超过 400 条时分块执行并拼接结果。
 // 若 diff 字节数超过 maxBytes（maxBytes > 0），则截断至最后一个完整行，并返回 truncated=true。
 func (r *Runner) DiffText(ctx context.Context, root, from, to string, paths []string, maxBytes int) (text string, truncated bool, err error) {
+	resolvedFrom, err := r.resolveCheckpointRev(ctx, root, from)
+	if err != nil {
+		return "", false, err
+	}
 	targetTo := to
 	if targetTo == "" {
 		worktreeTree, err := r.captureWorkingTreeForDiff(ctx, root)
@@ -93,18 +104,24 @@ func (r *Runner) DiffText(ctx context.Context, root, from, to string, paths []st
 			return "", false, err
 		}
 		targetTo = worktreeTree
+	} else {
+		targetTo, err = r.resolveCheckpointRev(ctx, root, targetTo)
+		if err != nil {
+			return "", false, err
+		}
 	}
 
+	readEnv := r.checkpointReadEnv(ctx, root)
 	var out []byte
 	if len(paths) == 0 {
-		out, err = r.run(ctx, root, nil, diffArgs(from, targetTo, nil, false)...)
+		out, err = r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, nil, false)...)
 		if err != nil {
 			return "", false, err
 		}
 	} else {
 		var buf bytes.Buffer
 		for _, chunk := range splitPathspecs(paths) {
-			chunkOut, runErr := r.run(ctx, root, nil, diffArgs(from, targetTo, chunk, false)...)
+			chunkOut, runErr := r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, chunk, false)...)
 			if runErr != nil {
 				return "", false, runErr
 			}
@@ -127,7 +144,15 @@ func (r *Runner) DiffText(ctx context.Context, root, from, to string, paths []st
 
 // RevParse 解析指定的引用或提交，并返回其对象哈希。
 func (r *Runner) RevParse(ctx context.Context, root, rev string) (string, error) {
-	out, err := r.run(ctx, root, nil, "rev-parse", rev)
+	var env []string
+	if isCheckpointRef(rev) {
+		if storeDir, ok := r.existingCheckpointStore(ctx, root); ok {
+			env = checkpointEnv(storeDir, root)
+		}
+	} else {
+		env = r.checkpointReadEnv(ctx, root)
+	}
+	out, err := r.run(ctx, root, env, "rev-parse", rev)
 	if err != nil {
 		return "", err
 	}

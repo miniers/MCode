@@ -261,6 +261,15 @@ func createCheckpointWithTime(t *testing.T, runner *Runner, dir, ref, message st
 		"GIT_AUTHOR_DATE=" + date,
 		"GIT_COMMITTER_DATE=" + date,
 	}
+	if isCheckpointRef(ref) {
+		storeDir, err := runner.checkpointStore(ctx, dir)
+		if err != nil {
+			t.Fatalf("checkpointStore: %v", err)
+		}
+		if storeDir != "" {
+			env = append(checkpointEnv(storeDir, dir), env...)
+		}
+	}
 	if _, err := runner.run(ctx, dir, env, checkpointArgs("add", "-A", "--", ".")...); err != nil {
 		t.Fatalf("checkpoint add: %v", err)
 	}
@@ -318,7 +327,11 @@ func TestPruneCheckpoints(t *testing.T) {
 	}
 
 	prefix := checkpointsRefPrefix(threadID)
-	out, err := runner.run(ctx, dir, nil, "for-each-ref", "--sort=-creatordate", "--format=%(refname)", prefix)
+	storeDir, err := runner.checkpointStore(ctx, dir)
+	if err != nil {
+		t.Fatalf("checkpointStore: %v", err)
+	}
+	out, err := runner.run(ctx, dir, checkpointEnv(storeDir, dir), "for-each-ref", "--sort=-creatordate", "--format=%(refname)", prefix)
 	if err != nil {
 		t.Fatalf("for-each-ref failed: %v", err)
 	}
@@ -343,7 +356,7 @@ func TestPruneCheckpoints(t *testing.T) {
 	}
 
 	// 最早的 cp1Ref 应已被清理
-	if _, err := runner.run(ctx, dir, nil, "rev-parse", "--verify", "--quiet", cp1Ref); err == nil {
+	if _, err := runner.run(ctx, dir, checkpointEnv(storeDir, dir), "rev-parse", "--verify", "--quiet", cp1Ref); err == nil {
 		t.Errorf("expected cp1Ref %q to be pruned", cp1Ref)
 	}
 }
@@ -351,7 +364,8 @@ func TestPruneCheckpoints(t *testing.T) {
 // treePaths 返回某个提交（检查点 commit）里全部文件路径，按字典序排列。
 func treePaths(t *testing.T, runner *Runner, dir, commit string) []string {
 	t.Helper()
-	out, err := runner.run(context.Background(), dir, nil, "ls-tree", "-r", "--name-only", commit)
+	ctx := context.Background()
+	out, err := runner.run(ctx, dir, runner.checkpointReadEnv(ctx, dir), "ls-tree", "-r", "--name-only", commit)
 	if err != nil {
 		t.Fatalf("ls-tree %s: %v", commit, err)
 	}
@@ -419,7 +433,7 @@ func TestCheckpointWithFsmonitorAndSplitIndex(t *testing.T) {
 	}
 
 	// 检查点内容应是工作区最新状态（而不是 HEAD 里的旧内容）
-	content, err := runner.run(ctx, dir, nil, "show", commit+":sub/nested.txt")
+	content, err := runner.run(ctx, dir, runner.checkpointReadEnv(ctx, dir), "show", commit+":sub/nested.txt")
 	if err != nil {
 		t.Fatalf("show checkpoint sub/nested.txt: %v", err)
 	}
@@ -470,7 +484,7 @@ func TestCheckpointEmptyRepoSnapshot(t *testing.T) {
 		t.Errorf("empty repo checkpoint tree mismatch: got %v, want %v", got, want)
 	}
 
-	parents, err := runner.run(ctx, dir, nil, "rev-list", "--parents", "-n", "1", commit)
+	parents, err := runner.run(ctx, dir, runner.checkpointReadEnv(ctx, dir), "rev-list", "--parents", "-n", "1", commit)
 	if err != nil {
 		t.Fatalf("rev-list %s: %v", commit, err)
 	}
@@ -583,7 +597,7 @@ func TestCheckpointWithSparseCheckoutKeepsOutsideFiles(t *testing.T) {
 		t.Errorf("模式外的已跟踪文件被写成了删除: %v", got)
 	}
 
-	content, err := runner.run(ctx, dir, nil, "show", commit+":a/f1.txt")
+	content, err := runner.run(ctx, dir, runner.checkpointReadEnv(ctx, dir), "show", commit+":a/f1.txt")
 	if err != nil {
 		t.Fatalf("show checkpoint a/f1.txt: %v", err)
 	}

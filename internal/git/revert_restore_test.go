@@ -178,14 +178,18 @@ func TestDeleteCheckpointsRemovesOnlyTargetThread(t *testing.T) {
 	if err := runner.DeleteCheckpoints(ctx, dir, "thread-a"); err != nil {
 		t.Fatalf("DeleteCheckpoints: %v", err)
 	}
-	if refs := runTestGit(t, dir, "for-each-ref", "--format=%(refname)", "refs/mcode/checkpoints/thread-a/"); refs != "" {
+	storeDir, ok := runner.existingCheckpointStore(ctx, dir)
+	if !ok {
+		t.Fatalf("expected checkpoint store to exist")
+	}
+	if refs := runTestGit(t, dir, "--git-dir="+storeDir, "for-each-ref", "--format=%(refname)", "refs/mcode/checkpoints/thread-a/"); refs != "" {
 		t.Errorf("thread-a 的检查点引用应被清空, got %q", refs)
 	}
-	refs := runTestGit(t, dir, "for-each-ref", "--format=%(refname)", "refs/mcode/checkpoints/thread-b/")
+	refs := runTestGit(t, dir, "--git-dir="+storeDir, "for-each-ref", "--format=%(refname)", "refs/mcode/checkpoints/thread-b/")
 	if !strings.Contains(refs, "refs/mcode/checkpoints/thread-b/turn1/start") {
 		t.Errorf("thread-b 的检查点引用应保留, got %q", refs)
 	}
-	if got := runTestGit(t, dir, "rev-parse", CheckpointRef("thread-b", "turn1")+"/start"); got != keep {
+	if got := runTestGit(t, dir, "--git-dir="+storeDir, "rev-parse", CheckpointRef("thread-b", "turn1")+"/start"); got != keep {
 		t.Errorf("thread-b 检查点指向的提交应保持不变: got %s want %s", got, keep)
 	}
 	if err := runner.DeleteCheckpoints(ctx, dir, "thread-none"); err != nil {

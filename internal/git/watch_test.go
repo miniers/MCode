@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -153,11 +152,11 @@ func TestCheckpointWatchedReusesTree(t *testing.T) {
 	}
 
 	// 引用已更新到最新提交
-	out, err := runner.run(ctx, dir, nil, "rev-parse", ref3)
+	got, err := runner.RevParse(ctx, dir, ref3)
 	if err != nil {
 		t.Fatalf("读取引用失败: %v", err)
 	}
-	if got := strings.TrimSpace(string(out)); got != commit3 {
+	if got != commit3 {
 		t.Fatalf("引用未指向最新提交: %s != %s", got, commit3)
 	}
 }
@@ -189,11 +188,11 @@ func TestCheckpointWatchedFallsBackWithoutWatcher(t *testing.T) {
 		if commit == "" {
 			t.Fatalf("%s watcher: 提交为空", name)
 		}
-		out, err := runner.run(ctx, dir, nil, "rev-parse", ref)
+		got, err := runner.RevParse(ctx, dir, ref)
 		if err != nil {
 			t.Fatalf("%s watcher: 读取引用失败: %v", name, err)
 		}
-		if got := strings.TrimSpace(string(out)); got != commit {
+		if got != commit {
 			t.Fatalf("%s watcher: 引用未指向提交: %s != %s", name, got, commit)
 		}
 	}
@@ -221,9 +220,9 @@ func TestNewWatcherMissingRootFallsBack(t *testing.T) {
 // treeOfCommit 读取提交对应的 tree 哈希。
 func treeOfCommit(t *testing.T, runner *Runner, dir, commit string) string {
 	t.Helper()
-	out, err := runner.run(context.Background(), dir, nil, "rev-parse", commit+"^{tree}")
+	got, err := runner.RevParse(context.Background(), dir, commit+"^{tree}")
 	if err != nil {
 		t.Fatalf("读取 %s 的 tree 失败: %v", commit, err)
 	}
-	return strings.TrimSpace(string(out))
+	return got
 }

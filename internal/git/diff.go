@@ -125,6 +125,10 @@ func splitPathspecs(paths []string) [][]string {
 // paths 非空时仅比较这些路径（相对仓库根目录，按字面量匹配）；超过 400 条时分块执行并合并结果。
 // 内部使用 `git diff --no-color --no-ext-diff -M --unified=3 from to` 并解析返回结构化的 FileDiff 列表。
 func (r *Runner) Diff(ctx context.Context, root, from, to string, paths []string) ([]FileDiff, error) {
+	resolvedFrom, err := r.resolveCheckpointRev(ctx, root, from)
+	if err != nil {
+		return nil, err
+	}
 	targetTo := to
 	if targetTo == "" {
 		worktreeTree, err := r.captureWorkingTree(ctx, root)
@@ -132,10 +136,16 @@ func (r *Runner) Diff(ctx context.Context, root, from, to string, paths []string
 			return nil, err
 		}
 		targetTo = worktreeTree
+	} else {
+		targetTo, err = r.resolveCheckpointRev(ctx, root, targetTo)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	readEnv := r.checkpointReadEnv(ctx, root)
 	if len(paths) == 0 {
-		out, err := r.run(ctx, root, nil, diffArgs(from, targetTo, nil, false)...)
+		out, err := r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, nil, false)...)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +154,7 @@ func (r *Runner) Diff(ctx context.Context, root, from, to string, paths []string
 
 	var diffs []FileDiff
 	for _, chunk := range splitPathspecs(paths) {
-		out, err := r.run(ctx, root, nil, diffArgs(from, targetTo, chunk, false)...)
+		out, err := r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, chunk, false)...)
 		if err != nil {
 			return nil, err
 		}
@@ -161,6 +171,10 @@ func (r *Runner) Diff(ctx context.Context, root, from, to string, paths []string
 // 当 to 为空时代表当前工作区。paths 非空时仅统计这些路径，超过 400 条时分块执行并合并结果。
 // 二进制文件的 Additions 和 Deletions 设为 -1。
 func (r *Runner) NumStat(ctx context.Context, root, from, to string, paths []string) ([]FileStat, error) {
+	resolvedFrom, err := r.resolveCheckpointRev(ctx, root, from)
+	if err != nil {
+		return nil, err
+	}
 	targetTo := to
 	if targetTo == "" {
 		worktreeTree, err := r.captureWorkingTree(ctx, root)
@@ -168,10 +182,16 @@ func (r *Runner) NumStat(ctx context.Context, root, from, to string, paths []str
 			return nil, err
 		}
 		targetTo = worktreeTree
+	} else {
+		targetTo, err = r.resolveCheckpointRev(ctx, root, targetTo)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	readEnv := r.checkpointReadEnv(ctx, root)
 	if len(paths) == 0 {
-		out, err := r.run(ctx, root, nil, diffArgs(from, targetTo, nil, true)...)
+		out, err := r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, nil, true)...)
 		if err != nil {
 			return nil, err
 		}
@@ -180,7 +200,7 @@ func (r *Runner) NumStat(ctx context.Context, root, from, to string, paths []str
 
 	var stats []FileStat
 	for _, chunk := range splitPathspecs(paths) {
-		out, err := r.run(ctx, root, nil, diffArgs(from, targetTo, chunk, true)...)
+		out, err := r.run(ctx, root, readEnv, diffArgs(resolvedFrom, targetTo, chunk, true)...)
 		if err != nil {
 			return nil, err
 		}
