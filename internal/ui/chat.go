@@ -448,7 +448,7 @@ func renderChat(c *ui.Context, s *chatState) {
 							renderApproval(c, s)
 
 							// 长会话压缩建议卡片：输入框上方（压缩卡片优先，避免与转发建议叠在一起）
-							if !renderCompactSuggestionCard(c, s, selectedID, curUsage) {
+							if !renderCompactSuggestionCard(c, s, selectedID) {
 								renderForwardSuggestionCard(c, s, selectedID, isRunning)
 							}
 
@@ -530,16 +530,21 @@ func shouldOfferForward(dismissed, running bool, used, limit int64, draft string
 
 // shouldOfferCompact 判定是否显示长会话压缩建议卡片。
 // 条件：开启“恢复旧会话前询问压缩”、本会话未被忽略、
-// 当前上下文占用（contextTokens）达到按模型窗口换算的阈值（limit 为窗口上限，0 表示未知）、
+// 当前上下文占用（used）达到按模型窗口换算的阈值（limit 为窗口上限）、
 // 会话空闲超过阈值、当前草稿不是以“/”开头的命令。
-func shouldOfferCompact(askCompact, dismissed bool, contextTokens, limit int64, idle time.Duration, draft string) bool {
+// windowKnown 表示 used/limit 是真实上下文占用与窗口；拿不到窗口时不再用累计计费量兜底，
+// 只有真实占用本身达到固定 100k 才提示。
+func shouldOfferCompact(askCompact bool, dismissed bool, used, limit int64, windowKnown bool, idle time.Duration, draft string) bool {
 	if !askCompact || dismissed {
 		return false
 	}
 	if strings.HasPrefix(strings.TrimSpace(draft), "/") {
 		return false
 	}
-	if contextTokens < compactSuggestionThreshold(limit) {
+	if !windowKnown && used < compactSuggestionMinimumTokens {
+		return false
+	}
+	if used < compactSuggestionThreshold(limit) {
 		return false
 	}
 	return idle >= compactSuggestionIdleInterval
@@ -561,7 +566,8 @@ func (s *chatState) compactThread(threadID string) {
 
 // renderCompactSuggestionCard 渲染长会话压缩建议卡片：输入框上方、会话较长且久未活动时出现。
 // 返回是否真的渲染了卡片：调用方据此决定要不要再展示“转发到新会话”建议（两张卡片不叠加）。
-func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string, curUsage ThreadUsage) bool {
+// 用量只看当前上下文占用，不用全会话累计计费量。
+func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string) bool {
 	if s == nil || threadID == "" {
 		return false
 	}
@@ -583,14 +589,10 @@ func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string, c
 		return false
 	}
 
-	// 优先按“当前上下文占用 / 模型窗口”判定；currentThreadContextTokens 内部会加锁，
-	// 必须在上面解锁之后调用。拿不到窗口信息时退回累计用量与固定 100k 阈值（与旧行为一致）。
-	usedTokens := curUsage.Total.Input + curUsage.Total.Output
-	var limit int64
-	if used, window, ok := currentThreadContextTokens(s, &currentThread); ok {
-		usedTokens, limit = used, window
-	}
-	if !shouldOfferCompact(s.askCompactOnResumeEnabled(), compactSuggestionDismissed(s, threadID), usedTokens, limit, idle, draft) {
+	// 按“当前上下文占用 / 模型窗口”判定；currentThreadContextTokens 内部会加锁，
+	// 必须在上面解锁之后调用。
+	used, limit, ok := currentThreadContextTokens(s, &currentThread)
+	if !shouldOfferCompact(s.askCompactOnResumeEnabled(), compactSuggestionDismissed(s, threadID), used, limit, ok, idle, draft) {
 		return false
 	}
 
