@@ -50,8 +50,8 @@ func (x remoteSwarmExtras) ForwardBeeQuestion(ctx context.Context, leadThreadID,
 }
 
 // FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-func (x remoteSwarmExtras) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
-	return x.client.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+func (x remoteSwarmExtras) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []wire.SwarmDesignChoice, note string) error {
+	return x.client.FinalizeDesignBee(ctx, leadThreadID, beeThreadID, remote.DesignChoicesFromWire(choices), note)
 }
 
 // SwarmMergeDiff 返回 bee 待审查的补丁、是否被截断与改动文件列表。

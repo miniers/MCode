@@ -8862,6 +8862,25 @@
       ],
       "additionalProperties": false
     },
+    "RemoteSwarmDesignChoice": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "option": {
+          "type": "string"
+        },
+        "recommended": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "option"
+      ],
+      "additionalProperties": false
+    },
     "RemoteThreadsSwarmFinalizeDesignParams": {
       "type": "object",
       "properties": {
@@ -8872,6 +8891,16 @@
           "$ref": "#/$defs/UUID"
         },
         "actionID": {
+          "type": "string"
+        },
+        "choices": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "$ref": "#/$defs/RemoteSwarmDesignChoice"
+          }
+        },
+        "note": {
           "type": "string"
         }
       },

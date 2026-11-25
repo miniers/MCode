@@ -1340,7 +1340,7 @@ func previewFinalizeFeedback(s *chatState, token previewPageToken) {
 	s.invalidate()
 
 	go func() {
-		err := s.client.FinalizeDesignBee(context.Background(), leadID, beeID)
+		err := s.client.FinalizeDesignBee(context.Background(), leadID, beeID, nil, "")
 		previewMu.Lock()
 		delete(previewFinalizing, st)
 		previewMu.Unlock()

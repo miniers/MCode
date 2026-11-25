@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"mcode/internal/config"
 	"mcode/internal/git"
@@ -3400,6 +3401,98 @@ func (m *Manager) NoteBeeUserTurn(ctx context.Context, threadID string) {
 
 const finalizeDesignPrompt = "用户已定稿，不要再修改设计稿。现在输出最终汇报：设计稿路径；用户在各轮里拍板的关键决定；实现时要注意的点。"
 
+// DesignChoice 表示用户在预览里为待定设计问题选定的方案。
+type DesignChoice struct {
+	Question    string `json:"question"`
+	Option      string `json:"option"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
+const (
+	maxDesignChoiceCount         = 30
+	maxDesignChoiceQuestionRunes = 200
+	maxDesignChoiceOptionRunes   = 40
+	maxDesignNoteRunes           = 8000
+)
+
+func sanitizeDesignChoiceField(s string, maxRunes int) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\u2028' || r == '\u2029' || unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.TrimSpace(clipRunes(s, maxRunes))
+}
+
+func clipRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return s[:i]
+		}
+		n++
+	}
+	return s
+}
+
+func sanitizeDesignChoices(choices []DesignChoice) []DesignChoice {
+	if len(choices) == 0 {
+		return nil
+	}
+	out := make([]DesignChoice, 0, min(len(choices), maxDesignChoiceCount))
+	for _, ch := range choices {
+		q := sanitizeDesignChoiceField(ch.Question, maxDesignChoiceQuestionRunes)
+		opt := sanitizeDesignChoiceField(ch.Option, maxDesignChoiceOptionRunes)
+		if q == "" || opt == "" {
+			continue
+		}
+		out = append(out, DesignChoice{
+			Question:    q,
+			Option:      opt,
+			Recommended: ch.Recommended,
+		})
+		if len(out) >= maxDesignChoiceCount {
+			break
+		}
+	}
+	return out
+}
+
+func buildFinalizeDesignPrompt(choices []DesignChoice, note string) string {
+	cleanedChoices := sanitizeDesignChoices(choices)
+	cleanedNote := strings.TrimSpace(clipRunes(strings.TrimSpace(note), maxDesignNoteRunes))
+	if len(cleanedChoices) == 0 && cleanedNote == "" {
+		return finalizeDesignPrompt
+	}
+	var b strings.Builder
+	b.WriteString(finalizeDesignPrompt)
+	if len(cleanedChoices) > 0 {
+		b.WriteString("\n\n用户在预览里选定的方案：")
+		for _, ch := range cleanedChoices {
+			b.WriteString("\n- ")
+			b.WriteString(ch.Question)
+			b.WriteString("：")
+			b.WriteString(ch.Option)
+			if ch.Recommended {
+				b.WriteString("（推荐）")
+			}
+		}
+	}
+	if cleanedNote != "" {
+		b.WriteString("\n\n用户补充：\n")
+		b.WriteString(cleanedNote)
+	}
+	return b.String()
+}
+
 const designBeeMessagePrefix = "主会话转达用户的回复：\n"
 
 // resetBeeForNewRoundLocked 在持锁状态下重置已结束 bee 的结果字段，使其重新进入运行态。
@@ -3433,7 +3526,9 @@ func (m *Manager) resetBeeForNewRoundLocked(bee *Bee, now time.Time) {
 }
 
 // FinalizeDesignBee 结束设计档位子代理的待定稿暂缓状态，通知其输出最终汇报并在本轮结束后放行给主代理。
-func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []DesignChoice, note string) error {
+	prompt := buildFinalizeDesignPrompt(choices, note)
+
 	m.mu.Lock()
 	lead, ok := m.leads[leadThreadID]
 	if !ok {
@@ -3462,7 +3557,7 @@ func (m *Manager) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThread
 	m.mu.Unlock()
 
 	if messenger, ok := m.opts.Driver.(kanban.SessionMessenger); ok {
-		if err := messenger.SendFollowUp(ctx, beeThreadID, finalizeDesignPrompt); err != nil {
+		if err := messenger.SendFollowUp(ctx, beeThreadID, prompt); err != nil {
 			return err
 		}
 	} else {
@@ -3563,7 +3658,7 @@ func (m *Manager) FinalizeDesignBeeFromTurn(ctx context.Context, beeThreadID str
 		return nil
 	}
 	if isAwaiting {
-		return m.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+		return m.FinalizeDesignBee(ctx, leadThreadID, beeThreadID, nil, "")
 	}
 	return nil
 }

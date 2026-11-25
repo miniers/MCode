@@ -2246,10 +2246,18 @@ export type RemoteThreadsSwarmForwardQuestionParams = {
   actionID: string;
 };
 
+export type RemoteSwarmDesignChoice = {
+  question: string;
+  option: string;
+  recommended?: boolean;
+};
+
 export type RemoteThreadsSwarmFinalizeDesignParams = {
   threadID: UUID;
   beeThreadID: UUID;
   actionID: string;
+  choices?: Array<RemoteSwarmDesignChoice>;
+  note?: string;
 };
 
 export type RemoteThreadsSwarmMergeDiffParams = {

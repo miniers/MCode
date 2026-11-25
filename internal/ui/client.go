@@ -9,6 +9,7 @@ import (
 	"mcode/internal/config"
 	"mcode/internal/providers/agy/accounts"
 	"mcode/internal/providers/multiaccount"
+	"mcode/internal/swarm"
 )
 
 // Project 表示项目元数据。
@@ -1238,7 +1239,7 @@ type Client interface {
 	// ForwardBeeQuestion 把子线程提问转给主线程回答。
 	ForwardBeeQuestion(ctx context.Context, leadThreadID, beeThreadID, requestID string) error
 	// FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error
+	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []swarm.DesignChoice, note string) error
 	// SwarmMergeDiff 获取 bee 待合并改动（Diff 为 unified diff 文本，FilesChanged 为改动文件）。
 	SwarmMergeDiff(ctx context.Context, leadThreadID, beeThreadID string) (ThreadDiff, error)
 	// SwarmReportSummary 从存档读取 bee 的完整汇报总结；只能读该主会话自己的 bee，读不到时返回错误。

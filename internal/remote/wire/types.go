@@ -1065,11 +1065,20 @@ type SwarmForwardQuestionParams struct {
 	ActionID    string `json:"actionID"`
 }
 
+// SwarmDesignChoice 表示用户在预览里为待定设计问题选定的方案。
+type SwarmDesignChoice struct {
+	Question    string `json:"question"`
+	Option      string `json:"option"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
 // SwarmFinalizeDesignParams 对应 threads.swarm.finalizeDesign 请求参数
 type SwarmFinalizeDesignParams struct {
-	ThreadID    string `json:"threadID"`
-	BeeThreadID string `json:"beeThreadID"`
-	ActionID    string `json:"actionID"`
+	ThreadID    string              `json:"threadID"`
+	BeeThreadID string              `json:"beeThreadID"`
+	ActionID    string              `json:"actionID"`
+	Choices     []SwarmDesignChoice `json:"choices,omitempty"`
+	Note        string              `json:"note,omitempty"`
 }
 
 // ThreadsPreviewOpenParams 对应 threads.preview.open 请求参数

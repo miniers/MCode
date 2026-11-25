@@ -3,10 +3,12 @@ package swarm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"mcode/internal/kanban"
 )
@@ -127,7 +129,7 @@ func TestFinalizeDesignBee(t *testing.T) {
 		}
 
 		// (c) 调 FinalizeDesignBee：置为 Running、发送固定指令；结束后 Tick 放行含「用户已定稿」的汇报。
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err != nil {
 			t.Fatalf("FinalizeDesignBee failed: %v", err)
 		}
 		driver.mu.Lock()
@@ -214,13 +216,13 @@ func TestFinalizeDesignBee(t *testing.T) {
 		designBee := bees[1]
 
 		// 运行中的设计 bee（尚未进入 AwaitingFinalize）应返回错误。
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("未处于 AwaitingFinalize 的设计 bee 调用 FinalizeDesignBee 应返回错误")
 		}
-		if err := mgr.FinalizeDesignBee(ctx, "missing-lead", designBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, "missing-lead", designBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("不存在的 lead 调用 FinalizeDesignBee 应返回错误")
 		}
-		if err := mgr.FinalizeDesignBee(ctx, leadID, "missing-bee"); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, "missing-bee", nil, ""); err == nil {
 			t.Fatal("不存在的 bee 调用 FinalizeDesignBee 应返回错误")
 		}
 
@@ -235,7 +237,7 @@ func TestFinalizeDesignBee(t *testing.T) {
 		})
 		mgr.Tick(ctx)
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, normalBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, normalBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("对普通 bee 调用 FinalizeDesignBee 应返回错误")
 		}
 
@@ -246,7 +248,7 @@ func TestFinalizeDesignBee(t *testing.T) {
 		}
 		driver.mu.Unlock()
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("SendFollowUp 失败时 FinalizeDesignBee 应返回错误")
 		}
 		got := beeByThread(t, mgr, leadID, designBee.ThreadID)
@@ -258,7 +260,7 @@ func TestFinalizeDesignBee(t *testing.T) {
 		driver.mu.Lock()
 		driver.onFollowUp = nil
 		driver.mu.Unlock()
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err != nil {
 			t.Fatalf("恢复发送后 FinalizeDesignBee 不应失败: %v", err)
 		}
 		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
@@ -267,7 +269,7 @@ func TestFinalizeDesignBee(t *testing.T) {
 		})
 		mgr.Tick(ctx)
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("已定稿汇报的 bee 再次调用 FinalizeDesignBee 应返回错误")
 		}
 	})
@@ -471,7 +473,7 @@ func TestFinalizeDesignBeeNoStaleReport(t *testing.T) {
 			return nil
 		}
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err != nil {
 			t.Fatalf("FinalizeDesignBee failed: %v", err)
 		}
 
@@ -561,7 +563,7 @@ func TestFinalizeDesignBeeNoStaleReport(t *testing.T) {
 			return errors.New("send failed")
 		}
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err == nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err == nil {
 			t.Fatal("SendFollowUp 失败时 FinalizeDesignBee 应返回错误")
 		}
 
@@ -646,7 +648,7 @@ func TestFinalizeDesignBeeNoStaleReport(t *testing.T) {
 			return nil
 		}
 
-		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID); err != nil {
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, nil, ""); err != nil {
 			t.Fatalf("FinalizeDesignBee failed: %v", err)
 		}
 
@@ -667,6 +669,134 @@ func TestFinalizeDesignBeeNoStaleReport(t *testing.T) {
 		reportMu.Unlock()
 		if len(gotReports) != 1 || !strings.Contains(gotReports[0], finalText) || strings.Contains(gotReports[0], staleText) {
 			t.Fatalf("应只放行定稿轮新文本汇报，实际: %v", gotReports)
+		}
+	})
+}
+
+func TestFinalizeDesignBeeWithChoices(t *testing.T) {
+	t.Parallel()
+
+	t.Run("sends_choices_and_note_in_followup", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		runner, dir := initTestRepo(t)
+		driver := newFakeDriver()
+
+		mgr := NewManager(Options{
+			Git:         runner,
+			Driver:      driver,
+			WorktreeDir: t.TempDir(),
+			OnReport:    func(string, string) error { return nil },
+		})
+		mgr.SetSettingsFunc(func() Settings {
+			return Settings{Enabled: true, AutoDelegate: true, WorkspaceMode: "worktree"}
+		})
+
+		const leadID = "lead-finalize-choices"
+		bees, err := mgr.Dispatch(ctx, DispatchRequest{
+			LeadThreadID: leadID,
+			ProjectID:    "proj-1",
+			LeadWorkDir:  dir,
+			Bees: []BeeSpec{
+				{Name: "Bee-Design", Task: "设计任务", Prompt: "出初稿", SharedWorkspace: true, Interactive: true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("Dispatch failed: %v", err)
+		}
+		designBee := bees[0]
+
+		driver.setSessionState(designBee.ThreadID, kanban.SessionState{
+			Running:           false,
+			LastAssistantText: "design draft 1",
+		})
+		mgr.Tick(ctx)
+
+		choices := []DesignChoice{
+			{Question: "导航栏位置", Option: "左侧固定", Recommended: true},
+			{Question: "圆角风格", Option: "紧凑 6px", Recommended: false},
+		}
+		const note = "  保留顶部搜索框\n按钮改用强调色  "
+		if err := mgr.FinalizeDesignBee(ctx, leadID, designBee.ThreadID, choices, note); err != nil {
+			t.Fatalf("FinalizeDesignBee failed: %v", err)
+		}
+
+		driver.mu.Lock()
+		followUps := append([]fakeFollowUp(nil), driver.followUps...)
+		driver.mu.Unlock()
+		if len(followUps) != 1 || followUps[0].threadID != designBee.ThreadID {
+			t.Fatalf("expected 1 followUp to design bee, got %+v", followUps)
+		}
+		sent := followUps[0].text
+		want := finalizeDesignPrompt +
+			"\n\n用户在预览里选定的方案：" +
+			"\n- 导航栏位置：左侧固定（推荐）" +
+			"\n- 圆角风格：紧凑 6px" +
+			"\n\n用户补充：\n保留顶部搜索框\n按钮改用强调色"
+		if sent != want {
+			t.Fatalf("unexpected sent prompt:\ngot:\n%s\nwant:\n%s", sent, want)
+		}
+	})
+
+	t.Run("sanitization_rules", func(t *testing.T) {
+		t.Parallel()
+
+		if got := buildFinalizeDesignPrompt([]DesignChoice{{Question: "  \n\t ", Option: "opt"}}, "   \n  "); got != finalizeDesignPrompt {
+			t.Fatalf("empty sanitized choices and note should return base prompt, got:\n%s", got)
+		}
+
+		longQ := strings.Repeat("问", 210)
+		longOpt := strings.Repeat("选", 50)
+		choices := []DesignChoice{
+			{Question: "", Option: "丢弃空问题"},
+			{Question: "丢弃空选项", Option: " \n\t\x00 "},
+			{Question: "  第1行\n第2行\t\x07控制  ", Option: " 方案\r\nA\x1f "},
+			{Question: longQ, Option: longOpt, Recommended: true},
+		}
+		for i := 3; i <= 35; i++ {
+			choices = append(choices, DesignChoice{
+				Question: fmt.Sprintf("第%d题", i),
+				Option:   fmt.Sprintf("选项%d", i),
+			})
+		}
+
+		longNote := "  " + strings.Repeat("注", 8050) + "  "
+		got := buildFinalizeDesignPrompt(choices, longNote)
+
+		if !strings.HasPrefix(got, finalizeDesignPrompt+"\n\n用户在预览里选定的方案：") {
+			t.Fatalf("missing expected header, got:\n%s", got)
+		}
+		if strings.Contains(got, "丢弃空问题") || strings.Contains(got, "丢弃空选项") {
+			t.Fatalf("empty question/option items should be discarded, got:\n%s", got)
+		}
+		if !strings.Contains(got, "- 第1行 第2行  控制：方案  A") {
+			t.Fatalf("newlines and control chars in question/option should be replaced with spaces, got:\n%s", got)
+		}
+		expectedLongQ := strings.Repeat("问", 200)
+		expectedLongOpt := strings.Repeat("选", 40)
+		if !strings.Contains(got, "- "+expectedLongQ+"："+expectedLongOpt+"（推荐）") {
+			t.Fatalf("question/option should be truncated to 200/40 runes, got:\n%s", got)
+		}
+		if strings.Contains(got, strings.Repeat("问", 201)) || strings.Contains(got, strings.Repeat("选", 41)) {
+			t.Fatal("truncated question/option exceeded rune limit")
+		}
+
+		choicesSectionStart := strings.Index(got, "\n\n用户在预览里选定的方案：")
+		noteSectionStart := strings.Index(got, "\n\n用户补充：\n")
+		if choicesSectionStart < 0 || noteSectionStart < 0 {
+			t.Fatalf("missing choices or note section, got:\n%s", got)
+		}
+		choicesLines := strings.Split(strings.TrimPrefix(got[choicesSectionStart:noteSectionStart], "\n\n用户在预览里选定的方案：\n"), "\n")
+		if len(choicesLines) != 30 {
+			t.Fatalf("expected 30 choice lines, got %d", len(choicesLines))
+		}
+		if !strings.Contains(got, "- 第30题：选项30") || strings.Contains(got, "- 第31题：选项31") {
+			t.Fatalf("expected choices capped at 30 valid items, got:\n%s", got[choicesSectionStart:noteSectionStart])
+		}
+
+		gotNote := strings.TrimPrefix(got[noteSectionStart:], "\n\n用户补充：\n")
+		if utf8.RuneCountInString(gotNote) != 8000 {
+			t.Fatalf("expected note truncated to 8000 runes, got %d", utf8.RuneCountInString(gotNote))
 		}
 	})
 }

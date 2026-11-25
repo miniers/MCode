@@ -611,14 +611,14 @@ func (c *Client) forwardBeeQuestion(ctx context.Context, leadThreadID, beeThread
 }
 
 // FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-func (c *Client) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+func (c *Client) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []swarm.DesignChoice, note string) error {
 	c.kanbanMu.Lock()
 	m := c.swarm
 	c.kanbanMu.Unlock()
 	if m == nil {
 		return errors.New("编排服务不可用")
 	}
-	return m.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+	return m.FinalizeDesignBee(ctx, leadThreadID, beeThreadID, choices, note)
 }
 
 // SwarmMergeDiff 获取 bee 待合并改动（Diff 为 unified diff 文本，FilesChanged 为改动文件）。

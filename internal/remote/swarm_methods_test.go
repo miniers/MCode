@@ -1174,12 +1174,14 @@ func TestApplyReviewFunnelWire(t *testing.T) {
 }
 
 type mockSwarmExtras struct {
-	mu           sync.Mutex
-	finalizeErr  error
-	finalizeLead string
-	finalizeBee  string
-	finalizeCnt  int
-	onFinalize   func(leadID, beeID string)
+	mu              sync.Mutex
+	finalizeErr     error
+	finalizeLead    string
+	finalizeBee     string
+	finalizeChoices []wire.SwarmDesignChoice
+	finalizeNote    string
+	finalizeCnt     int
+	onFinalize      func(leadID, beeID string)
 }
 
 func (m *mockSwarmExtras) PendingBeeQuestion(context.Context, string) *wire.SwarmBeeQuestion {
@@ -1190,10 +1192,12 @@ func (m *mockSwarmExtras) ForwardBeeQuestion(context.Context, string, string, st
 	return nil
 }
 
-func (m *mockSwarmExtras) FinalizeDesignBee(_ context.Context, leadThreadID, beeThreadID string) error {
+func (m *mockSwarmExtras) FinalizeDesignBee(_ context.Context, leadThreadID, beeThreadID string, choices []wire.SwarmDesignChoice, note string) error {
 	m.mu.Lock()
 	m.finalizeLead = leadThreadID
 	m.finalizeBee = beeThreadID
+	m.finalizeChoices = append([]wire.SwarmDesignChoice(nil), choices...)
+	m.finalizeNote = note
 	m.finalizeCnt++
 	fn := m.onFinalize
 	err := m.finalizeErr
@@ -1330,6 +1334,68 @@ func TestThreadsSwarmFinalizeDesign(t *testing.T) {
 	resp = executeSwarmRPC(t, d, conn, fmt.Sprintf(`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q},"id":5}`, leadID, beeID, actionID))
 	if resp.Error == nil || resp.Error.Code != wire.ErrCodeResourceNotFound {
 		t.Fatalf("expected ErrCodeResourceNotFound, got %+v", resp.Error)
+	}
+}
+
+func TestThreadsSwarmFinalizeDesignWithChoices(t *testing.T) {
+	leadID := "11111111-1111-1111-1111-111111111111"
+	beeID := "22222222-2222-2222-2222-222222222222"
+	actionID := "33333333-3333-3333-3333-333333333333"
+
+	mockSvc := newMockSwarmService()
+	mockSvc.owners[beeID] = leadID
+	mockSvc.states[leadID] = swarm.State{
+		LeadThreadID: leadID,
+		Enabled:      true,
+		Bees: []swarm.Bee{
+			{
+				ThreadID:         beeID,
+				Index:            0,
+				Name:             "Design Bee",
+				Task:             "Design page",
+				Status:           swarm.StatusCompleted,
+				StartedAt:        time.Now().UTC(),
+				AwaitingFinalize: true,
+			},
+		},
+	}
+
+	extras := &mockSwarmExtras{}
+	backend := &fakeBackend{
+		getThreadFunc: func(ctx context.Context, threadID string) (wire.ThreadSummary, error) {
+			return wire.ThreadSummary{ID: threadID}, nil
+		},
+	}
+
+	d := NewDispatcher(&fakeAuth{}, backend)
+	conn := &swarmRecordConn{fakeConn: fakeConn{info: ClientInfo{Authenticated: true}}}
+	d.addAuthedConn(conn)
+	d.SetSwarm(mockSvc)
+	d.SetSwarmExtras(extras)
+	d.swarmNotifyInterval = 10 * time.Millisecond
+
+	const note = "保留现有圆角\n按钮主色调加深一点"
+	resp := executeSwarmRPC(t, d, conn, fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"threads.swarm.finalizeDesign","params":{"threadID":%q,"beeThreadID":%q,"actionID":%q,"choices":[{"question":"导航布局","option":"左侧边栏","recommended":true},{"question":"主题风格","option":"浅色极简"}],"note":%q},"id":1}`,
+		leadID, beeID, actionID, note,
+	))
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %+v", resp.Error)
+	}
+	if extras.finalizeCnt != 1 || extras.finalizeLead != leadID || extras.finalizeBee != beeID {
+		t.Fatalf("unexpected finalize target: cnt=%d lead=%q bee=%q", extras.finalizeCnt, extras.finalizeLead, extras.finalizeBee)
+	}
+	if len(extras.finalizeChoices) != 2 {
+		t.Fatalf("expected 2 choices forwarded, got %+v", extras.finalizeChoices)
+	}
+	if extras.finalizeChoices[0] != (wire.SwarmDesignChoice{Question: "导航布局", Option: "左侧边栏", Recommended: true}) {
+		t.Fatalf("unexpected first choice: %+v", extras.finalizeChoices[0])
+	}
+	if extras.finalizeChoices[1] != (wire.SwarmDesignChoice{Question: "主题风格", Option: "浅色极简", Recommended: false}) {
+		t.Fatalf("unexpected second choice: %+v", extras.finalizeChoices[1])
+	}
+	if extras.finalizeNote != note {
+		t.Fatalf("expected note %q, got %q", note, extras.finalizeNote)
 	}
 }
 

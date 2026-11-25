@@ -18,6 +18,7 @@ import (
 	"mcode/internal/projctx"
 	"mcode/internal/providers/agy/accounts"
 	"mcode/internal/providers/multiaccount"
+	"mcode/internal/swarm"
 )
 
 type uploadAttachmentCall struct {
@@ -2785,7 +2786,7 @@ func (f *FakeClient) ForwardQuestionCalls() []ForwardQuestionCall {
 }
 
 // FinalizeDesignBee 记录设计子代理定稿调用，并在内存状态中更新该 bee 为运行中。
-func (f *FakeClient) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
+func (f *FakeClient) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []swarm.DesignChoice, note string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.FinalizedBees = append(f.FinalizedBees, beeThreadID)

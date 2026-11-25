@@ -32,7 +32,7 @@ type SwarmRemoteExtras interface {
 	// ForwardBeeQuestion 把 bee 的提问转交主线程回答。
 	ForwardBeeQuestion(ctx context.Context, leadThreadID, beeThreadID, requestID string) error
 	// FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error
+	FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []wire.SwarmDesignChoice, note string) error
 	// SwarmMergeDiff 返回 bee 待审查的补丁、是否被截断以及改动文件列表。
 	SwarmMergeDiff(ctx context.Context, leadThreadID, beeThreadID string) (diff string, truncated bool, files []string, err error)
 	// ApproveSwarmMerge 批准并应用 bee 的改动。
@@ -47,6 +47,22 @@ type SwarmRemoteExtras interface {
 	SwarmTiers() []wire.SwarmTier
 	// SaveSwarmTiers 整表替换档位配置并返回生效后的列表。
 	SaveSwarmTiers(ctx context.Context, tiers []wire.SwarmTier) ([]wire.SwarmTier, error)
+}
+
+// DesignChoicesFromWire 把协议层的定稿方案选择切片转换为编排层类型。
+func DesignChoicesFromWire(choices []wire.SwarmDesignChoice) []swarm.DesignChoice {
+	if len(choices) == 0 {
+		return nil
+	}
+	out := make([]swarm.DesignChoice, 0, len(choices))
+	for _, ch := range choices {
+		out = append(out, swarm.DesignChoice{
+			Question:    ch.Question,
+			Option:      ch.Option,
+			Recommended: ch.Recommended,
+		})
+	}
+	return out
 }
 
 // SetSwarmExtras 设置 Dispatcher 使用的 Swarm 扩展能力实现。
@@ -607,7 +623,7 @@ func (d *Dispatcher) handleThreadsSwarmFinalizeDesign(ctx context.Context, param
 	}
 
 	leadID := d.swarmLeadID(p.ThreadID)
-	if err := d.swarmExtras.FinalizeDesignBee(ctx, leadID, p.BeeThreadID); err != nil {
+	if err := d.swarmExtras.FinalizeDesignBee(ctx, leadID, p.BeeThreadID, p.Choices, p.Note); err != nil {
 		return mapSwarmError(err, replyErr, replyWithBackendErr)
 	}
 

@@ -74,8 +74,8 @@ func (x headlessSwarmExtras) ForwardBeeQuestion(ctx context.Context, leadThreadI
 }
 
 // FinalizeDesignBee 通知设计档位子代理用户已定稿并触发最终汇报。
-func (x headlessSwarmExtras) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string) error {
-	return x.mgr.FinalizeDesignBee(ctx, leadThreadID, beeThreadID)
+func (x headlessSwarmExtras) FinalizeDesignBee(ctx context.Context, leadThreadID, beeThreadID string, choices []wire.SwarmDesignChoice, note string) error {
+	return x.mgr.FinalizeDesignBee(ctx, leadThreadID, beeThreadID, remote.DesignChoicesFromWire(choices), note)
 }
 
 // SwarmMergeDiff 返回 bee 待审查的补丁，并带上该 bee 记录的改动文件列表。
