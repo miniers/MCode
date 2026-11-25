@@ -16,7 +16,7 @@ import (
 //   - kanban.deleteTask：删除一条任务（运行中的任务由服务侧拒绝，与桌面端一致）；
 //   - kanban.rescueTask：执行救援菜单里的动作（中断并重置为待办、提醒 Agent）。
 //
-// 桌面端同源逻辑见 internal/ui/kanban.go 的救援菜单与 interruptTaskToTodo，
+// 桌面端同源逻辑见 internal/ui/kanban.go 的救援菜单与 interruptTask，
 // 服务侧见 internal/kanban/service_edit.go 的 DeleteTask 与 service_rescue.go 的 RescueTask。
 // 幂等（actionID 重放）与修订号冲突的处理方式与内置看板方法一致，见 kanban_methods.go。
 

@@ -173,6 +173,52 @@ func TestUIReview14_KanbanInterruptConfirm(t *testing.T) {
 	}
 }
 
+func TestUIReview14_KanbanInterruptComplete(t *testing.T) {
+	fake := NewFakeClient()
+	task := KanbanTask{
+		ID:        "task-int-done-1",
+		ProjectID: "p1",
+		Title:     "中断完成任务",
+		Status:    "in_progress",
+		Column:    "in_progress",
+		ThreadID:  "thread-int-done-1",
+		Revision:  6,
+	}
+	fake.SetKanbanBoard(KanbanBoard{Tasks: []KanbanTask{task}})
+
+	tt, _ := newWorkspaceTester(t, fake, "tasks")
+	waitFor(t, tt, func() bool { return tt.HasText(task.Title) })
+	hoverKanbanCard(t, tt, task.Title)
+
+	if err := tt.Click("kanban-task-" + task.ID + "-more"); err != nil {
+		t.Fatalf("click more failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { _, ok := tt.Find("kanban-task-rescue-complete-" + task.ID); return ok })
+	if err := tt.Click("kanban-task-rescue-complete-" + task.ID); err != nil {
+		t.Fatalf("click rescue complete failed: %v", err)
+	}
+
+	waitFor(t, tt, func() bool { return tt.HasText("中断并标记完成？") })
+	if got := len(fake.MoveTaskCalls()); got != 0 {
+		t.Fatalf("点中断并标记完成后不应立即调用 MoveTask，实际调用 %d 次", got)
+	}
+	if got := fake.InterruptCalls(); got != 0 {
+		t.Fatalf("点中断并标记完成后不应立即调用 Interrupt，实际调用 %d 次", got)
+	}
+
+	if err := tt.Click("kanban-task-interrupt-confirm-yes-" + task.ID); err != nil {
+		t.Fatalf("click interrupt complete confirm failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return len(fake.MoveTaskCalls()) == 1 })
+	call := fake.MoveTaskCalls()[0]
+	if call.TaskID != task.ID || call.Status != "done" || call.Revision != task.Revision {
+		t.Fatalf("MoveTask 调用参数 = %+v", call)
+	}
+	if got := fake.InterruptCalls(); got != 1 {
+		t.Fatalf("InterruptCalls = %d, want 1", got)
+	}
+}
+
 func TestUIReview14_KanbanGoalCancelConfirm(t *testing.T) {
 	fake := NewFakeClient()
 	goal := KanbanGoal{ID: "goal-cancel-1", ProjectID: "p1", Title: "待取消目标", Status: "running", Revision: 3}

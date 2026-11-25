@@ -110,6 +110,7 @@ type kanbanState struct {
 	rescueMenuTaskID string
 	deleteTaskID     string
 	interruptTaskID  string
+	interruptTarget  string
 	cancelGoalID     string
 
 	// 新建任务草稿

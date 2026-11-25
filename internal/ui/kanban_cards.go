@@ -408,7 +408,7 @@ type kanbanTaskCardState struct {
 	moveMenuTaskID, reviewTaskID, reviewFeedback string
 	goals                                        []KanbanGoal
 	rescueMenuTaskID, deleteTaskID               string
-	interruptTaskID                              string
+	interruptTaskID, interruptTarget             string
 }
 
 // projectNameFor 返回项目显示名，找不到时返回空字符串。
@@ -614,6 +614,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 							}
 							ks.deleteTaskID = ""
 							ks.interruptTaskID = ""
+							ks.interruptTarget = ""
 							kanbanMu.Unlock()
 							s.invalidate()
 						},
@@ -738,10 +739,30 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 											ks.moveMenuTaskID = ""
 											ks.deleteTaskID = ""
 											ks.interruptTaskID = task.ID
+											ks.interruptTarget = "todo"
 											kanbanMu.Unlock()
 											s.invalidate()
 										},
 									})
+
+									if kanban.CanTransition(kanban.TaskStatus(task.Status), kanban.TaskStatusDone) && task.Status != "done" {
+										Button(c.Key("kanban-task-rescue-complete-"+task.ID), ButtonOpts{
+											Text:    "中断并标记完成",
+											Label:   "kanban-task-rescue-complete-" + task.ID,
+											Size:    ControlXS,
+											Variant: ButtonSecondary,
+											OnClick: func() {
+												kanbanMu.Lock()
+												ks.rescueMenuTaskID = ""
+												ks.moveMenuTaskID = ""
+												ks.deleteTaskID = ""
+												ks.interruptTaskID = task.ID
+												ks.interruptTarget = "done"
+												kanbanMu.Unlock()
+												s.invalidate()
+											},
+										})
+									}
 								}
 
 								Button(c.Key("kanban-task-rescue-delete-"+task.ID), ButtonOpts{
@@ -754,6 +775,7 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 										ks.rescueMenuTaskID = ""
 										ks.moveMenuTaskID = ""
 										ks.interruptTaskID = ""
+										ks.interruptTarget = ""
 										ks.deleteTaskID = task.ID
 										kanbanMu.Unlock()
 										s.invalidate()
@@ -765,26 +787,40 @@ func renderTaskCard(c *ui.Context, s *chatState, ks *kanbanState, task KanbanTas
 			})
 		}
 
-		// 中断并重置为待办二次确认
+		// 中断任务二次确认（重置为待办或标记完成）
+		interruptTarget := st.interruptTarget
+		if interruptTarget == "" {
+			interruptTarget = "todo"
+		}
+		interruptTitle := "中断并重置为待办？"
+		interruptBody := "将中断当前执行会话并移回待办列"
+		interruptConfirmLabel := "中断并重置"
+		if interruptTarget == "done" {
+			interruptTitle = "中断并标记完成？"
+			interruptBody = "将中断当前执行会话并标记为完成，worktree 改动不会自动合并"
+			interruptConfirmLabel = "中断并完成"
+		}
 		RenderConfirmDialog(c, ConfirmDialog{
 			Key:          "kanban-task-interrupt-" + task.ID,
 			Open:         st.interruptTaskID == task.ID,
 			Tone:         ConfirmDanger,
-			Title:        "中断并重置为待办？",
-			Body:         "将中断当前执行会话并移回待办列",
-			ConfirmLabel: "中断并重置",
+			Title:        interruptTitle,
+			Body:         interruptBody,
+			ConfirmLabel: interruptConfirmLabel,
 			ConfirmA11y:  "kanban-task-interrupt-confirm-yes-" + task.ID,
 			CancelLabel:  "取消",
 			CancelA11y:   "kanban-task-interrupt-cancel-" + task.ID,
 			OnConfirm: func() {
 				kanbanMu.Lock()
 				ks.interruptTaskID = ""
+				ks.interruptTarget = ""
 				kanbanMu.Unlock()
-				s.interruptTaskToTodo(task)
+				s.interruptTask(task, interruptTarget)
 			},
 			OnCancel: func() {
 				kanbanMu.Lock()
 				ks.interruptTaskID = ""
+				ks.interruptTarget = ""
 				kanbanMu.Unlock()
 				s.invalidate()
 			},

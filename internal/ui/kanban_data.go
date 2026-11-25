@@ -493,10 +493,13 @@ func (s *chatState) deleteKanbanTask(task KanbanTask) {
 	}()
 }
 
-// interruptTaskToTodo 中断任务会话并把它移回待办；任务没有会话时只做移动。
-func (s *chatState) interruptTaskToTodo(task KanbanTask) {
+// interruptTask 中断任务会话并把任务移动到指定目标状态；任务没有会话时只做移动。
+func (s *chatState) interruptTask(task KanbanTask, status string) {
 	if s == nil || s.client == nil {
 		return
+	}
+	if status == "" {
+		status = "todo"
 	}
 	ks := getKanbanState(s)
 	if !beginKanbanTask(ks, task.ID) {
@@ -507,7 +510,7 @@ func (s *chatState) interruptTaskToTodo(task KanbanTask) {
 		if task.ThreadID != "" {
 			_, _ = s.client.Interrupt(context.Background(), task.ThreadID)
 		}
-		if _, err := s.client.MoveTask(context.Background(), task.ID, "todo", task.Revision); err != nil {
+		if _, err := s.client.MoveTask(context.Background(), task.ID, status, task.Revision); err != nil {
 			if errors.Is(err, ErrRevisionConflict) {
 				kanbanMu.Lock()
 				ks.conflict = true

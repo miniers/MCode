@@ -128,6 +128,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		rescueMenuTaskID: ks.rescueMenuTaskID,
 		deleteTaskID:     ks.deleteTaskID,
 		interruptTaskID:  ks.interruptTaskID,
+		interruptTarget:  ks.interruptTarget,
 		viewFilter:       ks.viewFilter,
 		originFilter:     ks.originFilter,
 	}
@@ -350,6 +351,7 @@ type kanbanModalBodyProps struct {
 	rescueMenuTaskID string
 	deleteTaskID     string
 	interruptTaskID  string
+	interruptTarget  string
 }
 
 func renderTasksAutomationCreate(c *ui.Context, s *chatState, scopeID string) {
@@ -747,6 +749,7 @@ func renderKanbanModalBody(c *ui.Context, s *chatState, ks *kanbanState, p kanba
 							rescueMenuTaskID: p.rescueMenuTaskID,
 							deleteTaskID:     p.deleteTaskID,
 							interruptTaskID:  p.interruptTaskID,
+							interruptTarget:  p.interruptTarget,
 						})
 					}
 				})
