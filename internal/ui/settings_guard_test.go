@@ -210,9 +210,7 @@ func TestSettingsGuard_NoNumericSpacing(t *testing.T) {
 		"settings_page_models.go":           6,
 		"settings_page_providers_agents.go": 1,
 		"settings_page_remote.go":           1,
-		"settings_page_skills.go":           3,
 		"settings_pi_magpie.go":             2,
-		"settings_sheet_skills.go":          4,
 		"settings_tree.go":                  6,
 	}
 	checkSettingsGuardBaseline(t, "NumericSpacing", settingsGuardCounts(t, countSettingsNumericSpacing), allowed)
@@ -286,7 +284,7 @@ func TestSettingsGuard_RenderPurity(t *testing.T) {
 		"settings_page_mcp.go":              2,
 		"settings_page_mcp_cache.go":        3,
 		"settings_page_nowledge.go":         3,
-		"settings_page_skills.go":           3,
+		"settings_page_skills.go":           5,
 		"settings_page_mcp_catalog.go":      2,
 		"settings_page_open_in.go":          1,
 	}

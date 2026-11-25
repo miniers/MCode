@@ -138,67 +138,70 @@ func TestSkillSearchMatchesDescription(t *testing.T) {
 	}
 }
 
-// TestSkillBadgesDeduplicatedByGroup 覆盖：分组标题已表达的作用域和全局供应商徽标不再重复显示，
-// 主行只留名称与插件名等标签；点开行菜单 ··· 后，组内有区分意义的 Agent 标签才出现在菜单里，
-// 全局组无区分意义的 Agent 标签仍不出现。
+// TestSkillBadgesDeduplicatedByGroup 覆盖：分组标题已表达的作用域徽标不再重复显示，
+// 主行显示行内 Agent 徽标（插件成员显示「Agent · 插件」）；点开行菜单 ··· 后列出成员路径与 Agent 徽标，
+// 且同一时刻最多开一个行菜单。
 func TestSkillBadgesDeduplicatedByGroup(t *testing.T) {
 	testenv.TempHome(t)
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.agentConfLoaded = true
 	st.skills = []agentconf.Skill{
-		{Agent: "claude", Scope: "global", Name: "g-skill", Enabled: true},
-		{Agent: "codex", Scope: "project", Name: "p-skill", Enabled: true},
-		{Agent: "cursor", Scope: "external", Plugin: "demo-plugin", Name: "e-skill", Enabled: true},
+		{Agent: "claude", Scope: "global", Name: "g-skill", Path: "/tmp/claude/g-skill/SKILL.md", Enabled: true},
+		{Agent: "codex", Scope: "project", Name: "p-skill", Path: "/tmp/proj/p-skill/SKILL.md", Enabled: true},
+		{Agent: "cursor", Scope: "external", Plugin: "demo-plugin", Name: "e-skill", Path: "/tmp/cursor/e-skill/SKILL.md", Enabled: true},
 	}
 
 	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 2000)
 
-	// 主行不显示重复的作用域与供应商徽标，也不直接露出 Agent 名。
-	for _, hidden := range []string{"全局", "项目", "外部", "Claude", "Codex", "Cursor"} {
+	// 分组标题已表达作用域，主行不显示重复的作用域徽标。
+	for _, hidden := range []string{"全局", "项目", "外部"} {
 		if _, ok := tt.Find(hidden); ok {
-			t.Fatalf("主行不应直接渲染标签 %q；全部文本=%v", hidden, tt.Texts())
+			t.Fatalf("主行不应直接渲染作用域标签 %q；全部文本=%v", hidden, tt.Texts())
 		}
 	}
-	if _, ok := tt.Find("插件 · demo-plugin"); !ok {
-		t.Fatalf("主行应保留插件标签 %q；全部文本=%v", "插件 · demo-plugin", tt.Texts())
+	// 主行保留行内 Agent 徽标，插件成员显示「Cursor · 插件」。
+	for _, want := range []string{"项目技能 (1)", "全局技能 (2)", "Claude", "Codex", "Cursor · 插件"} {
+		if _, ok := tt.Find(want); !ok {
+			t.Fatalf("缺少 %q；全部文本=%v", want, tt.Texts())
+		}
 	}
 
-	// 全局组菜单：分组标题已含供应商，菜单里不重复显示 "Claude"。
+	// 全局技能菜单：显示路径与 Agent 徽标。
 	if err := tt.Click("更多操作「g-skill」"); err != nil {
 		t.Fatalf("点击全局技能菜单失败: %v", err)
 	}
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
-	if _, ok := tt.Find("Claude"); ok {
-		t.Fatalf("全局组行菜单不应重复显示 %q；全部文本=%v", "Claude", tt.Texts())
+	if !tt.HasText("/tmp/claude/g-skill/SKILL.md") {
+		t.Fatalf("全局技能菜单应显示成员路径；全部文本=%v", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
 
-	// 项目组菜单：组内有区分意义的 "Codex" 应出现在菜单里。
+	// 项目技能菜单：显示路径。
 	if err := tt.Click("更多操作「p-skill」"); err != nil {
 		t.Fatalf("点击项目技能菜单失败: %v", err)
 	}
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
-	if _, ok := tt.Find("Codex"); !ok {
-		t.Fatalf("项目组行菜单应显示 %q；全部文本=%v", "Codex", tt.Texts())
+	if !tt.HasText("/tmp/proj/p-skill/SKILL.md") {
+		t.Fatalf("项目组行菜单应显示路径；全部文本=%v", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
 
-	// 外部组菜单：组内有区分意义的 "Cursor" 应出现在菜单里，上一行菜单已关闭。
+	// 插件技能菜单：显示路径与插件名，上一行菜单已关闭。
 	if err := tt.Click("更多操作「e-skill」"); err != nil {
 		t.Fatalf("点击外部技能菜单失败: %v", err)
 	}
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
-	if _, ok := tt.Find("Cursor"); !ok {
-		t.Fatalf("外部组行菜单应显示 %q；全部文本=%v", "Cursor", tt.Texts())
+	if !tt.HasText("/tmp/cursor/e-skill/SKILL.md") || !tt.HasText("demo-plugin") {
+		t.Fatalf("插件技能行菜单应显示路径与插件名；全部文本=%v", tt.Texts())
 	}
-	if _, ok := tt.Find("Codex"); ok {
-		t.Fatalf("切换行菜单后上一行的 %q 不应继续显示；全部文本=%v", "Codex", tt.Texts())
+	if tt.HasText("/tmp/proj/p-skill/SKILL.md") {
+		t.Fatalf("切换行菜单后上一行的路径不应继续显示；全部文本=%v", tt.Texts())
 	}
 }

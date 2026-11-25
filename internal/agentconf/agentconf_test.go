@@ -974,3 +974,52 @@ func TestScanSkillsExternalHarnesses(t *testing.T) {
 		t.Errorf("expected first occurrence to be preserved, got %q", s.Description)
 	}
 }
+
+func TestScanSkillsDigest(t *testing.T) {
+	home := t.TempDir()
+	sameContent := []byte("---\nname: demo-skill\ndescription: same\n---\n# Body\n")
+	diffContent := []byte("---\nname: demo-skill\ndescription: different\n---\n# Other\n")
+
+	for _, dir := range []string{
+		filepath.Join(home, ".claude", "skills", "demo-skill"),
+		filepath.Join(home, ".codex", "skills", "demo-skill"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), sameContent, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cursorDir := filepath.Join(home, ".cursor", "skills", "demo-skill")
+	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cursorDir, "SKILL.md"), diffContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	skills, err := ScanSkills(Options{Home: home})
+	if err != nil {
+		t.Fatalf("ScanSkills error: %v", err)
+	}
+	byAgent := make(map[string]Skill, len(skills))
+	for _, sk := range skills {
+		byAgent[sk.Agent] = sk
+	}
+	if len(byAgent) != 3 {
+		t.Fatalf("expected 3 skills, got %d: %+v", len(byAgent), skills)
+	}
+	for _, agent := range []string{"claude", "codex", "cursor"} {
+		if byAgent[agent].Digest == "" {
+			t.Fatalf("%s Digest should not be empty", agent)
+		}
+	}
+	if byAgent["claude"].Digest != byAgent["codex"].Digest {
+		t.Fatalf("same content should have identical Digest: claude=%q codex=%q", byAgent["claude"].Digest, byAgent["codex"].Digest)
+	}
+	if byAgent["claude"].Digest == byAgent["cursor"].Digest {
+		t.Fatalf("different content should have different Digest: both=%q", byAgent["claude"].Digest)
+	}
+}

@@ -85,7 +85,8 @@ func TestSettingsExtra_SkillsPage(t *testing.T) {
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("fake-custom-skill") &&
-			tt.HasText("Claude 全局技能 (1)")
+			tt.HasText("全局技能 (1)") &&
+			tt.HasText("Claude")
 	})
 }
 

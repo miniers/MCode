@@ -29,8 +29,10 @@ type Skill struct {
 	Name        string
 	Description string
 	Path        string
-	Enabled     bool
-	Disabled    bool
+	// Digest 为 SKILL.md 内容 sha256 前 8 字节十六进制。
+	Digest   string
+	Enabled  bool
+	Disabled bool
 }
 
 // ID 返回技能的唯一标识符。

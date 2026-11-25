@@ -14,14 +14,23 @@ import (
 	"mcode/internal/projctx"
 )
 
+type skillMemberLinkInfo struct {
+	isSymlink bool
+	realDir   string
+}
+
 type skillsPageState struct {
-	busy        bool
-	deleteSkill *agentconf.Skill
-	deleteOpts  agentconf.Options
-	// 浮层开合状态仅在 UI 线程读写（appPopover 关闭时会写回）。
-	topMenuOpen bool
-	rowMenuKey  string
-	rowMenuOpen bool
+	busy              bool
+	deleteSkill       *agentconf.Skill
+	deleteOpts        agentconf.Options
+	deleteBrokenLinks int
+	// 浮层开合状态与筛选状态仅在 UI 线程读写（appPopover 关闭时会写回）。
+	agentFilter     string
+	agentFilterOpen bool
+	topMenuOpen     bool
+	rowMenuKey      string
+	rowMenuOpen     bool
+	rowMenuLinks    []skillMemberLinkInfo
 }
 
 // 调用方持有 st.mu；状态跟随设置面板关闭释放。
@@ -100,9 +109,11 @@ func renderSkillDeleteDialog(c *ui.Context, st *SettingsState) {
 	page := st.skillsPage
 	var skill *agentconf.Skill
 	var opts agentconf.Options
+	var brokenLinks int
 	if page != nil {
 		skill = page.deleteSkill
 		opts = page.deleteOpts
+		brokenLinks = page.deleteBrokenLinks
 	}
 	st.mu.Unlock()
 	if skill == nil {
@@ -112,12 +123,17 @@ func renderSkillDeleteDialog(c *ui.Context, st *SettingsState) {
 	closeModal := func() {
 		st.mu.Lock()
 		page.deleteSkill = nil
+		page.deleteBrokenLinks = 0
 		st.mu.Unlock()
 		st.invalidate()
 	}
+	body := fmt.Sprintf("将把 %s 移到废纸篓。", skill.Name)
+	if brokenLinks > 0 {
+		body += fmt.Sprintf("\n另有 %d 个 Agent 链接到此目录，删除后会失效。", brokenLinks)
+	}
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key: "skill-delete", Open: true, Tone: ConfirmDanger,
-		Title: "删除技能", Body: fmt.Sprintf("将把 %s 移到废纸篓。", skill.Name),
+		Title: "删除技能", Body: body,
 		ConfirmLabel: "移到废纸篓", ConfirmA11y: "确认删除技能",
 		CancelLabel: "取消", CancelA11y: "取消删除技能",
 		OnConfirm: func() {
@@ -196,19 +212,161 @@ func capitalizeFirstRune(s string) string {
 	return string(unicode.ToUpper(r)) + s[size:]
 }
 
-// skillMatchesQuery 判断技能是否匹配搜索关键字：名称、描述、作用域、Agent 标签与路径均可命中。
-func skillMatchesQuery(sk agentconf.Skill, query string) bool {
+// skillEntry 表示按「小写名称 + 内容摘要」归并后的一条技能展示行。
+type skillEntry struct {
+	Name        string
+	Description string
+	Members     []agentconf.Skill
+}
+
+type skillAgentOption struct {
+	agent string
+	label string
+}
+
+// mergeSkills 按 strings.ToLower(Name)+"\x00"+Digest 将多 Agent 重复扫描的技能归并为一行，
+// 保持首次出现顺序；同名不同内容分拆成多行时改用成员目录名区分（目录名也相同则照旧）。
+func mergeSkills(list []agentconf.Skill) []skillEntry {
+	var entries []skillEntry
+	index := make(map[string]int, len(list))
+	for _, sk := range list {
+		key := strings.ToLower(sk.Name) + "\x00" + sk.Digest
+		if idx, ok := index[key]; ok {
+			entries[idx].Members = append(entries[idx].Members, sk)
+			if entries[idx].Description == "" && sk.Description != "" {
+				entries[idx].Description = sk.Description
+			}
+			continue
+		}
+		index[key] = len(entries)
+		entries = append(entries, skillEntry{
+			Name:        sk.Name,
+			Description: sk.Description,
+			Members:     []agentconf.Skill{sk},
+		})
+	}
+
+	nameGroups := make(map[string][]int, len(entries))
+	for i, e := range entries {
+		k := strings.ToLower(e.Name)
+		nameGroups[k] = append(nameGroups[k], i)
+	}
+	for _, idxs := range nameGroups {
+		if len(idxs) <= 1 {
+			continue
+		}
+		dirs := make([]string, len(idxs))
+		unique := make(map[string]bool, len(idxs))
+		allValid := true
+		for j, idx := range idxs {
+			p := entries[idx].Members[0].Path
+			if p == "" {
+				allValid = false
+				break
+			}
+			d := filepath.Base(filepath.Dir(p))
+			if d == "" || d == "." || d == string(filepath.Separator) {
+				allValid = false
+				break
+			}
+			dirs[j] = d
+			unique[d] = true
+		}
+		if !allValid || len(unique) <= 1 {
+			continue
+		}
+		for j, idx := range idxs {
+			entries[idx].Name = dirs[j]
+		}
+	}
+	return entries
+}
+
+func isSkillMemberEnabled(sk agentconf.Skill) bool {
+	return sk.Enabled || !sk.Disabled
+}
+
+func skillMemberAgentLabel(sk agentconf.Skill) string {
+	label := skillAgentLabel(sk.Agent)
+	if sk.Plugin != "" {
+		if label != "" {
+			return label + " · 插件"
+		}
+		return "插件"
+	}
+	return label
+}
+
+// skillMatchesQuery 判断归并后的技能条目是否匹配搜索关键字：任一成员命中即可保留该行。
+func skillMatchesQuery(entry skillEntry, query string) bool {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return true
 	}
-	fields := []string{sk.Name, sk.Description, sk.Scope, sk.Path, skillAgentLabel(sk.Agent)}
-	for _, f := range fields {
-		if strings.Contains(strings.ToLower(f), q) {
+	if strings.Contains(strings.ToLower(entry.Name), q) || strings.Contains(strings.ToLower(entry.Description), q) {
+		return true
+	}
+	for _, m := range entry.Members {
+		fields := []string{m.Name, m.Description, m.Scope, m.Path, m.Plugin, skillAgentLabel(m.Agent), skillMemberAgentLabel(m)}
+		for _, f := range fields {
+			if strings.Contains(strings.ToLower(f), q) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func entryMatchesAgent(entry skillEntry, agent string) bool {
+	if agent == "" {
+		return true
+	}
+	for _, m := range entry.Members {
+		if strings.EqualFold(strings.TrimSpace(m.Agent), agent) {
 			return true
 		}
 	}
 	return false
+}
+
+func collectSkillAgentOptions(skills []agentconf.Skill) []skillAgentOption {
+	opts := []skillAgentOption{{agent: "", label: "全部"}}
+	seen := make(map[string]bool)
+	for _, sk := range skills {
+		a := strings.ToLower(strings.TrimSpace(sk.Agent))
+		if a == "" || seen[a] {
+			continue
+		}
+		label := skillAgentLabel(a)
+		if label == "" {
+			continue
+		}
+		seen[a] = true
+		opts = append(opts, skillAgentOption{agent: a, label: label})
+	}
+	return opts
+}
+
+func collectGroupAgentMembers(entries []skillEntry, agent string) []agentconf.Skill {
+	var members []agentconf.Skill
+	for _, e := range entries {
+		for _, m := range e.Members {
+			if strings.EqualFold(strings.TrimSpace(m.Agent), agent) {
+				members = append(members, m)
+			}
+		}
+	}
+	return members
+}
+
+func filterSkillEntries(entries []skillEntry, query, agent string) []skillEntry {
+	var out []skillEntry
+	for _, e := range entries {
+		if skillMatchesQuery(e, query) && entryMatchesAgent(e, agent) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // getSkillsSearchText 返回技能页搜索框的文本指针：首次访问时在 st.mu 锁内创建，
@@ -253,15 +411,44 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 		st.mu.Unlock()
 	}
 
-	defer renderSkillDeleteDialog(c, st)
-	renderSkillsActions(c, st, page, len(skills))
+	var projectRaw, globalRaw []agentconf.Skill
+	for _, sk := range skills {
+		if strings.EqualFold(sk.Scope, "project") {
+			projectRaw = append(projectRaw, sk)
+		} else {
+			globalRaw = append(globalRaw, sk)
+		}
+	}
+	projectEntries := mergeSkills(projectRaw)
+	globalEntries := mergeSkills(globalRaw)
 
-	// 按全字段过滤，空值显示全部；SearchField 带 Grow: true，放在横向 Row 里占满行宽而不在纵向测试容器里撑高。
+	agentOptions := collectSkillAgentOptions(skills)
+	if page.agentFilter != "" {
+		found := false
+		for _, opt := range agentOptions {
+			if opt.agent == page.agentFilter {
+				found = true
+				break
+			}
+		}
+		if !found {
+			page.agentFilter = ""
+		}
+	}
+
+	defer renderSkillDeleteDialog(c, st)
+	renderSkillsActions(c, st, page, len(projectEntries)+len(globalEntries))
+
+	// 按全字段过滤，空值显示全部；SearchField 带 Grow: true，放在横向 Row 里占满行宽。
 	searchText := getSkillsSearchText(st)
 	ui.Row(c.Key("skills-search-row")).
 		FillWidth().
+		AlignItems(ui.Center).
+		Gap(Space2).
+		Margin(Space0, Space0, Space4, Space0).
 		Children(func() {
 			renderSkillsSearchBox(c, st, searchText)
+			renderSkillsAgentFilter(c, st, page, agentOptions)
 		})
 	searchQuery := strings.TrimSpace(*searchText)
 
@@ -282,103 +469,104 @@ func renderSkillsContent(c *ui.Context, st *SettingsState) {
 			Margin(Space3, settingsRowPadX, Space1, settingsRowPadX)
 	}
 
-	// 3. 搜索过滤
-	var filtered []agentconf.Skill
-	for _, sk := range skills {
-		if skillMatchesQuery(sk, searchQuery) {
-			filtered = append(filtered, sk)
-		}
-	}
+	filteredProject := filterSkillEntries(projectEntries, searchQuery, page.agentFilter)
+	filteredGlobal := filterSkillEntries(globalEntries, searchQuery, page.agentFilter)
 
-	// 4. 空态展示
-	if len(filtered) == 0 && !loading {
-		renderSkillsEmpty(c, searchQuery != "")
+	if len(filteredProject) == 0 && len(filteredGlobal) == 0 && !loading {
+		renderSkillsEmpty(c, searchQuery != "" || page.agentFilter != "")
 		return
 	}
 
-	// 5. 分组展示：项目与外部按作用域分组；全局技能按供应商（Agent）分组，
-	// 每组标题右侧提供「全部开启」「全部禁用」批量开关；过滤后为空的组不渲染。
-	var projectSkills, externalSkills, globalSkills []agentconf.Skill
-	for _, sk := range filtered {
-		switch strings.ToLower(sk.Scope) {
-		case "project":
-			projectSkills = append(projectSkills, sk)
-		case "global":
-			globalSkills = append(globalSkills, sk)
-		default:
-			externalSkills = append(externalSkills, sk)
+	if len(filteredProject) > 0 {
+		renderSkillGroupSection(c, st, page, "project",
+			fmt.Sprintf("项目技能 (%d)", len(filteredProject)), filteredProject, page.agentFilter)
+	}
+	if len(filteredGlobal) > 0 {
+		renderSkillGroupSection(c, st, page, "global",
+			fmt.Sprintf("全局技能 (%d)", len(filteredGlobal)), filteredGlobal, page.agentFilter)
+	}
+}
+
+// renderSkillsAgentFilter 在搜索框行右侧渲染 Agent 筛选下拉按钮。
+func renderSkillsAgentFilter(c *ui.Context, st *SettingsState, page *skillsPageState, options []skillAgentOption) {
+	currentLabel := "全部"
+	for _, opt := range options {
+		if opt.agent == page.agentFilter {
+			currentLabel = opt.label
+			break
 		}
 	}
-
-	if len(projectSkills) > 0 {
-		renderSkillGroupTitle(c, fmt.Sprintf("项目技能 (%d)", len(projectSkills)))
-		renderSkillList(c, st, page, "project", projectSkills)
-	}
-
-	for _, grp := range groupGlobalSkillsByProvider(globalSkills) {
-		grpVal := grp
-		renderSkillProviderSection(c, st, page, "sec-skills-"+grpVal.id,
-			fmt.Sprintf("%s 全局技能 (%d)", grpVal.label, len(grpVal.list)), grpVal.list)
-	}
-
-	if len(externalSkills) > 0 {
-		renderSkillGroupTitle(c, fmt.Sprintf("外部与插件技能 (%d)", len(externalSkills)))
-		renderSkillList(c, st, page, "external", externalSkills)
-	}
-}
-
-// skillGroup 是技能页的一个展示分组：id 用于组件 key，label 是供应商可读名称。
-type skillGroup struct {
-	id    string
-	label string
-	list  []agentconf.Skill
-}
-
-// groupGlobalSkillsByProvider 按供应商（Skill.Agent）对全局技能分组，保持传入顺序；
-// 空 Agent 归入「其他」，未知供应商沿用 skillAgentLabel 的首字母大写回退。
-func groupGlobalSkillsByProvider(skills []agentconf.Skill) []skillGroup {
-	var groups []skillGroup
-	index := make(map[string]int, len(skills))
-	for _, sk := range skills {
-		agent := strings.ToLower(strings.TrimSpace(sk.Agent))
-		idx, ok := index[agent]
-		if !ok {
-			label := skillAgentLabel(agent)
-			if label == "" {
-				label = "其他"
+	btn := Button(c.Key("btn-skills-agent-filter"), ButtonOpts{
+		Text:    currentLabel + " ▾",
+		Icon:    IconFilter(),
+		Label:   "筛选 Agent",
+		Tooltip: "按 Agent 筛选",
+		Variant: ButtonSecondary,
+		Size:    ControlMD,
+		OnClick: func() {
+			if togglePopoverOpen(&page.agentFilterOpen) {
+				page.topMenuOpen = false
+				page.rowMenuOpen = false
+				page.rowMenuLinks = nil
 			}
-			idx = len(groups)
-			index[agent] = idx
-			groups = append(groups, skillGroup{id: "global-" + agent, label: label})
-		}
-		groups[idx].list = append(groups[idx].list, sk)
-	}
-	return groups
+			st.invalidate()
+		},
+	})
+	appPopover(c.Key("skills-agent-filter-popover"), btn, &page.agentFilterOpen, func() {
+		st.invalidate()
+	}, func() {
+		popoverCard(c, ui.Column(c.Key("skills-agent-filter-menu"))).
+			MinWidth(160).
+			Padding(Space1).
+			Gap(Space0).
+			FocusGroup(ui.Vertical).
+			Children(func() {
+				for _, opt := range options {
+					optVal := opt
+					isCurrent := page.agentFilter == optVal.agent
+					menuRow(c, menuRowProps{
+						Key:         "skills-agent-opt-" + optVal.agent,
+						Title:       optVal.label,
+						Label:       "筛选：" + optVal.label,
+						Checked:     isCurrent,
+						Highlighted: isCurrent,
+						OnClick: func() {
+							page.agentFilter = optVal.agent
+							page.agentFilterOpen = false
+							st.invalidate()
+						},
+					})
+				}
+			})
+	})
 }
 
 // renderSkillGroupTitle 渲染卡片内的来源标题。
 func renderSkillGroupTitle(c *ui.Context, title string) {
 	SectionHeading(c, nil, title).
-		Margin(Space3, 0, 0, settingsRowPadX)
+		Margin(Space3, Space0, Space0, settingsRowPadX)
 }
 
-// renderSkillProviderSection 渲染供应商标题、批量按钮和技能行。
-func renderSkillProviderSection(c *ui.Context, st *SettingsState, page *skillsPageState, key, title string, list []agentconf.Skill) {
-	ui.Column(c.Key(key)).Children(func() {
-		ui.Row(c.Key(key+"-header")).
+// renderSkillGroupSection 渲染分组标题（选中特定 Agent 时右侧带批量开关）和技能行。
+func renderSkillGroupSection(c *ui.Context, st *SettingsState, page *skillsPageState, key, title string, entries []skillEntry, selectedAgent string) {
+	ui.Column(c.Key("sec-skills-" + key)).Children(func() {
+		ui.Row(c.Key("sec-skills-"+key+"-header")).
+			FillWidth().
 			AlignItems(ui.Center).
 			Gap(Space3).
-			Padding(Space3, settingsRowPadX, 0, settingsRowPadX).
+			Padding(Space3, settingsRowPadX, Space0, settingsRowPadX).
 			Children(func() {
-				SectionHeading(c, key+"-title", title).SingleLine()
+				SectionHeading(c, "sec-skills-"+key+"-title", title).SingleLine()
 
-				ui.Spacer(c)
-
-				renderSkillBatchButton(c, st, key+"-btn-enable-all", "全部开启", list, true)
-				renderSkillBatchButton(c, st, key+"-btn-disable-all", "全部禁用", list, false)
+				if selectedAgent != "" {
+					batchMembers := collectGroupAgentMembers(entries, selectedAgent)
+					ui.Spacer(c)
+					renderSkillBatchButton(c, st, "sec-skills-"+key+"-btn-enable-all", "全部开启", batchMembers, true)
+					renderSkillBatchButton(c, st, "sec-skills-"+key+"-btn-disable-all", "全部禁用", batchMembers, false)
+				}
 			})
 
-		renderSkillList(c, st, page, key, list)
+		renderSkillList(c, st, page, key, entries)
 	})
 }
 
@@ -481,15 +669,120 @@ func (s *SettingsState) injectedBase() (projectDir, home string) {
 	return opts.ProjectDir, opts.Home
 }
 
-// renderSkillList 渲染一组技能行（行间细分隔线）；项目、全局供应商与外部组共用。
-func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, groupKey string, list []agentconf.Skill) {
+func entryInjected(projectDir, home string, members []agentconf.Skill) bool {
+	for _, m := range members {
+		if projctx.IsSkillInjectedPath(projectDir, home, m.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+func skillDirSymlinkInfo(skillPath string) (isSymlink bool, realDir string) {
+	if skillPath == "" {
+		return false, ""
+	}
+	dir := filepath.Clean(filepath.Dir(skillPath))
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return false, ""
+	}
+	isSymlink = fi.Mode()&os.ModeSymlink != 0
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		if isSymlink {
+			return true, ""
+		}
+		return false, dir
+	}
+	return isSymlink, filepath.Clean(resolved)
+}
+
+func countSkillBrokenSymlinks(target agentconf.Skill, members []agentconf.Skill) int {
+	if target.Path == "" {
+		return 0
+	}
+	isLink, targetReal := skillDirSymlinkInfo(target.Path)
+	if isLink || targetReal == "" {
+		return 0
+	}
+	targetDir := filepath.Clean(filepath.Dir(target.Path))
+	count := 0
+	for _, other := range members {
+		if sameSkill(other, target) || other.Path == "" {
+			continue
+		}
+		if filepath.Clean(filepath.Dir(other.Path)) == targetDir {
+			continue
+		}
+		_, otherReal := skillDirSymlinkInfo(other.Path)
+		if otherReal != "" && (otherReal == targetReal || strings.HasPrefix(otherReal, targetReal+string(filepath.Separator))) {
+			count++
+		}
+	}
+	return count
+}
+
+// renderSkillAgentBadge 渲染成员的 Agent 行内徽标：启用为实色、停用为淡色，点击切换该成员启用状态。
+func renderSkillAgentBadge(c *ui.Context, st *SettingsState, key, skillName string, sk agentconf.Skill) {
+	agentText := skillMemberAgentLabel(sk)
+	if agentText == "" {
+		return
+	}
+	enabled := isSkillMemberEnabled(sk)
+	stateText := "已停用"
+	if enabled {
+		stateText = "已启用"
+	}
+	a11yLabel := fmt.Sprintf("%s：%s「%s」", agentText, stateText, skillName)
+	tooltip := agentText + " · " + stateText
+	if sk.Plugin != "" {
+		tooltip = fmt.Sprintf("%s（%s）· %s", agentText, sk.Plugin, stateText)
+	}
+
+	fg := ThemeTertiaryText(c)
+	bg := ThemeOverlay(c, OverlayFaint)
+	if enabled {
+		fg = ThemePrimaryText(c)
+		bg = ThemeOverlay(c, 0.09)
+	}
+
+	btn := ui.ButtonBase(c.Key(key)).
+		Label(a11yLabel).
+		Tooltip(tooltip).
+		Shrink(0).
+		Radius(RadiusXS).
+		Padding(Space0, Space2).
+		Background(bg).
+		Transition(motionFeedback(c))
+	if btn.Hovered() {
+		btn.Background(ThemeHover(c))
+	}
+	if btn.Clicked() {
+		applySkillEnabled(st, sk, !enabled)
+	}
+	btn.Children(func() {
+		ui.Text(c, agentText).
+			FontSize(uiFont(TypeCaption)).
+			TextColor(fg).
+			SingleLine().
+			Transition(motionFeedback(c))
+	})
+}
+
+// renderSkillList 渲染一组归并后的技能行（行间细分隔线）；项目与全局组共用。
+func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, groupKey string, entries []skillEntry) {
 	projectDir, home := st.injectedBase()
-	for i, sk := range list {
+	for i, entry := range entries {
 		if i > 0 {
 			renderSettingsDivider(c, fmt.Sprintf("div-skill-%s-%d", groupKey, i))
 		}
-		skVal := sk
-		skillKey := fmt.Sprintf("skill-%s-%s-%s-%s-%d", skVal.Agent, skVal.Scope, skVal.Plugin, skVal.Name, i)
+		entryVal := entry
+		digest := ""
+		if len(entryVal.Members) > 0 {
+			digest = entryVal.Members[0].Digest
+		}
+		skillKey := fmt.Sprintf("skill-%s-%s-%s-%d", groupKey, entryVal.Name, digest, i)
 
 		ui.Row(c.Key(skillKey)).
 			FillWidth().
@@ -498,7 +791,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, gr
 			AlignItems(ui.Center).
 			Gap(Space3).
 			Children(func() {
-				// 主行左侧只留名称与插件/自加载徽标，窄窗下自动折行且长名称截断。
+				// 左侧只留名称与注入徽标，窄窗下自动折行且长名称截断。
 				ui.Row(c.Key(skillKey + "-main")).
 					Grow(1).
 					Shrink(1).
@@ -507,7 +800,7 @@ func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, gr
 					AlignItems(ui.Center).
 					Gap(Space2).
 					Children(func() {
-						ui.Text(c, skVal.Name).
+						ui.Text(c, entryVal.Name).
 							FontSize(uiFont(TypeProse)).
 							FontWeight(500).
 							TextColor(ThemePrimaryText(c)).
@@ -515,45 +808,73 @@ func renderSkillList(c *ui.Context, st *SettingsState, page *skillsPageState, gr
 							MinWidth(0).
 							SingleLine().
 							Ellipsis("…").
-							Tooltip(skVal.Name)
+							Tooltip(entryVal.Name)
 
-						// 注入状态按路径判定：Agent 标签与是否注入并不等价（~/.agents/skills 被标成 codex，
-						// 却是注入的主力目录）。
-						if projctx.IsSkillInjectedPath(projectDir, home, skVal.Path) {
+						// 注入状态按成员路径判定：任一成员落在注入目录之下即为「mcode 注入」。
+						if entryInjected(projectDir, home, entryVal.Members) {
 							settingBadge(c, skillKey+"-badge-inject", "mcode 注入")
 						} else {
 							settingBadge(c, skillKey+"-badge-inject", "Agent 自行加载")
 						}
-
-						if skVal.Plugin != "" {
-							settingBadge(c, skillKey+"-badge-plugin", "插件 · "+skVal.Plugin)
-						}
 					})
 
 				settingRowRight(c, skillKey+"-actions", func() {
-					renderSkillRowMenu(c, st, page, skillKey, skVal)
-					renderSkillToggle(c, st, skillKey, skVal)
+					ui.Row(c.Key(skillKey + "-agents")).
+						MinWidth(0).
+						Shrink(1).
+						Wrap().
+						Justify(ui.End).
+						AlignItems(ui.Center).
+						Gap(Space1).
+						Children(func() {
+							for j, m := range entryVal.Members {
+								mVal := m
+								badgeKey := fmt.Sprintf("%s-agent-%d-%s-%s-%s", skillKey, j, mVal.Agent, mVal.Scope, mVal.Plugin)
+								renderSkillAgentBadge(c, st, badgeKey, entryVal.Name, mVal)
+							}
+						})
+					ui.Row(c.Key(skillKey + "-controls")).
+						Shrink(0).
+						AlignItems(ui.Center).
+						Gap(Space2).
+						Children(func() {
+							renderSkillRowMenu(c, st, page, skillKey, entryVal)
+							renderSkillToggle(c, st, skillKey, entryVal.Name, entryVal.Members)
+						})
 				})
 			})
 	}
 }
 
-// renderSkillRowMenu 渲染技能行右侧 ··· 按钮及其浮层菜单（Agent 来源、路径、在访达中显示、移到废纸篓）。
-func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState, skillKey string, skVal agentconf.Skill) {
+// renderSkillRowMenu 渲染技能行右侧 ··· 按钮及其浮层菜单（逐成员列出 Agent 来源、路径、真实目录、在访达中显示、移到废纸篓）。
+func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState, skillKey string, entryVal skillEntry) {
 	moreBtn := IconButton(c, IconButtonProps{
 		Key:     skillKey + "-btn-more",
 		Icon:    IconMoreHorizontal(),
-		Label:   "更多操作「" + skVal.Name + "」",
+		Label:   "更多操作「" + entryVal.Name + "」",
 		Tooltip: "更多操作",
 		Variant: ButtonGhost,
 		Size:    ControlSM,
 		OnClick: func() {
 			page.topMenuOpen = false
+			page.agentFilterOpen = false
 			if page.rowMenuKey == skillKey {
 				togglePopoverOpen(&page.rowMenuOpen)
 			} else {
 				page.rowMenuKey = skillKey
 				page.rowMenuOpen = true
+			}
+			if page.rowMenuOpen {
+				links := make([]skillMemberLinkInfo, len(entryVal.Members))
+				for j, m := range entryVal.Members {
+					isLink, realDir := skillDirSymlinkInfo(m.Path)
+					if isLink && realDir != "" {
+						links[j] = skillMemberLinkInfo{isSymlink: true, realDir: realDir}
+					}
+				}
+				page.rowMenuLinks = links
+			} else {
+				page.rowMenuLinks = nil
 			}
 			st.invalidate()
 		},
@@ -562,35 +883,67 @@ func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState,
 		return
 	}
 	appPopover(c.Key(skillKey+"-popover"), moreBtn, &page.rowMenuOpen, func() {
+		page.rowMenuLinks = nil
 		st.invalidate()
 	}, func() {
 		popoverCard(c, ui.Column(c.Key(skillKey+"-menu"))).
-			MinWidth(220).
-			MaxWidth(320).
+			MinWidth(240).
+			MaxWidth(360).
 			Padding(Space1).
 			Gap(Space0).
 			FocusGroup(ui.Vertical).
 			Children(func() {
-				// 作用域已由分组标题表达，全局组标题亦包含供应商，仅保留组内仍有区分意义的 Agent 标签。
-				showAgent := !strings.EqualFold(skVal.Scope, "global") && skVal.Agent != ""
-				if showAgent || skVal.Path != "" {
+				hasMeta := false
+				for _, m := range entryVal.Members {
+					if skillMemberAgentLabel(m) != "" || m.Path != "" {
+						hasMeta = true
+						break
+					}
+				}
+				if hasMeta {
 					ui.Column(c.Key(skillKey + "-menu-meta")).
 						FillWidth().
 						Padding(Space1, Space3).
-						Gap(Space1).
+						Gap(Space2).
 						Children(func() {
-							if showAgent {
-								ui.Row(c.Key(skillKey + "-menu-agent")).
-									AlignItems(ui.Center).
+							for j, m := range entryVal.Members {
+								agentText := skillMemberAgentLabel(m)
+								hasLink := j < len(page.rowMenuLinks) && page.rowMenuLinks[j].isSymlink && page.rowMenuLinks[j].realDir != ""
+								if agentText == "" && m.Path == "" && !hasLink {
+									continue
+								}
+								ui.Column(c.Key(fmt.Sprintf("%s-menu-meta-%d", skillKey, j))).
+									FillWidth().
+									Gap(Space0).
 									Children(func() {
-										settingBadge(c, skillKey+"-badge-agent", skillAgentLabel(skVal.Agent))
+										if agentText != "" || m.Plugin != "" {
+											ui.Row(c.Key(fmt.Sprintf("%s-menu-agent-%d", skillKey, j))).
+												AlignItems(ui.Center).
+												Gap(Space1).
+												Children(func() {
+													if agentText != "" {
+														settingBadge(c, fmt.Sprintf("%s-menu-badge-%d", skillKey, j), agentText)
+													}
+													if m.Plugin != "" {
+														ui.Text(c, m.Plugin).
+															FontSize(uiFont(TypeCaption)).
+															TextColor(ThemeSecondaryText(c))
+													}
+												})
+										}
+										if m.Path != "" {
+											ui.Text(c, m.Path).
+												FontSize(uiFont(TypeCaption)).
+												TextColor(ThemeTertiaryText(c)).
+												FillWidth()
+										}
+										if hasLink {
+											ui.Text(c, "真实目录："+page.rowMenuLinks[j].realDir).
+												FontSize(uiFont(TypeCaption)).
+												TextColor(ThemeTertiaryText(c)).
+												FillWidth()
+										}
 									})
-							}
-							if skVal.Path != "" {
-								ui.Text(c, skVal.Path).
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeTertiaryText(c)).
-									FillWidth()
 							}
 						})
 					ui.Box(c.Key(skillKey + "-menu-div")).
@@ -600,36 +953,56 @@ func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState,
 						Margin(Space1, Space0)
 				}
 
-				menuRow(c, menuRowProps{
-					Key:   skillKey + "-menu-reveal",
-					Icon:  IconFolderOpen(),
-					Title: revealInFileManagerLabel(),
-					OnClick: func() {
-						page.rowMenuOpen = false
-						st.invalidate()
-						openItemInFinder(skVal.Path)
-					},
-				})
-
-				if skVal.Plugin == "" {
+				for j, m := range entryVal.Members {
+					mVal := m
+					agentText := skillMemberAgentLabel(mVal)
+					revealTitle := revealInFileManagerLabel()
+					if agentText != "" {
+						revealTitle += " · " + agentText
+					}
 					menuRow(c, menuRowProps{
-						Key:      skillKey + "-menu-delete",
-						Icon:     IconTrash2(),
-						Title:    "移到废纸篓",
-						Label:    "删除技能「" + skVal.Name + "」",
-						Danger:   true,
-						Disabled: skillOperationBusy(st),
+						Key:   fmt.Sprintf("%s-menu-reveal-%d", skillKey, j),
+						Icon:  IconFolderOpen(),
+						Title: revealTitle,
 						OnClick: func() {
 							page.rowMenuOpen = false
-							opts := st.agentConfWriteOptions()
-							st.mu.Lock()
-							p := getSkillsPageLocked(st)
-							p.deleteSkill = &skVal
-							p.deleteOpts = opts
-							st.mu.Unlock()
+							page.rowMenuLinks = nil
 							st.invalidate()
+							openItemInFinder(mVal.Path)
 						},
 					})
+
+					if mVal.Plugin == "" {
+						deleteTitle := "移到废纸篓"
+						if agentText != "" {
+							deleteTitle += " · " + agentText
+						}
+						deleteLabel := "删除技能「" + entryVal.Name + "」"
+						if len(entryVal.Members) > 1 && agentText != "" {
+							deleteLabel += " · " + agentText
+						}
+						menuRow(c, menuRowProps{
+							Key:      fmt.Sprintf("%s-menu-delete-%d", skillKey, j),
+							Icon:     IconTrash2(),
+							Title:    deleteTitle,
+							Label:    deleteLabel,
+							Danger:   true,
+							Disabled: skillOperationBusy(st),
+							OnClick: func() {
+								page.rowMenuOpen = false
+								page.rowMenuLinks = nil
+								opts := st.agentConfWriteOptions()
+								broken := countSkillBrokenSymlinks(mVal, entryVal.Members)
+								st.mu.Lock()
+								p := getSkillsPageLocked(st)
+								p.deleteSkill = &mVal
+								p.deleteOpts = opts
+								p.deleteBrokenLinks = broken
+								st.mu.Unlock()
+								st.invalidate()
+							},
+						})
+					}
 				}
 			})
 	})
@@ -674,6 +1047,8 @@ func renderSkillsActions(c *ui.Context, st *SettingsState, page *skillsPageState
 				OnClick: func() {
 					if togglePopoverOpen(&page.topMenuOpen) {
 						page.rowMenuOpen = false
+						page.rowMenuLinks = nil
+						page.agentFilterOpen = false
 					}
 					st.invalidate()
 				},

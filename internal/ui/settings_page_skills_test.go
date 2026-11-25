@@ -252,9 +252,14 @@ func TestSkills_SingleCard(t *testing.T) {
 		{Scope: "external", Name: "external-skill", Enabled: true},
 	}
 	tt := ui.NewTester(func(c *ui.Context) { renderSettingsTreeSection(c, st, sectionSkills, false) }, 1000, 2000)
-	for _, text := range []string{"设置卡片 skills.list", "项目技能 (1)", "Claude 全局技能 (1)", "外部与插件技能 (1)", "3 个技能", "技能更多操作"} {
+	for _, text := range []string{"设置卡片 skills.list", "项目技能 (1)", "全局技能 (2)", "3 个技能", "技能更多操作"} {
 		if _, ok := tt.Find(text); !ok {
 			t.Fatalf("缺少 %q", text)
+		}
+	}
+	for _, removed := range []string{"Claude 全局技能 (1)", "外部与插件技能 (1)"} {
+		if tt.HasText(removed) {
+			t.Fatalf("旧分组标题 %q 不应再出现", removed)
 		}
 	}
 	for _, hidden := range []string{"打开目录", "重新扫描"} {
@@ -372,14 +377,27 @@ func TestCapitalizeFirstRune(t *testing.T) {
 	}
 }
 
-// TestSkillMatchesQuery 测试技能搜索匹配：名称、描述、作用域、Agent 标签与路径。
+// TestSkillMatchesQuery 测试技能搜索匹配：按 entry 任一成员的名称、描述、作用域、Agent 标签与路径均可命中。
 func TestSkillMatchesQuery(t *testing.T) {
-	sk := agentconf.Skill{
-		Agent:       "cursor",
-		Scope:       "global",
+	entry := skillEntry{
 		Name:        "find-skills",
 		Description: "发现技能",
-		Path:        "/tmp/cursor-skills/find-skills/SKILL.md",
+		Members: []agentconf.Skill{
+			{
+				Agent:       "cursor",
+				Scope:       "global",
+				Name:        "find-skills",
+				Description: "发现技能",
+				Path:        "/tmp/cursor-skills/find-skills/SKILL.md",
+			},
+			{
+				Agent:       "codex",
+				Scope:       "global",
+				Name:        "find-skills",
+				Description: "发现技能",
+				Path:        "/tmp/agents-skills/find-skills/SKILL.md",
+			},
+		},
 	}
 	cases := []struct {
 		query string
@@ -388,14 +406,15 @@ func TestSkillMatchesQuery(t *testing.T) {
 		{"", true},
 		{"find", true},
 		{"CURSOR", true},
+		{"codex", true},
 		{"发现", true},
 		{"global", true},
 		{"/tmp/cursor", true},
+		{"/tmp/agents-skills", true},
 		{"antigravity", false},
-		{"codex", false},
 	}
 	for _, c := range cases {
-		if got := skillMatchesQuery(sk, c.query); got != c.want {
+		if got := skillMatchesQuery(entry, c.query); got != c.want {
 			t.Errorf("skillMatchesQuery(%q) = %v, want %v", c.query, got, c.want)
 		}
 	}
@@ -450,8 +469,7 @@ func TestSameSkillDistinguishesPlugin(t *testing.T) {
 	}
 }
 
-// TestRenderSkillListShowsPluginBadge 覆盖：插件技能在列表里显示「插件 · <插件名>」标签，
-// 并把本页的停用影响提示渲染出来。
+// TestRenderSkillListShowsPluginBadge 覆盖：插件成员在主行显示「Claude · 插件」徽标。
 func TestRenderSkillListShowsPluginBadge(t *testing.T) {
 	testenv.TempHome(t)
 	origScanSkills := scanSkills
@@ -480,7 +498,7 @@ func TestRenderSkillListShowsPluginBadge(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderPageExtensions(c, st) }, 1000, 2000)
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("插件 · superpowers") && tt.HasText("brainstorming")
+		return tt.HasText("Claude · 插件") && tt.HasText("brainstorming")
 	})
 	if tt.HasText("停用仅影响 mcode 注入的技能提示和斜杠命令") {
 		t.Fatalf("技能页不应显示旧说明")
@@ -720,19 +738,19 @@ func TestSkillsRowMenu(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 900)
 
 	// 主行不直接露出路径、访达入口、移到废纸篓以及顶栏二级操作。
-	for _, hidden := range []string{skill1.Path, skill2.Path, revealInFileManagerLabel(), "移到废纸篓", "打开目录", "重新扫描"} {
+	for _, hidden := range []string{skill1.Path, skill2.Path, revealInFileManagerLabel() + " · Claude", "移到废纸篓 · Claude", "打开目录", "重新扫描"} {
 		if tt.HasText(hidden) {
 			t.Fatalf("未展开菜单时不应出现 %q", hidden)
 		}
 	}
 
-	// 点击第一行 ···：显示第一行路径、在访达中显示、移到废纸篓。
+	// 点击第一行 ···：显示第一行路径、在访达中显示 · Claude、移到废纸篓 · Claude。
 	if err := tt.Click("更多操作「menu-skill-one」"); err != nil {
 		t.Fatalf("点击第一行菜单失败: %v", err)
 	}
 	tt.Advance(motionPop + 60*time.Millisecond)
 	tt.Frame()
-	for _, want := range []string{skill1.Path, revealInFileManagerLabel(), "移到废纸篓"} {
+	for _, want := range []string{skill1.Path, revealInFileManagerLabel() + " · Claude", "移到废纸篓 · Claude"} {
 		if !tt.HasText(want) {
 			t.Fatalf("第一行菜单缺少 %q，当前文本=%v", want, tt.Texts())
 		}
@@ -762,10 +780,10 @@ func TestSkillsRowMenu(t *testing.T) {
 	if tt.HasText(skill1.Path) {
 		t.Fatalf("切换行菜单后第一行菜单应关闭，仍见 %q", skill1.Path)
 	}
-	if !tt.HasText(skill2.Path) || !tt.HasText(revealInFileManagerLabel()) {
+	if !tt.HasText(skill2.Path) || !tt.HasText(revealInFileManagerLabel()+" · Codex · 插件") {
 		t.Fatalf("第二行菜单应显示路径与访达入口，当前文本=%v", tt.Texts())
 	}
-	if tt.HasText("移到废纸篓") {
+	if tt.HasText("移到废纸篓") || tt.HasText("移到废纸篓 · Codex · 插件") {
 		t.Fatalf("插件技能行菜单不应显示「移到废纸篓」")
 	}
 
@@ -795,5 +813,210 @@ func TestSkillsRowMenu(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool {
 		return rescanCount.Load() == 1 && !tt.HasText("重新扫描")
+	})
+}
+
+func TestMergeSkills(t *testing.T) {
+	list := []agentconf.Skill{
+		{Agent: "claude", Scope: "global", Name: "brainstorming", Description: "head-desc", Digest: "aaaa1111", Path: "/home/.claude/skills/brainstorming/SKILL.md"},
+		{Agent: "codex", Scope: "global", Name: "Surge", Digest: "bbbb2222", Path: "/home/.codex/skills/surge-cli/SKILL.md"},
+		{Agent: "codex", Scope: "global", Name: "Brainstorming", Digest: "aaaa1111", Path: "/home/.codex/skills/brainstorming/SKILL.md"},
+		{Agent: "claude", Scope: "external", Plugin: "my-plugin", Name: "brainstorming", Digest: "aaaa1111", Path: "/home/.claude/plugins/my-plugin/skills/brainstorming/SKILL.md"},
+		{Agent: "cursor", Scope: "global", Name: "surge", Digest: "cccc3333", Path: "/home/.cursor/skills/surge-proxy/SKILL.md"},
+		{Agent: "pi", Scope: "global", Name: "same-dir", Digest: "dddd4444", Path: "/home/.pi/agent/skills/same-dir/SKILL.md"},
+		{Agent: "gemini", Scope: "global", Name: "same-dir", Digest: "eeee5555", Path: "/home/.gemini/config/skills/same-dir/SKILL.md"},
+	}
+
+	got := mergeSkills(list)
+	if len(got) != 5 {
+		t.Fatalf("mergeSkills count = %d, want 5: %+v", len(got), got)
+	}
+
+	// 1. 保持首次出现顺序，同名同 Digest 跨 Agent 与插件合并。
+	if got[0].Name != "brainstorming" || len(got[0].Members) != 3 {
+		t.Fatalf("got[0] = %+v, want brainstorming with 3 members", got[0])
+	}
+	if got[0].Members[0].Agent != "claude" || got[0].Members[1].Agent != "codex" || got[0].Members[2].Plugin != "my-plugin" {
+		t.Fatalf("got[0] members order/content wrong: %+v", got[0].Members)
+	}
+
+	// 2. 同名不同 Digest 分两行，目录名不同时改用目录名区分。
+	if got[1].Name != "surge-cli" || len(got[1].Members) != 1 {
+		t.Fatalf("got[1] = %+v, want surge-cli", got[1])
+	}
+	if got[2].Name != "surge-proxy" || len(got[2].Members) != 1 {
+		t.Fatalf("got[2] = %+v, want surge-proxy", got[2])
+	}
+
+	// 3. 同名不同 Digest 但目录名也相同时保持原名。
+	if got[3].Name != "same-dir" || got[4].Name != "same-dir" {
+		t.Fatalf("same-dir entries should keep original name, got %q and %q", got[3].Name, got[4].Name)
+	}
+}
+
+func TestSkillAgentBadgeTogglesOnlyThatAgent(t *testing.T) {
+	testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	st := NewSettingsState(dataDir, nil, nil)
+	st.agentConfLoaded = true
+
+	claudeSkill := agentconf.Skill{Agent: "claude", Scope: "global", Name: "brainstorming", Digest: "abcd1234", Path: "/tmp/claude/brainstorming/SKILL.md", Enabled: true}
+	codexSkill := agentconf.Skill{Agent: "codex", Scope: "global", Name: "brainstorming", Digest: "abcd1234", Path: "/tmp/codex/brainstorming/SKILL.md", Enabled: true}
+	st.skills = []agentconf.Skill{claudeSkill, codexSkill}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 800)
+
+	if err := tt.Click("Codex：已启用「brainstorming」"); err != nil {
+		t.Fatalf("点击 Codex 徽标失败: %v", err)
+	}
+
+	opts := agentconf.Options{DataDir: dataDir}
+	if agentconf.IsSkillActive(opts, codexSkill) {
+		t.Fatal("点击 Codex 徽标后 Codex 成员应变为停用")
+	}
+	if !agentconf.IsSkillActive(opts, claudeSkill) {
+		t.Fatal("点击 Codex 徽标不应影响 Claude 成员")
+	}
+	if _, ok := tt.Find("Codex：已停用「brainstorming」"); !ok {
+		t.Fatal("Codex 徽标应更新为已停用标签")
+	}
+	if _, ok := tt.Find("Claude：已启用「brainstorming」"); !ok {
+		t.Fatal("Claude 徽标应保持已启用标签")
+	}
+}
+
+func TestSkillRowToggleAffectsAllMembers(t *testing.T) {
+	testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	st := NewSettingsState(dataDir, nil, nil)
+	st.agentConfLoaded = true
+
+	claudeSkill := agentconf.Skill{Agent: "claude", Scope: "global", Name: "row-toggle-skill", Digest: "d1", Path: "/tmp/claude/row-toggle-skill/SKILL.md", Enabled: true}
+	codexSkill := agentconf.Skill{Agent: "codex", Scope: "global", Name: "row-toggle-skill", Digest: "d1", Path: "/tmp/codex/row-toggle-skill/SKILL.md", Enabled: true}
+	st.skills = []agentconf.Skill{claudeSkill, codexSkill}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 800)
+
+	if err := tt.Click("切换row-toggle-skill"); err != nil {
+		t.Fatalf("点击整行开关失败: %v", err)
+	}
+	opts := agentconf.Options{DataDir: dataDir}
+	if agentconf.IsSkillActive(opts, claudeSkill) || agentconf.IsSkillActive(opts, codexSkill) {
+		t.Fatal("整行关闭后所有成员均应停用")
+	}
+
+	if err := tt.Click("切换row-toggle-skill"); err != nil {
+		t.Fatalf("再次点击整行开关失败: %v", err)
+	}
+	if !agentconf.IsSkillActive(opts, claudeSkill) || !agentconf.IsSkillActive(opts, codexSkill) {
+		t.Fatal("整行开启后所有成员均应启用")
+	}
+}
+
+func TestSkillAgentFilterBatchOnlyThatAgent(t *testing.T) {
+	testenv.TempHome(t)
+	dataDir := settingsTestDir(t)
+	st := NewSettingsState(dataDir, nil, nil)
+	st.agentConfLoaded = true
+
+	sharedClaude := agentconf.Skill{Agent: "claude", Scope: "global", Name: "shared-skill", Digest: "s1", Path: "/tmp/claude/shared-skill/SKILL.md", Enabled: true}
+	sharedCodex := agentconf.Skill{Agent: "codex", Scope: "global", Name: "shared-skill", Digest: "s1", Path: "/tmp/codex/shared-skill/SKILL.md", Enabled: true}
+	onlyClaude := agentconf.Skill{Agent: "claude", Scope: "global", Name: "claude-only-skill", Digest: "c1", Path: "/tmp/claude/claude-only-skill/SKILL.md", Enabled: true}
+	st.skills = []agentconf.Skill{sharedClaude, sharedCodex, onlyClaude}
+
+	tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 800)
+
+	if tt.HasText("全部开启") || tt.HasText("全部禁用") {
+		t.Fatal("选中「全部」时不应显示批量按钮")
+	}
+	if !tt.HasText("shared-skill") || !tt.HasText("claude-only-skill") {
+		t.Fatalf("「全部」筛选时应显示全部技能: %v", tt.Texts())
+	}
+
+	if err := tt.Click("筛选 Agent"); err != nil {
+		t.Fatalf("点击 Agent 筛选按钮失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+
+	if err := tt.Click("筛选：Codex"); err != nil {
+		t.Fatalf("选择 Codex 筛选失败: %v", err)
+	}
+	tt.Advance(motionPop + 60*time.Millisecond)
+	tt.Frame()
+
+	if !tt.HasText("shared-skill") || tt.HasText("claude-only-skill") {
+		t.Fatalf("筛选 Codex 后结果不正确: %v", tt.Texts())
+	}
+	if !tt.HasText("全部开启") || !tt.HasText("全部禁用") {
+		t.Fatal("选中特定 Agent 时应显示批量按钮")
+	}
+
+	if err := tt.Click("全部禁用"); err != nil {
+		t.Fatalf("点击「全部禁用」失败: %v", err)
+	}
+	opts := agentconf.Options{DataDir: dataDir}
+	if agentconf.IsSkillActive(opts, sharedCodex) {
+		t.Fatal("Codex 成员应被批量禁用")
+	}
+	if !agentconf.IsSkillActive(opts, sharedClaude) || !agentconf.IsSkillActive(opts, onlyClaude) {
+		t.Fatal("批量禁用 Codex 不应影响 Claude 成员")
+	}
+
+	if err := tt.Click("全部开启"); err != nil {
+		t.Fatalf("点击「全部开启」失败: %v", err)
+	}
+	if !agentconf.IsSkillActive(opts, sharedCodex) {
+		t.Fatal("点击「全部开启」后 Codex 成员应恢复启用")
+	}
+}
+
+func TestSkillBadgeAnimationSettles(t *testing.T) {
+	t.Run("正常动效结束后不再请求下一帧", func(t *testing.T) {
+		setAppReduceMotion(t, false)
+		testenv.TempHome(t)
+		st := NewSettingsState(settingsTestDir(t), nil, nil)
+		st.agentConfLoaded = true
+		st.skills = []agentconf.Skill{
+			{Agent: "claude", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: true},
+			{Agent: "codex", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: false, Disabled: true},
+			{Agent: "cursor", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: false, Disabled: true},
+		}
+
+		tt := ui.NewTester(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 600)
+		tt.Frame()
+
+		if err := tt.Click("Codex：已停用「anim-skill」"); err != nil {
+			t.Fatalf("点击 Codex 徽标失败: %v", err)
+		}
+		tt.Advance(DurSnap + 50*time.Millisecond)
+		tt.Frame()
+		if tt.FramePending() {
+			t.Fatal("徽标过渡结束后不应继续请求下一帧")
+		}
+	})
+
+	t.Run("ReduceMotion开启时立即到终点", func(t *testing.T) {
+		setAppReduceMotion(t, true)
+		testenv.TempHome(t)
+		st := NewSettingsState(settingsTestDir(t), nil, nil)
+		st.agentConfLoaded = true
+		st.skills = []agentconf.Skill{
+			{Agent: "claude", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: true},
+			{Agent: "codex", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: false, Disabled: true},
+			{Agent: "cursor", Scope: "global", Name: "anim-skill", Digest: "a1", Enabled: false, Disabled: true},
+		}
+
+		tt := ui.NewTesterWith(func(c *ui.Context) { renderSkillsContent(c, st) }, 1000, 600, ui.TesterOptions{
+			Preferences: ui.Preferences{ReduceMotion: true},
+		})
+		tt.Frame()
+
+		if err := tt.Click("Codex：已停用「anim-skill」"); err != nil {
+			t.Fatalf("点击 Codex 徽标失败: %v", err)
+		}
+		if tt.FramePending() {
+			t.Fatal("ReduceMotion 开启时切换徽标不应请求后续帧")
+		}
 	})
 }

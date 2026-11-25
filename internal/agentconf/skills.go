@@ -379,6 +379,7 @@ func scanSkillRoot(src skillSource, disabled []map[string]bool, skills []Skill, 
 		}
 		seen[dedupKey] = true
 
+		sum := sha256.Sum256(contentBytes)
 		sk := Skill{
 			Agent:       src.agent,
 			Scope:       src.scope,
@@ -386,6 +387,7 @@ func scanSkillRoot(src skillSource, disabled []map[string]bool, skills []Skill, 
 			Name:        name,
 			Description: desc,
 			Path:        absSkillPath,
+			Digest:      hex.EncodeToString(sum[:8]),
 		}
 		active := !isSkillDisabledInAny(disabled, sk)
 		sk.Enabled = active
