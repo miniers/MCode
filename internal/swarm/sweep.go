@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"mcode/internal/config"
@@ -22,6 +23,16 @@ func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
 	for _, lead := range m.leads {
 		if lead.leadWorkDir != "" {
 			leadDirs[lead.leadWorkDir] = struct{}{}
+		}
+		for _, h := range lead.bees {
+			if h.TargetWorkDir != "" && !h.ShadowRepo && !h.SharedNoGit {
+				leadDirs[h.TargetWorkDir] = struct{}{}
+			}
+		}
+	}
+	for _, q := range m.queue {
+		if q.leadWorkDir != "" {
+			leadDirs[q.leadWorkDir] = struct{}{}
 		}
 	}
 	m.mu.Unlock()
@@ -69,7 +80,13 @@ func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
 	m.mu.Lock()
 	referenced := make([]string, 0, len(m.startingWorkDirs))
 	referencedBranches := make(map[string]struct{})
-	for _, lead := range m.leads {
+	activePrefixes := make(map[string]struct{})
+	for leadID, lead := range m.leads {
+		if len(lead.bees) > 0 || len(lead.heldQueue) > 0 {
+			if prefix := leadPrefixID(leadID); prefix != "" {
+				activePrefixes[prefix] = struct{}{}
+			}
+		}
 		for _, h := range lead.bees {
 			if h.Branch != "" {
 				referencedBranches[h.Branch] = struct{}{}
@@ -79,8 +96,16 @@ func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
 			}
 		}
 	}
-	for path := range m.startingWorkDirs {
+	for _, q := range m.queue {
+		if prefix := leadPrefixID(q.leadThreadID); prefix != "" {
+			activePrefixes[prefix] = struct{}{}
+		}
+	}
+	for path, owner := range m.startingWorkDirs {
 		referenced = append(referenced, path)
+		if prefix := leadPrefixID(owner.leadThreadID); prefix != "" {
+			activePrefixes[prefix] = struct{}{}
+		}
 	}
 	m.mu.Unlock()
 	referencedSet := sweepPathSet(referenced)
@@ -137,8 +162,77 @@ func (m *Manager) SweepOrphanCopies(ctx context.Context) ([]string, error) {
 			}
 			log.Printf("swarm: 已删除无引用分支 %s（%s）", branch.Name, repoRoot)
 		}
+		if err := m.sweepOrphanSwarmRefs(ctx, repoRoot, activePrefixes); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	return removed, firstErr
+}
+
+// sweepOrphanSwarmRefs 清理真实 Git 仓库中不再属于任何活跃 lead 的 swarm-base、swarm-land、swarm-fold 引用。
+func (m *Manager) sweepOrphanSwarmRefs(ctx context.Context, repoRoot string, activePrefixes map[string]struct{}) error {
+	if m.opts.Git == nil || !m.opts.Git.IsRealRepo(ctx, repoRoot) {
+		return nil
+	}
+	orphanSet := make(map[string]struct{})
+	var firstErr error
+	for _, basePrefix := range []string{
+		"refs/mcode/swarm-base/",
+		"refs/mcode/swarm-land/",
+		"refs/mcode/swarm-fold/",
+	} {
+		refs, err := m.opts.Git.ListRefs(ctx, repoRoot, basePrefix)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, ref := range refs {
+			rest := strings.TrimPrefix(ref.Name, basePrefix)
+			leadPrefix, _, _ := strings.Cut(rest, "/")
+			if leadPrefix == "" {
+				continue
+			}
+			if _, active := activePrefixes[leadPrefix]; active {
+				continue
+			}
+			orphanSet[leadPrefix] = struct{}{}
+		}
+	}
+	if len(orphanSet) == 0 {
+		return firstErr
+	}
+
+	orphans := make([]string, 0, len(orphanSet))
+	for prefix := range orphanSet {
+		orphans = append(orphans, prefix)
+	}
+	sort.Strings(orphans)
+
+	const maxPrefixesPerCall = 90
+	batch := make([]string, 0, maxPrefixesPerCall)
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		if err := m.opts.Git.DeleteRefsWithPrefix(ctx, repoRoot, batch...); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		batch = batch[:0]
+	}
+	for _, prefix := range orphans {
+		batch = append(batch,
+			"refs/mcode/swarm-base/"+prefix,
+			"refs/mcode/swarm-land/"+prefix+"/",
+			"refs/mcode/swarm-fold/"+prefix+"/",
+		)
+		if len(batch) >= maxPrefixesPerCall {
+			flush()
+		}
+	}
+	flush()
+	return firstErr
 }
 
 // sweepPathSet 将路径集合规范化为可比较集合：同时记录 Clean 结果与解析符号链接后的结果。

@@ -4970,15 +4970,19 @@ func (m *Manager) integratePatch(ctx context.Context, leadThreadID, targetWorkDi
 	}
 
 	// (b) 在 targetWorkDir 上创建检查点，获取主工作区当前状态（含未提交改动）
-	leadPrefix := leadThreadID
-	if len(leadPrefix) > 8 {
-		leadPrefix = leadPrefix[:8]
-	}
+	leadPrefix := leadPrefixID(leadThreadID)
 	ref := fmt.Sprintf("refs/mcode/swarm-land/%s/%d", leadPrefix, h.Index)
 	onto, err := m.opts.Git.CheckpointNormalized(ctx, targetWorkDir, ref, fmt.Sprintf("mcode swarm landing checkpoint %d", h.Index))
 	if err != nil {
 		return integratedPatchResult{}, fmt.Errorf("integrate patch: checkpoint target workdir: %w", err)
 	}
+	defer func() {
+		delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if delErr := m.opts.Git.DeleteRefsWithPrefix(delCtx, targetWorkDir, ref); delErr != nil {
+			log.Printf("swarm: 删除临时落地引用 %s 失败: %v", ref, delErr)
+		}
+	}()
 
 	// (c) 在对象层执行三方合并
 	result, err := m.opts.Git.MergeTreeOnto(ctx, targetWorkDir, h.BaseCommit, onto, beeCommit)
@@ -5265,10 +5269,18 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		return false, true
 	}
 	prefix := leadPrefixID(leadID)
-	wtSnap, err := m.opts.Git.CheckpointNormalized(ctx, root, fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index), "mcode swarm landing checkpoint")
+	landRef := fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index)
+	wtSnap, err := m.opts.Git.CheckpointNormalized(ctx, root, landRef, "mcode swarm landing checkpoint")
 	if err != nil {
 		return fail(err)
 	}
+	defer func() {
+		delCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if delErr := m.opts.Git.DeleteRefsWithPrefix(delCtx, root, landRef); delErr != nil {
+			log.Printf("swarm: 删除临时落地引用 %s 失败: %v", landRef, delErr)
+		}
+	}()
 	preflight, err := m.opts.Git.MergeTreeOnto(ctx, root, oldHead, wtSnap, newSHA)
 	if err != nil {
 		return fail(err)
@@ -5955,6 +5967,7 @@ func (m *Manager) BeeThreadDeleted(ctx context.Context, threadID string) {
 	var runningIDs []string
 	// 删除 lead 时一并回收它的 bee 副本：先在锁内复制出待处理信息，文件与 git 操作在锁外执行。
 	var copies []leadBeeCopy
+	var extraRefRoots []string
 	protected := m.reclaimProtectedPathsLocked()
 	for i := range lead.bees {
 		m.cancelAcceptanceLocked(lead.bees[i].ThreadID)
@@ -5964,13 +5977,19 @@ func (m *Manager) BeeThreadDeleted(ctx context.Context, threadID string) {
 			runningIDs = append(runningIDs, lead.bees[i].ThreadID)
 			delete(m.beeProgress, lead.bees[i].ThreadID)
 		}
+		targetDir := lead.bees[i].TargetWorkDir
+		if targetDir == "" {
+			targetDir = lead.leadWorkDir
+		}
+		if !lead.bees[i].ShadowRepo && !lead.bees[i].SharedNoGit && targetDir != "" {
+			extraRefRoots = append(extraRefRoots, targetDir)
+		}
 		if lead.bees[i].WorktreePath != "" {
-			targetDir := lead.bees[i].TargetWorkDir
-			if targetDir == "" {
-				targetDir = lead.leadWorkDir
-			}
 			copies = append(copies, leadBeeCopy{bee: lead.bees[i].clone(), targetDir: targetDir})
 		}
+	}
+	if len(lead.bees) == 0 && lead.leadWorkDir != "" {
+		extraRefRoots = append(extraRefRoots, lead.leadWorkDir)
 	}
 	if len(m.queue) > 0 {
 		filteredQueue := make([]queuedBee, 0, len(m.queue))
@@ -5994,7 +6013,7 @@ func (m *Manager) BeeThreadDeleted(ctx context.Context, threadID string) {
 		}
 	}
 
-	m.reclaimLeadBeeCopies(ctx, threadID, copies, protected)
+	m.reclaimLeadBeeCopies(ctx, threadID, copies, protected, extraRefRoots...)
 
 	m.persistMu.Lock()
 	if deleter, ok := m.opts.Persister.(leadDeleter); ok {
@@ -6507,6 +6526,7 @@ func (m *Manager) clearFinished(ctx context.Context, leadThreadID string, keepIn
 		}
 	}
 
+	var refRoots []string
 	m.mu.Lock()
 	// 按 threadID 过滤而非整体替换：清理期间新派发的 bee 必须保留在状态中。
 	if lead, ok := m.leads[leadThreadID]; ok {
@@ -6521,8 +6541,26 @@ func (m *Manager) clearFinished(ctx context.Context, leadThreadID string, keepIn
 	for id := range finishedIDs {
 		delete(m.beeProgress, id)
 	}
+	if !m.hasActiveLeadPrefixLocked(leadPrefixID(leadThreadID)) {
+		for _, h := range finished {
+			if h.ShadowRepo || h.SharedNoGit {
+				continue
+			}
+			targetDir := h.TargetWorkDir
+			if targetDir == "" {
+				targetDir = leadWorkDir
+			}
+			if targetDir != "" {
+				refRoots = append(refRoots, targetDir)
+			}
+		}
+	}
 	m.mu.Unlock()
 	mergeMu.Unlock()
+
+	if len(refRoots) > 0 {
+		m.cleanupLeadSwarmRefs(ctx, leadThreadID, refRoots)
+	}
 
 	m.notifyChange(leadThreadID)
 	m.processQueue(ctx)
@@ -6807,8 +6845,12 @@ func (m *Manager) removeBeeCopy(ctx context.Context, targetDir, worktreePath, br
 
 // reclaimLeadBeeCopies 在 lead 被删除后清理它的 bee 副本：成果未落地的 bee 先把改动存档成
 // swarm-patches 补丁，存档成功后才删副本；采集或存档失败时保留副本，避免改动丢失。
-func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copies []leadBeeCopy, protected map[string]struct{}) {
+func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copies []leadBeeCopy, protected map[string]struct{}, extraRoots ...string) {
+	refRoots := make([]string, 0, len(copies)+len(extraRoots))
 	for _, c := range copies {
+		if !c.bee.ShadowRepo && !c.bee.SharedNoGit && c.targetDir != "" {
+			refRoots = append(refRoots, c.targetDir)
+		}
 		path := filepath.Clean(c.bee.WorktreePath)
 		if !m.isBeeCopyPath(path) || sweepPathReferenced(protected, path) {
 			continue
@@ -6823,6 +6865,77 @@ func (m *Manager) reclaimLeadBeeCopies(ctx context.Context, leadID string, copie
 		}
 		if !m.removeBeeCopy(ctx, c.targetDir, path, c.bee.Branch) {
 			log.Printf("swarm: lead %s 删除时移除 bee 副本 %s 失败", leadID, path)
+		}
+	}
+	refRoots = append(refRoots, extraRoots...)
+	if len(refRoots) > 0 {
+		m.mu.Lock()
+		stillActive := m.hasActiveLeadPrefixLocked(leadPrefixID(leadID))
+		m.mu.Unlock()
+		if !stillActive {
+			m.cleanupLeadSwarmRefs(ctx, leadID, refRoots)
+		}
+	}
+}
+
+// hasActiveLeadPrefixLocked 判断是否仍有任意 lead 使用同一 prefix 且持有 bee、排队或启动中副本。
+// 调用方必须持有 m.mu。
+func (m *Manager) hasActiveLeadPrefixLocked(prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+	for id, lead := range m.leads {
+		if leadPrefixID(id) != prefix {
+			continue
+		}
+		if len(lead.bees) > 0 || len(lead.heldQueue) > 0 {
+			return true
+		}
+	}
+	for _, q := range m.queue {
+		if leadPrefixID(q.leadThreadID) == prefix {
+			return true
+		}
+	}
+	for _, owner := range m.startingWorkDirs {
+		if leadPrefixID(owner.leadThreadID) == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanupLeadSwarmRefs 在真实 Git 仓库里删除指定 lead 的 swarm-base、swarm-fold、swarm-land 内部引用。
+// 调用方不得持有 m.mu。
+func (m *Manager) cleanupLeadSwarmRefs(ctx context.Context, leadID string, roots []string) {
+	if m.opts.Git == nil {
+		return
+	}
+	prefix := leadPrefixID(leadID)
+	if prefix == "" {
+		return
+	}
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		cleaned := filepath.Clean(root)
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		if !m.opts.Git.IsRealRepo(ctx, cleaned) {
+			continue
+		}
+		if err := m.opts.Git.DeleteRefsWithPrefix(
+			ctx,
+			cleaned,
+			"refs/mcode/swarm-base/"+prefix,
+			"refs/mcode/swarm-fold/"+prefix+"/",
+			"refs/mcode/swarm-land/"+prefix+"/",
+		); err != nil {
+			log.Printf("swarm: 清理 lead %s 内部引用失败（%s）: %v", leadID, cleaned, err)
 		}
 	}
 }
