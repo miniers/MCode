@@ -1542,3 +1542,59 @@ func TestCompletionPreviewSingleLineCentered(t *testing.T) {
 		t.Fatalf("单行说明未垂直居中: rowCenterY=%.2f textCenterY=%.2f diff=%.2f (row=%+v text=%+v)", rowCenterY, textCenterY, diff, rowRect, textRect)
 	}
 }
+
+func TestCompletionPreviewHeightStableAcrossSelection(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	longDetail := strings.Repeat("This is a very long slash command description that wraps across at least three lines in the preview bar. ", 6)
+	s.commandsCache["t1"] = []SlashCommand{
+		{Name: "zz-short", Detail: "短说明"},
+		{Name: "zz-long", Detail: longDetail},
+		{Name: "zz-empty"},
+	}
+
+	if got := completionPreviewText(completionSlash, completionItem{Label: "/zz-empty", Insert: "/zz-empty"}); got != "" {
+		t.Fatalf("无说明命令应返回空说明，实际=%q", got)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposer(c, s)
+	}, 900, 500)
+
+	tt.Type("/zz")
+	waitFor(t, tt, func() bool { return tt.HasText("/zz-short") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	rowRect0, ok := tt.Find("选中项说明")
+	if !ok {
+		t.Fatalf("初始未找到底部说明条，Texts=%v", tt.Texts())
+	}
+	titleRect0, ok := tt.Find("/zz-short")
+	if !ok {
+		t.Fatalf("初始未找到候选标题，Texts=%v", tt.Texts())
+	}
+
+	for step := 1; step <= 2; step++ {
+		tt.Key(0, ui.KeyDown)
+		tt.Frame()
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
+
+		rowRect, ok := tt.Find("选中项说明")
+		if !ok {
+			t.Fatalf("第 %d 次按 Down 后未找到底部说明条，Texts=%v", step, tt.Texts())
+		}
+		titleRect, ok := tt.Find("/zz-short")
+		if !ok {
+			t.Fatalf("第 %d 次按 Down 后未找到候选标题，Texts=%v", step, tt.Texts())
+		}
+		if math.Abs(float64(rowRect.H-rowRect0.H)) > 0.5 {
+			t.Fatalf("第 %d 次按 Down 后说明条高度变化: got %.2f, want %.2f", step, rowRect.H, rowRect0.H)
+		}
+		if math.Abs(float64(titleRect.Y-titleRect0.Y)) > 0.5 {
+			t.Fatalf("第 %d 次按 Down 后候选标题 Y 变化: got %.2f, want %.2f", step, titleRect.Y, titleRect0.Y)
+		}
+	}
+}

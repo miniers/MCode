@@ -1632,11 +1632,11 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 			previewText = completionPreviewText(kind, items[selected])
 		}
 	}
-	showPreview := previewText != ""
 	previewH := float32(0)
-	if showPreview {
+	if !empty && !loading {
 		previewH = completionPreviewHeight(c, kind, items, width)
 	}
+	showPreview := previewH > 0
 	// 只有分类行时是下钻入口，不显示键位页脚；叶子列表与空态都带页脚。
 	showFooter := empty || (len(items) > 0 && !allCategoryItems(items))
 	footerH := float32(0)
@@ -1873,19 +1873,21 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 						ui.Box(c.Key("composer-complete-preview-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
 						ui.Row(c.Key("composer-complete-preview-row")).
 							FillWidth().
-							MinHeight(ControlMD).
+							Height(previewH-Hairline).
 							Padding(Space1, Space3).
 							AlignItems(ui.Center).
 							Background(ThemeOverlay(c, OverlayFaint)).
 							Label("选中项说明").
 							Children(func() {
-								ui.Text(c, previewText).
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemeSecondaryText(c)).
-									FillWidth().
-									MinWidth(0).
-									MaxLines(3).
-									Ellipsis("…")
+								if previewText != "" {
+									ui.Text(c, previewText).
+										FontSize(uiFont(TypeFootnote)).
+										TextColor(ThemeSecondaryText(c)).
+										FillWidth().
+										MinWidth(0).
+										MaxLines(3).
+										Ellipsis("…")
+								}
 							})
 					})
 				}
