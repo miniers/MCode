@@ -635,9 +635,21 @@ func TestComposerQuotaRedesignLockedDisablesSegmented(t *testing.T) {
 	}
 }
 
+func resetRollingNumbersForTest(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		rollingNumbers.mu.Lock()
+		rollingNumbers.items = make(map[string]*rollingNumberEntry)
+		rollingNumbers.mu.Unlock()
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 func TestComposerQuotaRedesignRouteSegmentedTransitionSettles(t *testing.T) {
 	t.Run("正常动效结束后不再请求帧", func(t *testing.T) {
 		setAppReduceMotion(t, false)
+		resetRollingNumbersForTest(t)
 		th := Thread{ID: "t1", ProjectID: "p1", Provider: "agy"}
 		_, s := newAgyAccountTestState(t, th, agyAccountTestWindows(32))
 

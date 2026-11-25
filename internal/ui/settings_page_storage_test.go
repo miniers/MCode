@@ -15,6 +15,21 @@ func openStorageTestPage(t *testing.T, fake *FakeClient) (*SettingsState, *ui.Te
 	st.mu.Unlock()
 	st.selectSettingsPage("storage")
 
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		st.mu.Lock()
+		ps := st.storagePage
+		done := ps != nil && ps.attempted && !ps.scanning
+		st.mu.Unlock()
+		if done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("等待存储扫描完成超时")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	tt := ui.NewTester(func(c *ui.Context) {
 		renderSettingsDetail(c, st)
 	}, 1000, 800)
