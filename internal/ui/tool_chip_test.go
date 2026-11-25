@@ -63,10 +63,11 @@ func TestChatOverlaysReducedMotion(t *testing.T) {
 	t.Run("compact", func(t *testing.T) {
 		s := newChatState(NewFakeClient())
 		s.threads = []Thread{{ID: "t1", UpdatedAt: time.Now().Add(-2 * time.Hour)}}
+		s.threadUsage = ThreadUsage{Turns: map[int]TokenUsage{1: {Input: 180_000, ContextWindow: 200_000}}}
 		show := false
 		tt := ui.NewTesterWith(func(c *ui.Context) {
 			if show {
-				renderCompactSuggestionCard(c, s, "t1", ThreadUsage{Total: TokenUsage{Input: 120_000}})
+				renderCompactSuggestionCard(c, s, "t1")
 			}
 		}, 800, 600, options)
 		tt.Frame()
