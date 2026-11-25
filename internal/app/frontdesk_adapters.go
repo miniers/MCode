@@ -104,7 +104,7 @@ func (s *frontdeskServices) CreateTask(ctx context.Context, in frontdesk.CreateT
 			return store.Task{}, err
 		}
 	}
-	if goal.Status == "completed" {
+	if goal.Status == "completed" || goal.Status == "paused" {
 		goal.Status = "running"
 		goal, err = s.store.UpdateGoal(ctx, goal, goal.Revision)
 		if err != nil {
@@ -152,7 +152,7 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text, sourceMessa
 			break
 		}
 	}
-	if t.Status == "in_progress" || t.Status == "needs_approval" {
+	if t.Status == "in_progress" || t.Status == "needs_approval" || (t.Status == "waiting" && t.ThreadID != nil && *t.ThreadID != "" && s.kanban != nil && s.kanban.TaskExecuting(ctx, t)) {
 		if t.ThreadID == nil {
 			return errors.New("任务没有执行会话")
 		}
@@ -195,12 +195,15 @@ func (s *frontdeskServices) AmendTask(ctx context.Context, id, text, sourceMessa
 			if err != nil {
 				return err
 			}
-			if kanban.IsStewardQueue(goal) && goal.Status == "completed" {
+			if kanban.IsStewardQueue(goal) && (goal.Status == "completed" || goal.Status == "paused") {
 				goal.Status = "running"
 				if _, err := s.store.UpdateGoal(ctx, goal, goal.Revision); err != nil {
 					return err
 				}
 			}
+		}
+		if err := s.store.SupersedeOpenDecisionsForTask(ctx, t.ID); err != nil {
+			return err
 		}
 	case "todo":
 	default:

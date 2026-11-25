@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
 
+	"mcode/internal/frontdesk"
 	"mcode/internal/kanban"
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
@@ -98,5 +100,99 @@ func TestFrontdeskAnswerDecisionAppendsMessages(t *testing.T) {
 		if err := json.Unmarshal([]byte(message.Text), &payload); err != nil || message.Role != "system" || message.Kind != "steward_decision_answer" || payload.ID != decision.ID || payload.Answer != entry.answer || payload.By != entry.by {
 			t.Fatalf("答卡消息错误：%+v，内容 %+v，错误 %v", message, payload, err)
 		}
+	}
+}
+
+func TestStewardCreateTaskResumesPausedQueue(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	if err := db.CreateGoal(ctx, store.Goal{
+		ID:        "steward-paused",
+		ProjectID: "project",
+		Title:     "总管",
+		Prompt:    "总管",
+		Status:    "paused",
+		Owner:     "steward",
+		Policy:    map[string]any{"maxConcurrency": 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.CreateTask(ctx, frontdesk.CreateTaskInput{
+		ProjectID: "project",
+		Title:     "恢复队列任务",
+		Body:      "执行内容",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.GoalID == nil || *task.GoalID != "steward-paused" {
+		t.Fatalf("未加入暂停的总管队列: %+v", task)
+	}
+	goal, err := db.GetGoal(ctx, "steward-paused")
+	if err != nil || goal.Status != "running" {
+		t.Fatalf("暂停的总管队列未恢复为 running: %+v %v", goal, err)
+	}
+}
+
+func TestStewardAmendWaitingRunningSessionSendsMessage(t *testing.T) {
+	ctx := context.Background()
+	db, backend, svc := newFrontdeskAdapterFixture(t)
+	svc.kanban = kanban.NewService(kanban.Options{Store: db, Driver: &frontdeskReviewDriver{running: true}})
+	backend.AddThread(wire.ThreadSummary{ID: "wait-run", ProjectID: "project", Title: "执行", Provider: "memory"}, nil)
+	threadID := "wait-run"
+	task := createFrontdeskTask(t, db, store.Task{
+		ID:       "waiting-running",
+		ThreadID: &threadID,
+		Title:    "等待中的运行会话",
+		Notes:    "原始要求",
+		Status:   "waiting",
+	})
+	if err := svc.AmendTask(ctx, task.ID, "补充消息", "msg-wait-1"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "waiting" || after.ThreadID == nil || *after.ThreadID != threadID || after.Notes != "原始要求" {
+		t.Fatalf("waiting 且会话运行中时不应重开或清空 ThreadID: %+v", after)
+	}
+	meta, err := kanban.ParseTaskMeta(after.Meta)
+	if err != nil || !reflect.DeepEqual(meta.AmendMessageIDs, []string{"msg-wait-1"}) {
+		t.Fatalf("未记录补充消息来源: %+v %v", meta, err)
+	}
+	messages, _, err := db.ListMessages(ctx, threadID, 0, 10)
+	if err != nil || len(messages) == 0 || messages[len(messages)-1].Role != "user" || messages[len(messages)-1].Text != "补充消息" {
+		t.Fatalf("补充消息未发送至原会话: %+v %v", messages, err)
+	}
+}
+
+func TestStewardAmendReopenSupersedesOpenDecision(t *testing.T) {
+	ctx := context.Background()
+	db, _, svc := newFrontdeskAdapterFixture(t)
+	task := createFrontdeskTask(t, db, store.Task{
+		ID:     "reopen-open-decision",
+		Title:  "重开作废决策卡",
+		Notes:  "原始要求",
+		Status: "waiting",
+	})
+	decision, err := db.CreateStewardDecision(ctx, store.StewardDecision{
+		TaskID:      task.ID,
+		Question:    "继续执行？",
+		OptionsJSON: `["是","否"]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.AmendTask(ctx, task.ID, "重开任务", ""); err != nil {
+		t.Fatal(err)
+	}
+	after, err := db.GetTask(ctx, task.ID)
+	if err != nil || after.Status != "todo" {
+		t.Fatalf("任务未重开为 todo: %+v %v", after, err)
+	}
+	gotDecision, err := db.GetStewardDecision(ctx, decision.ID)
+	if err != nil || gotDecision.Status != store.DecisionStatusSuperseded {
+		t.Fatalf("重开后未作废 open 决策卡: %+v %v", gotDecision, err)
 	}
 }
