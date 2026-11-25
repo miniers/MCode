@@ -1223,3 +1223,49 @@ func TestTickGoalPauseRetriesOnRevisionConflict(t *testing.T) {
 		}
 	})
 }
+
+func TestSchedulerSkipsTodoWhileOldSessionRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, s, driver, scheduler := setupSchedulerTestService(t, true)
+	oldThread := "thread-old-running"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-skip-running", ProjectID: "proj-1", Title: "旧会话仍在运行"},
+		store.Task{ID: "task-skip-running", Title: "待重启任务", Status: string(TaskStatusTodo), ThreadID: &oldThread})
+	driver.setThreadState(oldThread, SessionState{Running: true})
+
+	scheduler.Tick(ctx)
+
+	driver.mu.Lock()
+	startCalls := len(driver.starts)
+	driver.mu.Unlock()
+	if startCalls != 0 {
+		t.Fatalf("旧会话仍在运行时不应调用 StartSession，实际调用 %d 次", startCalls)
+	}
+	task, err := s.GetTask(ctx, "task-skip-running")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusTodo) {
+		t.Fatalf("旧会话仍在运行时任务应保持 todo，实际: %s", task.Status)
+	}
+	if task.AttemptCount != 0 {
+		t.Fatalf("旧会话仍在运行时不应增加 AttemptCount，实际: %d", task.AttemptCount)
+	}
+
+	driver.setThreadState(oldThread, SessionState{Running: false})
+	scheduler.Tick(ctx)
+
+	driver.mu.Lock()
+	startCalls = len(driver.starts)
+	driver.mu.Unlock()
+	if startCalls != 1 {
+		t.Fatalf("旧会话结束后应启动新会话，实际调用 %d 次", startCalls)
+	}
+	task, err = s.GetTask(ctx, "task-skip-running")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusInProgress) {
+		t.Fatalf("旧会话结束后任务应变为 in_progress，实际: %s", task.Status)
+	}
+}

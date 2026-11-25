@@ -544,6 +544,12 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 							continue
 						}
 					}
+					// 旧会话仍在运行时不启动新会话，避免同一任务双会话并发
+					if t.ThreadID != nil && *t.ThreadID != "" && g.svc.opts.Driver != nil {
+						if st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID); err == nil && st.Running {
+							continue
+						}
+					}
 					g.svc.mu.Lock()
 					started, err := g.svc.startTaskInternal(ctx, t.ID, t.Revision)
 					g.svc.mu.Unlock()
