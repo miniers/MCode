@@ -426,6 +426,10 @@ func (s *chatState) close() {
 		s.draftSaveTimer.Stop()
 		s.draftSaveTimer = nil
 	}
+	if s.mentionDebounceTimer != nil {
+		s.mentionDebounceTimer.Stop()
+		s.mentionDebounceTimer = nil
+	}
 	stop := s.watchStop
 	s.watchStop = nil
 	stopQueue := s.stopQueueWatch

@@ -568,6 +568,16 @@ type chatState struct {
 	completionSkillDraftScope string
 	commandsCache             map[string][]SlashCommand
 	mentionSeq                uint64
+	mentionTab                string
+	mentionDir                string
+	mentionErr                string
+	mentionFiles              []completionItem
+	mentionFilesLoaded        bool
+	mentionFilesLoading       bool
+	mentionDebounceTimer      *time.Timer
+	mentionDirAnim            string
+	mentionDirAnimRun         uint64
+	mentionPreviewCache       map[string]*mentionItemPreview
 	// draftThreadMentions 是草稿上方的会话引用胶囊，与正文分离；发送时按 ThreadID 展开为引用块。
 	// 由 s.mu 保护。
 	draftThreadMentions []ThreadMention
@@ -675,6 +685,7 @@ func newChatState(client Client) *chatState {
 		threadUsage:           ThreadUsage{Turns: make(map[int]TokenUsage)},
 		sidebarWidth:          SidebarDefaultWidth,
 		commandsCache:         make(map[string][]SlashCommand),
+		mentionPreviewCache:   make(map[string]*mentionItemPreview),
 		completionCaret:       -1,
 		completionCaretTarget: -1,
 		queue:                 make(map[string][]QueuedFollowUp),

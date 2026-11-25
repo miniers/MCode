@@ -65,6 +65,10 @@ type composerViewState struct {
 	argHintSnapHint string
 	// skillScopeIndicatorReady 标记 '$' 顶部分段选中指示是否已完成首次布局落位。
 	skillScopeIndicatorReady bool
+	// mentionTabIndicatorReady 标记 '@' 顶部分段选中指示是否已完成首次布局落位。
+	mentionTabIndicatorReady bool
+	// lastCompletionKind 记录上一次可见时的补全类型，供关闭动画维持相同面板形态。
+	lastCompletionKind completionKind
 }
 
 var (

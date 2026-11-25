@@ -231,27 +231,27 @@ func TestExpandThreadMentions_TitleFallback(t *testing.T) {
 	}
 }
 
-// @ 补全在文件结果返回前先展示本项目的会话候选，返回后会话项在前、文件项在后。
+// @ 补全在搜索结果返回前先展示本项目的会话候选，返回后会话组在前、文件组在后。
 func TestUpdateCompletion_MentionMergesThreadAndFileItems(t *testing.T) {
 	fake := &delayedCompletionClient{FakeClient: NewFakeClient(), requests: make(chan completionRequest, 4)}
 	s := newChatState(fake)
 	s.threads = []Thread{
 		{ID: "t1", ProjectID: "p1", Title: "当前会话", UpdatedAt: time.Now()},
-		{ID: "t2", ProjectID: "p1", Title: "会话B", UpdatedAt: time.Now().Add(-time.Hour)},
+		{ID: "t2", ProjectID: "p1", Title: "main 会话", UpdatedAt: time.Now().Add(-time.Hour)},
 	}
-	s.draft = "@"
+	s.draft = "@main"
 	s.updateCompletion("t1")
 
-	// 文件搜索还没返回，会话项已经可见（分类行不计入叶子候选）
+	// 文件搜索还没返回，会话项已经可见
 	s.mu.Lock()
-	early := append([]completionItem(nil), s.completionItems...)
+	early := nonHeaderItems(append([]completionItem(nil), s.completionItems...))
 	s.mu.Unlock()
-	if leaf := nonCategoryItems(early); len(leaf) != 1 || leaf[0].ThreadID != "t2" {
+	if len(early) != 1 || early[0].ThreadID != "t2" {
 		t.Fatalf("expected thread item before file results, got %+v", early)
 	}
 
 	req := nextCompletionRequest(t, fake)
-	req.reply <- []FileMatch{{Path: "src/main.go"}}
+	req.reply <- []FileMatch{{Name: "main.go", Path: "src/main.go"}}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -266,7 +266,8 @@ func TestUpdateCompletion_MentionMergesThreadAndFileItems(t *testing.T) {
 	s.mu.Lock()
 	merged := append([]completionItem(nil), s.completionItems...)
 	s.mu.Unlock()
-	if leaf := nonCategoryItems(merged); len(leaf) != 2 || leaf[0].ThreadID != "t2" || leaf[1].Label != "src/main.go" {
+	leaf := nonHeaderItems(merged)
+	if len(leaf) != 2 || leaf[0].ThreadID != "t2" || leaf[1].Path != "src/main.go" {
 		t.Fatalf("expected thread item first then file item, got %+v", merged)
 	}
 }

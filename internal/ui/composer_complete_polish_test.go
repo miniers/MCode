@@ -11,12 +11,13 @@ import (
 // 没有匹配项时面板保留，按补全类型显示空态文案，而不是整块消失。
 func TestCompletionEmptyStateKeepsPanel(t *testing.T) {
 	tests := []struct {
-		name  string
-		draft string
-		want  string
+		name     string
+		draft    string
+		clickTab string
+		want     string
 	}{
 		{name: "文件", draft: "@zzz_no_such_file", want: "没有匹配的文件"},
-		{name: "会话", draft: "@thread:zzz_no_such_thread", want: "没有匹配的会话"},
+		{name: "会话", draft: "@zzz_no_such_thread", clickTab: "会话", want: "没有匹配的会话"},
 	}
 
 	for _, tt := range tests {
@@ -24,6 +25,12 @@ func TestCompletionEmptyStateKeepsPanel(t *testing.T) {
 			s := newChatState(NewFakeClient())
 			tester := composerTester(s)
 			tester.Type(tt.draft)
+			if tt.clickTab != "" {
+				waitFor(t, tester, func() bool { return tester.HasText(tt.clickTab) })
+				if err := tester.Click(tt.clickTab); err != nil {
+					t.Fatalf("click tab %q: %v", tt.clickTab, err)
+				}
+			}
 			waitFor(t, tester, func() bool { return tester.HasText(tt.want) })
 			if _, ok := tester.Find(tt.want); !ok {
 				t.Fatalf("empty state %q missing, texts: %q", tt.want, tester.Texts())
@@ -47,7 +54,7 @@ func TestCompletionThreadRowsDropEmoji(t *testing.T) {
 		renderComposer(c, s)
 	}, 900, 500)
 
-	tester.Type("@thread:")
+	tester.Type("@")
 	waitFor(t, tester, func() bool { return tester.HasText("另一个会话") })
 	for _, text := range tester.Texts() {
 		if strings.Contains(text, "💬") {

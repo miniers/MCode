@@ -380,9 +380,9 @@ func TestComposerMentionTagAndMouseConfirmation(t *testing.T) {
 	fake.SetFiles([]FileMatch{{Name: "文件 名.go", Path: "src/文件 名.go"}})
 	s := newChatState(fake)
 	tt := composerTester(s)
-	tt.Type("查看　@")
-	waitFor(t, tt, func() bool { return tt.HasText("src/文件 名.go") })
-	if err := tt.Click("src/文件 名.go"); err != nil {
+	tt.Type("查看　@文件")
+	waitFor(t, tt, func() bool { return tt.HasText("文件 名.go") })
+	if err := tt.Click("文件 名.go"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -416,6 +416,11 @@ func (f *delayedCompletionClient) SearchFiles(_ context.Context, threadID, query
 	return <-req.reply, nil
 }
 
+func (f *delayedCompletionClient) SearchFileEntriesIn(ctx context.Context, threadID, dir, query string) (FileSearchResult, error) {
+	entries, err := f.SearchFiles(ctx, threadID, query)
+	return FileSearchResult{Entries: entries}, err
+}
+
 func nextCompletionRequest(t *testing.T, f *delayedCompletionClient) completionRequest {
 	t.Helper()
 	select {
@@ -430,11 +435,11 @@ func nextCompletionRequest(t *testing.T, f *delayedCompletionClient) completionR
 func TestCompletionRejectsStaleResults(t *testing.T) {
 	fake := &delayedCompletionClient{FakeClient: NewFakeClient(), requests: make(chan completionRequest, 4)}
 	s := newChatState(fake)
-	s.draft = "@"
+	s.draft = "@old"
 	s.updateCompletion("t1")
 	first := nextCompletionRequest(t, fake)
-	if first.query != "" {
-		t.Fatalf("bare @ query = %q", first.query)
+	if first.query != "old" {
+		t.Fatalf("@old query = %q", first.query)
 	}
 	// 同一帧重复更新不应重复发起搜索。
 	s.updateCompletion("t1")
@@ -446,8 +451,8 @@ func TestCompletionRejectsStaleResults(t *testing.T) {
 	s.draft = "@new"
 	s.updateCompletion("t2")
 	second := nextCompletionRequest(t, fake)
-	first.reply <- []FileMatch{{Path: "old.go"}}
-	second.reply <- []FileMatch{{Path: "new.go"}}
+	first.reply <- []FileMatch{{Name: "old.go", Path: "old.go"}}
+	second.reply <- []FileMatch{{Name: "new.go", Path: "new.go"}}
 	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
 	waitFor(t, tt, func() bool {
 		s.mu.Lock()
@@ -456,7 +461,8 @@ func TestCompletionRejectsStaleResults(t *testing.T) {
 	})
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if second.threadID != "t2" || len(s.completionItems) != 1 || s.completionItems[0].Label != "new.go" {
+	items := nonHeaderItems(s.completionItems)
+	if second.threadID != "t2" || len(items) != 1 || items[0].Path != "new.go" {
 		t.Fatalf("stale results: %+v", s.completionItems)
 	}
 }
@@ -975,17 +981,6 @@ func TestSkillCompletionItems_InsertDashesSpaces(t *testing.T) {
 	}
 }
 
-// nonCategoryItems 过滤掉分类行，便于断言叶子候选的数量与顺序。
-func nonCategoryItems(items []completionItem) []completionItem {
-	out := make([]completionItem, 0, len(items))
-	for _, it := range items {
-		if !it.Category {
-			out = append(out, it)
-		}
-	}
-	return out
-}
-
 // nonHeaderItems 过滤掉分组标题行，便于断言命令候选本身。
 func nonHeaderItems(items []completionItem) []completionItem {
 	out := make([]completionItem, 0, len(items))
@@ -1016,87 +1011,9 @@ func waitCompletionLoaded(t *testing.T, s *chatState) {
 	}
 }
 
-// 分类行下钻后能返回上一层：草稿里的前缀就是层级本身，删掉前缀即回到分类列表。
-func TestCompletionCategories_DescendAndBack(t *testing.T) {
-	fake := NewFakeClient()
-	fake.SetFiles([]FileMatch{{Name: "main.go", Path: "src/main.go"}})
-	s := newChatState(fake)
-	s.draft = "@"
-	s.updateCompletion("t1")
-	s.mu.Lock()
-	items := append([]completionItem(nil), s.completionItems...)
-	s.mu.Unlock()
-	if len(items) < 2 || !items[0].Category || items[0].Insert != "@file:" || !items[1].Category || items[1].Insert != "@thread:" {
-		t.Fatalf("bare @ must lead with file/thread categories, got %+v", items)
-	}
-
-	// Tab 选中「文件」分类：草稿留下前缀，面板保持打开。
-	s.mu.Lock()
-	s.completionSelected = 0
-	s.mu.Unlock()
-	newText, handled := s.handleCompletionKey(ui.KeyTab, 0)
-	if !handled || newText != "@file:" || s.draft != "@file:" {
-		t.Fatalf("Tab on category = (%v, %q), draft = %q", handled, newText, s.draft)
-	}
-	if s.completionKind != completionMention {
-		t.Fatalf("panel must stay open after descending, kind = %v", s.completionKind)
-	}
-
-	s.updateCompletion("t1")
-	waitCompletionLoaded(t, s)
-	s.mu.Lock()
-	for _, it := range s.completionItems {
-		if it.Category {
-			s.mu.Unlock()
-			t.Fatalf("descended list must not repeat categories, got %+v", s.completionItems)
-		}
-	}
-	if len(s.completionItems) == 0 {
-		s.mu.Unlock()
-		t.Fatalf("descended list is empty")
-	}
-	s.mu.Unlock()
-
-	// 删掉前缀回到分类列表。
-	s.draft = "@"
-	s.updateCompletion("t1")
-	s.mu.Lock()
-	back := append([]completionItem(nil), s.completionItems...)
-	s.mu.Unlock()
-	if len(back) < 2 || !back[0].Category || back[0].Insert != "@file:" {
-		t.Fatalf("going back must restore categories, got %+v", back)
-	}
-}
-
-// 分类行的 Tab 不关闭面板，也不把候选清空。
-func TestCompletionTabKeepsPanelOpenOnCategory(t *testing.T) {
-	s := newChatState(NewFakeClient())
-	s.draft = "@"
-	s.updateCompletion("t1")
-
-	s.mu.Lock()
-	s.completionSelected = 1 // 「会话」分类
-	s.mu.Unlock()
-	if _, handled := s.handleCompletionKey(ui.KeyTab, 0); !handled {
-		t.Fatalf("Tab must be handled")
-	}
-	if s.completionKind != completionMention || len(s.completionItems) == 0 {
-		t.Fatalf("panel must stay open with items, kind = %v, items = %d", s.completionKind, len(s.completionItems))
-	}
-	if s.draft != "@thread:" {
-		t.Fatalf("draft = %q, want @thread:", s.draft)
-	}
-
-	// 只看会话分类时不请求文件搜索，候选直接来自本地 s.threads。
-	s.updateCompletion("t1")
-	if s.completionKind != completionMention || s.completionLoading {
-		t.Fatalf("thread-only scope must not load, kind = %v loading = %v", s.completionKind, s.completionLoading)
-	}
-}
-
-// 目录项在 Tab 时进入子目录并保持打开，Enter 仍插入并关闭。
-func TestCompletionTabOnDirectoryDescends(t *testing.T) {
-	dir := completionItem{Label: "src/", Insert: "@src/"}
+// 目录项在 Enter 时进入子目录并保持打开，Tab 直接插入完整路径并关闭。
+func TestCompletionTabOnDirectoryInsertsAndEnterDescends(t *testing.T) {
+	dir := completionItem{Label: "src/", Path: "src", Insert: "@src/", IsDir: true}
 
 	s := newChatState(NewFakeClient())
 	s.draft = "@sr"
@@ -1104,12 +1021,12 @@ func TestCompletionTabOnDirectoryDescends(t *testing.T) {
 	s.completionStart = 0
 	s.completionItems = []completionItem{dir}
 	s.completionSelected = 0
-	newText, handled := s.handleCompletionKey(ui.KeyTab, 0)
-	if !handled || newText != "@src/" || s.draft != "@src/" {
-		t.Fatalf("Tab on directory = (%v, %q), draft = %q", handled, newText, s.draft)
+	newText, handled := s.handleCompletionKey(ui.KeyEnter, 0)
+	if !handled || newText != "@" || s.draft != "@" {
+		t.Fatalf("Enter on directory = (%v, %q), draft = %q", handled, newText, s.draft)
 	}
-	if s.completionKind != completionMention {
-		t.Fatalf("panel must stay open after entering a directory, kind = %v", s.completionKind)
+	if s.completionKind != completionMention || s.mentionDir != "src" {
+		t.Fatalf("Enter on directory must enter src and stay open, kind=%v dir=%q", s.completionKind, s.mentionDir)
 	}
 
 	s2 := newChatState(NewFakeClient())
@@ -1118,11 +1035,11 @@ func TestCompletionTabOnDirectoryDescends(t *testing.T) {
 	s2.completionStart = 0
 	s2.completionItems = []completionItem{dir}
 	s2.completionSelected = 0
-	if _, handled := s2.handleCompletionKey(ui.KeyEnter, 0); !handled {
-		t.Fatalf("Enter must be handled")
+	if _, handled := s2.handleCompletionKey(ui.KeyTab, 0); !handled {
+		t.Fatalf("Tab must be handled")
 	}
 	if s2.completionKind != completionNone || s2.draft != "@src/ " {
-		t.Fatalf("Enter on directory must insert and close, kind = %v draft = %q", s2.completionKind, s2.draft)
+		t.Fatalf("Tab on directory must insert and close, kind = %v draft = %q", s2.completionKind, s2.draft)
 	}
 }
 
@@ -1168,11 +1085,6 @@ func TestSkillCompletionPanelCategories(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("expected 2 skills without categories, got %+v", items)
-	}
-	for _, it := range items {
-		if it.Category {
-			t.Fatalf("skill completion must not emit category row: %+v", it)
-		}
 	}
 
 	// 按两次 → 从「全部」经「项目」切到「全局」，只剩 global 技能。
@@ -1298,11 +1210,6 @@ func TestSkillScopeSegments(t *testing.T) {
 	items := append([]completionItem(nil), s.completionItems...)
 	scope := s.completionSkillScope
 	s.mu.Unlock()
-	for _, it := range items {
-		if it.Category {
-			t.Fatalf("$ empty query must not have category rows: %+v", it)
-		}
-	}
 	if scope != "" || len(items) != 3 {
 		t.Fatalf("initial scope=%q items=%+v", scope, items)
 	}
@@ -1635,7 +1542,7 @@ func TestCompletionTriggersAtCaretMidText(t *testing.T) {
 
 	// '@' 在文字中间两个空格之间触发提及补全
 	fake := NewFakeClient()
-	fake.SetFiles([]FileMatch{{Name: "main.go", Path: "src/main.go"}})
+	fake.SetFileTree(map[string][]FileEntry{"": {{Name: "main.go", Path: "main.go"}}})
 	sMention := newChatState(fake)
 	ttMention := composerTester(sMention)
 	ttMention.Type("hello  world")
@@ -1643,7 +1550,7 @@ func TestCompletionTriggersAtCaretMidText(t *testing.T) {
 		ttMention.Key(0, ui.KeyLeft)
 	}
 	ttMention.Type("@")
-	waitFor(t, ttMention, func() bool { return ttMention.HasText("src/main.go") })
+	waitFor(t, ttMention, func() bool { return ttMention.HasText("main.go") })
 	sMention.mu.Lock()
 	kind = sMention.completionKind
 	start = sMention.completionStart
@@ -1656,13 +1563,13 @@ func TestCompletionTriggersAtCaretMidText(t *testing.T) {
 	ttMention.Key(0, ui.KeyEscape)
 	ttMention.Advance(DurFast + 50*time.Millisecond)
 	ttMention.Frame()
-	if ttMention.HasText("src/main.go") {
+	if ttMention.HasText("main.go") {
 		t.Fatal("completion must stay dismissed at the same caret position")
 	}
 	ttMention.Key(0, ui.KeyLeft)
 	ttMention.Frame()
 	ttMention.Key(0, ui.KeyRight)
-	waitFor(t, ttMention, func() bool { return ttMention.HasText("src/main.go") })
+	waitFor(t, ttMention, func() bool { return ttMention.HasText("main.go") })
 }
 
 func TestCompletionConfirmMidTextKeepsTail(t *testing.T) {
@@ -1728,16 +1635,27 @@ func TestCompletionConfirmMidTextKeepsTail(t *testing.T) {
 		t.Fatalf("@ completionCaretTarget = %d, want %d", sMention.completionCaretTarget, wantMentionCaret)
 	}
 
-	// 3. keepOpen（目录/分类）与会话引用胶囊在文字中间也保留尾部
+	// 3. Enter 进入目录、Tab 插入目录以及会话引用胶囊在文字中间也保留尾部
 	sDir := newChatState(NewFakeClient())
 	sDir.draft = "hello @sr world"
 	sDir.completionKind = completionMention
 	sDir.completionStart = len("hello ")
 	sDir.completionCaret = utf8.RuneCountInString("hello @sr")
-	sDir.completionItems = []completionItem{{Label: "src/", Insert: "@src/"}}
-	newDir, handled := sDir.handleCompletionKey(ui.KeyTab, 0)
-	if !handled || newDir != "hello @src/ world" || sDir.completionCaretTarget != utf8.RuneCountInString("hello @src/") {
-		t.Fatalf("mid-text keepOpen = (%v, %q, target=%d)", handled, newDir, sDir.completionCaretTarget)
+	sDir.completionItems = []completionItem{{Label: "src/", Path: "src", Insert: "@src/", IsDir: true}}
+	entered, handled := sDir.handleCompletionKey(ui.KeyEnter, 0)
+	if !handled || entered != "hello @ world" || sDir.mentionDir != "src" || sDir.completionCaretTarget != utf8.RuneCountInString("hello @") {
+		t.Fatalf("mid-text enter dir = (%v, %q, dir=%q, target=%d)", handled, entered, sDir.mentionDir, sDir.completionCaretTarget)
+	}
+
+	sDirTab := newChatState(NewFakeClient())
+	sDirTab.draft = "hello @sr world"
+	sDirTab.completionKind = completionMention
+	sDirTab.completionStart = len("hello ")
+	sDirTab.completionCaret = utf8.RuneCountInString("hello @sr")
+	sDirTab.completionItems = []completionItem{{Label: "src/", Path: "src", Insert: "@src/", IsDir: true}}
+	newDir, handled := sDirTab.handleCompletionKey(ui.KeyTab, 0)
+	if !handled || newDir != "hello @src/ world" || sDirTab.completionCaretTarget != utf8.RuneCountInString("hello @src/") || sDirTab.completionKind != completionNone {
+		t.Fatalf("mid-text tab dir = (%v, %q, target=%d, kind=%v)", handled, newDir, sDirTab.completionCaretTarget, sDirTab.completionKind)
 	}
 
 	sThread := newChatState(NewFakeClient())

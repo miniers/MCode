@@ -340,9 +340,11 @@ type FakeClient struct {
 	files               []FileMatch
 	filesTruncated      bool
 	searchFilesErr      error
+	searchFileCalls     []searchFileInCall
 	fileTree            map[string][]FileEntry
 	fileContents        map[string]FileContent
 	filesErr            error
+	filesListErr        error
 	fileOpCalls         []FileOpCall
 	fileOpsErr          error
 	threadWorkDir       string
@@ -979,9 +981,39 @@ func (f *FakeClient) SetFilesError(err error) {
 	f.filesErr = err
 }
 
+// SetFilesListError 设置后仅 FilesList 返回该错误。
+func (f *FakeClient) SetFilesListError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.filesListErr = err
+}
+
+// SetSearchFilesError 设置后 SearchFiles/SearchFileEntries/SearchFileEntriesIn 返回该错误。
+func (f *FakeClient) SetSearchFilesError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.searchFilesErr = err
+}
+
+type searchFileInCall struct {
+	ThreadID string
+	Dir      string
+	Query    string
+}
+
+// SearchFileCalls 返回 SearchFileEntriesIn 的调用记录副本。
+func (f *FakeClient) SearchFileCalls() []searchFileInCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]searchFileInCall(nil), f.searchFileCalls...)
+}
+
 func (f *FakeClient) FilesList(ctx context.Context, threadID, subpath string) (FileListing, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.filesListErr != nil {
+		return FileListing{}, f.filesListErr
+	}
 	if f.filesErr != nil {
 		return FileListing{}, f.filesErr
 	}
@@ -1073,6 +1105,7 @@ func (f *FakeClient) SearchFileEntries(ctx context.Context, threadID, query stri
 func (f *FakeClient) SearchFileEntriesIn(ctx context.Context, threadID, dir, query string) (FileSearchResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.searchFileCalls = append(f.searchFileCalls, searchFileInCall{ThreadID: threadID, Dir: dir, Query: query})
 	if f.searchFilesErr != nil {
 		return FileSearchResult{}, f.searchFilesErr
 	}
