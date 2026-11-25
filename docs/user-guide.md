@@ -19,6 +19,8 @@ MCode 要求 macOS 14.0 及以上版本，支持 Apple 芯片（arm64）与 Inte
 macOS 可用 Homebrew 安装：
 
 ```sh
+brew tap miniers/tap
+brew trust miniers/tap
 brew install --cask miniers/tap/mcode
 ```
 

@@ -107,10 +107,29 @@ MoCo · 总管只读状态并调度看板任务，不直接改代码或推送远
 
 开启离线推送后，你可以直接在通知里回复审批。
 
+## 安装
+
+### Homebrew（macOS）
+
+```sh
+brew tap miniers/tap
+brew trust miniers/tap
+brew install --cask miniers/tap/mcode
+```
+
+更新用 `brew upgrade --cask mcode`。
+
+### Release 下载
+
+前往 [MCode 发布页](https://github.com/miniers/MCode/releases/latest) 下载安装包：
+
+- **macOS**：下载 `mcode-<版本>-arm64.dmg`（Apple 芯片）或 `mcode-<版本>-amd64.dmg`（Intel 芯片），打开后把 MCode 拖入「应用程序」。
+- **Windows**：下载 `mcode-setup-<版本>-amd64.exe`。
+
 ## 快速开始与平台
 
 - **平台支持**：macOS 14.0+ 为主要支持平台；Windows 尽力支持。
-- **安装使用**：新用户安装与配置见 [docs/user-guide.md](docs/user-guide.md)；AI Agent 自动安装见 [docs/agent-install.md](docs/agent-install.md)。
+- **配置与使用**：新用户配置与使用见 [docs/user-guide.md](docs/user-guide.md)；AI Agent 自动安装与配置见 [docs/agent-install.md](docs/agent-install.md)。
 - **本地开发**：运行 `go tool mygo dev`（要求 Go 1.27.3），统一检查运行 `scripts/check.sh`。完整开发与发布手册见 [docs/reference.md](docs/reference.md)。
 
 ## 文档
