@@ -64,6 +64,9 @@ func (s *Service) RescueTask(ctx context.Context, taskID string, action RescueAc
 		if !CanTransition(TaskStatus(task.Status), TaskStatusTodo) {
 			return store.Task{}, ErrInvalidTransition
 		}
+		if err := s.closeTaskDecisions(ctx, &task); err != nil {
+			return store.Task{}, err
+		}
 		task.Status = string(TaskStatusTodo)
 		note := "已按救援请求中断执行并重置为待办"
 		task.LastActivityText = &note

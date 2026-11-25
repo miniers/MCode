@@ -544,12 +544,6 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 							continue
 						}
 					}
-					// 旧会话仍在运行时不启动新会话，避免同一任务双会话并发
-					if t.ThreadID != nil && *t.ThreadID != "" && g.svc.opts.Driver != nil {
-						if st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID); err == nil && st.Running {
-							continue
-						}
-					}
 					g.svc.mu.Lock()
 					started, err := g.svc.startTaskInternal(ctx, t.ID, t.Revision)
 					g.svc.mu.Unlock()
@@ -559,6 +553,9 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 						freeSlots--
 						goalChanged = true
 						delete(g.lastStartErrors, t.ID)
+						continue
+					}
+					if errors.Is(err, ErrSessionStillRunning) {
 						continue
 					}
 					reason := fmt.Sprintf("启动任务失败：%v", err)
@@ -587,9 +584,11 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 					t.LastFailureReason = &reason
 					if t.AttemptCount >= maxAttempts {
 						t.Status = string(TaskStatusRejected)
-						goal.Status = string(GoalStatusPaused)
-						goalReason := fmt.Sprintf("task %s failed: %s", t.Title, reason)
-						goal.StatusReason = &goalReason
+						if !IsStewardQueue(goal) {
+							goal.Status = string(GoalStatusPaused)
+							goalReason := fmt.Sprintf("task %s failed: %s", t.Title, reason)
+							goal.StatusReason = &goalReason
+						}
 					} else if meta, merr := ParseTaskMeta(t.Meta); merr == nil {
 						meta.NextAttemptAt = now.Add(time.Duration(BackoffMinutes(t.AttemptCount-1)) * time.Minute).Format(time.RFC3339)
 						t.Meta = EncodeTaskMeta(meta)
@@ -598,7 +597,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 						tasks[i] = up
 						tasksByID[t.ID] = up
 						goalChanged = true
-						if up.Status == string(TaskStatusRejected) {
+						if up.Status == string(TaskStatusRejected) && !IsStewardQueue(goal) {
 							if upGoal, gerr := g.svc.opts.Store.UpdateGoal(ctx, goal, goal.Revision); gerr == nil {
 								goal = upGoal
 							}
@@ -654,6 +653,9 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 
 // pauseGoalOnTaskFailure 在任务失败耗尽重试后把目标置为 paused；若发生版本冲突则重读最新版本重试一次，已终止的目标不再改写。
 func (g *GoalScheduler) pauseGoalOnTaskFailure(ctx context.Context, goal store.Goal, reason string) (store.Goal, bool) {
+	if IsStewardQueue(goal) {
+		return goal, false
+	}
 	goal.Status = string(GoalStatusPaused)
 	goal.StatusReason = &reason
 	if upGoal, err := g.svc.opts.Store.UpdateGoal(ctx, goal, goal.Revision); err == nil {

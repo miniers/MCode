@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -202,8 +203,8 @@ func TestWatchdogInterruptPutsTaskBackToTodo(t *testing.T) {
 	if latest.Status != string(TaskStatusTodo) {
 		t.Fatalf("期望中断后状态为 todo，实际为 %s", latest.Status)
 	}
-	if latest.ThreadID != nil {
-		t.Fatalf("期望中断后清空 ThreadID，实际为 %v", *latest.ThreadID)
+	if latest.ThreadID == nil || *latest.ThreadID != threadID {
+		t.Fatalf("期望中断后保留 ThreadID %q，实际为 %v", threadID, latest.ThreadID)
 	}
 	if latest.LastFailureReason == nil || !strings.Contains(*latest.LastFailureReason, "卡死救援已自动中断") {
 		t.Fatalf("期望标记卡死中断原因，实际: %v", latest.LastFailureReason)
@@ -348,5 +349,50 @@ func TestWatchdogInterruptFailureKeepsTaskAndRetries(t *testing.T) {
 	}
 	if second.Status != string(TaskStatusInProgress) || second.ThreadID == nil || *second.ThreadID != threadID {
 		t.Fatalf("重试期间任务不应被改变，实际 status=%s threadID=%v", second.Status, second.ThreadID)
+	}
+}
+
+// TestWatchdogStuckRescueKeepsThreadID 验证卡死救援把任务重置为 todo 后仍保留原 ThreadID，
+// 从而在旧会话尚未停止时阻止重派新会话。
+func TestWatchdogStuckRescueKeepsThreadID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	currTime := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	svc, s, wd := setupPokeWatchdog(t, driver, true, 600*time.Second, 1800*time.Second, func() time.Time { return currTime })
+
+	task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "proj-1", Title: "卡死救援保留ThreadID"})
+	if err != nil {
+		t.Fatalf("创建任务失败: %v", err)
+	}
+	if task.ThreadID == nil || *task.ThreadID == "" {
+		t.Fatalf("期望任务已绑定 threadID")
+	}
+	threadID := *task.ThreadID
+
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("首次 check 失败: %v", err)
+	}
+	currTime = currTime.Add(650 * time.Second)
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("check 失败: %v", err)
+	}
+	currTime = currTime.Add(1250 * time.Second)
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("check 失败: %v", err)
+	}
+
+	latest, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if latest.Status != string(TaskStatusTodo) {
+		t.Fatalf("期望救援后状态为 todo，实际为 %s", latest.Status)
+	}
+	if latest.ThreadID == nil || *latest.ThreadID != threadID {
+		t.Fatalf("期望救援后保留 ThreadID %q，实际为 %v", threadID, latest.ThreadID)
+	}
+	if _, err := svc.StartTask(ctx, latest.ID, latest.Revision); !errors.Is(err, ErrSessionStillRunning) {
+		t.Fatalf("旧会话仍在运行时重派应返回 ErrSessionStillRunning，实际: %v", err)
 	}
 }

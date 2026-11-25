@@ -34,6 +34,9 @@ var ErrInterruptUnsupported = errors.New("kanban: session driver does not suppor
 // ErrDependenciesNotDone 表示任务的前置依赖尚未全部完成，不能启动。
 var ErrDependenciesNotDone = errors.New("kanban: prerequisites are not done")
 
+// ErrSessionStillRunning 表示任务的上一个执行会话仍在运行，不能同时启动新会话。
+var ErrSessionStillRunning = errors.New("任务的上一个执行会话仍在运行")
+
 // goalOwnerSteward 与新前台创建目标时写入的 Owner "steward" 一致。
 const goalOwnerSteward = "steward"
 
@@ -532,12 +535,23 @@ func (s *Service) MoveTask(ctx context.Context, taskID string, status TaskStatus
 		return store.Task{}, ErrInvalidTransition
 	}
 
-	if status == TaskStatusCancelled && task.Status == string(TaskStatusInProgress) && task.ThreadID != nil && *task.ThreadID != "" && s.opts.StopSession != nil {
+	if status == TaskStatusCancelled && task.ThreadID != nil && *task.ThreadID != "" && s.opts.StopSession != nil &&
+		(task.Status == string(TaskStatusInProgress) || s.TaskExecuting(ctx, task)) {
 		if err := s.opts.StopSession(ctx, *task.ThreadID); err != nil {
 			return store.Task{}, err
 		}
 	}
-	if (task.Status == string(TaskStatusNeedsApproval) && status != TaskStatusNeedsApproval) || status == TaskStatusDone || status == TaskStatusFailed || status == TaskStatusCancelled {
+	if task.Status == string(TaskStatusWaiting) && status != TaskStatusWaiting {
+		meta, err := ParseTaskMeta(task.Meta)
+		if err != nil {
+			return store.Task{}, err
+		}
+		meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+		task.Meta = EncodeTaskMeta(meta)
+	}
+	if (task.Status == string(TaskStatusNeedsApproval) && status != TaskStatusNeedsApproval) ||
+		(task.Status == string(TaskStatusWaiting) && status != TaskStatusWaiting) ||
+		status == TaskStatusDone || status == TaskStatusFailed || status == TaskStatusCancelled {
 		if err := s.closeTaskDecisions(ctx, &task); err != nil {
 			return store.Task{}, err
 		}
@@ -631,6 +645,9 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 	deps, err := s.ensureDependenciesDone(ctx, task)
 	if err != nil {
 		return store.Task{}, err
+	}
+	if task.ThreadID != nil && *task.ThreadID != "" && s.TaskExecuting(ctx, task) {
+		return store.Task{}, ErrSessionStillRunning
 	}
 
 	now := time.Now()
@@ -1469,6 +1486,43 @@ func (s *Service) CancelGoal(ctx context.Context, goalID string, expectedRevisio
 		return store.Goal{}, ErrInvalidTransition
 	}
 
+	taskIDs, err := s.opts.Store.ListGoalTaskIDs(ctx, goalID)
+	if err != nil {
+		return store.Goal{}, err
+	}
+	for _, tid := range taskIDs {
+		t, err := s.opts.Store.GetTask(ctx, tid)
+		if err != nil {
+			continue
+		}
+		switch TaskStatus(t.Status) {
+		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled, TaskStatusRejected:
+			continue
+		}
+		if t.ThreadID != nil && *t.ThreadID != "" && s.opts.StopSession != nil && s.TaskExecuting(ctx, t) {
+			if err := s.opts.StopSession(ctx, *t.ThreadID); err != nil {
+				return store.Goal{}, err
+			}
+		}
+		if t.Status == string(TaskStatusWaiting) && CanTransition(TaskStatus(t.Status), TaskStatusCancelled) {
+			meta, err := ParseTaskMeta(t.Meta)
+			if err != nil {
+				return store.Goal{}, err
+			}
+			meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+			t.Meta = EncodeTaskMeta(meta)
+		}
+		if err := s.closeTaskDecisions(ctx, &t); err != nil {
+			return store.Goal{}, err
+		}
+		if CanTransition(TaskStatus(t.Status), TaskStatusCancelled) {
+			t.Status = string(TaskStatusCancelled)
+		}
+		if _, err := s.opts.Store.UpdateTask(ctx, t, t.Revision); err != nil {
+			return store.Goal{}, err
+		}
+	}
+
 	goal.Status = string(GoalStatusCancelled)
 	updated, err := s.opts.Store.UpdateGoal(ctx, goal, expectedRevision)
 	if err != nil {
@@ -1565,6 +1619,9 @@ func (s *Service) RetryGoalTask(ctx context.Context, taskID string, expectedRevi
 		return store.Task{}, ErrInvalidTransition
 	}
 
+	if err := s.closeTaskDecisions(ctx, &task); err != nil {
+		return store.Task{}, err
+	}
 	task.Status = string(TaskStatusTodo)
 	task.AttemptCount = 0
 	task.LastFailureReason = nil
@@ -1606,6 +1663,9 @@ func (s *Service) SkipGoalTask(ctx context.Context, taskID string, expectedRevis
 		return store.Task{}, ErrInvalidTransition
 	}
 
+	if err := s.closeTaskDecisions(ctx, &task); err != nil {
+		return store.Task{}, err
+	}
 	task.Status = string(TaskStatusDone)
 	skipped := "skipped"
 	task.ReviewStatus = &skipped

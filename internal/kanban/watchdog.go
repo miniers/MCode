@@ -404,7 +404,6 @@ func (w *Watchdog) Check(ctx context.Context) error {
 				if CanTransition(TaskStatus(t.Status), TaskStatusTodo) {
 					t.Status = string(TaskStatusTodo)
 				}
-				t.ThreadID = nil
 				w.svc.mu.Lock()
 				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
 					w.svc.revision.Add(1)

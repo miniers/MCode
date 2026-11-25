@@ -692,3 +692,295 @@ func TestAutoCleanupMergedWorktreesOption(t *testing.T) {
 		t.Fatalf("expected 1 call, got %d", cleanupCalls)
 	}
 }
+
+func TestStartTaskRefusesWhileOldSessionRunning(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, driver := setupTestService(t)
+	oldThread := "thread-old-running"
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-old-running",
+		Title:    "旧会话仍在运行",
+		Status:   string(TaskStatusTodo),
+		ThreadID: &oldThread,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	driver.setThreadState(oldThread, SessionState{Running: true})
+
+	task, err := db.GetTask(ctx, "task-old-running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.StartTask(ctx, task.ID, task.Revision); !errors.Is(err, ErrSessionStillRunning) {
+		t.Fatalf("期望返回 ErrSessionStillRunning，实际: %v", err)
+	}
+	driver.mu.Lock()
+	startCount := len(driver.starts)
+	driver.mu.Unlock()
+	if startCount != 0 {
+		t.Fatalf("旧会话仍在运行时不应调用 StartSession，实际 %d 次", startCount)
+	}
+
+	driver.setThreadState(oldThread, SessionState{Running: false})
+	started, err := svc.StartTask(ctx, task.ID, task.Revision)
+	if err != nil {
+		t.Fatalf("旧会话停止后应允许启动: %v", err)
+	}
+	if started.Status != string(TaskStatusInProgress) {
+		t.Fatalf("期望启动后状态为 in_progress，实际: %s", started.Status)
+	}
+}
+
+func TestMoveTaskCancelStopsRunningSessionFromNeedsApproval(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, driver := setupTestService(t)
+	thread := "thread-needs-approval-running"
+	driver.setThreadState(thread, SessionState{Running: true})
+	var stopped []string
+	svc.opts.StopSession = func(_ context.Context, id string) error {
+		stopped = append(stopped, id)
+		return nil
+	}
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-na-cancel",
+		Title:    "审批中取消",
+		Status:   string(TaskStatusNeedsApproval),
+		ThreadID: &thread,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task-na-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := svc.MoveTask(ctx, task.ID, TaskStatusCancelled, task.Revision)
+	if err != nil {
+		t.Fatalf("MoveTask 取消失败: %v", err)
+	}
+	if updated.Status != string(TaskStatusCancelled) {
+		t.Fatalf("期望状态为 cancelled，实际: %s", updated.Status)
+	}
+	if len(stopped) != 1 || stopped[0] != thread {
+		t.Fatalf("期望调用 StopSession(%s)，实际: %v", thread, stopped)
+	}
+}
+
+func TestMoveTaskLeavingWaitingClearsWaitMeta(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, _ := setupTestService(t)
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-wait-move", Question: "继续等待？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateTask(ctx, store.Task{
+		ID:     "task-wait-move",
+		Title:  "等待任务迁出",
+		Status: string(TaskStatusWaiting),
+		Meta: EncodeTaskMeta(TaskMeta{
+			WaitKind:   "timer",
+			WakeAt:     "2026-12-01T00:00:00Z",
+			WaitCheck:  "git status",
+			WaitBase:   "abc123",
+			Wakes:      2,
+			DecisionID: d.ID,
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task-wait-move")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := svc.MoveTask(ctx, task.ID, TaskStatusTodo, task.Revision)
+	if err != nil {
+		t.Fatalf("MoveTask 失败: %v", err)
+	}
+	if updated.Status != string(TaskStatusTodo) {
+		t.Fatalf("期望状态为 todo，实际: %s", updated.Status)
+	}
+	meta, err := ParseTaskMeta(updated.Meta)
+	if err != nil {
+		t.Fatalf("解析 Meta 失败: %v", err)
+	}
+	if meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 || meta.DecisionID != "" {
+		t.Fatalf("离开 waiting 后应清空等待与决策字段，实际: %+v", meta)
+	}
+	closedDecision, err := db.GetStewardDecision(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closedDecision.Status != store.DecisionStatusSuperseded {
+		t.Fatalf("离开 waiting 后 open 决策卡应作废，实际: %s", closedDecision.Status)
+	}
+}
+
+func TestRescueTaskClosesOpenDecision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := store.OpenForTest(t)
+	driver := newPokeDriver()
+	svc := NewService(Options{
+		Store:    db,
+		Driver:   driver,
+		Projects: &mockProjects{dir: t.TempDir()},
+	})
+	defer svc.Close()
+
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-rescue-decision", Question: "是否继续？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := "thread-rescue-decision"
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-rescue-decision",
+		Title:    "救援关闭决策卡",
+		Status:   string(TaskStatusNeedsApproval),
+		ThreadID: &thread,
+		Meta:     EncodeTaskMeta(TaskMeta{DecisionID: d.ID}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task-rescue-decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rescued, err := svc.RescueTask(ctx, task.ID, RescueActionInterrupt, task.Revision)
+	if err != nil {
+		t.Fatalf("RescueTask 失败: %v", err)
+	}
+	if rescued.Status != string(TaskStatusTodo) {
+		t.Fatalf("期望救援后状态为 todo，实际: %s", rescued.Status)
+	}
+	meta, err := ParseTaskMeta(rescued.Meta)
+	if err != nil {
+		t.Fatalf("解析 Meta 失败: %v", err)
+	}
+	if meta.DecisionID != "" {
+		t.Fatalf("救援重置后应清空 DecisionID，实际: %q", meta.DecisionID)
+	}
+	closedDecision, err := db.GetStewardDecision(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closedDecision.Status != store.DecisionStatusSuperseded {
+		t.Fatalf("救援重置后 open 决策卡应不再 open，实际: %s", closedDecision.Status)
+	}
+}
+
+func TestCancelGoalStopsSessionsAndCancelsTasks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, driver := setupTestService(t)
+	var stopMu sync.Mutex
+	stopped := make(map[string]int)
+	svc.opts.StopSession = func(_ context.Context, id string) error {
+		stopMu.Lock()
+		stopped[id]++
+		stopMu.Unlock()
+		return nil
+	}
+
+	goal := store.Goal{
+		ID:        "goal-cancel-all",
+		ProjectID: "proj-1",
+		Title:     "取消目标测试",
+		Prompt:    "取消目标测试",
+		Status:    string(GoalStatusRunning),
+		Policy:    map[string]any{"maxConcurrency": 1},
+		Progress:  map[string]any{},
+	}
+	if err := db.CreateGoal(ctx, goal); err != nil {
+		t.Fatal(err)
+	}
+	createdGoal, err := db.GetGoal(ctx, goal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dNeedsApproval, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "t-na", Question: "审批？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dReview, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "t-review", Question: "评审？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	threadInProg := "thread-inprog"
+	threadNA := "thread-na"
+	threadWaitStopped := "thread-wait-stopped"
+	threadReview := "thread-review"
+	threadDone := "thread-done"
+	driver.setThreadState(threadInProg, SessionState{Running: true})
+	driver.setThreadState(threadNA, SessionState{Running: true})
+	driver.setThreadState(threadWaitStopped, SessionState{Running: false})
+	driver.setThreadState(threadReview, SessionState{Running: true})
+	driver.setThreadState(threadDone, SessionState{Running: true})
+
+	tasks := []store.Task{
+		{ID: "t-todo", GoalID: &goal.ID, Title: "todo", Status: string(TaskStatusTodo)},
+		{ID: "t-inprog", GoalID: &goal.ID, Title: "inprog", Status: string(TaskStatusInProgress), ThreadID: &threadInProg},
+		{ID: "t-na", GoalID: &goal.ID, Title: "na", Status: string(TaskStatusNeedsApproval), ThreadID: &threadNA, Meta: EncodeTaskMeta(TaskMeta{DecisionID: dNeedsApproval.ID})},
+		{ID: "t-wait", GoalID: &goal.ID, Title: "wait", Status: string(TaskStatusWaiting), ThreadID: &threadWaitStopped, Meta: EncodeTaskMeta(TaskMeta{WaitKind: "timer", WakeAt: "2026-12-01T00:00:00Z"})},
+		{ID: "t-review", GoalID: &goal.ID, Title: "review", Status: string(TaskStatusReview), ThreadID: &threadReview, Meta: EncodeTaskMeta(TaskMeta{DecisionID: dReview.ID})},
+		{ID: "t-done", GoalID: &goal.ID, Title: "done", Status: string(TaskStatusDone), ThreadID: &threadDone},
+	}
+	ids := make([]string, 0, len(tasks))
+	for _, tk := range tasks {
+		if err := db.CreateTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, tk.ID)
+	}
+	if err := db.SetGoalTasks(ctx, goal.ID, ids, createdGoal.Revision); err != nil {
+		t.Fatal(err)
+	}
+	latestGoal, err := db.GetGoal(ctx, goal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cancelledGoal, err := svc.CancelGoal(ctx, goal.ID, latestGoal.Revision)
+	if err != nil {
+		t.Fatalf("CancelGoal 失败: %v", err)
+	}
+	if cancelledGoal.Status != string(GoalStatusCancelled) {
+		t.Fatalf("期望目标状态 cancelled，实际: %s", cancelledGoal.Status)
+	}
+
+	wantStopped := map[string]int{threadInProg: 1, threadNA: 1, threadReview: 1}
+	if !reflect.DeepEqual(stopped, wantStopped) {
+		t.Fatalf("StopSession 调用不符合预期: got %v, want %v", stopped, wantStopped)
+	}
+
+	for id, wantStatus := range map[string]string{
+		"t-todo":   string(TaskStatusCancelled),
+		"t-inprog": string(TaskStatusCancelled),
+		"t-na":     string(TaskStatusCancelled),
+		"t-wait":   string(TaskStatusCancelled),
+		"t-review": string(TaskStatusReview),
+		"t-done":   string(TaskStatusDone),
+	} {
+		got, err := db.GetTask(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != wantStatus {
+			t.Fatalf("任务 %s 期望状态 %s，实际: %s", id, wantStatus, got.Status)
+		}
+	}
+
+	for _, dID := range []string{dNeedsApproval.ID, dReview.ID} {
+		d, err := db.GetStewardDecision(ctx, dID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Status != store.DecisionStatusSuperseded {
+			t.Fatalf("决策卡 %s 期望作废，实际: %s", dID, d.Status)
+		}
+	}
+}

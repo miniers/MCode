@@ -1269,3 +1269,85 @@ func TestSchedulerSkipsTodoWhileOldSessionRunning(t *testing.T) {
 		t.Fatalf("旧会话结束后任务应变为 in_progress，实际: %s", task.Status)
 	}
 }
+
+func TestStewardQueueNotPausedOnTaskFailure(t *testing.T) {
+	t.Parallel()
+	t.Run("session failure keeps steward queue running", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		_, s, driver, scheduler := setupSchedulerTestService(t, false)
+		threadID := "thread-steward-fail"
+		seedSchedulerGoal(t, ctx, s, store.Goal{
+			ID:        "goal-steward-fail",
+			ProjectID: "proj-1",
+			Title:     "总管",
+			Owner:     goalOwnerSteward,
+			Policy:    map[string]any{"maxAttempts": 2},
+		}, store.Task{
+			ID:           "task-steward-fail",
+			Title:        "执行失败任务",
+			Status:       string(TaskStatusInProgress),
+			ThreadID:     &threadID,
+			AttemptCount: 2,
+		})
+		driver.setThreadState(threadID, SessionState{Running: false, Failed: true, FailureReason: "boom"})
+
+		scheduler.Tick(ctx)
+
+		task, err := s.GetTask(ctx, "task-steward-fail")
+		if err != nil {
+			t.Fatalf("获取任务失败: %v", err)
+		}
+		if task.Status != string(TaskStatusRejected) {
+			t.Fatalf("次数耗尽后任务应转为 rejected，实际: %s", task.Status)
+		}
+		goal, err := s.GetGoal(ctx, "goal-steward-fail")
+		if err != nil {
+			t.Fatalf("获取目标失败: %v", err)
+		}
+		if goal.Status != string(GoalStatusRunning) {
+			t.Fatalf("总管队列不应因任务失败被暂停，实际: %s", goal.Status)
+		}
+	})
+
+	t.Run("start failure keeps steward queue running", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		svc, s, driver, scheduler := setupSchedulerTestService(t, false)
+		svc.opts.Driver = &startHookDriver{
+			mockDriver: driver,
+			start: func(context.Context, SessionRequest) (string, error) {
+				return "", errors.New("start failed")
+			},
+		}
+		seedSchedulerGoal(t, ctx, s, store.Goal{
+			ID:        "goal-steward-start-fail",
+			ProjectID: "proj-1",
+			Title:     "总管",
+			Owner:     goalOwnerSteward,
+			Policy:    map[string]any{"maxAttempts": 2},
+		}, store.Task{
+			ID:           "task-steward-start-fail",
+			Title:        "启动失败任务",
+			Status:       string(TaskStatusTodo),
+			AttemptCount: 1,
+		})
+
+		scheduler.Tick(ctx)
+
+		task, err := s.GetTask(ctx, "task-steward-start-fail")
+		if err != nil {
+			t.Fatalf("获取任务失败: %v", err)
+		}
+		if task.Status != string(TaskStatusRejected) {
+			t.Fatalf("启动失败次数耗尽后任务应转为 rejected，实际: %s", task.Status)
+		}
+		goal, err := s.GetGoal(ctx, "goal-steward-start-fail")
+		if err != nil {
+			t.Fatalf("获取目标失败: %v", err)
+		}
+		if goal.Status != string(GoalStatusRunning) {
+			t.Fatalf("总管队列不应因启动失败被暂停，实际: %s", goal.Status)
+		}
+	})
+}
