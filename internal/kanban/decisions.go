@@ -73,7 +73,7 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 			return d, err
 		}
 		switch TaskStatus(task.Status) {
-		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled:
+		case TaskStatusDone, TaskStatusFailed, TaskStatusCancelled, TaskStatusRejected:
 			return d, store.ErrDecisionClosed
 		case TaskStatusInProgress, TaskStatusReview:
 			if reanswer {
@@ -89,24 +89,25 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 			line = fmt.Sprintf("决策 %s：改答为 %s", d.ID, answerDisplay)
 		}
 		task.Notes = strings.TrimSpace(task.Notes + "\n\n" + line)
+		stale := !reanswer && meta.DecisionID != d.ID
 		status := TaskStatus(task.Status)
-		if stop && (status == TaskStatusNeedsApproval || status == TaskStatusWaiting || status == TaskStatusTodo || status == TaskStatusInProgress) {
-			if !CanTransition(status, TaskStatusCancelled) {
-				return d, ErrInvalidTransition
-			}
-			if status == TaskStatusInProgress && task.ThreadID != nil && *task.ThreadID != "" && s.opts.StopSession != nil {
-				if err := s.opts.StopSession(ctx, *task.ThreadID); err != nil {
-					return d, err
+		if !stale {
+			if stop && (status == TaskStatusNeedsApproval || status == TaskStatusWaiting || status == TaskStatusTodo || status == TaskStatusInProgress) {
+				if !CanTransition(status, TaskStatusCancelled) {
+					return d, ErrInvalidTransition
 				}
-			}
-			task.Status = string(TaskStatusCancelled)
-			meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
-			meta.DecisionID = ""
-			cancelled = true
-		} else {
-			switch status {
-			case TaskStatusNeedsApproval:
-				if meta.DecisionID == d.ID {
+				if task.ThreadID != nil && *task.ThreadID != "" && s.TaskExecuting(ctx, task) && s.opts.StopSession != nil {
+					if err := s.opts.StopSession(ctx, *task.ThreadID); err != nil {
+						return d, err
+					}
+				}
+				task.Status = string(TaskStatusCancelled)
+				meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				meta.DecisionID = ""
+				cancelled = true
+			} else {
+				switch status {
+				case TaskStatusNeedsApproval:
 					meta.DecisionID = ""
 					if meta.WaitKind != "" {
 						// 等待到期弹出的决策卡不写硬锁授权，按等待分支语义更新状态。
@@ -115,13 +116,13 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 						task.Status = string(TaskStatusTodo)
 						meta.GateOverride = d.ID
 					}
+				case TaskStatusWaiting:
+					meta.DecisionID = ""
+					applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
 				}
-			case TaskStatusWaiting:
-				meta.DecisionID = ""
-				applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
 			}
+			task.Meta = EncodeTaskMeta(meta)
 		}
-		task.Meta = EncodeTaskMeta(meta)
 		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err != nil {
 			return d, err
 		}

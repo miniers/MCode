@@ -94,11 +94,15 @@ func TestAnswerDecisionStop(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+			driver := newPokeDriver()
+			svc, db, _, _ := setupReceiptTestService(t, driver, true, false, nil)
 			thread := "executor"
+			if status == "in_progress" {
+				driver.setThreadState(thread, SessionState{Running: true})
+			}
 			stopped := ""
 			svc.opts.StopSession = func(_ context.Context, id string) error { stopped = id; return nil }
-			task := store.Task{ID: "task", Status: status, ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001", WaitKind: "machine", WakeAt: "later", WaitCheck: "check", WaitBase: "base", Wakes: 2})}
+			task := store.Task{ID: "task", Status: status, ThreadID: &thread, Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0002", WaitKind: "machine", WakeAt: "later", WaitCheck: "check", WaitBase: "base", Wakes: 2})}
 			if err := db.CreateTask(ctx, task); err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +143,7 @@ func TestDecisionStopScheduler(t *testing.T) {
 	ctx := context.Background()
 	driver := newPokeDriver()
 	svc, db, _, scheduler := setupReceiptTestService(t, driver, true, true, nil)
-	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "目标"}, store.Task{ID: "task", Status: "waiting"})
+	seedSchedulerGoal(t, ctx, db, store.Goal{ID: "g", ProjectID: "p", Title: "目标"}, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"})})
 	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", OptionsJSON: `[{"key":"B","text":"停下"}]`})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +177,7 @@ func TestAnswerDecisionContinueOption(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return now })
-	if err := db.CreateTask(ctx, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "machine", WakeAt: "old", WaitCheck: "check", WaitBase: "base", Wakes: 2})}); err != nil {
+	if err := db.CreateTask(ctx, store.Task{ID: "task", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001", WaitKind: "machine", WakeAt: "old", WaitCheck: "check", WaitBase: "base", Wakes: 2})}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task", OptionsJSON: `[{"key":"A","text":"继续等"},{"key":"B","text":"停下"}]`})
@@ -194,7 +198,7 @@ func TestAnswerDecisionStopPrefix(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
-	if err := db.CreateTask(ctx, store.Task{ID: "task-stop-prefix", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{WaitKind: "human", WakeAt: "later"})}); err != nil {
+	if err := db.CreateTask(ctx, store.Task{ID: "task-stop-prefix", Status: "waiting", Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001", WaitKind: "human", WakeAt: "later"})}); err != nil {
 		t.Fatal(err)
 	}
 	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-stop-prefix"})
@@ -409,5 +413,126 @@ func TestAnswerWaitDecisionOtherAnswerNoGateOverride(t *testing.T) {
 	}
 	if meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 || meta.GateOverride != "" || meta.DecisionID != "" {
 		t.Fatalf("等待元数据与授权字段应已清空: %+v", meta)
+	}
+}
+
+func TestAnswerDecisionStaleOpenCardOnlyNotes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	if err := db.CreateTask(ctx, store.Task{
+		ID:     "task-stale",
+		Title:  "任务",
+		Notes:  "原描述",
+		Status: string(TaskStatusNeedsApproval),
+		Meta:   EncodeTaskMeta(TaskMeta{WaitKind: "machine", WakeAt: "later"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-stale", Question: "旧卡"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := db.CreateStewardDecision(ctx, store.StewardDecision{Question: "新卡"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "task-stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Meta = EncodeTaskMeta(TaskMeta{DecisionID: current.ID, WaitKind: "machine", WakeAt: "later"})
+	if _, err := db.UpdateTask(ctx, task, task.Revision); err != nil {
+		t.Fatal(err)
+	}
+
+	answered, err := svc.AnswerDecision(ctx, stale.ID, "停下", "user:desktop")
+	if err != nil || answered.Status != store.DecisionStatusAnswered {
+		t.Fatalf("旧卡应标记为 answered: %+v, %v", answered, err)
+	}
+	got, err := db.GetTask(ctx, "task-stale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(TaskStatusNeedsApproval) || meta.DecisionID != current.ID || meta.WaitKind != "machine" || meta.WakeAt != "later" || meta.GateOverride != "" {
+		t.Fatalf("过期卡不应改变任务状态与元数据: %+v, %+v", got, meta)
+	}
+	if !strings.Contains(got.Notes, "决策 "+stale.ID+"：旧卡 → 停下") {
+		t.Fatalf("过期卡回答应记入 Notes: %q", got.Notes)
+	}
+	gotCurrent, err := db.GetStewardDecision(ctx, current.ID)
+	if err != nil || gotCurrent.Status != store.DecisionStatusOpen {
+		t.Fatalf("当前卡应保持 open: %+v, %v", gotCurrent, err)
+	}
+}
+
+func TestAnswerDecisionRejectedTaskClosed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, nil)
+	if err := db.CreateTask(ctx, store.Task{
+		ID:     "task-rejected",
+		Title:  "任务",
+		Status: string(TaskStatusRejected),
+		Meta:   EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-rejected", Question: "继续？"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "继续", "user:desktop"); !errors.Is(err, store.ErrDecisionClosed) {
+		t.Fatalf("rejected 任务应返回 ErrDecisionClosed: %v", err)
+	}
+	got, err := db.GetTask(ctx, "task-rejected")
+	if err != nil || got.Status != string(TaskStatusRejected) || got.Notes != "" {
+		t.Fatalf("rejected 任务不应被改动: %+v, %v", got, err)
+	}
+}
+
+func TestAnswerDecisionStopStopsRunningSessionInNeedsApproval(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	driver := newPokeDriver()
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, nil)
+	thread := "executor-running"
+	driver.setThreadState(thread, SessionState{Running: true})
+	stopped := ""
+	svc.opts.StopSession = func(_ context.Context, id string) error {
+		stopped = id
+		return nil
+	}
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-needs-approval-running",
+		Title:    "任务",
+		Status:   string(TaskStatusNeedsApproval),
+		ThreadID: &thread,
+		Meta:     EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-needs-approval-running", Question: "继续吗"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := svc.AnswerDecision(ctx, d.ID, "停下", "user:desktop")
+	if err != nil || answered.Status != store.DecisionStatusAnswered {
+		t.Fatalf("答卡应成功: %+v, %v", answered, err)
+	}
+	if stopped != thread {
+		t.Fatalf("运行中会话应被停止: got %q, want %q", stopped, thread)
+	}
+	got, err := db.GetTask(ctx, "task-needs-approval-running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil || got.Status != string(TaskStatusCancelled) || meta.DecisionID != "" {
+		t.Fatalf("任务应变为 cancelled 且清空 DecisionID: %+v, %+v, %v", got, meta, err)
 	}
 }
