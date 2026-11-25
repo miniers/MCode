@@ -1420,7 +1420,7 @@ func renderSkillScopeTabs(c *ui.Context, s *chatState, activeScope string, match
 					for i, tab := range tabs {
 						tabScope := tab.scope
 						isSel := i == activeIdx
-						btn := ui.ButtonBase(c.Key("composer-skill-scope-" + tab.label)).
+						btn := ui.ButtonBase(c.Key("composer-skill-scope-"+tab.label)).
 							Label(tab.label).
 							Height(ControlSM).
 							Padding(0, Space2).

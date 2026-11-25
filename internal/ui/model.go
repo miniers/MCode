@@ -552,7 +552,7 @@ type chatState struct {
 	// completionSnap 是补全层最近一次可见的候选，关闭动画期间继续渲染它。
 	completionSnap []completionItem
 	// completionCaretToEnd 表示补全刚改写了草稿，下一帧需把光标放到文末；TextKey 无法移动光标，只能在构建视图时用 SetTextSelection。
-	completionCaretToEnd bool
+	completionCaretToEnd      bool
 	completionThreadID        string
 	completionSuspended       bool
 	completionLoading         bool
@@ -560,7 +560,7 @@ type chatState struct {
 	completionSkillScope      string
 	completionSkillDraftScope string
 	commandsCache             map[string][]SlashCommand
-	mentionSeq           uint64
+	mentionSeq                uint64
 	// draftThreadMentions 是草稿上方的会话引用胶囊，与正文分离；发送时按 ThreadID 展开为引用块。
 	// 由 s.mu 保护。
 	draftThreadMentions []ThreadMention
