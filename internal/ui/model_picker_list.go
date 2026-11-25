@@ -87,6 +87,7 @@ func renderModelPickerListPage(c *ui.Context, p ModelPickerProps, state *ModelPi
 		if p.OnPickModel != nil {
 			p.OnPickModel(side, prov, m)
 		}
+		modelPickerInvalidate(p)
 	}
 
 	selection := p.Selection
@@ -541,6 +542,7 @@ func renderModelPickerPairsSection(c *ui.Context, p ModelPickerProps, state *Mod
 			if p.OnApplyPair != nil {
 				p.OnApplyPair(pair)
 			}
+			modelPickerInvalidate(p)
 		}
 		renderModelListPairRow(c, p, fmt.Sprintf("%spair-row-%d", p.KeyPrefix, idx), pair, selected, onEnter)
 	}

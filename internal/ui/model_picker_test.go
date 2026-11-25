@@ -338,6 +338,109 @@ func TestModelPickerFlyoutSelection(t *testing.T) {
 	}
 }
 
+// TestModelPickerFlyoutPickInvalidatesHost 验证独立浮窗里点模型行或配对行后请求宿主重绘以关闭浮窗。
+func TestModelPickerFlyoutPickInvalidatesHost(t *testing.T) {
+	testenv.TempHome(t)
+	providers := modelPickerTestProviders()
+
+	t.Run("pick_model", func(t *testing.T) {
+		entry, capture := setupPopoverFlyoutTest(t)
+		state := &ModelPickerState{}
+		picked := false
+		invalidates := 0
+		props := ModelPickerProps{
+			Mode:         ModelPickerSimple,
+			KeyPrefix:    "flyout-pick-model-",
+			ScopeKey:     "flyout-pick-model",
+			State:        state,
+			Providers:    providers,
+			Selection:    ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+			CapsuleLabel: "Claude",
+			ListOnly:     true,
+			OnPickModel: func(ModelPickerSide, ProviderInfo, ModelInfo) {
+				picked = true
+				state.MenuOpen = false
+			},
+		}
+		host := ui.NewTester(func(c *ui.Context) {
+			entry.services = c.Services()
+			props.Invalidate = func() {
+				invalidates++
+				c.Services().Invalidate()
+			}
+			renderModelPicker(c, props)
+		}, 400, 500)
+		if err := host.Click("选择模型"); err != nil {
+			t.Fatal(err)
+		}
+		menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-pick-model-model-popover"), 368, 600)
+		settleModelPickerPage(menu)
+		if err := menu.Click("Claude 3.5 Haiku"); err != nil {
+			t.Fatal(err)
+		}
+		if !picked || state.MenuOpen || invalidates == 0 {
+			t.Fatalf("点模型行后未触发回调或未请求宿主重绘: picked=%v menuOpen=%v invalidates=%d", picked, state.MenuOpen, invalidates)
+		}
+		host.Frame()
+		if len(capture.destroyedWindows) != 1 {
+			t.Fatalf("宿主重绘后浮窗未销毁: destroyed=%d", len(capture.destroyedWindows))
+		}
+	})
+
+	t.Run("apply_pair", func(t *testing.T) {
+		entry, capture := setupPopoverFlyoutTest(t)
+		state := &ModelPickerState{}
+		pair := SwarmPair{
+			ID:             "pair-1",
+			Name:           "深度思考",
+			LeadProvider:   "codex",
+			LeadModel:      "o3-mini",
+			WorkerProvider: "claude",
+			WorkerModel:    "claude-3-7-sonnet",
+		}
+		var applied SwarmPair
+		invalidates := 0
+		props := ModelPickerProps{
+			Mode:         ModelPickerSimple,
+			KeyPrefix:    "flyout-apply-pair-",
+			ScopeKey:     "flyout-apply-pair",
+			State:        state,
+			Providers:    providers,
+			Pairs:        []SwarmPair{pair},
+			Selection:    ModelSelection{Provider: "claude", Model: "claude-3-7-sonnet"},
+			CapsuleLabel: "Claude",
+			ListOnly:     true,
+			OnApplyPair: func(p SwarmPair) {
+				applied = p
+				state.MenuOpen = false
+			},
+		}
+		host := ui.NewTester(func(c *ui.Context) {
+			entry.services = c.Services()
+			props.Invalidate = func() {
+				invalidates++
+				c.Services().Invalidate()
+			}
+			renderModelPicker(c, props)
+		}, 400, 500)
+		if err := host.Click("选择模型"); err != nil {
+			t.Fatal(err)
+		}
+		menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-apply-pair-model-popover"), 368, 600)
+		settleModelPickerPage(menu)
+		if err := menu.Click("深度思考"); err != nil {
+			t.Fatal(err)
+		}
+		if applied.ID != "pair-1" || state.MenuOpen || invalidates == 0 {
+			t.Fatalf("点配对行后未触发回调或未请求宿主重绘: applied=%+v menuOpen=%v invalidates=%d", applied, state.MenuOpen, invalidates)
+		}
+		host.Frame()
+		if len(capture.destroyedWindows) != 1 {
+			t.Fatalf("宿主重绘后浮窗未销毁: destroyed=%d", len(capture.destroyedWindows))
+		}
+	})
+}
+
 // 测试模型行：默认行显示实际解析出的模型名，不再带“默认”徽章。
 func TestRenderModelRow_DefaultIdentity(t *testing.T) {
 	testenv.TempHome(t)
