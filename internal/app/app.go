@@ -1037,7 +1037,7 @@ func Open(opts Options) (*App, error) {
 	}
 
 	// 普通会话的计划清单规则与「可以交给总管」提示只在首轮注入一次，挂在已有的首轮指导词机制上，
-	// 不再每轮前置，避免随历史累积与每轮读磁盘。bee 和前台会话不带。
+	// 不再每轮前置，避免随历史累积与每轮读磁盘。bee 和前台会话不带；planning-only 主会话也不带，因为 swarm 策略已有自己的计划规则。
 	backend.SetFirstTurnExtra(func(threadID string) string {
 		if swarmMgr != nil {
 			if _, isBee := swarmMgr.BeeOwner(threadID); isBee {
@@ -1047,7 +1047,7 @@ func Open(opts Options) (*App, error) {
 		if id, _, err := dbStore.GetSetting(context.Background(), "steward.feed_thread_id"); err == nil && id == threadID {
 			return ""
 		}
-		return firstTurnExtraSection(opts.DataDir, threadID)
+		return firstTurnExtraSection(opts.DataDir, threadID, backend.SwarmLeadPlansOnly(threadID))
 	})
 
 	// Nowledge Mem 接入：客户端已在上方创建，拿到后首轮 Working Memory 注入与会话同步才生效。

@@ -33,6 +33,14 @@ func (b *MemoryBackend) SetSwarmLeadPlansOnlyFunc(fn func(threadID string) bool)
 	b.swarmLeadPlansOnlyFor = fn
 }
 
+// SwarmLeadPlansOnly 判断指定会话当前是否处于只规划主会话约束下；未注册判定函数时返回 false。
+func (b *MemoryBackend) SwarmLeadPlansOnly(threadID string) bool {
+	b.mu.Lock()
+	fn := b.swarmLeadPlansOnlyFor
+	b.mu.Unlock()
+	return fn != nil && fn(threadID)
+}
+
 // SetSwarmEnabler 设置新建会话时立即开启编排的回调（与 threads.swarm.set 同一后端实现）。
 // 未注入时新建会话只把编排开关记在摘要里，等客户端自行调用 threads.swarm.set。
 func (b *MemoryBackend) SetSwarmEnabler(fn func(threadID string, enabled bool)) {
