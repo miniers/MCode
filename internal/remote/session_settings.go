@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 )
 
@@ -299,13 +300,40 @@ func compactSuggestionThreshold(window int64) int64 {
 	return threshold
 }
 
+// latestContextUsageLocked 返回最新一轮（turnIndex 最大）的上下文占用和窗口上限。
+// 优先取该轮 ContextTokens（>0 时），否则回退为该轮 InputTokens+OutputTokens；没有轮次时返回 0, 0。
+// 调用方需已持有 b.mu。
+func latestContextUsageLocked(turns map[int]harness.Usage) (used, window int64) {
+	if len(turns) == 0 {
+		return 0, 0
+	}
+	latestTurn := 0
+	first := true
+	var latest harness.Usage
+	for idx, u := range turns {
+		if first || idx > latestTurn {
+			latestTurn = idx
+			latest = u
+			first = false
+		}
+	}
+	used = latest.ContextTokens
+	if used <= 0 {
+		used = latest.InputTokens + latest.OutputTokens
+	}
+	if used < 0 {
+		used = 0
+	}
+	return used, latest.ContextWindow
+}
+
 // ShouldOfferCompact 判断会话在恢复时是否应向用户提示压缩上下文。
 // 需同时满足以下条件：
 //  1. 设置项 AskCompactOnResume 开启；
 //  2. 该会话非 helper 且有历史 sessionID（属于需要恢复的旧会话）；
 //  3. 当前未在运行；
-//  4. 上下文用量达到阈值：最新一轮用量带上下文窗口信息时，按「该轮上下文占用 >= min(100k, 窗口*70%)」判定；
-//     拿不到窗口信息时退回旧口径「会话累计消耗 tokens >= 100,000」；
+//  4. 上下文用量达到阈值：用最新一轮上下文占用（ContextTokens，为 0 时取该轮 Input+Output），
+//     对比 min(100k, 窗口*70%)；窗口未知时对比固定 100k；不再用会话累计消耗；
 //  5. 距上次活动时间超过 1 小时 (3600 秒)。
 func (b *MemoryBackend) ShouldOfferCompact(threadID string) bool {
 	if !b.generalSettings().Session.AskCompactOnResume() {
@@ -327,27 +355,8 @@ func (b *MemoryBackend) ShouldOfferCompact(threadID string) bool {
 		return false
 	}
 
-	// 检查 token 用量：优先用最新一轮的上下文占用与模型窗口上限，拿不到时退回累计消耗口径。
-	var totalTokens int64
-	var contextTokens, contextWindow int64
-	latestTurn := -1
-	if b.usage != nil {
-		if turns, ok := b.usage[threadID]; ok {
-			for idx, u := range turns {
-				totalTokens += u.InputTokens + u.OutputTokens
-				if idx > latestTurn {
-					latestTurn = idx
-					contextTokens, contextWindow = u.ContextTokens, u.ContextWindow
-				}
-			}
-		}
-	}
-	usedTokens := totalTokens
-	var limit int64
-	if contextTokens > 0 && contextWindow > 0 {
-		usedTokens, limit = contextTokens, contextWindow
-	}
-	if usedTokens < compactSuggestionThreshold(limit) {
+	used, window := latestContextUsageLocked(b.usage[threadID])
+	if used < compactSuggestionThreshold(window) {
 		return false
 	}
 

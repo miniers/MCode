@@ -80,31 +80,30 @@ func TestShouldOfferCompact(t *testing.T) {
 		dismissed     bool
 		contextTokens int64
 		limit         int64
-		windowKnown   bool
 		idle          time.Duration
 		draft         string
 		want          bool
 	}{
-		{"会话较旧且用量达标时提示", true, false, 150_000, 0, true, 2 * time.Hour, "", true},
-		{"总量刚好达标且空闲刚好达标时提示", true, false, 100_000, 0, true, time.Hour, "继续", true},
-		{"设置关闭时不提示", false, false, 150_000, 0, true, 2 * time.Hour, "", false},
-		{"本会话已忽略时不提示", true, true, 150_000, 0, true, 2 * time.Hour, "", false},
-		{"用量不足时不提示", true, false, 99_999, 0, true, 2 * time.Hour, "", false},
-		{"空闲不足时不提示", true, false, 150_000, 0, true, 30 * time.Minute, "", false},
-		{"命令草稿时不提示", true, false, 150_000, 0, true, 2 * time.Hour, "/compact", false},
-		{"带空白的命令草稿也不提示", true, false, 150_000, 0, true, 2 * time.Hour, "  /help", false},
-		{"1M 窗口上下文 120k 时提示（阈值 100k）", true, false, 120_000, 1_000_000, true, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 25k 时提示（阈值 22.4k）", true, false, 25_000, 32_000, true, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 20k 时不提示", true, false, 20_000, 32_000, true, 2 * time.Hour, "", false},
-		{"窗口未知且真实占用 25k 时不提示", true, false, 25_000, 0, false, 2 * time.Hour, "", false},
-		{"窗口未知但真实占用 120k 时提示", true, false, 120_000, 0, false, 2 * time.Hour, "", true},
+		{"会话较旧且用量达标时提示", true, false, 150_000, 0, 2 * time.Hour, "", true},
+		{"总量刚好达标且空闲刚好达标时提示", true, false, 100_000, 0, time.Hour, "继续", true},
+		{"设置关闭时不提示", false, false, 150_000, 0, 2 * time.Hour, "", false},
+		{"本会话已忽略时不提示", true, true, 150_000, 0, 2 * time.Hour, "", false},
+		{"用量不足时不提示", true, false, 99_999, 0, 2 * time.Hour, "", false},
+		{"空闲不足时不提示", true, false, 150_000, 0, 30 * time.Minute, "", false},
+		{"命令草稿时不提示", true, false, 150_000, 0, 2 * time.Hour, "/compact", false},
+		{"带空白的命令草稿也不提示", true, false, 150_000, 0, 2 * time.Hour, "  /help", false},
+		{"1M 窗口上下文 120k 时提示（阈值 100k）", true, false, 120_000, 1_000_000, 2 * time.Hour, "", true},
+		{"32k 窗口上下文 25k 时提示（阈值 22.4k）", true, false, 25_000, 32_000, 2 * time.Hour, "", true},
+		{"32k 窗口上下文 20k 时不提示", true, false, 20_000, 32_000, 2 * time.Hour, "", false},
+		{"窗口未知且真实占用 25k 时不提示", true, false, 25_000, 0, 2 * time.Hour, "", false},
+		{"窗口未知但真实占用 120k 时提示", true, false, 120_000, 0, 2 * time.Hour, "", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shouldOfferCompact(tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.windowKnown, tc.idle, tc.draft)
+			got := shouldOfferCompact(tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft)
 			if got != tc.want {
-				t.Errorf("shouldOfferCompact(%v, %v, %d, %d, %v, %v, %q) = %v, want %v",
-					tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.windowKnown, tc.idle, tc.draft, got, tc.want)
+				t.Errorf("shouldOfferCompact(%v, %v, %d, %d, %v, %q) = %v, want %v",
+					tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft, got, tc.want)
 			}
 		})
 	}

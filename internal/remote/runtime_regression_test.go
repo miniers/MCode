@@ -733,9 +733,13 @@ func TestRuntimeRegression_CompactSuggestionAndLimitText(t *testing.T) {
 	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 	b.SetClock(func() time.Time { return now })
 	var offer atomic.Int32
+	var gotUsed atomic.Int64
 	b.hub.AddObserver(func(_ string, method string, params any) {
 		if method == "threads.compactSuggestion" {
 			offer.Add(1)
+			if s, ok := params.(wire.CompactSuggestion); ok {
+				gotUsed.Store(s.UsedTokens)
+			}
 		}
 	})
 	b.mu.Lock()
@@ -743,11 +747,17 @@ func TestRuntimeRegression_CompactSuggestionAndLimitText(t *testing.T) {
 	td.sessionID = "idle-session"
 	td.summary.UpdatedAt = now.Add(-2 * time.Hour).Format(time.RFC3339Nano)
 	td.messages = []wire.ThreadMessage{{Role: "user", Text: "last request"}, {Role: "tool", Text: "already ran tests"}}
-	b.usage[id] = map[int]harness.Usage{0: {InputTokens: 100001}}
+	b.usage[id] = map[int]harness.Usage{
+		0: {InputTokens: 80000},
+		1: {InputTokens: 24000, OutputTokens: 1000, ContextTokens: 25000, ContextWindow: 32000},
+	}
 	b.mu.Unlock()
 	b.ThreadHistory(context.Background(), wire.HistoryParams{ThreadID: id})
 	if offer.Load() != 1 {
 		t.Fatal("no compact offer for long-idle high-token session")
+	}
+	if gotUsed.Load() != 25000 {
+		t.Fatalf("compact offer UsedTokens = %d, want 25000", gotUsed.Load())
 	}
 	text, err := b.LimitHandoffText(context.Background(), id)
 	if err != nil || !strings.Contains(text.Text, "last request") || !strings.Contains(text.Text, "already ran tests") {

@@ -114,9 +114,7 @@ func (b *MemoryBackend) publishCompactSuggestion(threadID string) {
 		return
 	}
 	offer := wire.CompactSuggestion{ThreadID: threadID, IdleSince: td.summary.UpdatedAt}
-	for _, usage := range b.usage[threadID] {
-		offer.UsedTokens += usage.InputTokens + usage.OutputTokens
-	}
+	offer.UsedTokens, _ = latestContextUsageLocked(b.usage[threadID])
 	b.mu.Unlock()
 	b.hub.Notify(threadID, "threads.compactSuggestion", offer)
 }

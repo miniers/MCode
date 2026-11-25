@@ -532,16 +532,12 @@ func shouldOfferForward(dismissed, running bool, used, limit int64, draft string
 // 条件：开启“恢复旧会话前询问压缩”、本会话未被忽略、
 // 当前上下文占用（used）达到按模型窗口换算的阈值（limit 为窗口上限）、
 // 会话空闲超过阈值、当前草稿不是以“/”开头的命令。
-// windowKnown 表示 used/limit 是真实上下文占用与窗口；拿不到窗口时不再用累计计费量兜底，
-// 只有真实占用本身达到固定 100k 才提示。
-func shouldOfferCompact(askCompact bool, dismissed bool, used, limit int64, windowKnown bool, idle time.Duration, draft string) bool {
+// limit 为 0 表示窗口未知，此时按固定 100k 判定；used 只用当前上下文占用，不用累计计费量。
+func shouldOfferCompact(askCompact, dismissed bool, used, limit int64, idle time.Duration, draft string) bool {
 	if !askCompact || dismissed {
 		return false
 	}
 	if strings.HasPrefix(strings.TrimSpace(draft), "/") {
-		return false
-	}
-	if !windowKnown && used < compactSuggestionMinimumTokens {
 		return false
 	}
 	if used < compactSuggestionThreshold(limit) {
@@ -591,8 +587,8 @@ func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string) b
 
 	// 按“当前上下文占用 / 模型窗口”判定；currentThreadContextTokens 内部会加锁，
 	// 必须在上面解锁之后调用。
-	used, limit, ok := currentThreadContextTokens(s, &currentThread)
-	if !shouldOfferCompact(s.askCompactOnResumeEnabled(), compactSuggestionDismissed(s, threadID), used, limit, ok, idle, draft) {
+	used, limit, _ := currentThreadContextTokens(s, &currentThread)
+	if !shouldOfferCompact(s.askCompactOnResumeEnabled(), compactSuggestionDismissed(s, threadID), used, limit, idle, draft) {
 		return false
 	}
 

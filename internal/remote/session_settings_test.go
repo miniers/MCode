@@ -559,7 +559,7 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		t.Errorf("expected ShouldOfferCompact to return false for context 20k / window 32k")
 	}
 
-	// 6. 同一份上下文用量、但缺少窗口字段：退回累计口径（30,000 < 100,000）：应返回 false
+	// 6. 同一份上下文用量、但缺少窗口字段：按固定 100k 阈值判定（20,000 < 100,000）：应返回 false
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
 		0: {InputTokens: 20000, OutputTokens: 10000},
@@ -569,6 +569,30 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 
 	if backend.ShouldOfferCompact(thID) {
 		t.Errorf("expected ShouldOfferCompact to return false when context window is missing")
+	}
+
+	// 7. 多轮累计 Input+Output 超过 100k，但最新一轮 ContextTokens=20k、ContextWindow=0：不提示
+	backend.mu.Lock()
+	backend.usage[thID] = map[int]harness.Usage{
+		0: {InputTokens: 60000, OutputTokens: 50000},
+		1: {InputTokens: 15000, OutputTokens: 5000, ContextTokens: 20000, ContextWindow: 0},
+	}
+	backend.mu.Unlock()
+
+	if backend.ShouldOfferCompact(thID) {
+		t.Errorf("expected ShouldOfferCompact to return false when cumulative > 100k but latest ContextTokens=20k and ContextWindow=0")
+	}
+
+	// 8. 最新一轮 ContextTokens=0、Input+Output=120k、ContextWindow=0：提示
+	backend.mu.Lock()
+	backend.usage[thID] = map[int]harness.Usage{
+		0: {InputTokens: 10000, OutputTokens: 5000},
+		1: {InputTokens: 90000, OutputTokens: 30000, ContextTokens: 0, ContextWindow: 0},
+	}
+	backend.mu.Unlock()
+
+	if !backend.ShouldOfferCompact(thID) {
+		t.Errorf("expected ShouldOfferCompact to return true when latest ContextTokens=0, Input+Output=120k, ContextWindow=0")
 	}
 }
 
