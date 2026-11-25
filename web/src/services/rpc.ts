@@ -93,6 +93,7 @@ import type {
   RemoteThreadsProvisionalReleaseResult,
   RemoteThreadsRetainParams,
   RemoteThreadsRetainResult,
+  RemoteThreadsSwarmFinalizeDesignParams,
   RemoteThreadsTitleRegenerateParams,
   RemoteThreadsTitleRegenerateResult,
   RemoteThreadsQueueMoveParams,
@@ -1799,13 +1800,9 @@ export class McodeRpcClient {
   }
 
   /**
-   * threads.swarm.finalizeDesign { threadID, beeThreadID, actionID } -> RemoteSwarmState
+   * threads.swarm.finalizeDesign { threadID, beeThreadID, actionID, choices?, note? } -> RemoteSwarmState
    */
-  public async finalizeSwarmDesign(params: {
-    threadID: string;
-    beeThreadID: string;
-    actionID: string;
-  }): Promise<RemoteSwarmState> {
+  public async finalizeSwarmDesign(params: RemoteThreadsSwarmFinalizeDesignParams): Promise<RemoteSwarmState> {
     return this.sendRpc<RemoteSwarmState>('threads.swarm.finalizeDesign', params, 30000);
   }
 

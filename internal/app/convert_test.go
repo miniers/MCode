@@ -149,6 +149,15 @@ func TestSwarmBeeToUI_NewFields(t *testing.T) {
 	}
 }
 
+func TestSwarmBeeToUI_FinalizeRequested(t *testing.T) {
+	if !swarmBeeToUI(swarm.Bee{ThreadID: "bee-1", FinalizeRequested: true}).FinalizeRequested {
+		t.Error("FinalizeRequested = false, want true")
+	}
+	if swarmBeeToUI(swarm.Bee{ThreadID: "bee-2", FinalizeRequested: false}).FinalizeRequested {
+		t.Error("FinalizeRequested = true, want false")
+	}
+}
+
 func TestSwarmBeeToUI_ReviewFields(t *testing.T) {
 	bee := swarm.Bee{
 		ThreadID:              "bee-1",

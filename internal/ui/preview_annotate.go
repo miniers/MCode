@@ -16,6 +16,8 @@ import (
 	"unicode"
 
 	"github.com/egoist/mygo/ui"
+
+	"mcode/internal/swarm"
 )
 
 // 标注列表与各字段的上限：页面由用户随手点击产生，本地必须限长限数，
@@ -1286,18 +1288,304 @@ func previewSubmitFeedback(s *chatState, token previewPageToken) {
 
 // previewFeedbackBeeAwaitingFinalize 只读内存中的当前窗口编排状态，判断目标 bee 是否处于待定稿。
 func previewFeedbackBeeAwaitingFinalize(s *chatState, beeThreadID string) bool {
+	return previewFeedbackFinalizeState(s, beeThreadID) == previewFinalizeAwaiting
+}
+
+type previewFinalizeState int
+
+const (
+	previewFinalizeNone previewFinalizeState = iota
+	previewFinalizeAwaiting
+	previewFinalizeRunning
+	previewFinalizeDone
+)
+
+// previewFeedbackFinalizeState 只读内存中的当前窗口编排状态，判定目标 bee 的定稿状态。
+func previewFeedbackFinalizeState(s *chatState, beeThreadID string) previewFinalizeState {
 	beeID := strings.TrimSpace(beeThreadID)
 	if s == nil || beeID == "" {
-		return false
+		return previewFinalizeNone
 	}
 	view := swarmStateViewFor(s)
 	if view == nil {
-		return false
+		return previewFinalizeNone
 	}
-	return view.awaitingFinalize[beeID]
+	if view.awaitingFinalize[beeID] {
+		return previewFinalizeAwaiting
+	}
+	if view.finalized[beeID] {
+		if view.statusByThread[beeID] == swarmStatusRunning {
+			return previewFinalizeRunning
+		}
+		return previewFinalizeDone
+	}
+	return previewFinalizeNone
 }
 
-// previewFinalizeFeedback 通知后端对当前设计 bee 定稿并触发最终汇报；意见框已输入的文字保持不动。
+type previewDesignPickChoice struct {
+	Question    string   `json:"question"`
+	Option      string   `json:"option"`
+	Recommended bool     `json:"recommended"`
+	Options     []string `json:"options"`
+}
+
+type previewDesignPickState struct {
+	Version int                       `json:"version"`
+	Changed int                       `json:"changed"`
+	Locked  bool                      `json:"locked"`
+	Choices []previewDesignPickChoice `json:"choices"`
+}
+
+const (
+	previewDesignPickStateScript = "JSON.stringify(window.__mcodePick ? window.__mcodePick.state() : null)"
+	previewDesignPickLockScript  = "window.__mcodePick && window.__mcodePick.setLocked && window.__mcodePick.setLocked(true)"
+)
+
+func previewDesignPickReduceMotionScript(reduced bool) string {
+	return fmt.Sprintf("window.__mcodePick && window.__mcodePick.setReduceMotion && window.__mcodePick.setReduceMotion(%t)", reduced)
+}
+
+func previewDesignPickSelectScript(question, option string) string {
+	qBlob, err := json.Marshal(question)
+	if err != nil {
+		return ""
+	}
+	oBlob, err := json.Marshal(option)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("window.__mcodePick && window.__mcodePick.select && window.__mcodePick.select(%s,%s);", string(qBlob), string(oBlob))
+}
+
+func previewDesignPickScrollToScript(question string) string {
+	qBlob, err := json.Marshal(question)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("window.__mcodePick && window.__mcodePick.scrollTo && window.__mcodePick.scrollTo(%s);", string(qBlob))
+}
+
+func previewDesignPickClone(st previewDesignPickState) previewDesignPickState {
+	if len(st.Choices) == 0 {
+		return st
+	}
+	choices := make([]previewDesignPickChoice, len(st.Choices))
+	for i, ch := range st.Choices {
+		choices[i] = ch
+		if len(ch.Options) > 0 {
+			choices[i].Options = append([]string(nil), ch.Options...)
+		}
+	}
+	st.Choices = choices
+	return st
+}
+
+func previewDesignPickFromJSON(raw string) (previewDesignPickState, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" || text == "null" {
+		return previewDesignPickState{}, false
+	}
+	var parsed previewDesignPickState
+	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+		return previewDesignPickState{}, false
+	}
+	if parsed.Changed < 0 {
+		parsed.Changed = 0
+	}
+	return parsed, true
+}
+
+func previewParseDesignPickState(raw any) (previewDesignPickState, bool) {
+	switch v := raw.(type) {
+	case string:
+		return previewDesignPickFromJSON(v)
+	case nil:
+		return previewDesignPickState{}, false
+	default:
+		blob, err := json.Marshal(v)
+		if err != nil {
+			return previewDesignPickState{}, false
+		}
+		return previewDesignPickFromJSON(string(blob))
+	}
+}
+
+func previewDesignChoicesFromState(st previewDesignPickState) []swarm.DesignChoice {
+	if len(st.Choices) == 0 {
+		return nil
+	}
+	out := make([]swarm.DesignChoice, 0, len(st.Choices))
+	for _, ch := range st.Choices {
+		q := strings.TrimSpace(ch.Question)
+		opt := strings.TrimSpace(ch.Option)
+		if q == "" || opt == "" {
+			continue
+		}
+		out = append(out, swarm.DesignChoice{
+			Question:    q,
+			Option:      opt,
+			Recommended: ch.Recommended,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func previewInitDesignPickOnLoad(s *chatState, token previewPageToken, page previewPage, reduced, finalized bool) {
+	if s == nil || token.state == nil || page == nil {
+		return
+	}
+	token.state.designPickOps.Lock()
+	defer token.state.designPickOps.Unlock()
+	previewMu.Lock()
+	valid := previewStateForTokenLocked(s, token) != nil
+	previewMu.Unlock()
+	if !valid {
+		previewClearDesignPickPolling(s, token)
+		return
+	}
+	_, _ = page.Eval(previewDesignPickReduceMotionScript(reduced))
+	if finalized {
+		_, _ = page.Eval(previewDesignPickLockScript)
+	}
+	previewPollDesignPickLockedOps(s, token, page)
+}
+
+func previewClearDesignPickPolling(s *chatState, token previewPageToken) {
+	previewMu.Lock()
+	if st := previewStateForTokenLocked(s, token); st != nil {
+		st.designPickPolling = false
+	}
+	previewMu.Unlock()
+}
+
+func previewPollDesignPick(s *chatState, token previewPageToken, page previewPage) {
+	if s == nil || token.state == nil || page == nil {
+		previewClearDesignPickPolling(s, token)
+		return
+	}
+	token.state.designPickOps.Lock()
+	defer token.state.designPickOps.Unlock()
+	previewPollDesignPickLockedOps(s, token, page)
+}
+
+// 调用方须持有 token.state.designPickOps。
+func previewPollDesignPickLockedOps(s *chatState, token previewPageToken, page previewPage) {
+	previewMu.Lock()
+	current := previewStateForTokenLocked(s, token)
+	valid := current != nil && current.page != nil
+	if !valid {
+		previewMu.Unlock()
+		return
+	}
+	previewMu.Unlock()
+
+	raw, err := page.Eval(previewDesignPickStateScript)
+	var parsed previewDesignPickState
+	var ok bool
+	if err == nil {
+		parsed, ok = previewParseDesignPickState(raw)
+	}
+
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	if st == nil || st.page == nil {
+		previewMu.Unlock()
+		return
+	}
+	st.designPickPolling = false
+	var changed, startPolling bool
+	if ok {
+		hadValid := st.designPickValid
+		prev := st.designPick
+		st.designPick = parsed
+		st.designPickValid = true
+		changed = (!hadValid && len(parsed.Choices) > 0) ||
+			(hadValid && parsed.Version != prev.Version) ||
+			(hadValid && len(parsed.Choices) != len(prev.Choices))
+		startPolling = len(parsed.Choices) > 0
+	}
+	previewMu.Unlock()
+
+	if startPolling {
+		browserStartPolling(s, st)
+	}
+	if changed && s != nil {
+		s.invalidate()
+	}
+}
+
+func previewSelectDesignPick(s *chatState, token previewPageToken, question, option string) {
+	if s == nil || token.state == nil {
+		return
+	}
+	script := previewDesignPickSelectScript(question, option)
+	if script == "" {
+		return
+	}
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	var page previewPage
+	if st != nil {
+		page = st.page
+	}
+	previewMu.Unlock()
+	if page == nil {
+		return
+	}
+	go func() {
+		token.state.designPickOps.Lock()
+		defer token.state.designPickOps.Unlock()
+		previewMu.Lock()
+		live := previewStateForTokenLocked(s, token)
+		if live == nil || live.page == nil {
+			previewMu.Unlock()
+			return
+		}
+		currentPage := live.page
+		previewMu.Unlock()
+		_, _ = currentPage.Eval(script)
+		previewPollDesignPickLockedOps(s, token, currentPage)
+	}()
+}
+
+func previewScrollToDesignPick(s *chatState, token previewPageToken, question string) {
+	if s == nil || token.state == nil {
+		return
+	}
+	script := previewDesignPickScrollToScript(question)
+	if script == "" {
+		return
+	}
+	previewMu.Lock()
+	st := previewStateForTokenLocked(s, token)
+	var page previewPage
+	if st != nil {
+		page = st.page
+	}
+	previewMu.Unlock()
+	if page == nil {
+		return
+	}
+	go func() {
+		token.state.designPickOps.Lock()
+		defer token.state.designPickOps.Unlock()
+		previewMu.Lock()
+		live := previewStateForTokenLocked(s, token)
+		if live == nil || live.page == nil {
+			previewMu.Unlock()
+			return
+		}
+		currentPage := live.page
+		previewMu.Unlock()
+		_, _ = currentPage.Eval(script)
+	}()
+}
+
+// previewFinalizeFeedback 通知后端对当前设计 bee 定稿并触发最终汇报；
+// 发请求前先读取页面最新方案选择并带上意见框文字与未发送标注，成功后清空意见框与标注，失败时保留。
 func previewFinalizeFeedback(s *chatState, token previewPageToken) {
 	if s == nil || s.client == nil {
 		return
@@ -1336,17 +1624,73 @@ func previewFinalizeFeedback(s *chatState, token previewPageToken) {
 		return
 	}
 	previewFinalizing[st] = true
+	token = previewPageTokenLocked(st)
 	previewMu.Unlock()
 	s.invalidate()
 
 	go func() {
-		err := s.client.FinalizeDesignBee(context.Background(), leadID, beeID, nil, "")
+		previewMu.Lock()
+		current := previewStateForTokenLocked(s, token)
+		var page previewPage
+		var rawText string
+		var items []previewAnnotation
+		annotRev := token.annotRevision
+		if current != nil {
+			page = current.page
+			rawText = current.feedbackText
+			items = append([]previewAnnotation(nil), current.annotations...)
+			annotRev = current.annotRevision
+		}
+		previewMu.Unlock()
+
+		var choices []swarm.DesignChoice
+		if page != nil {
+			raw, evalErr := page.Eval(previewDesignPickStateScript)
+			if evalErr == nil {
+				if parsed, ok := previewParseDesignPickState(raw); ok {
+					choices = previewDesignChoicesFromState(parsed)
+				}
+			}
+		}
+
+		note := strings.TrimSpace(rawText)
+		if prompt := previewAnnotationsPrompt(items); prompt != "" {
+			if note != "" {
+				note += "\n\n" + prompt
+			} else {
+				note = prompt
+			}
+		}
+
+		err := s.client.FinalizeDesignBee(context.Background(), leadID, beeID, choices, note)
+		var clearMarks bool
+		var lockPage previewPage
 		previewMu.Lock()
 		delete(previewFinalizing, st)
+		if err == nil {
+			if current := previewStateForTokenLocked(s, token); current != nil {
+				if current.feedbackText == rawText {
+					current.feedbackText = ""
+				}
+				if len(items) > 0 && current.annotRevision == annotRev {
+					previewResetAnnotationsLocked(current)
+					current.annotRevision++
+					clearMarks = current.page != nil
+				}
+				current.designPick.Locked = true
+				lockPage = current.page
+			}
+		}
 		previewMu.Unlock()
 		if err != nil {
 			s.setToast(err.Error())
 		} else {
+			if lockPage != nil {
+				if clearMarks {
+					_, _ = lockPage.Eval(previewAnnotateClearMarksScript + previewAnnotateStopScript)
+				}
+				_, _ = lockPage.Eval(previewDesignPickLockScript)
+			}
 			s.revealPreviewFeedbackBee(ownerThreadID, beeID)
 		}
 		s.invalidate()
@@ -1362,11 +1706,11 @@ func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot)
 	busy := sending || finalizing
 	draft := snap.feedbackText
 	hasContent := strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
-	awaitingFinalize := previewFeedbackBeeAwaitingFinalize(s, snap.feedbackThreadID)
+	finalizeState := previewFeedbackFinalizeState(s, snap.feedbackThreadID)
 	submit := func() {
 		previewSubmitFeedback(s, snap.token)
 	}
-	ui.Row(c.Key("preview-feedback-bar")).
+	row := ui.Row(c.Key("preview-feedback-bar")).
 		Transition(motionCollapse(c)).
 		FillWidth().
 		Shrink(0).
@@ -1375,51 +1719,284 @@ func renderPreviewFeedbackBar(c *ui.Context, s *chatState, snap previewSnapshot)
 		AlignItems(ui.Center).
 		Background(ThemeWindowBg(c)).
 		BorderWidth(Hairline, 0, 0, 0).
-		BorderColor(ThemeBorder(c)).
-		Children(func() {
-			in := ui.TextInput(c.Key(fmt.Sprintf("preview-feedback-input-%p", snap.token.state)), &draft).
-				Label("修改意见").
-				Placeholder("输入修改意见").
-				Disabled(sending).
-				FontSize(uiFont(TypeFootnote)).
-				MinWidth(0).
-				Grow(1)
-			if draft != snap.feedbackText {
-				previewMu.Lock()
-				if current := previewStateForTokenLocked(s, snap.token); current != nil && previewFeedbackThreadIDLocked(current, "") == snap.feedbackThreadID {
-					current.feedbackText = draft
-				}
-				previewMu.Unlock()
-				hasContent = strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
+		BorderColor(ThemeBorder(c))
+	summaryOpen := ui.Local(row, "design-pick-summary-open", func() bool { return false })
+	lastGen := ui.Local(row, "design-pick-summary-gen", func() uint64 { return snap.token.generation })
+	if *lastGen != snap.token.generation {
+		*lastGen = snap.token.generation
+		*summaryOpen = false
+	}
+	showChoiceCapsule := finalizeState == previewFinalizeAwaiting && len(snap.designPick.Choices) > 0
+	if !showChoiceCapsule {
+		*summaryOpen = false
+	}
+	row.Children(func() {
+		in := ui.TextInput(c.Key(fmt.Sprintf("preview-feedback-input-%p", snap.token.state)), &draft).
+			Label("修改意见").
+			Placeholder("输入修改意见").
+			Disabled(busy).
+			FontSize(uiFont(TypeFootnote)).
+			MinWidth(0).
+			Grow(1)
+		if draft != snap.feedbackText {
+			previewMu.Lock()
+			if current := previewStateForTokenLocked(s, snap.token); current != nil && previewFeedbackThreadIDLocked(current, "") == snap.feedbackThreadID {
+				current.feedbackText = draft
 			}
-			if in.Submitted() && !busy && hasContent {
-				submit()
+			previewMu.Unlock()
+			hasContent = strings.TrimSpace(draft) != "" || len(snap.annotations) > 0
+		}
+		if in.Submitted() && !busy && hasContent {
+			submit()
+		}
+		if showChoiceCapsule {
+			renderPreviewDesignPickTrigger(c, s, snap, busy, summaryOpen)
+		}
+		switch finalizeState {
+		case previewFinalizeAwaiting:
+			Button(c, ButtonOpts{
+				Key:      "preview-feedback-finalize",
+				Text:     "定稿",
+				Label:    "定稿",
+				Size:     ControlXS,
+				Variant:  ButtonSecondary,
+				Disabled: busy,
+				Loading:  finalizing,
+				OnClick: func() {
+					previewFinalizeFeedback(s, snap.token)
+				},
+			})
+		case previewFinalizeRunning:
+			Button(c, ButtonOpts{
+				Key:      "preview-feedback-finalizing",
+				Text:     "定稿中",
+				Label:    "定稿中",
+				Size:     ControlXS,
+				Variant:  ButtonSecondary,
+				Disabled: true,
+				Loading:  true,
+			})
+		case previewFinalizeDone:
+			renderPreviewFinalizedBadge(c)
+		}
+		Button(c, ButtonOpts{
+			Key:      "preview-feedback-send",
+			Text:     "发送",
+			Label:    "发送",
+			Size:     ControlXS,
+			Variant:  ButtonPrimary,
+			Disabled: busy || !hasContent,
+			Loading:  sending,
+			OnClick:  submit,
+		})
+	})
+}
+
+func renderPreviewFinalizedBadge(c *ui.Context) ui.Element {
+	fg := ThemeSuccess(c)
+	bg := fg.Alpha(0.1)
+	badge := ui.Row(c.Key("preview-feedback-finalized")).
+		Label("已定稿").
+		Height(ControlXS).
+		Padding(0, Space2).
+		Gap(Space1).
+		Radius(RadiusSM).
+		AlignItems(ui.Center).
+		Shrink(0).
+		Background(bg).
+		Border(Hairline, fg.Alpha(0.24)).
+		Transition(motionCapsule(c))
+	badge.Children(func() {
+		ui.Icon(c, IconCheck()).Size(IconSM, IconSM).TextColor(fg)
+		ui.Text(c, "已定稿").
+			FontSize(uiFont(TypeCaption)).
+			FontWeight(weightFor(c, 500)).
+			TextColor(fg).
+			SingleLine()
+	})
+	return badge
+}
+
+func renderPreviewDesignPickTrigger(c *ui.Context, s *chatState, snap previewSnapshot, busy bool, open *bool) {
+	total := len(snap.designPick.Choices)
+	changed := max(snap.designPick.Changed, 0)
+	triggerText := fmt.Sprintf("%d 项推荐", total)
+	if changed > 0 {
+		triggerText = fmt.Sprintf("已改 %d/%d", changed, total)
+	}
+	trigger := ui.ButtonBase(c.Key("preview-design-pick-trigger")).
+		Label(triggerText).
+		Tooltip("查看方案选择一览").
+		Height(ControlXS).
+		Padding(0, Space2).
+		Gap(Space1).
+		Radius(RadiusPill).
+		AlignItems(ui.Center).
+		Shrink(0).
+		Disabled(busy).
+		Transition(motionCapsule(c))
+	fg := ThemeSecondaryText(c)
+	bg := ThemeSurfaceCard(c)
+	border := ThemeBorder(c)
+	if changed > 0 {
+		fg = ThemeAccent(c)
+		bg = ThemeAccentSubtle(c)
+		border = ThemeAccent(c)
+	} else if trigger.Hovered() && !busy {
+		fg = ThemePrimaryText(c)
+		bg = ThemeOverlayHover(c)
+	}
+	if *open {
+		border = ThemeAccent(c)
+	}
+	if busy {
+		fg = ThemeTertiaryText(c)
+	}
+	trigger.Background(bg).Border(Hairline, border)
+	focusRing(c, trigger)
+	scale := motionPressScale(c, trigger, "button-press-scale", !busy && trigger.Pressed())
+	trigger.Scale(scale, scale)
+	if !busy {
+		trigger.OnClick(func() {
+			togglePopoverOpen(open)
+			if s != nil {
+				s.invalidate()
 			}
-			if awaitingFinalize {
-				Button(c, ButtonOpts{
-					Key:      "preview-feedback-finalize",
-					Text:     "定稿",
-					Label:    "定稿",
-					Size:     ControlXS,
-					Variant:  ButtonSecondary,
-					Disabled: busy,
-					Loading:  finalizing,
+		})
+	}
+	trigger.Children(func() {
+		ui.Text(c, triggerText).
+			FontSize(uiFont(TypeCaption)).
+			FontWeight(weightFor(c, 600)).
+			FontFeatures("tnum").
+			TextColor(fg).
+			SingleLine()
+		chevronAngle := float32(180)
+		if *open {
+			chevronAngle = 0
+		}
+		chev := ui.Icon(c, IconChevronDown()).Size(12, 12).TextColor(fg)
+		if reduceMotion(c) {
+			chev.Rotate(chevronAngle)
+		} else {
+			chev.Rotate(chev.AnimateTo("preview-design-pick-chevron", chevronAngle, ui.Animation{Duration: DurSnap, Ease: EaseSnap}))
+		}
+	})
+	appPopoverAbove(c.Key("preview-design-pick-popover"), trigger, open, func() {
+		if s != nil {
+			s.invalidate()
+		}
+	}, func() {
+		renderPreviewDesignPickPopoverCard(c, s, snap, open)
+	})
+}
+
+func renderPreviewDesignPickPopoverCard(c *ui.Context, s *chatState, snap previewSnapshot, open *bool) {
+	choices := snap.designPick.Choices
+	total := len(choices)
+	changed := max(snap.designPick.Changed, 0)
+	card := popoverCard(c, ui.Column(c.Key("preview-design-pick-card"))).
+		MinWidth(280).
+		MaxWidth(420).
+		MaxHeight(320).
+		Padding(Space2).
+		Gap(Space1)
+	card.Children(func() {
+		ui.Row(c.Key("preview-design-pick-head")).
+			FillWidth().
+			Padding(0, Space1, Space1, Space1).
+			AlignItems(ui.Center).
+			BorderWidth(0, 0, Hairline, 0).
+			BorderColor(ThemeHairline(c)).
+			Children(func() {
+				ui.Text(c, fmt.Sprintf("方案选择（已改 %d/%d）", changed, total)).
+					FontSize(uiFont(TypeFootnote)).
+					FontWeight(weightFor(c, 600)).
+					FontFeatures("tnum").
+					TextColor(ThemePrimaryText(c)).
+					Grow(1).
+					MinWidth(0).
+					SingleLine()
+				IconButton(c, IconButtonProps{
+					Key:     "preview-design-pick-close",
+					Icon:    IconX(),
+					Label:   "关闭一览",
+					Tooltip: "关闭一览",
+					Size:    ControlXS,
+					Variant: ButtonGhost,
 					OnClick: func() {
-						previewFinalizeFeedback(s, snap.token)
+						*open = false
+						if s != nil {
+							s.invalidate()
+						}
 					},
 				})
-			}
-			Button(c, ButtonOpts{
-				Key:      "preview-feedback-send",
-				Text:     "发送",
-				Label:    "发送",
-				Size:     ControlXS,
-				Variant:  ButtonPrimary,
-				Disabled: busy || !hasContent,
-				Loading:  sending,
-				OnClick:  submit,
 			})
-		})
+		ui.Scroll(c.Key("preview-design-pick-scroll")).
+			FillWidth().
+			MaxHeight(260).
+			Gap(Space1).
+			Children(func() {
+				for idx, ch := range choices {
+					q := ch.Question
+					selectedOpt := ch.Option
+					opts := ch.Options
+					row := ui.Row(c.Key(fmt.Sprintf("preview-design-pick-row-%d", idx))).
+						Transition(motionFeedback(c)).
+						FillWidth().
+						Gap(Space2).
+						Padding(Space1, Space1).
+						Radius(RadiusSM).
+						AlignItems(ui.Center)
+					if row.Hovered() {
+						row.Background(ThemeOverlayHover(c))
+					}
+					row.Children(func() {
+						qBtn := ui.ButtonBase(c.Key(fmt.Sprintf("preview-design-pick-q-%d", idx))).
+							Label(fmt.Sprintf("%d. %s", idx+1, q)).
+							Tooltip(q).
+							Grow(1).
+							MinWidth(0).
+							Padding(Space0, Space1).
+							Radius(RadiusXS).
+							AlignItems(ui.Center).
+							Cursor(ui.CursorPointer).
+							OnClick(func() {
+								previewScrollToDesignPick(s, snap.token, q)
+							})
+						focusRing(c, qBtn)
+						qBtn.Children(func() {
+							qColor := ThemePrimaryText(c)
+							if qBtn.Hovered() {
+								qColor = ThemeAccent(c)
+							}
+							ui.Text(c, fmt.Sprintf("%d. %s", idx+1, q)).
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(qColor).
+								SingleLine().
+								Ellipsis("…").
+								MinWidth(0).
+								FillWidth()
+						})
+						if len(opts) > 0 {
+							selectedIdx := -1
+							segments := make([]Segment, len(opts))
+							for oi, opt := range opts {
+								segments[oi] = Segment{Label: opt}
+								if opt == selectedOpt {
+									selectedIdx = oi
+								}
+							}
+							Segmented(c, fmt.Sprintf("preview-design-pick-seg-%d", idx), &selectedIdx, segments, func(next int) {
+								if next >= 0 && next < len(opts) && opts[next] != selectedOpt {
+									previewSelectDesignPick(s, snap.token, q, opts[next])
+								}
+							}).Shrink(0)
+						}
+					})
+				}
+			})
+	})
 }
 
 func previewAnnotationDescription(item previewAnnotation) string {

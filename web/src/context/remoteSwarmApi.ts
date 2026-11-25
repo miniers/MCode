@@ -1,7 +1,12 @@
 import { useCallback } from 'react';
 import type { McodeRpcClient } from '../services/rpc';
 import type { RemoteCapabilityDeclaration } from '../types/contract';
-import type { RemoteSwarmMergeDiffResult, RemoteSwarmTier, RemoteSwarmTiersResult } from '../types/generated';
+import type {
+  RemoteSwarmMergeDiffResult,
+  RemoteSwarmTier,
+  RemoteSwarmTiersResult,
+  RemoteThreadsSwarmFinalizeDesignParams
+} from '../types/generated';
 import type { RemoteSwarmState } from '../types/swarm';
 
 interface Ref<T> {
@@ -163,11 +168,7 @@ export function useRemoteSwarmApi({ clientRef, capabilities }: UseRemoteSwarmApi
   }, [capabilities, clientRef]);
 
   /** 设计档位子代理定稿；返回最新编排状态。 */
-  const finalizeDesign = useCallback(async (params: {
-    threadID: string;
-    beeThreadID: string;
-    actionID: string;
-  }): Promise<RemoteSwarmState> => {
+  const finalizeDesign = useCallback(async (params: RemoteThreadsSwarmFinalizeDesignParams): Promise<RemoteSwarmState> => {
     const client = clientRef.current;
     if (!client) throw new Error('未连接到 Mac 端，无法定稿');
     if (capabilities && !capabilities.methods.includes('threads.swarm.finalizeDesign')) {

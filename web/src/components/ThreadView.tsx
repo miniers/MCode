@@ -3375,7 +3375,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
             openThreadPreview={openThreadPreview}
             onSendFeedback={handleSendDesignFeedback}
             onFinalizeDesign={
-              finalizeDesignSupported ? () => finalizeSwarmDesign(thread.id) : undefined
+              finalizeDesignSupported ? (options) => finalizeSwarmDesign(thread.id, options) : undefined
             }
             canSend={canSend}
             isConnected={isConnected}

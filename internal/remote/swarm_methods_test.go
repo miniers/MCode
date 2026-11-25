@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1236,6 +1237,12 @@ func TestThreadsSwarmFinalizeDesign(t *testing.T) {
 	if swarmBeeToWire(swarm.Bee{AwaitingFinalize: false}).AwaitingFinalize {
 		t.Fatal("swarmBeeToWire 不应把 false 映射成 true")
 	}
+	if !swarmBeeToWire(swarm.Bee{FinalizeRequested: true}).FinalizeRequested {
+		t.Fatal("swarmBeeToWire 应保留 FinalizeRequested=true")
+	}
+	if swarmBeeToWire(swarm.Bee{FinalizeRequested: false}).FinalizeRequested {
+		t.Fatal("swarmBeeToWire 不应把 FinalizeRequested=false 映射成 true")
+	}
 
 	mockSvc := newMockSwarmService()
 	mockSvc.owners[beeID] = leadID
@@ -1414,5 +1421,32 @@ func TestSwarmBeeToWireDesignFiles(t *testing.T) {
 	src[0] = "mutated"
 	if got.DesignFiles[0] != ".mcode/design/a.html" {
 		t.Fatalf("expected deep copy of DesignFiles, got %+v", got.DesignFiles)
+	}
+}
+
+// 20. 验证 swarmBeeToWire 与 JSON 序列化对 FinalizeRequested 的处理
+func TestSwarmBeeFinalizeRequested(t *testing.T) {
+	wTrue := swarmBeeToWire(swarm.Bee{ThreadID: "b1", FinalizeRequested: true})
+	if !wTrue.FinalizeRequested {
+		t.Fatal("swarmBeeToWire 应保留 FinalizeRequested=true")
+	}
+	rawTrue, err := json.Marshal(wTrue)
+	if err != nil {
+		t.Fatalf("marshal true: %v", err)
+	}
+	if !strings.Contains(string(rawTrue), `"finalizeRequested":true`) {
+		t.Fatalf("expected JSON to contain finalizeRequested:true, got %s", rawTrue)
+	}
+
+	wFalse := swarmBeeToWire(swarm.Bee{ThreadID: "b2", FinalizeRequested: false})
+	if wFalse.FinalizeRequested {
+		t.Fatal("swarmBeeToWire 不应把 FinalizeRequested=false 映射成 true")
+	}
+	rawFalse, err := json.Marshal(wFalse)
+	if err != nil {
+		t.Fatalf("marshal false: %v", err)
+	}
+	if strings.Contains(string(rawFalse), `"finalizeRequested"`) {
+		t.Fatalf("expected JSON to omit finalizeRequested when false, got %s", rawFalse)
 	}
 }

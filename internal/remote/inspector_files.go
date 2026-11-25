@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -18,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"mcode/internal/designpick"
 	"mcode/internal/remote/wire"
 )
 
@@ -379,12 +381,13 @@ func (b *MemoryBackend) servePreview(w http.ResponseWriter, r *http.Request, rem
 	}
 	defer f.Close()
 
+	isHTML := inspectorPreviewHTMLPath(target)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", inspectorPreviewContentType(target))
 	// SVG 作为顶层文档打开时也可能执行脚本；虽然 UI 不在 WebView 里渲染 SVG，
 	// 这里仍为 SVG 保留严格禁脚本策略，避免被 HTML 里的同源链接带进可执行上下文。
-	if inspectorPreviewHTMLPath(target) {
+	if isHTML {
 		if remoteMode {
 			w.Header().Set("Content-Security-Policy", remotePreviewCSP)
 		} else {
@@ -393,8 +396,54 @@ func (b *MemoryBackend) servePreview(w http.ResponseWriter, r *http.Request, rem
 	} else if strings.EqualFold(filepath.Ext(target), ".svg") {
 		w.Header().Set("Content-Security-Policy", inspectorPreviewSVGCSP)
 	}
+
+	var content io.ReadSeeker = f
+	if remoteMode && isHTML {
+		data, readErr := io.ReadAll(io.LimitReader(f, inspectorPreviewMaxFileBytes+1))
+		if readErr != nil {
+			inspectorPreviewError(w, http.StatusInternalServerError, "read failed")
+			return
+		}
+		if int64(len(data)) > inspectorPreviewMaxFileBytes {
+			inspectorPreviewError(w, http.StatusRequestEntityTooLarge, "file too large")
+			return
+		}
+		if bytes.Contains(data, []byte("data-mc-choice")) {
+			data = injectDesignPickScript(data)
+		}
+		content = bytes.NewReader(data)
+	}
 	// 不传修改时间：no-store 下不做 304，Range 仍由 ServeContent 处理。
-	http.ServeContent(w, r, filepath.Base(target), time.Time{}, f)
+	http.ServeContent(w, r, filepath.Base(target), time.Time{}, content)
+}
+
+func findHeadInsertOffset(html []byte) int {
+	const prefix = "<head"
+	for i := 0; i+len(prefix) < len(html); i++ {
+		if html[i] != '<' || !strings.EqualFold(string(html[i:i+len(prefix)]), prefix) {
+			continue
+		}
+		next := html[i+len(prefix)]
+		if next == '>' {
+			return i + len(prefix) + 1
+		}
+		if next == ' ' || next == '\t' || next == '\r' || next == '\n' {
+			if end := bytes.IndexByte(html[i+len(prefix):], '>'); end >= 0 {
+				return i + len(prefix) + end + 1
+			}
+		}
+	}
+	return 0
+}
+
+func injectDesignPickScript(html []byte) []byte {
+	tag := "<script>" + designpick.Script + "</script>"
+	offset := findHeadInsertOffset(html)
+	out := make([]byte, 0, len(html)+len(tag))
+	out = append(out, html[:offset]...)
+	out = append(out, tag...)
+	out = append(out, html[offset:]...)
+	return out
 }
 
 // RemotePreviewProvider 为 Dispatcher 提供签发远程沙箱预览路径的可选后端接口。

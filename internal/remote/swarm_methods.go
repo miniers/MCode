@@ -164,6 +164,7 @@ func swarmBeeToWire(h swarm.Bee) wire.SwarmBee {
 		LinesDeleted:      h.LinesDeleted,
 		Credibility:       credibility,
 		AwaitingFinalize:  h.AwaitingFinalize,
+		FinalizeRequested: h.FinalizeRequested,
 		DesignFiles:       append([]string(nil), h.DesignFiles...),
 	}
 	applyReviewFunnelWire(&bee, h.ReviewLayer, h.ReviewConcerns, h.ReviewTokens, h.ReviewTokensEstimated)

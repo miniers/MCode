@@ -133,6 +133,37 @@ func TestSwarmStateViewReusedUntilStateChanges(t *testing.T) {
 	}
 }
 
+// TestSwarmStateViewFinalized 验证 finalized 仅记录 FinalizeRequested 为真且带 ThreadID 的 bee。
+func TestSwarmStateViewFinalized(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	t.Cleanup(func() { closeEmbeddedBees(s) })
+	hp := getSwarmPanelState(s)
+
+	swarmPanelMu.Lock()
+	hp.setStateLocked(SwarmState{
+		Available:    true,
+		Enabled:      true,
+		LeadThreadID: "lead1",
+		Bees: []SwarmBee{
+			{ThreadID: "h-finalized", Name: "Design", Status: "running", FinalizeRequested: true},
+			{ThreadID: "h-awaiting", Name: "Design2", Status: "completed", AwaitingFinalize: true},
+			{ThreadID: "", Name: "NoID", Status: "running", FinalizeRequested: true},
+		},
+	})
+	swarmPanelMu.Unlock()
+
+	view := swarmStateViewFor(s)
+	if view == nil {
+		t.Fatal("派生视图不应为 nil")
+	}
+	if !view.finalized["h-finalized"] {
+		t.Fatalf("finalized 应包含 h-finalized，实际为 %v", view.finalized)
+	}
+	if view.finalized["h-awaiting"] || view.finalized[""] || len(view.finalized) != 1 {
+		t.Fatalf("finalized 只应包含已定稿且带 ThreadID 的 bee，实际为 %v", view.finalized)
+	}
+}
+
 // TestSwarmCapsuleDataCacheMatchesDirectFilter 验证按回合分组的胶囊结果与逐行直接过滤完全一致，
 // 且同一版本里第二次取的是缓存（同一份切片）。
 func TestSwarmCapsuleDataCacheMatchesDirectFilter(t *testing.T) {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRemoteStatic } from './RemoteContext';
 import { makeActionID } from './remoteGuards';
 import type { RemoteCapabilityDeclaration } from '../types/contract';
-import type { RemoteSwarmMergeDiffResult } from '../types/generated';
+import type { RemoteSwarmDesignChoice, RemoteSwarmMergeDiffResult } from '../types/generated';
 import type { RemoteSwarmState } from '../types/swarm';
 
 /**
@@ -44,7 +44,10 @@ export interface UseThreadSwarmResult {
   /** 获取会话工作区文件的临时同源预览地址。 */
   openThreadPreview: (threadID: string, path: string) => Promise<string>;
   /** 设计档位子代理定稿；返回态按 stopAll 方式合并。 */
-  finalizeDesign: (beeThreadID: string) => Promise<void>;
+  finalizeDesign: (
+    beeThreadID: string,
+    options?: { choices?: RemoteSwarmDesignChoice[]; note?: string }
+  ) => Promise<void>;
   /** 读取单个子代理待合并改动的 diff（只读，不改状态缓存）。 */
   getMergeDiff: (beeThreadID: string) => Promise<RemoteSwarmMergeDiffResult>;
   /** 批准子代理改动合入主工作副本。 */
@@ -296,11 +299,20 @@ export function useThreadSwarm(threadID: string | null | undefined): UseThreadSw
   }, [forwardSwarmQuestion, swarmSupported, threadID]);
 
   // 设计稿定稿：主会话/子代理上下文都归一化为 leadThreadID
-  const finalizeDesign = useCallback(async (beeThreadID: string): Promise<void> => {
+  const finalizeDesign = useCallback(async (
+    beeThreadID: string,
+    options?: { choices?: RemoteSwarmDesignChoice[]; note?: string }
+  ): Promise<void> => {
     if (!swarmSupported || !threadID) return;
     const targetLeadThreadID = stateRef.current?.isBee && stateRef.current.leadThreadID ? stateRef.current.leadThreadID : threadID;
     try {
-      const updated = await finalizeSwarmDesign({ threadID: targetLeadThreadID, beeThreadID, actionID: makeActionID() });
+      const updated = await finalizeSwarmDesign({
+        threadID: targetLeadThreadID,
+        beeThreadID,
+        actionID: makeActionID(),
+        ...(options?.choices !== undefined ? { choices: options.choices } : {}),
+        ...(options?.note !== undefined ? { note: options.note } : {})
+      });
       if (currentThreadIDRef.current === threadID) {
         setState(updated);
         setError(null);

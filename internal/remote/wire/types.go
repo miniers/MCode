@@ -991,6 +991,7 @@ type SwarmBee struct {
 	Credibility           *SwarmCredibility `json:"credibility,omitempty"`
 	PendingQuestion       *SwarmBeeQuestion `json:"pendingQuestion,omitempty"`
 	AwaitingFinalize      bool              `json:"awaitingFinalize,omitempty"`
+	FinalizeRequested     bool              `json:"finalizeRequested,omitempty"`
 	DesignFiles           []string          `json:"designFiles,omitempty"`
 }
 

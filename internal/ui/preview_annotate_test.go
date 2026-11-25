@@ -1814,8 +1814,8 @@ func TestPreviewFinalizeButton(t *testing.T) {
 		previewMu.Lock()
 		remText := tab.feedbackText
 		previewMu.Unlock()
-		if remText != "保留这段意见" {
-			t.Fatalf("定稿不应清空意见输入框, got=%q", remText)
+		if remText != "" {
+			t.Fatalf("定稿成功后应清空意见输入框, got=%q", remText)
 		}
 
 		swarmFloatMu.Lock()

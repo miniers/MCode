@@ -531,6 +531,8 @@ type SwarmBee struct {
 	Interactive bool
 	// 已结束一轮设计，暂缓向主代理汇报并等待用户定稿
 	AwaitingFinalize bool
+	// 用户已点定稿
+	FinalizeRequested bool
 	// 用户直指模型而非档位默认模型
 	DirectModel bool
 	// 标记只读 Bee 发生了写文件违规

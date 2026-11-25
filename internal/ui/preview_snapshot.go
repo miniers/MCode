@@ -67,6 +67,7 @@ type previewSnapshot struct {
 	feedbackThreadID                 string
 	feedbackText                     string
 	feedbackSending                  bool
+	designPick                       previewDesignPickState
 }
 
 func previewFeedbackThreadIDLocked(st *browserTab, ownerThreadID string) string {
@@ -109,6 +110,7 @@ func previewSnapshotLocked(st *browserTab) previewSnapshot {
 		feedbackThreadID: previewFeedbackThreadIDLocked(st, ""),
 		feedbackText:     st.feedbackText,
 		feedbackSending:  st.feedbackSending,
+		designPick:       previewDesignPickClone(st.designPick),
 	}
 }
 
@@ -138,6 +140,10 @@ func previewAdvanceGenerationLocked(st *browserTab) {
 	st.consoleResetSeq++
 	// 隐藏也会换代但文档未变，保留水位；新文档由 drain 的 document 标识重置。
 	st.annotPolling = false
+	st.designPick = previewDesignPickState{}
+	st.designPickValid = false
+	st.designPickPolling = false
+	st.designPickLastPoll = time.Time{}
 	previewResetAnnotationsLocked(st)
 }
 
@@ -178,6 +184,8 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 			return
 		}
 		captureConsole := previewConsoleCaptureEnabled(s)
+		view := swarmStateViewFor(s)
+		reduced := appReduceMotion.Load()
 		back, forward := browserPageHistory(page)
 		previewMu.Lock()
 		st := previewStateForTokenLocked(s, token)
@@ -187,16 +195,29 @@ func previewBindPageCallbacks(s *chatState, token previewPageToken, page preview
 		}
 		st.loading = false
 		st.canGoBack, st.canGoForward = back, forward
-		if !captureConsole || !st.visible || st.consolePolling {
-			previewMu.Unlock()
-			s.invalidate()
-			return
+		feedbackID := previewFeedbackThreadIDLocked(st, "")
+		runDesignPick := feedbackID != ""
+		finalized := runDesignPick && view != nil && view.finalized[feedbackID]
+		var pickToken previewPageToken
+		if runDesignPick {
+			st.designPickPolling = true
+			st.designPickLastPoll = time.Now()
+			pickToken = previewPageTokenLocked(st)
 		}
-		st.consolePolling = true
-		st.consoleLastPoll = time.Now()
-		current := previewPageTokenLocked(st)
+		runConsole := captureConsole && st.visible && !st.consolePolling
+		var consoleToken previewPageToken
+		if runConsole {
+			st.consolePolling = true
+			st.consoleLastPoll = time.Now()
+			consoleToken = previewPageTokenLocked(st)
+		}
 		previewMu.Unlock()
-		go previewPollConsoleErrors(s, current, page)
+		if runDesignPick {
+			go previewInitDesignPickOnLoad(s, pickToken, page, reduced, finalized)
+		}
+		if runConsole {
+			go previewPollConsoleErrors(s, consoleToken, page)
+		}
 		s.invalidate()
 	})
 	titleOff := browserBindTitle(s, token, page)

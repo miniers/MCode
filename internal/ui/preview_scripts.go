@@ -1,6 +1,10 @@
 package mcodeui
 
-import "github.com/egoist/mygo"
+import (
+	"github.com/egoist/mygo"
+
+	"mcode/internal/designpick"
+)
 
 const (
 	previewConsoleMaxItems      = 200
@@ -9,7 +13,7 @@ const (
 
 // 只在创建时配置；设置变化由 ensureWebView 换代重建，不增加绑定或可信源。
 func previewWebViewOptions(untrusted, capture bool) mygo.WebViewOptions {
-	script := previewLocationInstallJS + ";" + previewAnnotateInstallJS + ";"
+	script := previewLocationInstallJS + ";" + previewAnnotateInstallJS + ";" + designpick.Script + ";"
 	if capture {
 		script += previewConsoleInstallJS
 	}

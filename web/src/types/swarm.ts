@@ -74,6 +74,8 @@ export interface RemoteSwarmBee {
   };
   /** 设计档位 bee 已完成本轮，等待用户确认定稿 */
   awaitingFinalize?: boolean;
+  /** 用户已点击定稿 */
+  finalizeRequested?: boolean;
   /** 设计档位 bee 产出的设计稿相对路径列表 */
   designFiles?: string[];
 }

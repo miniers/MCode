@@ -69,6 +69,11 @@ type browserTab struct {
 	annotLastPoll               time.Time
 	feedbackText                string
 	feedbackSending             bool
+	designPick                  previewDesignPickState
+	designPickValid             bool
+	designPickPolling           bool
+	designPickLastPoll          time.Time
+	designPickOps               previewAnnotationOps
 	pollDone                    chan struct{}
 	pollCancel                  context.CancelFunc
 }
@@ -346,8 +351,22 @@ func renderBrowserHistory(c *ui.Context, s *chatState, tab *browserTab, snap pre
 	IconButton(c, IconButtonProps{Key: "preview-reload-btn", Icon: icon, Label: label, Tooltip: label, Size: ControlXS, Variant: ButtonGhost, Disabled: snap.url == "" && snap.html == "", OnClick: func() { browserReloadOrStop(s, tab) }}).Shrink(0)
 }
 
+var previewDesignPickPollInterval = 400 * time.Millisecond
+
+func previewTabNeedsDesignPickPollingLocked(tab *browserTab, view *swarmStateView) bool {
+	if tab == nil || !tab.visible || tab.page == nil || len(tab.designPick.Choices) == 0 || view == nil {
+		return false
+	}
+	beeID := previewFeedbackThreadIDLocked(tab, "")
+	return beeID != "" && view.awaitingFinalize[beeID]
+}
+
 func browserNeedsPollingLocked(tab *browserTab, capture bool) bool {
-	return tab.visible && tab.page != nil && (tab.loading || tab.annotating || capture)
+	return browserNeedsPollingWithDesignPickLocked(tab, capture, false)
+}
+
+func browserNeedsPollingWithDesignPickLocked(tab *browserTab, capture, designPick bool) bool {
+	return tab.visible && tab.page != nil && (tab.loading || tab.annotating || capture || designPick)
 }
 
 type browserPollingPage struct {
@@ -370,11 +389,13 @@ func (p browserPollingPage) Eval(script string) (any, error) {
 // 设置和窗口状态先读完再取 previewMu；持锁期间不进入页面 API 或 UI 回调。
 func browserStartPolling(s *chatState, tab *browserTab) {
 	capture := previewConsoleCaptureEnabled(s)
+	view := swarmStateViewFor(s)
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
 	previewMu.Lock()
-	if closed || tab.pollDone != nil || !browserNeedsPollingLocked(tab, capture) {
+	designPickActive := previewTabNeedsDesignPickPollingLocked(tab, view)
+	if closed || tab.pollDone != nil || !browserNeedsPollingWithDesignPickLocked(tab, capture, designPickActive) {
 		previewMu.Unlock()
 		return
 	}
@@ -402,11 +423,13 @@ func browserStartPolling(s *chatState, tab *browserTab) {
 			case <-ticker.C:
 			}
 			capture := previewConsoleCaptureEnabled(s)
+			view := swarmStateViewFor(s)
 			s.mu.Lock()
 			closed := s.closed
 			s.mu.Unlock()
 			previewMu.Lock()
-			if closed || previewStateForTokenLocked(s, token) == nil || !browserNeedsPollingLocked(tab, capture) {
+			designPickActive := previewTabNeedsDesignPickPollingLocked(tab, view)
+			if closed || previewStateForTokenLocked(s, token) == nil || !browserNeedsPollingWithDesignPickLocked(tab, capture, designPickActive) {
 				previewMu.Unlock()
 				return
 			}
@@ -422,7 +445,7 @@ func browserStartPolling(s *chatState, tab *browserTab) {
 				previewPollConsoleErrors(s, current, page)
 			}
 			previewMu.Lock()
-			// 同步读取两个队列，整个标签只保留一个周期任务。
+			// 同步读取队列，整个标签只保留一个周期任务。
 			annotate := previewStateForTokenLocked(s, token) != nil && tab.visible && tab.annotating && !tab.annotPolling
 			current = previewPageTokenLocked(tab)
 			if annotate {
@@ -432,6 +455,21 @@ func browserStartPolling(s *chatState, tab *browserTab) {
 			previewMu.Unlock()
 			if annotate {
 				previewPollAnnotations(s, current, page)
+			}
+			previewMu.Lock()
+			designPick := previewStateForTokenLocked(s, token) != nil &&
+				previewTabNeedsDesignPickPollingLocked(tab, view) &&
+				!tab.loading &&
+				!tab.designPickPolling &&
+				time.Since(tab.designPickLastPoll) >= previewDesignPickPollInterval
+			current = previewPageTokenLocked(tab)
+			if designPick {
+				tab.designPickPolling = true
+				tab.designPickLastPoll = time.Now()
+			}
+			previewMu.Unlock()
+			if designPick {
+				previewPollDesignPick(s, current, page)
 			}
 		}
 	}()

@@ -848,6 +848,7 @@ func swarmBeeToUI(h swarm.Bee) mcodeui.SwarmBee {
 		SharedWorkspace:       h.SharedWorkspace,
 		Interactive:           h.Interactive,
 		AwaitingFinalize:      h.AwaitingFinalize,
+		FinalizeRequested:     h.FinalizeRequested,
 		DirectModel:           h.DirectModel,
 		ReadOnlyViolation:     h.ReadOnlyViolation,
 		ShadowRepo:            h.ShadowRepo,

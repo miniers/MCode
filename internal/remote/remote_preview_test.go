@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"mcode/internal/designpick"
 	"mcode/internal/remote/wire"
 )
 
@@ -290,5 +291,116 @@ func TestRemotePreviewAndFinalizeDesign_SchemaAndCapabilities(t *testing.T) {
 	}
 	if beeSchema.Properties["awaitingFinalize"].Type != "boolean" {
 		t.Fatalf("RemoteSwarmBee.awaitingFinalize type = %q, want boolean", beeSchema.Properties["awaitingFinalize"].Type)
+	}
+	if beeSchema.Properties["finalizeRequested"].Type != "boolean" {
+		t.Fatalf("RemoteSwarmBee.finalizeRequested type = %q, want boolean", beeSchema.Properties["finalizeRequested"].Type)
+	}
+}
+
+func TestRemotePreviewDesignPick_InjectsAfterHead(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		headTag  string
+		htmlBody string
+	}{
+		{
+			name:     "lowercase head",
+			headTag:  "<head>",
+			htmlBody: `<!DOCTYPE html><html><head><title>pick</title></head><body><div data-mc-choice="布局"><div data-mc-option="A" data-mc-recommended>A</div><div data-mc-option="B">B</div></div></body></html>`,
+		},
+		{
+			name:     "uppercase HEAD",
+			headTag:  "<HEAD>",
+			htmlBody: `<!DOCTYPE html><HTML><HEAD><title>pick</title></HEAD><body><div data-mc-choice="布局"><div data-mc-option="A">A</div><div data-mc-option="B">B</div></div></body></HTML>`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeInspectorPreviewTestFile(t, root, "pick.html", tc.htmlBody)
+			b := newInspectorPreviewTestBackend(t, map[string]string{"thread-a": root})
+			ts := newRemotePreviewTestServer(t, b)
+
+			previewPath, err := b.RemotePreviewPath(context.Background(), "thread-a", "pick.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, body := fetchInspectorPreview(t, ts.URL+previewPath, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status=%d, want 200", resp.StatusCode)
+			}
+			if csp := resp.Header.Get("Content-Security-Policy"); csp != remotePreviewCSP {
+				t.Fatalf("CSP=%q, want %q", csp, remotePreviewCSP)
+			}
+			expectedPrefix := tc.headTag + "<script>" + designpick.Script + "</script>"
+			if !strings.Contains(string(body), expectedPrefix) {
+				t.Fatalf("expected injected script right after %s", tc.headTag)
+			}
+		})
+	}
+}
+
+func TestRemotePreviewDesignPick_NoMarkerNotInjected(t *testing.T) {
+	root := t.TempDir()
+	htmlBody := `<!DOCTYPE html><html><head><title>plain</title></head><body><div>no marker</div></body></html>`
+	writeInspectorPreviewTestFile(t, root, "plain.html", htmlBody)
+	b := newInspectorPreviewTestBackend(t, map[string]string{"thread-a": root})
+	ts := newRemotePreviewTestServer(t, b)
+
+	previewPath, err := b.RemotePreviewPath(context.Background(), "thread-a", "plain.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := fetchInspectorPreview(t, ts.URL+previewPath, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	if string(body) != htmlBody {
+		t.Fatalf("body=%q, want %q", string(body), htmlBody)
+	}
+	if strings.Contains(string(body), designpick.Script) {
+		t.Fatal("should not inject picker script without data-mc-choice")
+	}
+}
+
+func TestRemotePreviewDesignPick_NonRemoteNotInjected(t *testing.T) {
+	root := t.TempDir()
+	htmlBody := `<!DOCTYPE html><html><head><title>desktop</title></head><body><div data-mc-choice="q"><div data-mc-option="A">A</div><div data-mc-option="B">B</div></div></body></html>`
+	writeInspectorPreviewTestFile(t, root, "desktop.html", htmlBody)
+	b := newInspectorPreviewTestBackend(t, map[string]string{"thread-a": root})
+
+	desktopURL, err := b.InspectorPreviewURL(context.Background(), "thread-a", "desktop.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := fetchInspectorPreview(t, desktopURL, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	if string(body) != htmlBody {
+		t.Fatalf("non-remote body=%q, want %q", string(body), htmlBody)
+	}
+	if strings.Contains(string(body), designpick.Script) {
+		t.Fatal("non-remote preview should not inject picker script")
+	}
+}
+
+func TestRemotePreviewDesignPick_NoHeadPrepends(t *testing.T) {
+	root := t.TempDir()
+	htmlBody := `<header>title</header><section data-mc-choice="q"><div data-mc-option="A">A</div><div data-mc-option="B">B</div></section>`
+	writeInspectorPreviewTestFile(t, root, "fragment.html", htmlBody)
+	b := newInspectorPreviewTestBackend(t, map[string]string{"thread-a": root})
+	ts := newRemotePreviewTestServer(t, b)
+
+	previewPath, err := b.RemotePreviewPath(context.Background(), "thread-a", "fragment.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, body := fetchInspectorPreview(t, ts.URL+previewPath, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	want := "<script>" + designpick.Script + "</script>" + htmlBody
+	if string(body) != want {
+		t.Fatalf("body prefix mismatch: got len=%d, want len=%d", len(body), len(want))
 	}
 }

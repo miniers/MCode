@@ -8639,6 +8639,9 @@
         "awaitingFinalize": {
           "type": "boolean"
         },
+        "finalizeRequested": {
+          "type": "boolean"
+        },
         "designFiles": {
           "type": "array",
           "items": {
