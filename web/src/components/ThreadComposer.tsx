@@ -57,6 +57,7 @@ import {
 } from '../utils/modelIndex';
 import { isAutoPairName, modelShortDisplayName } from '../utils/modelShortName';
 import { useSheetDrag } from '../hooks/useSheetDrag';
+import { useOverflowFade } from '../hooks/useOverflowFade';
 import {
   EffortTrack,
   ModelPickerPanel,
@@ -74,6 +75,7 @@ import {
   SwarmIcon,
   XMarkIcon
 } from './Icons';
+import '../styles/overflow-fade.css';
 import '../styles/send-morph.css';
 
 // 按下时保持输入框焦点，避免键盘收起引起布局移位导致点击落空。
@@ -610,6 +612,8 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   const [tierError, setTierError] = useState<string | null>(null);
   const [tierNotice, setTierNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  useOverflowFade(toolbarRef);
 
   useEffect(() => {
     let last: number | null = null;
@@ -1280,7 +1284,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           setIsDraggingFiles(false);
           handlePickedAttachments(event.dataTransfer.files);
         }}
-        className={`rounded-3xl bg-[var(--composer-surface)] border ${isDraggingFiles && attachmentsAvailable ? 'border-[var(--primary)]' : 'border-[var(--input-border)]'} backdrop-blur-md p-2.5 shadow-sm min-w-0 relative`}
+        className={`composer-card rounded-3xl bg-[var(--composer-surface)] border ${isDraggingFiles && attachmentsAvailable ? 'border-[var(--primary)]' : 'border-[var(--input-border)]'} backdrop-blur-md p-2.5 shadow-sm min-w-0 relative`}
       >
         {/* @ 文件 / 斜杠命令 / $ 技能 / # 模型 补全建议弹层 */}
         {showSuggestions && triggerInfo && (
@@ -1440,13 +1444,16 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           rows={1}
           aria-label="输入要发送的消息"
           placeholder={placeholder ?? '继续输入消息…'}
-          className="w-full bg-transparent border-0 outline-none resize-none text-[16px] leading-[22px] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] px-1.5 py-1 max-h-36 min-h-[44px]"
+          className="composer-input w-full bg-transparent border-0 outline-none resize-none text-[16px] leading-[22px] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] px-1.5 py-1 max-h-36 min-h-[44px]"
         />
 
         {/* Controls row */}
         <div className="flex items-center justify-between gap-1.5 pt-1.5 min-w-0">
           {/* Horizontally scrollable row of compact pills */}
-          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto no-scrollbar flex-1 min-w-0 py-0.5">
+          <div
+            ref={toolbarRef}
+            className="overflow-fade flex items-center gap-1.5 flex-nowrap overflow-x-auto no-scrollbar flex-1 min-w-0 py-0.5"
+          >
             {/* Attach File Pill：任意文件都可添加，图片由宿主压缩后上传 */}
             {attachmentsSupported && (
               <ComposerAttachButton

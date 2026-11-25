@@ -81,6 +81,11 @@ export function buildQuestionMinimapData(messages: readonly ThreadMessage[]): Qu
   return { entries, order };
 }
 
+/** 条目达到下限时才渲染导航轨，供 ThreadView 同步预留右侧避让内边距 */
+export function questionMinimapVisible(data: QuestionMinimapData): boolean {
+  return data.entries.length >= MINIMAP_MIN_ENTRIES;
+}
+
 interface MinimapRow {
   entry: QuestionMinimapEntry;
   /** 该行折叠了多少条更早的提问（0 表示普通刻度，>0 表示「+N」格） */
@@ -224,7 +229,7 @@ export const QuestionMinimap: React.FC<QuestionMinimapProps> = ({ data, containe
   const activeEntryIndex = activeID === null ? -1 : entries.findIndex((entry) => entry.messageID === activeID);
   const activeInPlusRow = plusRow !== undefined && activeEntryIndex >= 0 && activeEntryIndex < plusRow.plus;
 
-  if (entries.length < MINIMAP_MIN_ENTRIES) return null;
+  if (!questionMinimapVisible(data)) return null;
 
   const jump = (messageID: string) => {
     setActiveID(messageID);

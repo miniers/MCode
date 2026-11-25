@@ -53,7 +53,7 @@ import { useRemoteSettingsApi } from '../context/remoteSettingsApi';
 import { shouldAutoLoadOlder } from './thread/autoLoadOlder';
 import { useThreadQueue } from './thread/useThreadQueue';
 import { ContinueTurnPill } from './thread/ContinueTurnPill';
-import { QuestionMinimap, buildQuestionMinimapData } from './thread/QuestionMinimap';
+import { QuestionMinimap, buildQuestionMinimapData, questionMinimapVisible } from './thread/QuestionMinimap';
 import { TodoProgressPill } from './thread/TodoProgressPill';
 import { taskContextDetail } from './taskContext';
 import {
@@ -1660,6 +1660,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   );
   // 提问导航轨：只基于已加载的用户提问，少于 4 条时组件自身不渲染
   const questionMinimapData = useMemo(() => buildQuestionMinimapData(messages), [messages]);
+  const showQuestionMinimap = questionMinimapVisible(questionMinimapData);
   // 时间线跳转请求：导航轨点击与推送点开共用一条通道；nonce 递增保证重复点同一条也能重新定位
   // （与 focusMessageID 的定位互不影响）。flash 为真时时间线滚到后额外闪一次底色。
   const [scrollJumpRequest, setScrollJumpRequest] = useState<{
@@ -2666,7 +2667,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="relative flex-1 min-w-0 overflow-y-auto p-3 sm:p-4"
+          className={`relative flex-1 min-w-0 overflow-y-auto ${
+            showQuestionMinimap ? 'p-3 pr-9 sm:p-4 sm:pr-9 min-[1320px]:pr-4' : 'p-3 sm:p-4'
+          }`}
           style={{
             overscrollBehavior: 'contain',
             WebkitOverflowScrolling: 'touch'
