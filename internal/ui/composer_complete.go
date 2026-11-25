@@ -1467,8 +1467,7 @@ func renderSkillScopeTabs(c *ui.Context, s *chatState, activeScope string, match
 						}
 						indicator.Left(x).
 							Width(w).
-							Background(segmentSelectedBackground(c)).
-							Shadow(0, 1, 2, 0, ui.Color{}.Alpha(0.08))
+							Background(segmentSelectedBackground(c))
 					} else {
 						indicator.Width(0)
 						tabEls[activeIdx].Background(segmentSelectedBackground(c))
