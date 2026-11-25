@@ -100,7 +100,7 @@ type preparedBatch struct {
 	forge      git.Forge
 	prURL      string
 	stagedKept []string
-	commits    []string // 本批次已创建的提交，含逐 bee 落地提交
+	commits    []string // 本批次已创建的提交（多个 bee 折叠落地时可能指向同一提交）
 }
 
 // retryJob 表示一个等待延时重试的远端阶段任务（C-HY-16）。
@@ -230,11 +230,26 @@ func (p *Pipeline) RunBatch(ctx context.Context, b LandedBatch, manual bool) err
 			if len(commits) == 0 {
 				commits = []string{prep.sha}
 			}
-			shorts := make([]string, len(commits))
-			for i, sha := range commits {
+			seen := make(map[string]struct{}, len(commits))
+			unique := make([]string, 0, len(commits))
+			for _, sha := range commits {
+				if sha == "" {
+					continue
+				}
+				if _, ok := seen[sha]; ok {
+					continue
+				}
+				seen[sha] = struct{}{}
+				unique = append(unique, sha)
+			}
+			if len(unique) == 0 {
+				unique = []string{prep.sha}
+			}
+			shorts := make([]string, len(unique))
+			for i, sha := range unique {
 				shorts[i] = shortSHA(sha)
 			}
-			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %d 个提交（%s）%s；自动推送未开启，可在 Git 菜单手动推送", len(commits), strings.Join(shorts, "、"), extra)
+			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %d 个提交（%s）%s；自动推送未开启，可在 Git 菜单手动推送", len(unique), strings.Join(shorts, "、"), extra)
 		} else if hasChanges {
 			p.notifyf(b.LeadThreadID, NoticePrefix+"合并：没有需要提交的改动")
 		}

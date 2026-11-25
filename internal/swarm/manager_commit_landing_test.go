@@ -226,185 +226,6 @@ func assertLandingCommit(t *testing.T, m *Manager, root string, bee Bee) {
 	}
 }
 
-func TestManager_CommitLanding_Describe(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		message string
-		err     error
-		nilFunc bool
-	}{
-		{name: "生成成功", message: "  fix: 更新文本\n\n保留提交正文\n  "},
-		{name: "生成失败", message: "不可使用", err: fmt.Errorf("模型不可用")},
-		{name: "空说明", message: " \n\t"},
-		{name: "未配置", nilFunc: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			m, _, root := newCommitLandingManager(t)
-			const lead = "lead-describe"
-			bee := startCommitLandingBee(t, m, root, lead, 0)
-			writePipelineFile(t, root, "lines.txt", strings.Replace(landingBase, "one\n", "user one\n", 1))
-			writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
-			// 预先建好锁，回调中直接检查是否被持有。
-			lockHead(root)()
-			called := false
-			if !tc.nilFunc {
-				m.opts.Describe = func(ctx context.Context, diff string) (string, error) {
-					called = true
-					deadline, ok := ctx.Deadline()
-					if left := time.Until(deadline); !ok || left <= 0 || left > defaultDescribeTimeout {
-						t.Errorf("生成超时未限制在默认 30 秒内: %v, %v", deadline, ok)
-					}
-					if !strings.Contains(diff, "+bee nine") || strings.Contains(diff, "+user one") {
-						t.Errorf("生成输入未隔离 bee 改动: %s", diff)
-					}
-					value, _ := headLocks.Load(filepath.Clean(root))
-					mu := value.(*sync.Mutex)
-					if !mu.TryLock() {
-						t.Error("生成时持有 HEAD 锁")
-					} else {
-						mu.Unlock()
-					}
-					if !m.mu.TryLock() {
-						t.Error("生成时持有 Manager 状态锁")
-					} else {
-						m.mu.Unlock()
-					}
-					return tc.message, tc.err
-				}
-			}
-			if !landCommitBee(m, root, lead, &bee) {
-				t.Fatal("落地不应等待")
-			}
-			assertLandingCommit(t, m, root, bee)
-			_, want := defaultCommitMessage([]Bee{bee})
-			if tc.err == nil && strings.TrimSpace(tc.message) != "" {
-				want = strings.TrimSpace(tc.message)
-			}
-			if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != strings.TrimSpace(want) {
-				t.Fatalf("提交说明=%q want=%q", got, want)
-			}
-			if called == tc.nilFunc {
-				t.Fatalf("生成调用=%v nil=%v", called, tc.nilFunc)
-			}
-		})
-	}
-}
-
-func TestManager_CommitLanding_DescribeWaitReuse(t *testing.T) {
-	t.Parallel()
-	m, _, root := newCommitLandingManager(t)
-	const lead = "lead-describe-wait"
-	const message = "fix: 更新文本"
-	bee := startCommitLandingBee(t, m, root, lead, 0)
-	writePipelineFile(t, root, "lines.txt", strings.Replace(landingBase, "nine\n", "user nine\n", 1))
-	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
-	calls := 0
-	m.opts.Describe = func(context.Context, string) (string, error) {
-		calls++
-		return message, nil
-	}
-	for i := 0; i < 2; i++ {
-		if landCommitBee(m, root, lead, &bee) {
-			t.Fatal("冲突时应等待")
-		}
-	}
-	if calls != 1 {
-		t.Fatalf("生成调用次数=%d want=1", calls)
-	}
-	writePipelineFile(t, root, "lines.txt", landingBase)
-	if !landCommitBee(m, root, lead, &bee) {
-		t.Fatal("冲突解除后应落地")
-	}
-	assertLandingCommit(t, m, root, bee)
-	if calls != 1 {
-		t.Fatalf("生成调用次数=%d want=1", calls)
-	}
-	if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != message {
-		t.Fatalf("提交说明=%q want=%q", got, message)
-	}
-}
-
-func TestManager_CommitLanding_DescribeHeadMoved(t *testing.T) {
-	t.Parallel()
-	m, _, root := newCommitLandingManager(t)
-	const lead = "lead-describe-head"
-	bee := startCommitLandingBee(t, m, root, lead, 0)
-	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
-	var movedHead string
-	m.opts.Describe = func(context.Context, string) (string, error) {
-		unlock := lockHead(root)
-		defer unlock()
-		writePipelineFile(t, root, "other.txt", "other lead\n")
-		gitTestRun(t, root, "add", "other.txt")
-		gitTestRun(t, root, "commit", "-qm", "其他 lead 提交")
-		movedHead = gitTestRun(t, root, "rev-parse", "HEAD")
-		return "fix: 更新文本", nil
-	}
-	if !landCommitBee(m, root, lead, &bee) {
-		t.Fatal("落地不应等待")
-	}
-	assertLandingCommit(t, m, root, bee)
-	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != movedHead {
-		t.Fatalf("落地父提交=%s want=%s", parent, movedHead)
-	}
-	if got := gitTestRun(t, root, "show", "HEAD:other.txt"); got != "other lead" {
-		t.Fatalf("其他 lead 改动丢失: %s", got)
-	}
-}
-
-func TestManager_CommitLanding_DescribeBoundedDiff(t *testing.T) {
-	t.Parallel()
-	m, _, root := newCommitLandingManager(t)
-	const lead = "lead-describe-limit"
-	bee := startCommitLandingBee(t, m, root, lead, 0)
-	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Repeat("新增文本\n", 4000))
-	called := false
-	m.opts.Describe = func(_ context.Context, diff string) (string, error) {
-		called = true
-		if len(diff) > 12000 || !strings.Contains(diff, "+新增文本") || !strings.HasSuffix(diff, "\n") {
-			t.Errorf("diff 未按完整行截断: 字节数=%d", len(diff))
-		}
-		return "feat: 新增文本", nil
-	}
-	if !landCommitBee(m, root, lead, &bee) {
-		t.Fatal("落地不应等待")
-	}
-	assertLandingCommit(t, m, root, bee)
-	if !called {
-		t.Fatal("未生成提交说明")
-	}
-}
-
-func TestManager_CommitLanding_DescribeTimeout(t *testing.T) {
-	t.Parallel()
-	m, _, root := newCommitLandingManager(t)
-	// 缩短生成超时，避免用默认 30 秒真实等待。
-	m.opts.DescribeTimeout = 200 * time.Millisecond
-	const lead = "lead-describe-timeout"
-	bee := startCommitLandingBee(t, m, root, lead, 0)
-	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
-	called := false
-	m.opts.Describe = func(ctx context.Context, _ string) (string, error) {
-		called = true
-		<-ctx.Done()
-		// 超时后的响应即使没有返回错误，也不能覆盖默认说明。
-		return "超时响应", nil
-	}
-	if !landCommitBee(m, root, lead, &bee) {
-		t.Fatal("生成超时后应继续落地")
-	}
-	assertLandingCommit(t, m, root, bee)
-	_, want := defaultCommitMessage([]Bee{bee})
-	if got := gitTestRun(t, root, "show", "-s", "--format=%B", bee.LandedCommit); got != strings.TrimSpace(want) {
-		t.Fatalf("提交说明=%q want=%q", got, want)
-	}
-	if !called {
-		t.Fatal("未调用生成器")
-	}
-}
-
 func TestManager_CommitLanding_TwoBees(t *testing.T) {
 	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
@@ -665,46 +486,503 @@ func TestManager_CommitLanding_ConflictMarkersAndTimeout(t *testing.T) {
 	assertLandingFile(t, root, markers)
 }
 
-func TestMergeWaitKeepsLandMessage(t *testing.T) {
+func initLeadForCommitLanding(t *testing.T, m *Manager, root, lead string) {
+	t.Helper()
+	m.mu.Lock()
+	if m.leads[lead] == nil {
+		m.leads[lead] = &leadState{leadThreadID: lead, leadWorkDir: root, enabled: true}
+	}
+	m.mu.Unlock()
+	m.BeginLeadRequest(lead)
+}
+
+func TestManager_CommitLanding_FoldSameRequest(t *testing.T) {
 	t.Parallel()
 	m, _, root := newCommitLandingManager(t)
-	const lead = "lead-merge-wait-land-message"
-	const message = "fix: 保留等待期间的落地说明"
-	bee := startCommitLandingBee(t, m, root, lead, 0)
-	writePipelineFile(t, root, "lines.txt", strings.Replace(landingBase, "nine\n", "user nine\n", 1))
-	writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
-	completeBee(t, m, bee, "已完成修改")
-
-	calls := 0
-	m.opts.Describe = func(context.Context, string) (string, error) {
-		calls++
-		return message, nil
+	const lead = "lead-fold-same-1234"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+	reqID := m.requestID(lead)
+	if reqID == "" {
+		t.Fatal("应生成请求 ID")
 	}
 
-	ctx := context.Background()
-	m.Tick(ctx)
-	m.Tick(ctx)
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "lines.txt", strings.Replace(landingBase, "one\n", "bee one\n", 1))
+	writePipelineFile(t, b.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
 
-	if calls != 1 {
-		t.Fatalf("主工作区未落定连续两次 tick，Describe 应只调用 1 次，实际 %d", calls)
+	if !landCommitBee(m, root, lead, &a) {
+		t.Fatal("首个 bee 不应等待")
 	}
-	st := m.State(lead)
-	if len(st.Bees) != 1 || st.Bees[0].LandMessage != message {
-		t.Fatalf("markMergeWaitLocked 后 LandMessage 应保留为 %q，实际 %+v", message, st.Bees)
-	}
-	if st.Bees[0].Status != StatusRunning || st.Bees[0].MergeWaitSince == nil {
-		t.Fatalf("未落定时 bee 应保持 running 并记录等待起点，实际 %+v", st.Bees[0])
+	firstSHA := a.LandedCommit
+	if firstSHA == "" {
+		t.Fatal("首个 bee 未记录 LandedCommit")
 	}
 
-	// 主工作区解除冲突后再次 tick，复用已保留的 LandMessage 完成落地。
-	writePipelineFile(t, root, "lines.txt", landingBase)
-	m.Tick(ctx)
-	if calls != 1 {
-		t.Fatalf("冲突解除落地时不应重调 Describe，实际调用 %d 次", calls)
+	if !landCommitBee(m, root, lead, &b) {
+		t.Fatal("第二个 bee 不应等待")
 	}
-	landed := m.State(lead).Bees[0]
-	assertLandingCommit(t, m, root, landed)
-	if got := gitTestRun(t, root, "show", "-s", "--format=%B", landed.LandedCommit); got != message {
-		t.Fatalf("提交说明=%q want=%q", got, message)
+	head := gitTestRun(t, root, "rev-parse", "HEAD")
+	if head == firstSHA {
+		t.Fatal("折叠后应生成新提交哈希")
 	}
+	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != before {
+		t.Fatalf("HEAD^=%s want=%s", parent, before)
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "1" {
+		t.Fatalf("提交数=%s want=1", count)
+	}
+	content := gitTestRun(t, root, "show", "HEAD:lines.txt")
+	if !strings.Contains(content, "bee one") || !strings.Contains(content, "bee nine") {
+		t.Fatalf("折叠提交未包含两份改动: %s", content)
+	}
+	msg := gitTestRun(t, root, "show", "-s", "--format=%B", head)
+	if !strings.Contains(msg, "- Bee-0: 修改文本") || !strings.Contains(msg, "- Bee-1: 修改文本") {
+		t.Fatalf("提交说明缺少 bee 列表: %q", msg)
+	}
+	if !hasRequestTrailer(msg, reqID) {
+		t.Fatalf("提交说明缺少请求 trailer %q: %q", requestTrailer(reqID), msg)
+	}
+	bees := m.State(lead).Bees
+	if len(bees) != 2 || bees[0].LandedCommit != head || bees[1].LandedCommit != head {
+		t.Fatalf("两个 bee 的 LandedCommit 均应等于 HEAD(%s): %+v", head, bees)
+	}
+	foldRef := fmt.Sprintf("refs/mcode/swarm-fold/%s/%d", leadPrefixID(lead), b.Index)
+	if got := gitTestRun(t, root, "rev-parse", foldRef); got != firstSHA {
+		t.Fatalf("追溯引用 %s=%s want=%s", foldRef, got, firstSHA)
+	}
+}
+
+func TestManager_CommitLanding_FoldInterleavedLeads(t *testing.T) {
+	t.Parallel()
+	t.Run("ABA得3个提交", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const leadA = "lead-a-1111"
+		const leadB = "lead-b-2222"
+		before := gitTestRun(t, root, "rev-parse", "HEAD")
+		initLeadForCommitLanding(t, m, root, leadA)
+		initLeadForCommitLanding(t, m, root, leadB)
+
+		a1 := startCommitLandingBee(t, m, root, leadA, 0)
+		b1 := startCommitLandingBee(t, m, root, leadB, 0)
+		a2 := startCommitLandingBee(t, m, root, leadA, 1)
+		writePipelineFile(t, a1.WorktreePath, "a1.txt", "a1\n")
+		writePipelineFile(t, b1.WorktreePath, "b1.txt", "b1\n")
+		writePipelineFile(t, a2.WorktreePath, "a2.txt", "a2\n")
+
+		if !landCommitBee(m, root, leadA, &a1) || !landCommitBee(m, root, leadB, &b1) || !landCommitBee(m, root, leadA, &a2) {
+			t.Fatal("落地不应等待")
+		}
+		if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "3" {
+			t.Fatalf("A-B-A 顺序应得 3 个提交，实际 %s", count)
+		}
+	})
+
+	t.Run("AAB得2个提交", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const leadA = "lead-a-3333"
+		const leadB = "lead-b-4444"
+		before := gitTestRun(t, root, "rev-parse", "HEAD")
+		initLeadForCommitLanding(t, m, root, leadA)
+		initLeadForCommitLanding(t, m, root, leadB)
+
+		a1 := startCommitLandingBee(t, m, root, leadA, 0)
+		a2 := startCommitLandingBee(t, m, root, leadA, 1)
+		b1 := startCommitLandingBee(t, m, root, leadB, 0)
+		writePipelineFile(t, a1.WorktreePath, "a1.txt", "a1\n")
+		writePipelineFile(t, a2.WorktreePath, "a2.txt", "a2\n")
+		writePipelineFile(t, b1.WorktreePath, "b1.txt", "b1\n")
+
+		if !landCommitBee(m, root, leadA, &a1) || !landCommitBee(m, root, leadA, &a2) || !landCommitBee(m, root, leadB, &b1) {
+			t.Fatal("落地不应等待")
+		}
+		if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "2" {
+			t.Fatalf("A-A-B 顺序应得 2 个提交，实际 %s", count)
+		}
+	})
+}
+
+func TestManager_CommitLanding_NoFoldOverUserCommit(t *testing.T) {
+	t.Parallel()
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-user-commit"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+	writePipelineFile(t, b.WorktreePath, "b.txt", "bee b\n")
+
+	if !landCommitBee(m, root, lead, &a) {
+		t.Fatal("首个 bee 不应等待")
+	}
+	writePipelineFile(t, root, "user.txt", "user change\n")
+	gitTestRun(t, root, "add", "user.txt")
+	gitTestRun(t, root, "commit", "-qm", "user commit")
+	userSHA := gitTestRun(t, root, "rev-parse", "HEAD")
+
+	if !landCommitBee(m, root, lead, &b) {
+		t.Fatal("第二个 bee 不应等待")
+	}
+	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != userSHA {
+		t.Fatalf("应基于用户提交新建提交，HEAD^=%s want=%s", parent, userSHA)
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "3" {
+		t.Fatalf("提交数=%s want=3", count)
+	}
+	if got := gitTestRun(t, root, "show", userSHA+":user.txt"); got != "user change" {
+		t.Fatalf("用户提交被改动: %s", got)
+	}
+}
+
+func TestManager_CommitLanding_NoFoldWhenRefContains(t *testing.T) {
+	t.Parallel()
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-ref-contains"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+	writePipelineFile(t, b.WorktreePath, "b.txt", "bee b\n")
+
+	if !landCommitBee(m, root, lead, &a) {
+		t.Fatal("首个 bee 不应等待")
+	}
+	firstSHA := a.LandedCommit
+	gitTestRun(t, root, "tag", "v1.0", firstSHA)
+
+	if !landCommitBee(m, root, lead, &b) {
+		t.Fatal("第二个 bee 不应等待")
+	}
+	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != firstSHA {
+		t.Fatalf("被打 tag 后应新建提交，HEAD^=%s want=%s", parent, firstSHA)
+	}
+	if tagSHA := gitTestRun(t, root, "rev-parse", "v1.0"); tagSHA != firstSHA {
+		t.Fatalf("tag 指向改变=%s want=%s", tagSHA, firstSHA)
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "2" {
+		t.Fatalf("提交数=%s want=2", count)
+	}
+}
+
+func TestManager_CommitLanding_NoFoldNewRequest(t *testing.T) {
+	t.Parallel()
+	m, _, root := newCommitLandingManager(t)
+	now := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	m.opts.Now = func() time.Time { return now }
+	const lead = "lead-new-req"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+	writePipelineFile(t, b.WorktreePath, "b.txt", "bee b\n")
+
+	if !landCommitBee(m, root, lead, &a) {
+		t.Fatal("首个 bee 不应等待")
+	}
+	firstSHA := a.LandedCommit
+
+	now = now.Add(2 * time.Second)
+	m.BeginLeadRequest(lead)
+
+	if !landCommitBee(m, root, lead, &b) {
+		t.Fatal("新请求后的第二个 bee 不应等待")
+	}
+	if parent := gitTestRun(t, root, "rev-parse", "HEAD^"); parent != firstSHA {
+		t.Fatalf("新请求应新建提交，HEAD^=%s want=%s", parent, firstSHA)
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "2" {
+		t.Fatalf("提交数=%s want=2", count)
+	}
+}
+
+func TestManager_CommitLanding_NoFoldAutoPush(t *testing.T) {
+	t.Parallel()
+	m, _, root := newCommitLandingManager(t)
+	m.SetSettingsFunc(func() Settings { return Settings{AutoMerge: true, AutoPush: true} })
+	const lead = "lead-autopush"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+	writePipelineFile(t, b.WorktreePath, "b.txt", "bee b\n")
+
+	if !landCommitBee(m, root, lead, &a) || !landCommitBee(m, root, lead, &b) {
+		t.Fatal("落地不应等待")
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "2" {
+		t.Fatalf("AutoPush 开启时不应折叠，提交数=%s want=2", count)
+	}
+}
+
+func TestManager_CommitLanding_FoldConcurrentBees(t *testing.T) {
+	t.Parallel()
+	m, _, root := newCommitLandingManager(t)
+	const lead = "lead-concurrent"
+	before := gitTestRun(t, root, "rev-parse", "HEAD")
+	initLeadForCommitLanding(t, m, root, lead)
+
+	a := startCommitLandingBee(t, m, root, lead, 0)
+	b := startCommitLandingBee(t, m, root, lead, 1)
+	writePipelineFile(t, a.WorktreePath, "lines.txt", strings.Replace(landingBase, "one\n", "bee one\n", 1))
+	writePipelineFile(t, b.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); landCommitBee(m, root, lead, &a) }()
+	go func() { defer wg.Done(); landCommitBee(m, root, lead, &b) }()
+	wg.Wait()
+
+	if !a.Merged || !b.Merged {
+		t.Fatalf("并发落地失败: a=%+v b=%+v", a, b)
+	}
+	if count := gitTestRun(t, root, "rev-list", "--count", before+"..HEAD"); count != "1" {
+		t.Fatalf("并发折叠后提交数=%s want=1", count)
+	}
+	content := gitTestRun(t, root, "show", "HEAD:lines.txt")
+	if !strings.Contains(content, "bee one") || !strings.Contains(content, "bee nine") {
+		t.Fatalf("并发折叠缺少改动: %s", content)
+	}
+	if st := gitTestRun(t, root, "status", "--porcelain"); st != "" {
+		t.Fatalf("工作区不干净: %s", st)
+	}
+}
+
+func TestManager_FinalizeRequestCommit(t *testing.T) {
+	t.Parallel()
+	t.Run("重写说明并保持工作区暂存区与树父提交不变", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const lead = "lead-finalize-ok"
+		before := gitTestRun(t, root, "rev-parse", "HEAD")
+		initLeadForCommitLanding(t, m, root, lead)
+		reqID := m.requestID(lead)
+
+		a := startCommitLandingBee(t, m, root, lead, 0)
+		b := startCommitLandingBee(t, m, root, lead, 1)
+		writePipelineFile(t, a.WorktreePath, "lines.txt", strings.Replace(landingBase, "one\n", "bee one\n", 1))
+		writePipelineFile(t, b.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+		if !landCommitBee(m, root, lead, &a) || !landCommitBee(m, root, lead, &b) {
+			t.Fatal("落地不应等待")
+		}
+		m.mu.Lock()
+		for i := range m.leads[lead].bees {
+			m.leads[lead].bees[i].Status = StatusCompleted
+		}
+		m.mu.Unlock()
+
+		// 预先建好锁，在 Describe 回调中检查是否未持有 HEAD 锁和 Manager 锁。
+		lockHead(root)()
+
+		// 用户另有未提交脏文件和已暂存内容
+		writePipelineFile(t, root, "dirty.txt", "dirty work\n")
+		writePipelineFile(t, root, "staged.txt", "staged work\n")
+		gitTestRun(t, root, "add", "staged.txt")
+		stagedBlob := gitTestRun(t, root, "rev-parse", ":staged.txt")
+
+		foldedTree := gitTestRun(t, root, "rev-parse", "HEAD^{tree}")
+		foldedParent := gitTestRun(t, root, "rev-parse", "HEAD^")
+		if foldedParent != before {
+			t.Fatalf("前置折叠父提交=%s want=%s", foldedParent, before)
+		}
+
+		calls := 0
+		m.opts.Describe = func(ctx context.Context, diff string) (string, error) {
+			calls++
+			if !strings.Contains(diff, "+bee one") || !strings.Contains(diff, "+bee nine") {
+				t.Errorf("diff 缺少折叠改动: %s", diff)
+			}
+			if value, ok := headLocks.Load(filepath.Clean(root)); ok {
+				mu := value.(*sync.Mutex)
+				if !mu.TryLock() {
+					t.Error("生成时持有 HEAD 锁")
+				} else {
+					mu.Unlock()
+				}
+			}
+			if !m.mu.TryLock() {
+				t.Error("生成时持有 Manager 状态锁")
+			} else {
+				m.mu.Unlock()
+			}
+			return "feat: 统一完成两项文本修改\n\nMcode-Request: fake-trailer\n", nil
+		}
+
+		ctx := context.Background()
+		m.FinalizeRequestCommit(ctx, lead)
+		m.FinalizeRequestCommit(ctx, lead)
+
+		if calls != 1 {
+			t.Fatalf("重复调用 Describe 次数=%d want=1", calls)
+		}
+		newHead := gitTestRun(t, root, "rev-parse", "HEAD")
+		if gotTree := gitTestRun(t, root, "rev-parse", "HEAD^{tree}"); gotTree != foldedTree {
+			t.Fatalf("tree 被改变=%s want=%s", gotTree, foldedTree)
+		}
+		if gotParent := gitTestRun(t, root, "rev-parse", "HEAD^"); gotParent != foldedParent {
+			t.Fatalf("父提交被改变=%s want=%s", gotParent, foldedParent)
+		}
+		wantMsg := "feat: 统一完成两项文本修改\n\n- Bee-0: 修改文本\n- Bee-1: 修改文本\n\n" + requestTrailer(reqID)
+		if gotMsg := gitTestRun(t, root, "show", "-s", "--format=%B", newHead); gotMsg != wantMsg {
+			t.Fatalf("提交说明=%q want=%q", gotMsg, wantMsg)
+		}
+		if gotDirty, err := os.ReadFile(filepath.Join(root, "dirty.txt")); err != nil || string(gotDirty) != "dirty work\n" {
+			t.Fatalf("用户脏文件被改动: %q err=%v", gotDirty, err)
+		}
+		if gotStaged := gitTestRun(t, root, "rev-parse", ":staged.txt"); gotStaged != stagedBlob {
+			t.Fatalf("已暂存内容被改动: %s want=%s", gotStaged, stagedBlob)
+		}
+		bees := m.State(lead).Bees
+		if len(bees) != 2 || bees[0].LandedCommit != newHead || bees[1].LandedCommit != newHead {
+			t.Fatalf("bee LandedCommit 未更新为新 HEAD(%s): %+v", newHead, bees)
+		}
+	})
+
+	t.Run("仍有活跃bee时不调用Describe", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const lead = "lead-finalize-active"
+		initLeadForCommitLanding(t, m, root, lead)
+		a := startCommitLandingBee(t, m, root, lead, 0)
+		writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+		if !landCommitBee(m, root, lead, &a) {
+			t.Fatal("落地不应等待")
+		}
+		// startCommitLandingBee 默认 StatusRunning
+		calls := 0
+		m.opts.Describe = func(context.Context, string) (string, error) {
+			calls++
+			return "feat: 不应生成", nil
+		}
+		m.FinalizeRequestCommit(context.Background(), lead)
+		if calls != 0 {
+			t.Fatalf("存在 StatusRunning 时不应调用 Describe，calls=%d", calls)
+		}
+		// 覆盖 PendingMerge / AwaitingFinalize / MergeWaitSince
+		for _, mutate := range []func(*Bee){
+			func(b *Bee) { b.Status = StatusCompleted; b.PendingMerge = true },
+			func(b *Bee) { b.PendingMerge = false; b.AwaitingFinalize = true },
+			func(b *Bee) {
+				b.AwaitingFinalize = false
+				now := time.Now()
+				b.MergeWaitSince = &now
+			},
+		} {
+			m.mu.Lock()
+			mutate(&m.leads[lead].bees[0])
+			m.mu.Unlock()
+			m.FinalizeRequestCommit(context.Background(), lead)
+			if calls != 0 {
+				t.Fatalf("存在未落定状态时不应调用 Describe，calls=%d", calls)
+			}
+		}
+	})
+
+	t.Run("HEAD非本请求提交时不改动", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const lead = "lead-finalize-other-head"
+		initLeadForCommitLanding(t, m, root, lead)
+		a := startCommitLandingBee(t, m, root, lead, 0)
+		writePipelineFile(t, a.WorktreePath, "a.txt", "bee a\n")
+		if !landCommitBee(m, root, lead, &a) {
+			t.Fatal("落地不应等待")
+		}
+		m.mu.Lock()
+		m.leads[lead].bees[0].Status = StatusCompleted
+		m.mu.Unlock()
+
+		writePipelineFile(t, root, "user.txt", "user\n")
+		gitTestRun(t, root, "add", "user.txt")
+		gitTestRun(t, root, "commit", "-qm", "user commit")
+		userHead := gitTestRun(t, root, "rev-parse", "HEAD")
+
+		calls := 0
+		m.opts.Describe = func(context.Context, string) (string, error) {
+			calls++
+			return "feat: 不应重写", nil
+		}
+		m.FinalizeRequestCommit(context.Background(), lead)
+		if calls != 0 {
+			t.Fatalf("HEAD 非本请求提交时不应调用 Describe，calls=%d", calls)
+		}
+		if got := gitTestRun(t, root, "rev-parse", "HEAD"); got != userHead {
+			t.Fatalf("HEAD 不应改动: %s want=%s", got, userHead)
+		}
+	})
+
+	t.Run("diff截断至12000字节", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		const lead = "lead-finalize-bounded"
+		initLeadForCommitLanding(t, m, root, lead)
+		bee := startCommitLandingBee(t, m, root, lead, 0)
+		writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Repeat("新增文本\n", 4000))
+		if !landCommitBee(m, root, lead, &bee) {
+			t.Fatal("落地不应等待")
+		}
+		m.mu.Lock()
+		m.leads[lead].bees[0].Status = StatusCompleted
+		m.mu.Unlock()
+
+		called := false
+		m.opts.Describe = func(_ context.Context, diff string) (string, error) {
+			called = true
+			if len(diff) > 12000 || !strings.Contains(diff, "+新增文本") || !strings.HasSuffix(diff, "\n") {
+				t.Errorf("diff 未按完整行截断: 字节数=%d", len(diff))
+			}
+			return "feat: 新增文本", nil
+		}
+		m.FinalizeRequestCommit(context.Background(), lead)
+		if !called {
+			t.Fatal("未调用 Describe")
+		}
+	})
+
+	t.Run("超时回退保留原提交说明", func(t *testing.T) {
+		t.Parallel()
+		m, _, root := newCommitLandingManager(t)
+		m.opts.DescribeTimeout = 200 * time.Millisecond
+		const lead = "lead-finalize-timeout"
+		initLeadForCommitLanding(t, m, root, lead)
+		bee := startCommitLandingBee(t, m, root, lead, 0)
+		writePipelineFile(t, bee.WorktreePath, "lines.txt", strings.Replace(landingBase, "nine\n", "bee nine\n", 1))
+		if !landCommitBee(m, root, lead, &bee) {
+			t.Fatal("落地不应等待")
+		}
+		m.mu.Lock()
+		m.leads[lead].bees[0].Status = StatusCompleted
+		m.mu.Unlock()
+
+		beforeHead := gitTestRun(t, root, "rev-parse", "HEAD")
+		beforeMsg := gitTestRun(t, root, "show", "-s", "--format=%B", beforeHead)
+
+		called := false
+		m.opts.Describe = func(ctx context.Context, _ string) (string, error) {
+			called = true
+			<-ctx.Done()
+			// 超时后的响应即使没有返回错误，也不能覆盖原说明。
+			return "超时响应", nil
+		}
+		m.FinalizeRequestCommit(context.Background(), lead)
+		if !called {
+			t.Fatal("未调用 Describe")
+		}
+		if got := gitTestRun(t, root, "rev-parse", "HEAD"); got != beforeHead {
+			t.Fatalf("超时不应移动 HEAD: %s want=%s", got, beforeHead)
+		}
+		if gotMsg := gitTestRun(t, root, "show", "-s", "--format=%B", beforeHead); gotMsg != beforeMsg {
+			t.Fatalf("超时不应改写提交说明: %q want=%q", gotMsg, beforeMsg)
+		}
+	})
 }

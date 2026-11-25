@@ -82,6 +82,8 @@ type leadState struct {
 	delegationRounds int
 	// requestStartedAt 记录本次用户请求的起始时间；零值表示尚未标记请求开始。
 	requestStartedAt time.Time
+	// describedCommit 记录最近一次由 FinalizeRequestCommit 重写过说明的提交哈希，只存内存。
+	describedCommit string
 	// lastLeadTurnAt 只在内存中记录 lead 最近一次回合开始或结束的时间，不影响请求预算。
 	lastLeadTurnAt time.Time
 	// reportsHeld 表示 lead 最近一轮被用户中断、汇报暂扣到用户下一句话时取 true。
@@ -1102,9 +1104,66 @@ func (m *Manager) BeginLeadRequest(leadThreadID string) {
 	}
 	lead.delegationRounds = 0
 	lead.requestStartedAt = m.now()
+	lead.describedCommit = ""
 	m.mu.Unlock()
 
 	m.notifyChange(leadThreadID)
+}
+
+const requestTrailerPrefix = "Mcode-Request:"
+
+func leadPrefixID(leadThreadID string) string {
+	if len(leadThreadID) > 8 {
+		return leadThreadID[:8]
+	}
+	return leadThreadID
+}
+
+// formatRequestID 按 <lead前8位>-<UTC 20060102T150405> 生成请求 ID；零值时间返回空串。
+func formatRequestID(leadThreadID string, startedAt time.Time) string {
+	if startedAt.IsZero() {
+		return ""
+	}
+	return leadPrefixID(leadThreadID) + "-" + startedAt.UTC().Format("20060102T150405")
+}
+
+func requestTrailer(reqID string) string {
+	return requestTrailerPrefix + " " + reqID
+}
+
+func hasRequestTrailer(msg, reqID string) bool {
+	if reqID == "" {
+		return false
+	}
+	want := requestTrailer(reqID)
+	for _, line := range strings.Split(msg, "\n") {
+		if strings.TrimSuffix(line, "\r") == want {
+			return true
+		}
+	}
+	return false
+}
+
+func stripRequestTrailers(msg string) string {
+	lines := strings.Split(msg, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSuffix(line, "\r"), requestTrailerPrefix) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+func (m *Manager) requestID(leadThreadID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	lead := m.leads[leadThreadID]
+	if lead == nil {
+		return ""
+	}
+	return formatRequestID(leadThreadID, lead.requestStartedAt)
 }
 
 // NoteLeadTurn 标记 lead 回合开始或结束，不重置用户请求的计时与预算。
@@ -2849,7 +2908,6 @@ func (m *Manager) Tick(ctx context.Context) {
 									lead.bees[i].LastProgressAt = now
 									lead.bees[i].FinishedAt = nil
 									lead.bees[i].Status = StatusRunning
-									lead.bees[i].LandMessage = ""
 									break
 								}
 							}
@@ -2971,7 +3029,6 @@ func (m *Manager) Tick(ctx context.Context) {
 								lead.bees[i].LastProgressAt = now
 								lead.bees[i].FinishedAt = nil
 								lead.bees[i].Status = StatusRunning
-								lead.bees[i].LandMessage = ""
 								break
 							}
 						}
@@ -3108,7 +3165,7 @@ func (m *Manager) Tick(ctx context.Context) {
 			m.updateBeeLocked(tgt.leadThreadID, tgt.bee)
 		} else {
 			// 主工作区尚未落定：保持 running 并记录等待起点，由下个 tick 重新尝试落地。
-			m.markMergeWaitLocked(tgt.leadThreadID, tgt.bee.ThreadID, tgt.bee.MergeWaitSince, tgt.bee.FinishedAt, tgt.bee.ChangedFiles, tgt.bee.LinesAdded, tgt.bee.LinesDeleted, tgt.bee.MergeError, tgt.bee.LandMessage)
+			m.markMergeWaitLocked(tgt.leadThreadID, tgt.bee.ThreadID, tgt.bee.MergeWaitSince, tgt.bee.FinishedAt, tgt.bee.ChangedFiles, tgt.bee.LinesAdded, tgt.bee.LinesDeleted, tgt.bee.MergeError)
 		}
 		m.mu.Unlock()
 		changedLeads[tgt.leadThreadID] = struct{}{}
@@ -3353,7 +3410,6 @@ func (m *Manager) resetBeeForNewRoundLocked(bee *Bee, now time.Time) {
 	bee.Reported = false
 	bee.Merged = false
 	bee.MergeError = ""
-	bee.LandMessage = ""
 	bee.Delivered = false
 	bee.Credibility = nil
 	// 上一轮的合并与审查进度属于旧成果，续跑后要重新走流水线。
@@ -5127,27 +5183,6 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		return fail(err)
 	}
 
-	message := h.LandMessage
-	if message == "" {
-		_, message = defaultCommitMessage([]Bee{*h})
-	}
-	if h.LandMessage == "" && m.opts.Describe != nil {
-		// 模型调用必须在 HEAD 锁外，避免阻塞其他 lead 移动 HEAD。
-		describeTimeout := m.opts.DescribeTimeout
-		if describeTimeout <= 0 {
-			describeTimeout = defaultDescribeTimeout
-		}
-		describeCtx, cancel := context.WithTimeout(ctx, describeTimeout)
-		diff, _, diffErr := m.opts.Git.DiffText(describeCtx, h.WorktreePath, h.BaseCommit, beeCommit, nil, 12000)
-		if diffErr == nil && strings.TrimSpace(diff) != "" {
-			if msg, err := m.opts.Describe(describeCtx, diff); err == nil && describeCtx.Err() == nil && strings.TrimSpace(msg) != "" {
-				message = strings.TrimSpace(msg)
-				h.LandMessage = message
-			}
-		}
-		cancel()
-	}
-
 	var stagedKept []string
 	defer func() {
 		if len(stagedKept) > 0 && h.LandedCommit != "" && m.opts.OnReport != nil {
@@ -5188,15 +5223,48 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		h.ConflictFiles = []string{}
 		return true, false
 	}
-	newSHA, err := m.opts.Git.CommitTree(ctx, root, merged.Tree, oldHead, message)
+
+	reqID := m.requestID(leadID)
+	parent := oldHead
+	folding := false
+	var foldedThreadIDs []string
+	if reqID != "" && !m.Settings().AutoPush {
+		if oldMsg, msgErr := m.opts.Git.CommitMessage(ctx, root, oldHead); msgErr == nil && hasRequestTrailer(oldMsg, reqID) {
+			if parents, pErr := m.opts.Git.CommitParents(ctx, root, oldHead); pErr == nil && len(parents) == 1 {
+				if refs, rErr := m.opts.Git.RefsContaining(ctx, root, oldHead); rErr == nil && len(refs) == 0 {
+					folding = true
+					parent = parents[0]
+				}
+			}
+		}
+	}
+
+	var msgBees []Bee
+	if folding {
+		m.mu.Lock()
+		if lead := m.leads[leadID]; lead != nil {
+			for i := range lead.bees {
+				b := &lead.bees[i]
+				if b.LandedCommit == oldHead && b.ThreadID != h.ThreadID {
+					msgBees = append(msgBees, b.clone())
+					foldedThreadIDs = append(foldedThreadIDs, b.ThreadID)
+				}
+			}
+		}
+		m.mu.Unlock()
+	}
+	msgBees = append(msgBees, *h)
+	_, message := defaultCommitMessage(msgBees)
+	if reqID != "" {
+		message += "\n\n" + requestTrailer(reqID)
+	}
+
+	newSHA, err := m.opts.Git.CommitTree(ctx, root, merged.Tree, parent, message)
 	if err != nil {
 		log.Printf("swarm: 创建落地提交失败，退回未提交落地流程: %v", err)
 		return false, true
 	}
-	prefix := leadID
-	if len(prefix) > 8 {
-		prefix = prefix[:8]
-	}
+	prefix := leadPrefixID(leadID)
 	wtSnap, err := m.opts.Git.CheckpointNormalized(ctx, root, fmt.Sprintf("refs/mcode/swarm-land/%s/%d", prefix, h.Index), "mcode swarm landing checkpoint")
 	if err != nil {
 		return fail(err)
@@ -5248,6 +5316,12 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 			return fail(restore(err))
 		}
 	}
+	if folding {
+		foldRef := fmt.Sprintf("refs/mcode/swarm-fold/%s/%d", prefix, h.Index)
+		if err := m.opts.Git.UpdateRef(ctx, root, foldRef, oldHead); err != nil {
+			return fail(restore(err))
+		}
+	}
 	stagedKept, err = m.opts.Git.AdvanceHead(ctx, root, oldHead, newSHA)
 	if err != nil {
 		if errors.Is(err, git.ErrHeadMoved) || errors.Is(err, git.ErrIndexLocked) {
@@ -5273,7 +5347,197 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 	} else {
 		h.LandedPatchPath = path
 	}
+	foldedSet := make(map[string]bool, len(foldedThreadIDs))
+	for _, id := range foldedThreadIDs {
+		foldedSet[id] = true
+	}
+	foldedUpdated := false
+	m.mu.Lock()
+	if lead := m.leads[leadID]; lead != nil {
+		for i := range lead.bees {
+			b := &lead.bees[i]
+			if b.ThreadID == h.ThreadID {
+				b.LandedCommit = newSHA
+				continue
+			}
+			if folding && (b.LandedCommit == oldHead || foldedSet[b.ThreadID]) {
+				b.LandedCommit = newSHA
+				foldedUpdated = true
+			}
+		}
+	}
+	m.mu.Unlock()
+	unlock()
+	locked = false
+	if foldedUpdated {
+		m.notifyChange(leadID)
+	}
 	return true, false
+}
+
+// FinalizeRequestCommit 在请求收尾时为折叠提交生成一次性描述并替换提交说明，不改动工作区和暂存区。
+func (m *Manager) FinalizeRequestCommit(ctx context.Context, leadThreadID string) {
+	if m.opts.Git == nil || m.opts.Describe == nil {
+		return
+	}
+	if m.Settings().AutoPush {
+		return
+	}
+
+	m.mu.Lock()
+	lead, ok := m.leads[leadThreadID]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	reqID := formatRequestID(leadThreadID, lead.requestStartedAt)
+	if reqID == "" {
+		m.mu.Unlock()
+		return
+	}
+	if lead.dispatching || lead.resuming || len(lead.heldQueue) > 0 || m.queuedCountLocked(leadThreadID) > 0 {
+		m.mu.Unlock()
+		return
+	}
+	targetWorkDir := ""
+	for i := range lead.bees {
+		h := &lead.bees[i]
+		if h.Status == StatusRunning || h.PendingMerge || h.MergeWaitSince != nil || h.AwaitingFinalize {
+			m.mu.Unlock()
+			return
+		}
+		if h.LandedCommit != "" && h.TargetWorkDir != "" && targetWorkDir == "" {
+			targetWorkDir = h.TargetWorkDir
+		}
+	}
+	if targetWorkDir == "" {
+		for i := range lead.bees {
+			if lead.bees[i].TargetWorkDir != "" {
+				targetWorkDir = lead.bees[i].TargetWorkDir
+				break
+			}
+		}
+	}
+	if targetWorkDir == "" {
+		targetWorkDir = lead.leadWorkDir
+	}
+	describedCommit := lead.describedCommit
+	m.mu.Unlock()
+
+	if targetWorkDir == "" || !m.commitLandingEnabled(ctx, targetWorkDir) {
+		return
+	}
+
+	head, err := m.opts.Git.RevParse(ctx, targetWorkDir, "HEAD")
+	if err != nil || head == "" || head == describedCommit {
+		return
+	}
+	headMsg, err := m.opts.Git.CommitMessage(ctx, targetWorkDir, head)
+	if err != nil || !hasRequestTrailer(headMsg, reqID) {
+		return
+	}
+	parents, err := m.opts.Git.CommitParents(ctx, targetWorkDir, head)
+	if err != nil || len(parents) != 1 {
+		return
+	}
+	parent := parents[0]
+
+	describeTimeout := m.opts.DescribeTimeout
+	if describeTimeout <= 0 {
+		describeTimeout = defaultDescribeTimeout
+	}
+	describeCtx, cancel := context.WithTimeout(ctx, describeTimeout)
+	defer cancel()
+	diff, _, diffErr := m.opts.Git.DiffText(describeCtx, targetWorkDir, parent, head, nil, 12000)
+	if diffErr != nil || strings.TrimSpace(diff) == "" {
+		return
+	}
+	rawDesc, descErr := m.opts.Describe(describeCtx, diff)
+	if descErr != nil || describeCtx.Err() != nil {
+		return
+	}
+	cleanedDesc := stripRequestTrailers(rawDesc)
+	if cleanedDesc == "" {
+		return
+	}
+
+	unlock := lockHead(targetWorkDir)
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
+
+	curHead, err := m.opts.Git.RevParse(ctx, targetWorkDir, "HEAD")
+	if err != nil || curHead != head {
+		return
+	}
+	refs, err := m.opts.Git.RefsContaining(ctx, targetWorkDir, head)
+	if err != nil || len(refs) > 0 {
+		return
+	}
+	tree, err := m.opts.Git.RevParse(ctx, targetWorkDir, head+"^{tree}")
+	if err != nil || tree == "" {
+		return
+	}
+	curParents, err := m.opts.Git.CommitParents(ctx, targetWorkDir, head)
+	if err != nil || len(curParents) != 1 {
+		return
+	}
+
+	m.mu.Lock()
+	lead, ok = m.leads[leadThreadID]
+	var landedBees []Bee
+	if ok {
+		for i := range lead.bees {
+			if lead.bees[i].LandedCommit == head {
+				landedBees = append(landedBees, lead.bees[i].clone())
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	var msgBuilder strings.Builder
+	msgBuilder.WriteString(cleanedDesc)
+	if len(landedBees) > 0 {
+		msgBuilder.WriteString("\n")
+		for _, b := range landedBees {
+			name := strings.TrimSpace(b.Name)
+			if name == "" {
+				name = "bee"
+			}
+			msgBuilder.WriteString("\n- ")
+			msgBuilder.WriteString(name)
+			msgBuilder.WriteString(": ")
+			msgBuilder.WriteString(singleLineText(b.Task))
+		}
+	}
+	msgBuilder.WriteString("\n\n")
+	msgBuilder.WriteString(requestTrailer(reqID))
+
+	newSHA, err := m.opts.Git.CommitTree(ctx, targetWorkDir, tree, curParents[0], msgBuilder.String())
+	if err != nil || newSHA == "" {
+		return
+	}
+	if err := m.opts.Git.UpdateHeadCAS(ctx, targetWorkDir, head, newSHA); err != nil {
+		return
+	}
+
+	m.mu.Lock()
+	if lead := m.leads[leadThreadID]; lead != nil {
+		for i := range lead.bees {
+			if lead.bees[i].LandedCommit == head {
+				lead.bees[i].LandedCommit = newSHA
+			}
+		}
+		lead.describedCommit = newSHA
+	}
+	m.mu.Unlock()
+
+	unlock()
+	locked = false
+	m.notifyChange(leadThreadID)
 }
 
 // mergeBee 准备补丁并落地到目标工作区；主工作区尚未落定返回 false，由调用方保持 bee 处于 running 并在后续 tick 重试。
@@ -5442,7 +5706,7 @@ func (m *Manager) replaceBeeLocked(leadThreadID string, h Bee) bool {
 
 // markMergeWaitLocked 在保持 bee 处于 running 的前提下记录落地等待起点、改动文件与未落地的原因，
 // 让它在下个 tick 重新走落地检查，而不是被标记为完成。
-func (m *Manager) markMergeWaitLocked(leadThreadID, beeThreadID string, since, finishedAt *time.Time, changedFiles []string, linesAdded, linesDeleted int, mergeError, landMessage string) {
+func (m *Manager) markMergeWaitLocked(leadThreadID, beeThreadID string, since, finishedAt *time.Time, changedFiles []string, linesAdded, linesDeleted int, mergeError string) {
 	lead, ok := m.leads[leadThreadID]
 	if !ok {
 		return
@@ -5463,9 +5727,6 @@ func (m *Manager) markMergeWaitLocked(leadThreadID, beeThreadID string, since, f
 		lead.bees[i].LinesAdded = linesAdded
 		lead.bees[i].LinesDeleted = linesDeleted
 		lead.bees[i].MergeError = mergeError
-		if landMessage != "" {
-			lead.bees[i].LandMessage = landMessage
-		}
 		// 会话已结束、只是等待落地，不应继续显示为思考中。
 		lead.bees[i].ThinkingMinutes = 0
 		return
@@ -7021,7 +7282,6 @@ func (m *Manager) continueInterruptedBee(ctx context.Context, leadThreadID strin
 		return true, false
 	}
 	bee.Status = StatusRunning
-	bee.LandMessage = ""
 	bee.Interrupted = false
 	bee.Reported = false
 	bee.Delivered = false

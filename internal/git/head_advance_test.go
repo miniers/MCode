@@ -154,3 +154,43 @@ func TestAdvanceHeadIndexLocked(t *testing.T) {
 		t.Fatalf("工作区未清洁: %q", got)
 	}
 }
+
+func TestRefsContaining(t *testing.T) {
+	t.Parallel()
+	r, root := newRevertTestRepo(t)
+	ctx := context.Background()
+	writeTestFile(t, root, "a.txt", "base\n")
+	runTestGit(t, root, "add", ".")
+	runTestGit(t, root, "commit", "-qm", "base")
+	sha := runTestGit(t, root, "rev-parse", "HEAD")
+
+	// 1. 只被当前分支包含时返回空
+	refs, err := r.RefsContaining(ctx, root, sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 0 {
+		t.Fatalf("只被当前分支包含时应返回空，实际 %v", refs)
+	}
+
+	// 2. 打上 tag 后返回该 tag
+	runTestGit(t, root, "tag", "v1.0.0", sha)
+	refs, err = r.RefsContaining(ctx, root, sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(refs, []string{"refs/tags/v1.0.0"}) {
+		t.Fatalf("打 tag 后 RefsContaining=%v want=[refs/tags/v1.0.0]", refs)
+	}
+
+	// 3. 删掉 tag 并新建另一个分支包含该提交后，返回那个分支
+	runTestGit(t, root, "tag", "-d", "v1.0.0")
+	runTestGit(t, root, "branch", "other", sha)
+	refs, err = r.RefsContaining(ctx, root, sha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(refs, []string{"refs/heads/other"}) {
+		t.Fatalf("另一分支包含时 RefsContaining=%v want=[refs/heads/other]", refs)
+	}
+}

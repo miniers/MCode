@@ -533,7 +533,6 @@ func resetBeeForAnotherTurn(b *Bee, now time.Time) {
 	b.PendingMerge = false
 	b.MergeWaitSince = nil
 	b.MergeError = ""
-	b.LandMessage = ""
 	b.LandedPatchPath = ""
 	b.LandedCommit = ""
 	b.Merged = false

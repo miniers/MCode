@@ -1524,6 +1524,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 	backend.SetTurnFinishedHook(func(threadID, projectID, assistantText string, completed bool) {
 		if !isBeeThread(threadID) {
 			mgr.NoteLeadTurn(threadID)
+			go mgr.FinalizeRequestCommit(ctx, threadID)
 		}
 		if !completed {
 			dispatcher.clear(threadID)
