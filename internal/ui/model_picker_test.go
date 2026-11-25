@@ -365,7 +365,9 @@ func TestModelPickerFlyoutPickInvalidatesHost(t *testing.T) {
 		host := ui.NewTester(func(c *ui.Context) {
 			entry.services = c.Services()
 			props.Invalidate = func() {
-				invalidates++
+				if picked {
+					invalidates++
+				}
 				c.Services().Invalidate()
 			}
 			renderModelPicker(c, props)
@@ -375,6 +377,7 @@ func TestModelPickerFlyoutPickInvalidatesHost(t *testing.T) {
 		}
 		menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-pick-model-model-popover"), 368, 600)
 		settleModelPickerPage(menu)
+		invalidates = 0
 		if err := menu.Click("Claude 3.5 Haiku"); err != nil {
 			t.Fatal(err)
 		}
@@ -418,7 +421,9 @@ func TestModelPickerFlyoutPickInvalidatesHost(t *testing.T) {
 		host := ui.NewTester(func(c *ui.Context) {
 			entry.services = c.Services()
 			props.Invalidate = func() {
-				invalidates++
+				if applied.ID != "" {
+					invalidates++
+				}
 				c.Services().Invalidate()
 			}
 			renderModelPicker(c, props)
@@ -428,6 +433,7 @@ func TestModelPickerFlyoutPickInvalidatesHost(t *testing.T) {
 		}
 		menu := ui.NewTester(popoverTestView(t, entry.services, "flyout-apply-pair-model-popover"), 368, 600)
 		settleModelPickerPage(menu)
+		invalidates = 0
 		if err := menu.Click("深度思考"); err != nil {
 			t.Fatal(err)
 		}
