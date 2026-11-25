@@ -466,7 +466,8 @@ func TestCompletionCacheIsScopedToThread(t *testing.T) {
 	s.draft = "/"
 	s.updateCompletion("t1")
 	s.updateCompletion("t2")
-	if len(s.completionItems) != 1 || s.completionItems[0].Label != "/compact" {
+	items := nonHeaderItems(s.completionItems)
+	if len(items) != 1 || items[0].Label != "/compact" {
 		t.Fatalf("wrong thread commands: %+v", s.completionItems)
 	}
 }
@@ -983,6 +984,17 @@ func nonCategoryItems(items []completionItem) []completionItem {
 	return out
 }
 
+// nonHeaderItems 过滤掉分组标题行，便于断言命令候选本身。
+func nonHeaderItems(items []completionItem) []completionItem {
+	out := make([]completionItem, 0, len(items))
+	for _, it := range items {
+		if !it.Header {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
 // waitCompletionLoaded 轮询等待异步补全（文件搜索）落地。
 func waitCompletionLoaded(t *testing.T, s *chatState) {
 	t.Helper()
@@ -1112,7 +1124,7 @@ func TestCompletionTabOnDirectoryDescends(t *testing.T) {
 	}
 }
 
-// '$' 空查询先给分类行，再给全部技能；有查询字符后只剩叶子候选。
+// '$' 空查询无分类行，加载完成后返回全部技能；按右键切换到「全局」分段后只剩 global 技能。
 func TestSkillCompletionPanelCategories(t *testing.T) {
 	origScan := scanSkills
 	resetSkillCache()
@@ -1135,15 +1147,12 @@ func TestSkillCompletionPanelCategories(t *testing.T) {
 	s.draft = "$"
 	s.updateCompletion("t1")
 
-	// 扫描被 release 阻塞时面板靠 loading 行维持可见：加载中允许先出分类行（项目 / 全局 / 外部），
-	// 但不得出现任何叶子候选（Category 为 false 的行）。
+	// 扫描被 release 阻塞时面板靠 loading 行维持可见，且不得出现分类行或叶子候选。
 	if !s.completionLoading {
 		t.Fatalf("first frame must be loading, loading=%v items=%+v", s.completionLoading, s.completionItems)
 	}
-	for _, item := range s.completionItems {
-		if !item.Category {
-			t.Fatalf("加载中不应出现叶子候选: %+v", item)
-		}
+	if len(s.completionItems) != 0 {
+		t.Fatalf("加载中不应出现候选或分类行: %+v", s.completionItems)
 	}
 	close(release)
 	waitSkillReady(t, s, "/repo")
@@ -1155,28 +1164,288 @@ func TestSkillCompletionPanelCategories(t *testing.T) {
 	if loading {
 		t.Fatalf("skills must be loaded")
 	}
-	if len(items) < 4 {
-		t.Fatalf("expected 3 categories + skills, got %+v", items)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 skills without categories, got %+v", items)
 	}
-	if !items[0].Category || items[0].Insert != "$project:" || items[1].Insert != "$global:" || items[2].Insert != "$external:" {
-		t.Fatalf("skill categories = %+v", items[:3])
+	for _, it := range items {
+		if it.Category {
+			t.Fatalf("skill completion must not emit category row: %+v", it)
+		}
 	}
 
-	// 进入「全局」分类后只剩 global 技能。
+	// 按两次 → 从「全部」经「项目」切到「全局」，只剩 global 技能。
+	if _, handled := s.handleCompletionKey(ui.KeyRight, 0); !handled {
+		t.Fatalf("KeyRight must be handled")
+	}
+	if _, handled := s.handleCompletionKey(ui.KeyRight, 0); !handled {
+		t.Fatalf("KeyRight must be handled")
+	}
+	s.mu.Lock()
+	scope := s.completionSkillScope
+	global := append([]completionItem(nil), s.completionItems...)
+	s.mu.Unlock()
+	if scope != "global" {
+		t.Fatalf("scope = %q, want global", scope)
+	}
+	if len(global) != 1 || global[0].Insert != "$review" {
+		t.Fatalf("global scope items = %+v", global)
+	}
+}
+
+func TestSlashCompletionShowsAllGrouped(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	cmds := []SlashCommand{
+		{Name: "mode", Detail: "切换模式"},
+		{Name: "model", Detail: "切换模型"},
+		{Name: "effort", Detail: "推理强度"},
+		{Name: "fast", Detail: "快速模式"},
+		{Name: "pair", Detail: "蜂群编排"},
+		{Name: "export", Detail: "导出会话"},
+		{Name: "clear", Detail: "清空会话"},
+		{Name: "copy", Detail: "复制会话"},
+		{Name: "forward", Detail: "转发上下文"},
+		{Name: "plan", Detail: "规划模式"},
+		{Name: "compact", Detail: "压缩上下文"},
+		{Name: "review", Detail: "代码审查"},
+		{Name: "doctor", Detail: "环境检查"},
+	}
+	s.commandsCache["t1"] = cmds
+	s.draft = "/"
+	s.updateCompletion("t1")
+
+	s.mu.Lock()
+	items := append([]completionItem(nil), s.completionItems...)
+	selected := s.completionSelected
+	s.mu.Unlock()
+
+	if len(nonHeaderItems(items)) != len(cmds) {
+		t.Fatalf("expected all %d commands without truncation, got %d (%+v)", len(cmds), len(nonHeaderItems(items)), items)
+	}
+	if !items[0].Header || items[0].Label != "本地操作" {
+		t.Fatalf("items[0] = %+v, want 本地操作 header", items[0])
+	}
+	secondHeader := -1
+	for i, it := range items {
+		if it.Header && it.Label == "会话与 Provider" {
+			secondHeader = i
+			break
+		}
+	}
+	if secondHeader != 10 {
+		t.Fatalf("secondHeader = %d, want 10 (9 local commands after first header)", secondHeader)
+	}
+	if selected != 1 {
+		t.Fatalf("initial selected = %d, want 1 (must skip header 0)", selected)
+	}
+
+	// 从最后一个本地命令 (/forward，索引 9) 按 ↓ 跳过第二组标题 (10)，落到 /plan (11)。
+	s.mu.Lock()
+	s.completionSelected = secondHeader - 1
+	s.mu.Unlock()
+	if _, handled := s.handleCompletionKey(ui.KeyDown, 0); !handled {
+		t.Fatal("KeyDown must be handled")
+	}
+	if s.completionSelected != secondHeader+1 {
+		t.Fatalf("KeyDown did not skip header: selected=%d, want %d", s.completionSelected, secondHeader+1)
+	}
+
+	// 按 ↑ 跳过第二组标题 (10)，回到 /forward (9)。
+	if _, handled := s.handleCompletionKey(ui.KeyUp, 0); !handled {
+		t.Fatal("KeyUp must be handled")
+	}
+	if s.completionSelected != secondHeader-1 {
+		t.Fatalf("KeyUp did not skip header: selected=%d, want %d", s.completionSelected, secondHeader-1)
+	}
+
+	// 从首条命令 (1) 按 ↑ 绕回末尾且跳过首组标题 (0)。
 	s.mu.Lock()
 	s.completionSelected = 1
 	s.mu.Unlock()
-	if _, handled := s.handleCompletionKey(ui.KeyTab, 0); !handled {
-		t.Fatalf("Tab must be handled")
+	if _, handled := s.handleCompletionKey(ui.KeyUp, 0); !handled {
+		t.Fatal("KeyUp wrap must be handled")
 	}
-	if s.draft != "$global:" {
-		t.Fatalf("draft = %q, want $global:", s.draft)
+	if s.completionSelected != len(items)-1 {
+		t.Fatalf("KeyUp wrap = %d, want %d", s.completionSelected, len(items)-1)
 	}
+}
+
+func TestSkillScopeSegments(t *testing.T) {
+	origScan := scanSkills
+	resetSkillCache()
+	t.Cleanup(func() {
+		scanSkills = origScan
+		resetSkillCache()
+	})
+	scanSkills = func(opts agentconf.Options) ([]agentconf.Skill, error) {
+		return []agentconf.Skill{
+			{Agent: "claude", Scope: "project", Name: "proj-skill", Description: "项目技能", Path: opts.ProjectDir + "/p/SKILL.md"},
+			{Agent: "codex", Scope: "global", Name: "glob-skill", Description: "全局技能", Path: "/g/SKILL.md"},
+			{Agent: "claude", Scope: "external", Name: "ext-skill", Description: "外部技能", Path: "/e/SKILL.md"},
+		}, nil
+	}
+
+	s := newChatState(NewFakeClient())
+	s.projects = []Project{{ID: "p1", Name: "repo", Path: "/repo"}}
+	s.threads = []Thread{{ID: "t1", ProjectID: "p1"}}
+	tt := composerTester(s)
+
+	tt.Type("$")
+	waitFor(t, tt, func() bool { return tt.HasText("$proj-skill") })
+
+	s.mu.Lock()
+	items := append([]completionItem(nil), s.completionItems...)
+	scope := s.completionSkillScope
+	s.mu.Unlock()
+	for _, it := range items {
+		if it.Category {
+			t.Fatalf("$ empty query must not have category rows: %+v", it)
+		}
+	}
+	if scope != "" || len(items) != 3 {
+		t.Fatalf("initial scope=%q items=%+v", scope, items)
+	}
+
+	// 按 → 切到「项目」，只剩 project 技能。
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	s.mu.Lock()
+	scope = s.completionSkillScope
+	items = append([]completionItem(nil), s.completionItems...)
+	s.mu.Unlock()
+	if scope != "project" || len(items) != 1 || items[0].Insert != "$proj-skill" {
+		t.Fatalf("after KeyRight: scope=%q items=%+v", scope, items)
+	}
+
+	// 按 ← 回到「全部」。
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+	s.mu.Lock()
+	scope = s.completionSkillScope
+	items = append([]completionItem(nil), s.completionItems...)
+	s.mu.Unlock()
+	if scope != "" || len(items) != 3 {
+		t.Fatalf("after KeyLeft: scope=%q items=%+v", scope, items)
+	}
+
+	// 切到「项目」后关闭再重新打开 '$'，应重置为「全部」。
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(DurFast + 50*time.Millisecond)
+	tt.Frame()
+	tt.Type(" $")
+	waitFor(t, tt, func() bool { return tt.HasText("$ext-skill") })
+	s.mu.Lock()
+	scope = s.completionSkillScope
+	s.mu.Unlock()
+	if scope != "" {
+		t.Fatalf("reopening $ must reset scope to all, got %q", scope)
+	}
+
+	// 草稿手写 $global: 前缀应同步选中「全局」。
+	s.mu.Lock()
+	s.draft = "$global:"
+	s.mu.Unlock()
 	s.updateCompletion("t1")
 	s.mu.Lock()
-	global := append([]completionItem(nil), s.completionItems...)
+	scope = s.completionSkillScope
+	items = append([]completionItem(nil), s.completionItems...)
 	s.mu.Unlock()
-	if len(global) != 1 || global[0].Insert != "$review" {
-		t.Fatalf("global scope items = %+v", global)
+	if scope != "global" || len(items) != 1 || items[0].Insert != "$glob-skill" {
+		t.Fatalf("$global: prefix scope=%q items=%+v", scope, items)
+	}
+}
+
+func TestSkillMatchDescription(t *testing.T) {
+	skills := []agentconf.Skill{
+		{Agent: "claude", Scope: "global", Name: "quality-check", Description: "Run full audit on repository", Path: "/g/quality/SKILL.md"},
+		{Agent: "claude", Scope: "project", Name: "audit-tool", Description: "Inspect files", Path: "/p/audit/SKILL.md"},
+		{Agent: "codex", Scope: "global", Name: "other", Description: "Something else", Path: "/g/other/SKILL.md"},
+	}
+
+	items := skillCompletionItems(skills, "audit")
+	if len(items) != 2 {
+		t.Fatalf("expected 2 matches (name + description), got %+v", items)
+	}
+	if items[0].Insert != "$audit-tool" || items[1].Insert != "$quality-check" {
+		t.Fatalf("unexpected match order: %+v", items)
+	}
+}
+
+func TestSkillConfirmInsertsTag(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.draft = "请用 $des"
+	s.completionKind = completionSkill
+	s.completionStart = len("请用 ")
+	s.completionItems = []completionItem{
+		{Label: "$design-mockup", Insert: "$design-mockup", Source: "project"},
+	}
+	s.completionSelected = 0
+
+	newText, handled := s.handleCompletionKey(ui.KeyEnter, 0)
+	if !handled || newText != "请用 $design-mockup " || s.draft != "请用 $design-mockup " {
+		t.Fatalf("confirm skill = (%v, %q), draft=%q", handled, newText, s.draft)
+	}
+
+	ranges := s.mentionRanges(ui.RGB(0, 100, 200))
+	if len(ranges) != 1 {
+		t.Fatalf("expected 1 tag range, got %+v", ranges)
+	}
+	if got := s.draftText.AttributesAt(ranges[0].Start).Tag; got != "design-mockup" {
+		t.Fatalf("tag = %q, want design-mockup", got)
+	}
+
+	// 后续输入保留已有技能 Tag；删改 Token 区间后清除 Tag。
+	s.draft += "出稿"
+	s.syncDraftTags()
+	if len(s.mentionRanges(ui.RGB(0, 100, 200))) != 1 {
+		t.Fatal("editing after skill token lost its Tag")
+	}
+	s.draft = "请用 出稿"
+	s.syncDraftTags()
+	if len(s.mentionRanges(ui.RGB(0, 100, 200))) != 0 {
+		t.Fatal("deleting skill token must remove its Tag")
+	}
+}
+
+func TestSkillEmptyLabel(t *testing.T) {
+	if got := completionEmptyLabel(completionSkill, ""); got != "没有匹配的技能" {
+		t.Fatalf("completionEmptyLabel(completionSkill, \"\") = %q, want 没有匹配的技能", got)
+	}
+	if got := completionEmptyLabel(completionSkill, "project"); got != "没有匹配的技能" {
+		t.Fatalf("completionEmptyLabel(completionSkill, \"project\") = %q, want 没有匹配的技能", got)
+	}
+}
+
+func TestSlashArgHintBarSettles(t *testing.T) {
+	setAppReduceMotion(t, false)
+	s := newChatState(NewFakeClient())
+	s.commandsCache["t1"] = []SlashCommand{{Name: "effort", Detail: "设置推理深度"}}
+	tt := composerTester(s)
+
+	tt.Type("/effort ")
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Fatal("参数提示条入场动画应请求下一帧")
+	}
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("参数提示条入场动画结束后不应继续请求下一帧")
+	}
+	if !tt.HasText("/effort") || !tt.HasText("low | medium | high") {
+		t.Fatalf("参数提示条未显示预期内容: %v", tt.Texts())
+	}
+
+	// 清空草稿触发退场动画，完成后不再请求下一帧。
+	s.clearDraftAndCompletion()
+	tt.Frame()
+	tt.Advance(DurFast + 50*time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatal("参数提示条退场动画结束后不应继续请求下一帧")
+	}
+	if tt.HasText("low | medium | high") {
+		t.Fatalf("参数提示条退场后不应仍可见: %v", tt.Texts())
 	}
 }

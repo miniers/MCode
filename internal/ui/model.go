@@ -553,11 +553,13 @@ type chatState struct {
 	completionSnap []completionItem
 	// completionCaretToEnd 表示补全刚改写了草稿，下一帧需把光标放到文末；TextKey 无法移动光标，只能在构建视图时用 SetTextSelection。
 	completionCaretToEnd bool
-	completionThreadID   string
-	completionSuspended  bool
-	completionLoading    bool
-	completionLoaded     bool
-	commandsCache        map[string][]SlashCommand
+	completionThreadID        string
+	completionSuspended       bool
+	completionLoading         bool
+	completionLoaded          bool
+	completionSkillScope      string
+	completionSkillDraftScope string
+	commandsCache             map[string][]SlashCommand
 	mentionSeq           uint64
 	// draftThreadMentions 是草稿上方的会话引用胶囊，与正文分离；发送时按 ThreadID 展开为引用块。
 	// 由 s.mu 保护。

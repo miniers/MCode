@@ -3,7 +3,9 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,15 +29,18 @@ const (
 
 // completionItem 描述单个候选补全项。
 type completionItem struct {
-	Label    string // 菜单显示名称（斜杠带 "/"，文件为 Path，目录带 "/"）
-	Detail   string // 次要说明文字
-	Insert   string // 插入草稿的文本（斜杠 "/"+Name，提及 "@"+Path）
-	Hint     string // 高亮时显示在该行右侧的参数提示或说明
-	ThreadID string // 会话提及项对应的会话 ID；非空表示这是 @ 会话引用
-	Icon     string // 可选的候选类型图标，目前仅 "thread"（会话气泡）
-	Source   string // 技能来源（project/global/external），用于右侧来源胶囊；非技能项为空
-	// Category 表示这是一行分类（文件/会话/项目/全局/外部）：确认后只把分类前缀写进草稿并保持面板打开。
+	Label       string // 菜单显示名称（斜杠带 "/"，文件为 Path，目录带 "/"）
+	Detail      string // 次要说明文字
+	Description string // 预览条展示的完整说明（技能为 Description，斜杠为原始 Detail）
+	Insert      string // 插入草稿的文本（斜杠 "/"+Name，提及 "@"+Path）
+	Hint        string // 高亮时显示在底部预览条的参数提示或说明
+	ThreadID    string // 会话提及项对应的会话 ID；非空表示这是 @ 会话引用
+	Icon        string // 可选的候选类型图标，目前仅 "thread"（会话气泡）
+	Source      string // 技能来源（project/global/external），用于右侧来源胶囊；非技能项为空
+	// Category 表示这是一行分类（文件/会话）：确认后只把分类前缀写进草稿并保持面板打开。
 	Category bool
+	// Header 表示分组标题行（「本地操作」/「会话与 Provider」），不可选中，上下键跳过。
+	Header bool
 }
 
 // ThreadMention 是一条被引用的会话：胶囊展示 Title，发送时按 ThreadID 展开上下文块。
@@ -115,17 +120,14 @@ func detectCompletion(draft string) (kind completionKind, start int, query strin
 
 // filterCommands 根据 query 对斜杠指令做大小写不敏感过滤，并按匹配优先级排序：
 // 名称前缀 > 别名前缀 > 名称包含 > 别名包含 > Detail 包含 > 名称子序列（query 字符按顺序出现在名称里），
-// 同分保持传入顺序，最多返回 limit 条；query 为空时保持原顺序截断。
+// 同分保持传入顺序，最多返回 limit 条；query 为空时返回全部命令（不截断）。
 func filterCommands(cmds []SlashCommand, query string, limit int) []SlashCommand {
-	if limit <= 0 {
-		limit = 8
-	}
 	q := strings.ToLower(query)
 	if q == "" {
-		if len(cmds) > limit {
-			return append([]SlashCommand(nil), cmds[:limit]...)
-		}
 		return append([]SlashCommand(nil), cmds...)
+	}
+	if limit <= 0 {
+		limit = 8
 	}
 
 	type scored struct {
@@ -219,6 +221,43 @@ func isSubsequence(q, s string) bool {
 	return qi == len(q)
 }
 
+// isLocalSlashCommand 判断命令是否属于 runLocalSlashCommand 在本地执行的命令集合。
+func isLocalSlashCommand(name string) bool {
+	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(name)), "/") {
+	case "mode", "model", "effort", "fast", "pair", "export", "clear", "copy", "forward":
+		return true
+	default:
+		return false
+	}
+}
+
+// slashCompletionItems 生成 '/' 补全菜单项：空查询时返回全部命令并按「本地操作」「会话与 Provider」分组；
+// 非空查询时按匹配优先级排序并限制条数。
+func slashCompletionItems(cmds []SlashCommand, query string) []completionItem {
+	if strings.TrimSpace(query) == "" {
+		all := filterCommands(cmds, "", 0)
+		var localCmds, sessionCmds []SlashCommand
+		for _, cmd := range all {
+			if isLocalSlashCommand(cmd.Name) {
+				localCmds = append(localCmds, cmd)
+			} else {
+				sessionCmds = append(sessionCmds, cmd)
+			}
+		}
+		items := make([]completionItem, 0, len(all)+2)
+		if len(localCmds) > 0 {
+			items = append(items, completionItem{Label: "本地操作", Header: true})
+			items = append(items, slashCommandsToItems(localCmds, "")...)
+		}
+		if len(sessionCmds) > 0 {
+			items = append(items, completionItem{Label: "会话与 Provider", Header: true})
+			items = append(items, slashCommandsToItems(sessionCmds, "")...)
+		}
+		return items
+	}
+	return slashCommandsToItems(filterCommands(cmds, query, 8), query)
+}
+
 // slashCommandsToItems 把命令转换为补全项；query 用于识别靠别名命中的命令，
 // 这类命令的 Detail 末尾会追加「（别名 /xx）」；Hint 取自参数提示表。
 func slashCommandsToItems(cmds []SlashCommand, query string) []completionItem {
@@ -235,10 +274,11 @@ func slashCommandsToItems(cmds []SlashCommand, query string) []completionItem {
 			}
 		}
 		items[i] = completionItem{
-			Label:  "/" + cmd.Name,
-			Detail: detail,
-			Insert: "/" + cmd.Name,
-			Hint:   slashCommandArgHints[cmd.Name],
+			Label:       "/" + cmd.Name,
+			Detail:      detail,
+			Description: cmd.Detail,
+			Insert:      "/" + cmd.Name,
+			Hint:        slashCommandArgHints[cmd.Name],
 		}
 	}
 	return items
@@ -283,23 +323,25 @@ func completionScope(query string) (scope, rest string) {
 	return "", query
 }
 
-// completionCategoryItems 返回某类补全的分类行：@ 下分「文件」「会话」，$ 下分「项目」「全局」「外部」。
+// completionCategoryItems 返回 @ 补全的分类行：「文件」「会话」。
 // 分类行的 Insert 是「触发符 + 分类前缀」，确认后草稿里留下前缀，面板按前缀继续下钻。
 func completionCategoryItems(kind completionKind) []completionItem {
-	switch kind {
-	case completionMention:
+	if kind == completionMention {
 		return []completionItem{
 			{Label: "▸ 文件", Detail: "@file:", Insert: "@file:", Category: true},
 			{Label: "▸ 会话", Detail: "@thread:", Insert: "@thread:", Category: true},
 		}
-	case completionSkill:
-		return []completionItem{
-			{Label: "▸ 项目", Detail: "$project:", Insert: "$project:", Category: true},
-			{Label: "▸ 全局", Detail: "$global:", Insert: "$global:", Category: true},
-			{Label: "▸ 外部", Detail: "$external:", Insert: "$external:", Category: true},
-		}
 	}
 	return nil
+}
+
+// isSkillScope 判断是否为 '$' 技能补全支持的来源作用域。
+func isSkillScope(scope string) bool {
+	switch scope {
+	case "project", "global", "external":
+		return true
+	}
+	return false
 }
 
 // mentionCompletionItems 组装 @ 补全候选：分类行（仅空查询）、会话引用与文件结果按分类前缀取舍。
@@ -331,7 +373,7 @@ func filterSkillsByScope(skills []agentconf.Skill, scope string) []agentconf.Ski
 	return filtered
 }
 
-// skillCompletionItems 把技能转换成 $ 补全项，按「名称前缀 > 名称包含 > 路径包含」排序，最多 20 条。
+// skillCompletionItems 把技能转换成 $ 补全项，按「名称前缀 > 名称包含 > 路径包含 > 描述包含」排序，最多 20 条。
 // 名字里的空格插入时替换为 '-'：detectCompletion 以空白切 token，含空格的 token 插入后会被当成两个 token。
 func skillCompletionItems(skills []agentconf.Skill, query string) []completionItem {
 	type scored struct {
@@ -374,10 +416,11 @@ func skillCompletionItems(skills []agentconf.Skill, query string) []completionIt
 	items := make([]completionItem, len(matched))
 	for i, m := range matched {
 		items[i] = completionItem{
-			Label:  "$" + m.name,
-			Detail: m.skill.Agent + " · " + m.skill.Scope,
-			Insert: "$" + strings.ReplaceAll(m.name, " ", "-"),
-			Source: m.skill.Scope,
+			Label:       "$" + m.name,
+			Detail:      m.skill.Agent + " · " + m.skill.Scope,
+			Description: strings.TrimSpace(m.skill.Description),
+			Insert:      "$" + strings.ReplaceAll(m.name, " ", "-"),
+			Source:      m.skill.Scope,
 		}
 	}
 	return items
@@ -393,6 +436,8 @@ func skillMatchScore(sk agentconf.Skill, name, q string) (int, bool) {
 		return 1, true
 	case strings.Contains(strings.ToLower(sk.Path), q):
 		return 2, true
+	case strings.Contains(strings.ToLower(sk.Description), q):
+		return 3, true
 	}
 	return 0, false
 }
@@ -430,7 +475,35 @@ func completionThreadUnavailable(s *chatState, item completionItem) string {
 	return completionThreadUnavailableLocked(s, item)
 }
 
-// selectAdjacentCompletion 沿 step 方向（+1 向下、-1 向上）循环移动选中项，跳过失效的会话引用；
+// completionUnusableReasonLocked 判断候选项是否不可选中：分组标题或已失效的会话引用不可选中。
+// 调用方需持有 s.mu。
+func (s *chatState) completionUnusableReasonLocked(item completionItem) string {
+	if item.Header {
+		return "header"
+	}
+	return completionThreadUnavailableLocked(s, item)
+}
+
+// ensureSelectableCompletionLocked 当当前选中项越界或不可选中（如落在分组标题上）时，
+// 顺移到第一个可用项；全部不可用时保持原值。调用方需持有 s.mu。
+func (s *chatState) ensureSelectableCompletionLocked() {
+	n := len(s.completionItems)
+	if n == 0 {
+		return
+	}
+	if s.completionSelected >= 0 && s.completionSelected < n && s.completionUnusableReasonLocked(s.completionItems[s.completionSelected]) == "" {
+		return
+	}
+	reasons := make([]string, n)
+	for i, it := range s.completionItems {
+		reasons[i] = s.completionUnusableReasonLocked(it)
+	}
+	if next := nextUsableCompletionIndex(reasons, -1); next >= 0 {
+		s.completionSelected = next
+	}
+}
+
+// selectAdjacentCompletion 沿 step 方向（+1 向下、-1 向上）循环移动选中项，跳过分组标题与失效的会话引用；
 // 没有可用项时保持原值。调用方需持有 s.mu。
 func (s *chatState) selectAdjacentCompletion(step int) {
 	n := len(s.completionItems)
@@ -443,7 +516,7 @@ func (s *chatState) selectAdjacentCompletion(step int) {
 	}
 	for i := 1; i <= n; i++ {
 		idx := ((start+step*i)%n + n) % n
-		if completionThreadUnavailableLocked(s, s.completionItems[idx]) == "" {
+		if s.completionUnusableReasonLocked(s.completionItems[idx]) == "" {
 			s.completionSelected = idx
 			return
 		}
@@ -475,12 +548,14 @@ func (s *chatState) updateCompletion(threadID string) {
 	if s.isComposing || s.completionSuspended {
 		kind = completionNone
 	}
-	if kind == completionNone || (dismissedFor != "" && dismissedFor == draft[start:] && s.completionThreadID == threadID) {
+	if kind == completionNone || (dismissedFor != "" && dismissedFor == draft[start:] && s.completionStart == start && s.completionThreadID == threadID) {
 		wasOpen := s.completionKind != completionNone
 		s.completionKind = completionNone
 		s.completionItems = nil
 		s.completionLoading = false
 		s.completionLoaded = false
+		s.completionSkillScope = ""
+		s.completionSkillDraftScope = ""
 		s.mentionSeq++
 		if kind == completionNone && !s.isComposing {
 			s.completionDismissedFor = ""
@@ -495,14 +570,15 @@ func (s *chatState) updateCompletion(threadID string) {
 	// 分类前缀（file:/thread:/project:/global:/external:）表达层级：草稿本身就是层级的真相，
 	// 前缀之后的 rest 才是用于过滤的查询。
 	scope, rest := completionScope(query)
-	// 分类行只在刚敲下触发符（查询为空）时出现，有查询字符后只剩叶子项。
-	categories := query == "" && (kind == completionMention || kind == completionSkill)
+	// 分类行只在 @ 刚敲下触发符（查询为空）时出现；$ 改为顶部分段标签，不再插入文本分类行。
+	categories := query == "" && kind == completionMention
 	effective := query
-	if scope != "" {
+	if scope != "" && (kind != completionSkill || isSkillScope(scope)) {
 		effective = rest
 	}
 
-	changed := s.completionKind != kind || s.completionQuery != query || s.completionThreadID != threadID
+	prevKind := s.completionKind
+	changed := prevKind != kind || s.completionQuery != query || s.completionThreadID != threadID
 	if changed {
 		s.completionItems = nil
 		s.completionSelected = 0
@@ -510,6 +586,23 @@ func (s *chatState) updateCompletion(threadID string) {
 		s.completionLoaded = false
 		s.mentionSeq++
 		noteCompletionLevel(kind, query)
+	}
+	if kind == completionSkill {
+		if prevKind != completionSkill {
+			s.completionSkillScope = ""
+			s.completionSkillDraftScope = ""
+		}
+		draftScope := ""
+		if isSkillScope(scope) {
+			draftScope = scope
+		}
+		if draftScope != s.completionSkillDraftScope {
+			s.completionSkillScope = draftScope
+			s.completionSkillDraftScope = draftScope
+		}
+	} else {
+		s.completionSkillScope = ""
+		s.completionSkillDraftScope = ""
 	}
 	s.completionDismissedFor = ""
 	s.completionKind = kind
@@ -520,8 +613,9 @@ func (s *chatState) updateCompletion(threadID string) {
 	if kind == completionSlash {
 		if cmds, cached := s.commandsCache[threadID]; cached {
 			if changed || !s.completionLoaded {
-				s.completionItems = slashCommandsToItems(filterCommands(cmds, query, 8), query)
+				s.completionItems = slashCompletionItems(cmds, query)
 				s.completionLoaded = true
+				s.ensureSelectableCompletionLocked()
 			}
 			s.mu.Unlock()
 			if changed {
@@ -534,12 +628,13 @@ func (s *chatState) updateCompletion(threadID string) {
 	// 技能候选来自磁盘扫描（带 60 秒缓存），不走后端请求；未就绪时面板显示 loading 行。
 	if kind == completionSkill {
 		skills, ready := s.skillsForProject(s.projectPathForThreadLocked(threadID))
-		if changed || !s.completionLoaded || s.completionItems == nil {
-			items := skillCompletionItems(filterSkillsByScope(skills, scope), effective)
-			if categories {
-				items = append(completionCategoryItems(kind), items...)
+		if changed || !s.completionLoaded || s.completionItems == nil || !ready {
+			if ready {
+				s.completionItems = skillCompletionItems(filterSkillsByScope(skills, s.completionSkillScope), effective)
+				s.ensureSelectableCompletionLocked()
+			} else {
+				s.completionItems = nil
 			}
-			s.completionItems = items
 		}
 		s.completionLoading = !ready
 		s.completionLoaded = ready
@@ -583,7 +678,7 @@ func (s *chatState) updateCompletion(threadID string) {
 		var cmds []SlashCommand
 		if kind == completionSlash {
 			cmds, err = s.client.Commands(context.Background(), threadID)
-			items = slashCommandsToItems(filterCommands(cmds, query, 8), query)
+			items = slashCompletionItems(cmds, query)
 		} else {
 			var matches []FileMatch
 			matches, err = s.client.SearchFiles(context.Background(), threadID, effective)
@@ -601,6 +696,7 @@ func (s *chatState) updateCompletion(threadID string) {
 				if kind == completionSlash {
 					s.commandsCache[threadID] = cmds
 					s.completionItems = items
+					s.ensureSelectableCompletionLocked()
 				} else {
 					s.completionItems = mentionCompletionItems(kind, scope, categories, threadItems(), fileItems)
 				}
@@ -684,8 +780,8 @@ func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool
 		return s.draft
 	}
 	insert := richtext.NewText(item.Insert)
-	if s.completionKind == completionMention && !item.Category {
-		tag := strings.TrimPrefix(item.Insert, "@")
+	if (s.completionKind == completionMention || s.completionKind == completionSkill) && !item.Category {
+		tag := strings.TrimPrefix(strings.TrimPrefix(item.Insert, "@"), "$")
 		insert = insert.Format(0, insert.Len(), func(a *richtext.Attributes) {
 			a.Tag = tag
 		})
@@ -710,6 +806,8 @@ func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool
 	s.completionKind = completionNone
 	s.completionItems = nil
 	s.completionDismissedFor = ""
+	s.completionSkillScope = ""
+	s.completionSkillDraftScope = ""
 	s.mentionSeq++
 	s.completionCaretToEnd = true
 	return s.draft
@@ -829,7 +927,17 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 		}
 		s.completionKind = completionNone
 		s.completionItems = nil
+		s.completionSkillScope = ""
+		s.completionSkillDraftScope = ""
 		s.mentionSeq++
+		return "", true
+	}
+	if s.completionKind == completionSkill && mods == 0 && (key == ui.KeyLeft || key == ui.KeyRight) {
+		step := 1
+		if key == ui.KeyLeft {
+			step = -1
+		}
+		s.cycleSkillScopeLocked(step)
 		return "", true
 	}
 	if n == 0 {
@@ -838,7 +946,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 
 	switch {
 	case key == ui.KeyUp && mods == 0:
-		// 会话引用失效时跳过该行；全部失效则保持在原地。
+		// 跳过分组标题与失效的会话引用；全部不可选则保持在原地。
 		s.selectAdjacentCompletion(-1)
 		return "", true
 
@@ -853,8 +961,8 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 			s.completionSelected = 0
 		}
 		item := s.completionItems[s.completionSelected]
-		if completionThreadUnavailableLocked(s, item) != "" {
-			// 失效的会话引用不插入，按键已消费。
+		if s.completionUnusableReasonLocked(item) != "" {
+			// 分组标题或失效的会话引用不插入，按键已消费。
 			return "", true
 		}
 		return s.confirmCompletionKeepOpen(item, completionKeepsPanelOpen(s.completionKind, item, true)), true
@@ -864,7 +972,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 			s.completionSelected = 0
 		}
 		item := s.completionItems[s.completionSelected]
-		if completionThreadUnavailableLocked(s, item) != "" {
+		if s.completionUnusableReasonLocked(item) != "" {
 			return "", true
 		}
 		kind := s.completionKind
@@ -880,6 +988,52 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 	}
 
 	return "", false
+}
+
+var skillScopeOrder = []string{"", "project", "global", "external"}
+
+// cycleSkillScopeLocked 在 '$' 补全打开时按 ←/→ 循环切换技能来源分段。
+// 调用方需持有 s.mu。
+func (s *chatState) cycleSkillScopeLocked(step int) {
+	cur := 0
+	for i, v := range skillScopeOrder {
+		if v == s.completionSkillScope {
+			cur = i
+			break
+		}
+	}
+	next := ((cur+step)%len(skillScopeOrder) + len(skillScopeOrder)) % len(skillScopeOrder)
+	s.setSkillScopeLocked(skillScopeOrder[next])
+}
+
+// setSkillScopeLocked 设置 '$' 技能来源分段并立刻刷新候选列表。
+// 调用方需持有 s.mu。
+func (s *chatState) setSkillScopeLocked(scope string) {
+	s.completionSkillScope = scope
+	s.completionSelected = 0
+	s.refreshSkillCompletionItemsLocked()
+}
+
+// refreshSkillCompletionItemsLocked 根据当前 completionQuery 与 completionSkillScope 重建技能候选。
+// 调用方需持有 s.mu。
+func (s *chatState) refreshSkillCompletionItemsLocked() {
+	if s.completionKind != completionSkill {
+		return
+	}
+	scope, rest := completionScope(s.completionQuery)
+	effective := s.completionQuery
+	if isSkillScope(scope) {
+		effective = rest
+	}
+	skills, ready := s.skillsForProject(s.projectPathForThreadLocked(s.completionThreadID))
+	if ready {
+		s.completionItems = skillCompletionItems(filterSkillsByScope(skills, s.completionSkillScope), effective)
+		s.ensureSelectableCompletionLocked()
+	} else {
+		s.completionItems = nil
+	}
+	s.completionLoading = !ready
+	s.completionLoaded = ready
 }
 
 // isNoArgLocalSlashCommand 判断是否为无参数本地命令。
@@ -1059,6 +1213,8 @@ func (s *chatState) clearDraftAndCompletion() {
 	s.completionKind = completionNone
 	s.completionItems = nil
 	s.completionDismissedFor = ""
+	s.completionSkillScope = ""
+	s.completionSkillDraftScope = ""
 	s.mu.Unlock()
 	s.invalidate()
 }
@@ -1080,11 +1236,17 @@ const composerCompleteEmptyH = 44
 // composerCompleteFooterH 是键位页脚行高，不含顶部 1pt 分隔线。
 const composerCompleteFooterH = 24
 
-// completionEmptyLabel 按补全类型返回空态文案：文件、会话、指令/技能各一句。
+// composerCompleteHeadH 是 '$' 分段标签顶栏高度估值（ControlSM + 上下内距 + 分隔线）。
+const composerCompleteHeadH = ControlSM + Space2 + Space1 + Hairline
+
+// composerCompletePreviewH 是底部选中项预览条高度估值（单行文字 + 上下内距 + 分隔线）。
+const composerCompletePreviewH = ControlMD + Hairline
+
+// completionEmptyLabel 按补全类型返回空态文案：文件、会话、技能、指令各一句。
 func completionEmptyLabel(kind completionKind, scope string) string {
 	switch kind {
 	case completionSkill:
-		return "没有匹配的指令"
+		return "没有匹配的技能"
 	case completionMention:
 		if scope == "thread" {
 			return "没有匹配的会话"
@@ -1133,7 +1295,7 @@ func renderCompletionFooterHint(c *ui.Context, key, kbd, label string) {
 }
 
 // renderCompletionFooter 渲染面板底部键位页脚：24pt 高，顶部 1pt 分隔线。
-func renderCompletionFooter(c *ui.Context) {
+func renderCompletionFooter(c *ui.Context, kind completionKind) {
 	ui.Column(c.Key("composer-complete-footer")).FillWidth().Gap(0).Children(func() {
 		ui.Box(c.Key("composer-complete-footer-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
 		ui.Row(c.Key("composer-complete-footer-row")).
@@ -1144,6 +1306,9 @@ func renderCompletionFooter(c *ui.Context) {
 			Gap(Space4).
 			Children(func() {
 				renderCompletionFooterHint(c, "composer-complete-footer-nav", "↑↓", "选择")
+				if kind == completionSkill {
+					renderCompletionFooterHint(c, "composer-complete-footer-scope", "←→", "分类")
+				}
 				renderCompletionFooterHint(c, "composer-complete-footer-tab", "Tab", "补全")
 				renderCompletionFooterHint(c, "composer-complete-footer-enter", "↵", "确认")
 				renderCompletionFooterHint(c, "composer-complete-footer-esc", "esc", "关闭")
@@ -1160,9 +1325,12 @@ var completionLevel = struct {
 }{}
 
 // noteCompletionLevel 在补全层级变化时递增序号，让面板做一次横向滑入；
-// 同层级内继续输入不重播动画。
+// 同层级内继续输入不重播动画。'$' 技能作用域切换由顶部分段滑动指示承担，不重播整板滑入。
 func noteCompletionLevel(kind completionKind, query string) {
 	scope, _ := completionScope(query)
+	if kind == completionSkill {
+		scope = ""
+	}
 	key := fmt.Sprintf("%d:%s", kind, scope)
 	completionLevel.Lock()
 	if completionLevel.key != key {
@@ -1211,9 +1379,149 @@ func consumeCopyThreadMarkdown() (string, bool) {
 	return tid, true
 }
 
+// renderSkillScopeTabs 渲染 '$' 技能补全浮层顶部的来源分段标签：「全部」「项目」「全局」「外部」。
+// 切换时选中指示胶囊沿轨道做 DurFast 横向滑动动效，并遵守减少动效设置。
+func renderSkillScopeTabs(c *ui.Context, s *chatState, activeScope string, matchCount int) {
+	tabs := []struct {
+		scope string
+		label string
+	}{
+		{scope: "", label: "全部"},
+		{scope: "project", label: "项目"},
+		{scope: "global", label: "全局"},
+		{scope: "external", label: "外部"},
+	}
+	activeIdx := 0
+	for i, tab := range tabs {
+		if tab.scope == activeScope {
+			activeIdx = i
+			break
+		}
+	}
+	ui.Column(c.Key("composer-skill-scope-head")).FillWidth().Gap(0).Children(func() {
+		ui.Row(c.Key("composer-skill-scope-head-row")).
+			FillWidth().
+			Padding(Space1, Space2).
+			AlignItems(ui.Center).
+			Gap(Space2).
+			Children(func() {
+				track := ui.Row(c.Key("composer-skill-scope-track")).
+					Padding(Space0).
+					Gap(Space0).
+					Radius(RadiusSM).
+					Background(ThemeOverlayHover(c))
+				track.Children(func() {
+					indicator := ui.Box(c.Key("composer-skill-scope-indicator")).
+						Absolute().
+						Top(Space0).
+						Bottom(Space0).
+						Radius(RadiusXS)
+					var tabEls [4]ui.Element
+					for i, tab := range tabs {
+						tabScope := tab.scope
+						isSel := i == activeIdx
+						btn := ui.ButtonBase(c.Key("composer-skill-scope-" + tab.label)).
+							Label(tab.label).
+							Height(ControlSM).
+							Padding(0, Space2).
+							Radius(RadiusXS).
+							Transition(motionFeedback(c)).
+							OnClick(func() {
+								s.mu.Lock()
+								if s.completionKind == completionSkill {
+									s.setSkillScopeLocked(tabScope)
+								}
+								s.mu.Unlock()
+								s.invalidate()
+							})
+						color := ThemeSecondaryText(c)
+						if isSel || btn.Hovered() {
+							color = ThemePrimaryText(c)
+						}
+						btn.Children(func() {
+							text := ui.Text(c, tab.label).
+								FontSize(uiFont(TypeCaption)).
+								TextColor(color).
+								SingleLine()
+							if isSel {
+								text.FontWeight(weightFor(c, 500))
+							}
+						})
+						tabEls[i] = btn
+					}
+					trackBounds := track.LayoutBounds()
+					activeBounds := tabEls[activeIdx].LayoutBounds()
+					if trackBounds.W > 0 && activeBounds.W > 0 {
+						targetX := float32(math.Round(float64(activeBounds.X - trackBounds.X)))
+						targetW := float32(math.Round(float64(activeBounds.W)))
+						var x, w float32
+						if !s.composerView.skillScopeIndicatorReady || reduceMotion(c) {
+							indicator.Jump("scope-x", targetX)
+							indicator.Jump("scope-w", targetW)
+							s.composerView.skillScopeIndicatorReady = true
+							x, w = targetX, targetW
+						} else {
+							anim := ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap}
+							x = indicator.AnimateTo("scope-x", targetX, anim)
+							w = indicator.AnimateTo("scope-w", targetW, anim)
+						}
+						indicator.Left(x).
+							Width(w).
+							Background(segmentSelectedBackground(c)).
+							Shadow(0, 1, 2, 0, ui.Color{}.Alpha(0.08))
+					} else {
+						indicator.Width(0)
+						tabEls[activeIdx].Background(segmentSelectedBackground(c))
+					}
+				})
+				ui.Spacer(c)
+				ui.Text(c, strconv.Itoa(matchCount)+" 项").
+					FontSize(uiFont(TypeCaption)).
+					TextColor(ThemeTertiaryText(c))
+			})
+		ui.Box(c.Key("composer-skill-scope-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
+	})
+}
+
+// completionPreviewText 返回当前选中项在底部预览条展示的完整说明；无需预览条时返回空串。
+func completionPreviewText(kind completionKind, item completionItem) string {
+	if item.Category || item.Header {
+		return ""
+	}
+	switch kind {
+	case completionSkill:
+		if desc := strings.TrimSpace(item.Description); desc != "" {
+			return desc
+		}
+		return item.Detail
+	case completionSlash:
+		parts := make([]string, 0, 3)
+		detail := strings.TrimSpace(item.Description)
+		if detail == "" {
+			detail = strings.TrimSpace(item.Detail)
+		}
+		if detail != "" {
+			parts = append(parts, detail)
+		}
+		cmdName := strings.TrimPrefix(item.Insert, "/")
+		hint := strings.TrimSpace(item.Hint)
+		if hint == "" {
+			hint = slashCommandArgHints[cmdName]
+		}
+		if hint != "" {
+			parts = append(parts, "参数："+hint)
+		}
+		if aliases := slashCommandAliases[cmdName]; len(aliases) > 0 {
+			parts = append(parts, "别名：/"+strings.Join(aliases, " /"))
+		}
+		return strings.Join(parts, "  ·  ")
+	}
+	return ""
+}
+
 // renderCompletionMenu 渲染补全候选列表弹层。
 // 关闭时不用框架的 Exit 复制体（兄弟节点会瞬间补位，顶部直接贴到输入框边缘），
-// 而是保留最后一次的候选快照，用 Animate 驱动高度、外边距与透明度一起收到 0，卡片随之逐帧上移。
+// 而是保留最后一次的候选快照，用 AnimateTo 驱动高度、外边距与透明度一起收到 0，卡片随之逐帧上移。
 func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	// /copy 的复制请求在这里落地：本函数每帧都被输入框渲染路径调用，持有可用的 Context。
 	if tid, ok := consumeCopyThreadMarkdown(); ok {
@@ -1223,6 +1531,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	loading := s.completionLoading
 	loaded := s.completionLoaded
 	kind := s.completionKind
+	skillScope := s.completionSkillScope
 	scope, _ := completionScope(s.completionQuery)
 	// 补全中：有触发字符（kind 非 none），且没有被组合输入（IME）或 esc 挂起。
 	completing := kind != completionNone && !s.isComposing && !s.completionSuspended
@@ -1239,10 +1548,10 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	// 失效原因与会话快照在同一把锁内生成，保证和插入时看到的会话列一致。
 	reasons := make([]string, len(s.completionSnap))
 	for i := range s.completionSnap {
-		reasons[i] = completionThreadUnavailableLocked(s, s.completionSnap[i])
+		reasons[i] = s.completionUnusableReasonLocked(s.completionSnap[i])
 	}
-	if visible && len(reasons) > 0 && s.completionSelected >= 0 && s.completionSelected < len(reasons) && reasons[s.completionSelected] != "" {
-		// 选中项已失效时移到最近的可用项；全部失效则保持原值。
+	if visible && len(reasons) > 0 && (s.completionSelected < 0 || s.completionSelected >= len(reasons) || reasons[s.completionSelected] != "") {
+		// 选中项落在分组标题或已失效项上时移到最近的可用项；全部不可用则保持原值。
 		if next := nextUsableCompletionIndex(reasons, s.completionSelected); next >= 0 {
 			s.completionSelected = next
 		}
@@ -1259,6 +1568,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	// 没在补全、也没有上一帧的候选可收起时，整块浮层都不建：分屏时每个输入框都会往
 	// overlay 根上挂一个面板，同 key 会让 mygo 立刻 panic；空态也因此只在补全中显示。
 	if !visible && len(items) == 0 {
+		s.composerView.skillScopeIndicatorReady = false
 		return
 	}
 	// 只有分类行时用窄面板；出现叶子候选后展宽。
@@ -1280,6 +1590,26 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	if empty {
 		contentH = composerCompleteEmptyH
 	}
+	showHeader := kind == completionSkill
+	headH := float32(0)
+	if showHeader {
+		headH = composerCompleteHeadH
+	}
+	previewText := ""
+	if !empty && !loading && selected >= 0 && selected < len(items) {
+		reason := ""
+		if selected < len(reasons) {
+			reason = reasons[selected]
+		}
+		if reason == "" {
+			previewText = completionPreviewText(kind, items[selected])
+		}
+	}
+	showPreview := previewText != ""
+	previewH := float32(0)
+	if showPreview {
+		previewH = composerCompletePreviewH
+	}
 	// 只有分类行时是下钻入口，不显示键位页脚；叶子列表与空态都带页脚。
 	showFooter := empty || (len(items) > 0 && !allCategoryItems(items))
 	footerH := float32(0)
@@ -1287,7 +1617,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		// 1pt 分隔线 + 24pt 页脚行 + 2pt 列间距，略高估即可。
 		footerH = composerCompleteFooterH + 3
 	}
-	fullH := contentH + 12 + footerH
+	fullH := headH + contentH + 12 + previewH + footerH
 	// 层级切换时 12pt 横向滑入，Run 变化重播；同层级内继续输入不重播。
 	run := completionLevelRun()
 	// 浮层挂在输入卡片上沿，向上展开，不占用聊天区布局空间。
@@ -1299,25 +1629,33 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		if reduceMotion(c) {
 			col.Jump("open", target)
 		} else {
-			p = col.Animate("open", target, 220*time.Millisecond)
+			dur := DurBase
+			ease := EaseSnap
+			if !visible {
+				dur = DurFast
+				ease = EaseOut
+			}
+			p = col.AnimateTo("open", target, ui.Animation{Duration: dur, Ease: ease})
 		}
 		if !visible && p <= 0.01 {
 			s.mu.Lock()
 			s.completionSnap = nil
 			s.mu.Unlock()
+			s.composerView.skillScopeIndicatorReady = false
 			return
 		}
 		slide := float32(0)
 		if !reduceMotion(c) {
 			slide = col.Keyframes("composer-complete-slide", []ui.Keyframe{
 				{At: 0, Value: 12},
-				{At: 180 * time.Millisecond, Value: 0, Ease: ui.EaseOut},
+				{At: DurFast, Value: 0, Ease: ui.EaseOut},
 			}, ui.KeyframeOptions{Run: run})
 		}
 		transition := motionPopover(c, -6)
 		// 关闭由高度和透明度进度负责，不能叠加退出快照。
 		transition.Exit = nil
-		col.AttachTo(card, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).Margin(Space2, 0, Space2, 0).
+		applyElevation(c, col, ElevPopover).
+			AttachTo(card, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).Margin(Space2, 0, Space2, 0).
 			Transition(transition).
 			Translate(slide, 0).
 			// 透明度按平方衰减，收起时先于高度消失，不会在贴近输入框时仍可见。
@@ -1326,15 +1664,30 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 			MaxHeight(fullH*p).
 			Border(Hairline, ThemeBorder(c)).
 			Radius(RadiusLG).
-			Background(ThemeSurface(c)).
+			Background(ThemeSurfacePopover(c)).
 			Padding(Space1).
 			Gap(Space0).
 			Children(func() {
+				if showHeader {
+					renderSkillScopeTabs(c, s, skillScope, len(items))
+				}
 				scrollable := rows < len(items)+btoi(loading)
 				list := func() {
 					for i, item := range items {
 						idx := i
 						it := item
+						if it.Header {
+							ui.Row(c.Key(fmt.Sprintf("composer-complete-header-%d", idx))).
+								Padding(Space1, Space3).
+								AlignItems(ui.Center).
+								Children(func() {
+									ui.Text(c, it.Label).
+										FontSize(uiFont(TypeCaption)).
+										FontWeight(weightFor(c, 600)).
+										TextColor(ThemeTertiaryText(c))
+								})
+							continue
+						}
 						reason := ""
 						if idx < len(reasons) {
 							reason = reasons[idx]
@@ -1403,17 +1756,32 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							}
 							ui.Text(c, label).
 								FontSize(uiFont(TypeBody)).
-								TextColor(labelColor)
+								TextColor(labelColor).
+								SingleLine()
 
 							if reason != "" {
 								// 右侧说明换成失效原因，用危险色提示。
 								ui.Spacer(c)
 								ui.Text(c, reason).
 									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemeDanger(c))
+									TextColor(ThemeDanger(c)).
+									SingleLine()
+							} else if kind == completionSkill {
+								ui.Spacer(c)
+								// '$' 技能行保持单行：右侧只展示来源胶囊，详细描述见底部预览条。
+								if source := completionSourceLabel(it.Source); source != "" {
+									ui.Row(c.Key(fmt.Sprintf("composer-complete-source-%d", idx))).
+										Padding(0, Space1).
+										Radius(RadiusXS).
+										Background(ThemeHover(c).Alpha(0.6)).
+										Children(func() {
+											ui.Text(c, source).
+												FontSize(uiFont(TypeCaption)).
+												TextColor(ThemeSecondaryText(c))
+										})
+								}
 							} else if it.Detail != "" || it.Source != "" {
 								ui.Spacer(c)
-								// 技能行的来源胶囊：项目 / 全局 / 外部（未知来源不画）。
 								if source := completionSourceLabel(it.Source); source != "" {
 									ui.Row(c.Key(fmt.Sprintf("composer-complete-source-%d", idx))).
 										Padding(0, Space1).
@@ -1428,15 +1796,11 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								if it.Detail != "" {
 									ui.Text(c, it.Detail).
 										FontSize(uiFont(TypeFootnote)).
-										TextColor(ThemeSecondaryText(c))
+										TextColor(ThemeSecondaryText(c)).
+										SingleLine().
+										Ellipsis("…").
+										Shrink(1)
 								}
-							}
-
-							// 高亮行的参数提示贴在该行右侧，沿用 Detail 的次要颜色与字号。
-							if idx == selected && it.Hint != "" && reason == "" {
-								ui.Text(c, it.Hint).
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemeSecondaryText(c))
 							}
 						})
 					}
@@ -1470,9 +1834,134 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 				} else {
 					list()
 				}
-				if showFooter {
-					renderCompletionFooter(c)
+				if showPreview {
+					ui.Column(c.Key("composer-complete-preview")).FillWidth().Gap(0).Children(func() {
+						ui.Box(c.Key("composer-complete-preview-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
+						ui.Row(c.Key("composer-complete-preview-row")).
+							FillWidth().
+							MinHeight(ControlMD).
+							Padding(Space1, Space3).
+							AlignItems(ui.Center).
+							Background(ThemeOverlay(c, OverlayFaint)).
+							Children(func() {
+								ui.Text(c, previewText).
+									FontSize(uiFont(TypeFootnote)).
+									TextColor(ThemeSecondaryText(c)).
+									SingleLine().
+									Ellipsis("…")
+							})
+					})
 				}
+				if showFooter {
+					renderCompletionFooter(c, kind)
+				}
+			})
+	})
+}
+
+// slashArgHintForDraft 当草稿第一个词是 slashCommandArgHints 中的命令且后面已有空格时，
+// 返回 "/命令" 与参数格式。
+func slashArgHintForDraft(draft string) (string, string, bool) {
+	if !strings.HasPrefix(draft, "/") || strings.HasPrefix(draft, "//") || strings.HasPrefix(draft, "/*") {
+		return "", "", false
+	}
+	spaceIdx := strings.IndexFunc(draft, unicode.IsSpace)
+	if spaceIdx <= 1 {
+		return "", "", false
+	}
+	name := strings.ToLower(draft[1:spaceIdx])
+	hint, ok := slashCommandArgHints[name]
+	if !ok || hint == "" {
+		return "", "", false
+	}
+	return "/" + name, hint, true
+}
+
+// renderSlashArgHintBar 在输入卡片上沿渲染命令参数提示条（"/命令 参数格式"）。
+// 仅在首词为带参数提示的命令、后面已输入空格且补全面板未打开时显示；出现与消失带淡入淡出和轻微位移，
+// 动画结束后不再请求下一帧。
+func renderSlashArgHintBar(c *ui.Context, s *chatState, card ui.Element) {
+	s.mu.Lock()
+	draft := s.draft
+	completing := s.completionKind != completionNone && !s.isComposing && !s.completionSuspended
+	s.mu.Unlock()
+
+	cmd, hint, matched := slashArgHintForDraft(draft)
+	show := matched && !completing
+
+	prevCmd := s.composerView.argHintSnapCmd
+	if show {
+		s.composerView.argHintSnapCmd = cmd
+		s.composerView.argHintSnapHint = hint
+	} else if prevCmd == "" {
+		return
+	}
+
+	snapCmd := s.composerView.argHintSnapCmd
+	snapHint := s.composerView.argHintSnapHint
+	target := float32(0)
+	if show {
+		target = 1
+	}
+
+	ui.Overlay(c, func() {
+		bar := ui.Row(c.Key(fmt.Sprintf("composer-slash-arg-hint-%p", s)))
+		var p float32
+		if reduceMotion(c) {
+			bar.Jump("arg-hint", target)
+			p = target
+		} else {
+			if show && prevCmd == "" {
+				bar.Jump("arg-hint", 0)
+			}
+			dur := DurBase
+			ease := EaseSnap
+			if !show {
+				dur = DurFast
+				ease = EaseOut
+			}
+			p = bar.AnimateTo("arg-hint", target, ui.Animation{Duration: dur, Ease: ease})
+		}
+		if !show && p <= 0.01 {
+			s.composerView.argHintSnapCmd = ""
+			s.composerView.argHintSnapHint = ""
+			return
+		}
+		offsetY := (1 - p) * motionRiseOffset
+		applyElevation(c, bar, ElevPopover).
+			AttachTo(card, ui.AnchorTopLeft, ui.AnchorBottomLeft).
+			Margin(0, 0, Space1, 0).
+			Translate(0, offsetY).
+			Opacity(p).
+			Padding(Space1, Space3).
+			Gap(Space2).
+			AlignItems(ui.Center).
+			Radius(RadiusMD).
+			Border(Hairline, ThemeBorder(c)).
+			Background(ThemeSurfacePopover(c)).
+			Label(snapCmd + " " + snapHint).
+			Children(func() {
+				ui.Row(c.Key("composer-arg-hint-cmd")).
+					Padding(0, Space1).
+					Radius(RadiusXS).
+					Background(ThemeAccentSubtle(c)).
+					Children(func() {
+						ui.Text(c, snapCmd).
+							FontSize(uiFont(TypeFootnote)).
+							FontWeight(weightFor(c, 600)).
+							Font("monospace").
+							TextColor(ThemeAccent(c))
+					})
+				ui.Row(c.Key("composer-arg-hint-sig")).
+					Padding(0, Space1).
+					Radius(RadiusXS).
+					Background(ThemeOverlayHover(c)).
+					Children(func() {
+						ui.Text(c, snapHint).
+							FontSize(uiFont(TypeFootnote)).
+							Font("monospace").
+							TextColor(ThemePrimaryText(c))
+					})
 			})
 	})
 }

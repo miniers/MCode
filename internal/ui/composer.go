@@ -60,6 +60,11 @@ type composerViewState struct {
 	mcpPendingDisabled map[string]bool
 	// mcpSaving 表示会话 MCP 设置正在下发，期间置灰「应用」避免重复提交。
 	mcpSaving bool
+	// argHintSnapCmd / argHintSnapHint 保存参数提示条最近一次可见时的命令与参数格式，供退场动画使用。
+	argHintSnapCmd  string
+	argHintSnapHint string
+	// skillScopeIndicatorReady 标记 '$' 顶部分段选中指示是否已完成首次布局落位。
+	skillScopeIndicatorReady bool
 }
 
 var (
@@ -1413,8 +1418,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 				})
 			})
 
-			// 补全弹层挂在输入卡片上沿的浮层里，不占用聊天区布局空间；需在卡片之后构建。
+			// 补全弹层与参数提示条挂在输入卡片上沿的浮层里，不占用聊天区布局空间；需在卡片之后构建。
 			renderCompletionMenu(c, s, card)
+			renderSlashArgHintBar(c, s, card)
 		})
 	})
 }
