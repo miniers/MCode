@@ -84,7 +84,7 @@ printf 'cask "mcode" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "MCode.app"
 end\n' "$VERSION" "$ARM64_SHA" "$AMD64_SHA"

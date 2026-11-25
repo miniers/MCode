@@ -56,7 +56,7 @@ func TestHomebrewCaskGenerate(t *testing.T) {
 		`sha256 arm:   "` + arm64SHA + `",`,
 		`intel: "` + amd64SHA + `"`,
 		`url "https://github.com/miniers/MCode/releases/download/v#{version}/mcode-#{version}-#{arch}.dmg"`,
-		`depends_on macos: ">= :sonoma"`,
+		`depends_on macos: :sonoma`,
 		`app "MCode.app"`,
 	} {
 		if !strings.Contains(stdout, want) {
