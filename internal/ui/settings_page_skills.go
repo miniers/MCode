@@ -901,7 +901,7 @@ func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState,
 					}
 				}
 				if hasMeta {
-					ui.Column(c.Key(skillKey + "-menu-meta")).
+					ui.Column(c.Key(skillKey+"-menu-meta")).
 						FillWidth().
 						Padding(Space1, Space3).
 						Gap(Space2).
@@ -946,7 +946,7 @@ func renderSkillRowMenu(c *ui.Context, st *SettingsState, page *skillsPageState,
 									})
 							}
 						})
-					ui.Box(c.Key(skillKey + "-menu-div")).
+					ui.Box(c.Key(skillKey+"-menu-div")).
 						FillWidth().
 						Height(Hairline).
 						Background(ThemeHairline(c)).
