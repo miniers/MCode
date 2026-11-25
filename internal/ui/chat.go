@@ -483,11 +483,11 @@ func renderChat(c *ui.Context, s *chatState) {
 }
 
 // 长会话压缩建议的判定阈值（空闲 1 小时，上下文占用达到窗口的 70%）。
-// compactSuggestionMinimumTokens 是阈值的上限：窗口未知或窗口很大（如 1M）时，
-// 上下文要涨到这个绝对量才提示，避免大窗口模型过早弹出建议。
+// compactSuggestionUnknownWindowTokens 是窗口未知时使用的固定阈值：
+// 没有窗口分母可用时，上下文要涨到这个绝对量才提示。
 const (
-	compactSuggestionMinimumTokens int64 = 100_000
-	compactSuggestionIdleInterval        = time.Hour
+	compactSuggestionUnknownWindowTokens int64 = 100_000
+	compactSuggestionIdleInterval              = time.Hour
 
 	// compactSuggestionWindowRatioNum/Den 表示阈值取模型上下文窗口的 70%（用整数分子分母避免浮点）。
 	compactSuggestionWindowRatioNum int64 = 7
@@ -495,17 +495,13 @@ const (
 )
 
 // compactSuggestionThreshold 按模型上下文窗口上限计算压缩建议的上下文占用阈值。
-// limit 为上下文窗口上限（tokens）：大于 0 时取 min(100k, limit*70%)，
-// 32k 窗口得到 22.4k（70%），200k 及以上窗口固定 100k；limit <= 0（窗口未知）时返回 100k。
+// limit 为上下文窗口上限（tokens）：大于 0 时一律取窗口的 70% 且不封顶，
+// 32k 窗口得到 22.4k，200k 得到 140k，1M 得到 700k；limit <= 0（窗口未知）时返回固定 100k。
 func compactSuggestionThreshold(limit int64) int64 {
 	if limit <= 0 {
-		return compactSuggestionMinimumTokens
+		return compactSuggestionUnknownWindowTokens
 	}
-	threshold := limit * compactSuggestionWindowRatioNum / compactSuggestionWindowRatioDen
-	if threshold > compactSuggestionMinimumTokens {
-		return compactSuggestionMinimumTokens
-	}
-	return threshold
+	return limit * compactSuggestionWindowRatioNum / compactSuggestionWindowRatioDen
 }
 
 // forwardSuggestionRatio 是“转发到新会话”建议的上下文占用阈值（窗口的 80%）。

@@ -283,7 +283,7 @@ func isHelperThread(s wire.ThreadSummary) bool {
 }
 
 // compactSuggestionThreshold 按模型上下文窗口上限计算压缩建议的上下文占用阈值。
-// window 大于 0 时取 min(100k, window*70%)，窗口未知（<=0）时返回 100k。
+// window 大于 0 时取 window*70%（不封顶，1M 窗口得到 700k），窗口未知（<=0）时返回固定 100k。
 func compactSuggestionThreshold(window int64) int64 {
 	const (
 		minimumTokens int64 = 100_000
@@ -293,11 +293,7 @@ func compactSuggestionThreshold(window int64) int64 {
 	if window <= 0 {
 		return minimumTokens
 	}
-	threshold := window * ratioNum / ratioDen
-	if threshold > minimumTokens {
-		return minimumTokens
-	}
-	return threshold
+	return window * ratioNum / ratioDen
 }
 
 // latestContextUsageLocked 返回最新一轮（turnIndex 最大）的上下文占用和窗口上限。
@@ -333,7 +329,7 @@ func latestContextUsageLocked(turns map[int]harness.Usage) (used, window int64) 
 //  2. 该会话非 helper 且有历史 sessionID（属于需要恢复的旧会话）；
 //  3. 当前未在运行；
 //  4. 上下文用量达到阈值：用最新一轮上下文占用（ContextTokens，为 0 时取该轮 Input+Output），
-//     对比 min(100k, 窗口*70%)；窗口未知时对比固定 100k；不再用会话累计消耗；
+//     对比窗口的 70%（不封顶）；窗口未知时对比固定 100k；不再用会话累计消耗；
 //  5. 距上次活动时间超过 1 小时 (3600 秒)。
 func (b *MemoryBackend) ShouldOfferCompact(threadID string) bool {
 	if !b.generalSettings().Session.AskCompactOnResume() {

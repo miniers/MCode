@@ -60,8 +60,8 @@ func TestCompactSuggestionThreshold(t *testing.T) {
 	}{
 		{"窗口未知时用固定 100k", 0, 100_000},
 		{"32k 窗口取 70%", 32_000, 22_400},
-		{"200k 窗口封顶 100k", 200_000, 100_000},
-		{"1M 窗口封顶 100k", 1_000_000, 100_000},
+		{"200k 窗口取 70% 不封顶", 200_000, 140_000},
+		{"1M 窗口取 70% 不封顶", 1_000_000, 700_000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -92,9 +92,12 @@ func TestShouldOfferCompact(t *testing.T) {
 		{"空闲不足时不提示", true, false, 150_000, 0, 30 * time.Minute, "", false},
 		{"命令草稿时不提示", true, false, 150_000, 0, 2 * time.Hour, "/compact", false},
 		{"带空白的命令草稿也不提示", true, false, 150_000, 0, 2 * time.Hour, "  /help", false},
-		{"1M 窗口上下文 120k 时提示（阈值 100k）", true, false, 120_000, 1_000_000, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 25k 时提示（阈值 22.4k）", true, false, 25_000, 32_000, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 20k 时不提示", true, false, 20_000, 32_000, 2 * time.Hour, "", false},
+		{"1M 窗口上下文 120k 时不提示（阈值 700k）", true, false, 120_000, 1_000_000, 2 * time.Hour, "", false},
+		{"1M 窗口上下文 700k 时提示（阈值 700k）", true, false, 700_000, 1_000_000, 2 * time.Hour, "", true},
+		{"200k 窗口上下文 140k 时提示（阈值 140k）", true, false, 140_000, 200_000, 2 * time.Hour, "", true},
+		{"200k 窗口上下文 139_999 时不提示（阈值 140k）", true, false, 139_999, 200_000, 2 * time.Hour, "", false},
+		{"32k 窗口上下文 22.4k 时提示（阈值 22.4k）", true, false, 22_400, 32_000, 2 * time.Hour, "", true},
+		{"32k 窗口上下文 22.3k 时不提示（阈值 22.4k）", true, false, 22_399, 32_000, 2 * time.Hour, "", false},
 		{"窗口未知且真实占用 25k 时不提示", true, false, 25_000, 0, 2 * time.Hour, "", false},
 		{"窗口未知但真实占用 120k 时提示", true, false, 120_000, 0, 2 * time.Hour, "", true},
 	}

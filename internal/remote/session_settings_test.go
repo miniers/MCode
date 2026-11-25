@@ -547,16 +547,16 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		t.Errorf("expected ShouldOfferCompact to return true for context 25k / window 32k")
 	}
 
-	// 5. 上下文占 20k、窗口 32k（未达 22.4k）：应返回 false
+	// 5. 上下文占 20k、窗口 200k（未达 140k）：应返回 false
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
 		0: {InputTokens: 20000, OutputTokens: 10000},
-		1: {InputTokens: 19000, OutputTokens: 1000, ContextTokens: 20000, ContextWindow: 32000},
+		1: {InputTokens: 19000, OutputTokens: 1000, ContextTokens: 20000, ContextWindow: 200000},
 	}
 	backend.mu.Unlock()
 
 	if backend.ShouldOfferCompact(thID) {
-		t.Errorf("expected ShouldOfferCompact to return false for context 20k / window 32k")
+		t.Errorf("expected ShouldOfferCompact to return false for context 20k / window 200k")
 	}
 
 	// 6. 同一份上下文用量、但缺少窗口字段：按固定 100k 阈值判定（20,000 < 100,000）：应返回 false
@@ -605,8 +605,8 @@ func TestCompactSuggestionThreshold(t *testing.T) {
 	}{
 		{"窗口未知时用固定 100k", 0, 100000},
 		{"32k 窗口取 70%", 32000, 22400},
-		{"200k 窗口封顶 100k", 200000, 100000},
-		{"1M 窗口封顶 100k", 1000000, 100000},
+		{"200k 窗口取 70% 不封顶", 200000, 140000},
+		{"1M 窗口取 70% 不封顶", 1000000, 700000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
