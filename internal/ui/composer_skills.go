@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -55,6 +56,9 @@ func (s *chatState) skillsForProject(projectPath string) ([]agentconf.Skill, boo
 
 	go func() {
 		skills, err := scanSkills(opts)
+		if err == nil {
+			skills = dedupeSymlinkedSkills(skills)
+		}
 
 		skillCache.mu.Lock()
 		if cur := skillCache.entries[projectPath]; cur == entry {
@@ -89,6 +93,27 @@ func resetSkillCache() {
 	skillCache.mu.Lock()
 	skillCache.entries = make(map[string]*skillCacheEntry)
 	skillCache.mu.Unlock()
+}
+
+// 多个 agent 目录用符号链接共享同一个技能。
+func dedupeSymlinkedSkills(skills []agentconf.Skill) []agentconf.Skill {
+	out := make([]agentconf.Skill, 0, len(skills))
+	idxByPath := make(map[string]int, len(skills))
+	for _, sk := range skills {
+		realPath := sk.Path
+		if resolved, err := filepath.EvalSymlinks(sk.Path); err == nil {
+			realPath = resolved
+		}
+		if idx, exists := idxByPath[realPath]; exists {
+			if out[idx].Disabled && !sk.Disabled {
+				out[idx] = sk
+			}
+			continue
+		}
+		idxByPath[realPath] = len(out)
+		out = append(out, sk)
+	}
+	return out
 }
 
 // 调用方需持有 s.mu；会话或项目查不到时返回空字符串。

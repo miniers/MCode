@@ -1,6 +1,8 @@
 package mcodeui
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -103,4 +105,71 @@ func TestResetSkillCache(t *testing.T) {
 	if n != 0 {
 		t.Fatalf("cache entries after reset = %d", n)
 	}
+}
+
+func TestDedupeSymlinkedSkills(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "a", "x")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatalf("mkdir a/x: %v", err)
+	}
+	realSkill := filepath.Join(realDir, "SKILL.md")
+	if err := os.WriteFile(realSkill, []byte("---\nname: x\n---\n"), 0o644); err != nil {
+		t.Fatalf("write a/x/SKILL.md: %v", err)
+	}
+
+	linkParent := filepath.Join(root, "b")
+	if err := os.MkdirAll(linkParent, 0o755); err != nil {
+		t.Fatalf("mkdir b: %v", err)
+	}
+	linkDir := filepath.Join(linkParent, "x")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatalf("symlink b/x -> a/x: %v", err)
+	}
+	linkSkill := filepath.Join(linkDir, "SKILL.md")
+
+	otherDir := filepath.Join(root, "c", "x")
+	if err := os.MkdirAll(otherDir, 0o755); err != nil {
+		t.Fatalf("mkdir c/x: %v", err)
+	}
+	otherSkill := filepath.Join(otherDir, "SKILL.md")
+	if err := os.WriteFile(otherSkill, []byte("---\nname: x\n---\nindependent\n"), 0o644); err != nil {
+		t.Fatalf("write c/x/SKILL.md: %v", err)
+	}
+
+	t.Run("dedupe symlink and keep independent same-name skill", func(t *testing.T) {
+		in := []agentconf.Skill{
+			{Agent: "claude", Scope: "global", Name: "x", Path: realSkill},
+			{Agent: "codex", Scope: "global", Name: "x", Path: linkSkill},
+			{Agent: "claude", Scope: "project", Name: "x", Path: otherSkill},
+		}
+		got := dedupeSymlinkedSkills(in)
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2: %+v", len(got), got)
+		}
+		if got[0].Agent != "claude" || got[0].Path != realSkill {
+			t.Fatalf("got[0] = %+v, want claude %q", got[0], realSkill)
+		}
+		if got[1].Path != otherSkill {
+			t.Fatalf("got[1] = %+v, want %q", got[1], otherSkill)
+		}
+	})
+
+	t.Run("replace disabled first entry in place with enabled duplicate", func(t *testing.T) {
+		in := []agentconf.Skill{
+			{Agent: "claude", Scope: "global", Name: "x", Path: realSkill, Disabled: true},
+			{Agent: "claude", Scope: "project", Name: "x", Path: otherSkill},
+			{Agent: "codex", Scope: "global", Name: "x", Path: linkSkill, Disabled: false},
+		}
+		got := dedupeSymlinkedSkills(in)
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2: %+v", len(got), got)
+		}
+		if got[0].Agent != "codex" || got[0].Path != linkSkill || got[0].Disabled {
+			t.Fatalf("got[0] = %+v, want enabled codex %q", got[0], linkSkill)
+		}
+		if got[1].Path != otherSkill {
+			t.Fatalf("got[1] = %+v, want %q", got[1], otherSkill)
+		}
+	})
 }
