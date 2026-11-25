@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/agentconf"
@@ -1346,6 +1347,7 @@ func TestSkillScopeSegments(t *testing.T) {
 	// 草稿手写 $global: 前缀应同步选中「全局」。
 	s.mu.Lock()
 	s.draft = "$global:"
+	s.completionCaret = utf8.RuneCountInString(s.draft)
 	s.mu.Unlock()
 	s.updateCompletion("t1")
 	s.mu.Lock()
@@ -1596,5 +1598,193 @@ func TestCompletionPreviewHeightStableAcrossSelection(t *testing.T) {
 		if math.Abs(float64(titleRect.Y-titleRect0.Y)) > 0.5 {
 			t.Fatalf("第 %d 次按 Down 后候选标题 Y 变化: got %.2f, want %.2f", step, titleRect.Y, titleRect0.Y)
 		}
+	}
+}
+
+func TestCompletionTriggersAtCaretMidText(t *testing.T) {
+	origScan := scanSkills
+	resetSkillCache()
+	t.Cleanup(func() {
+		scanSkills = origScan
+		resetSkillCache()
+	})
+	scanSkills = func(opts agentconf.Options) ([]agentconf.Skill, error) {
+		return []agentconf.Skill{
+			{Agent: "claude", Scope: "project", Name: "design-mockup", Description: "设计稿", Path: opts.ProjectDir + "/d/SKILL.md"},
+		}, nil
+	}
+
+	// '$' 在文字中间两个空格之间触发技能补全
+	sSkill := newChatState(NewFakeClient())
+	sSkill.projects = []Project{{ID: "p1", Name: "repo", Path: "/repo"}}
+	sSkill.threads = []Thread{{ID: "t1", ProjectID: "p1"}}
+	ttSkill := composerTester(sSkill)
+	ttSkill.Type("hello  world")
+	for i := 0; i < 6; i++ {
+		ttSkill.Key(0, ui.KeyLeft)
+	}
+	ttSkill.Type("$")
+	waitFor(t, ttSkill, func() bool { return ttSkill.HasText("$design-mockup") })
+	sSkill.mu.Lock()
+	kind := sSkill.completionKind
+	start := sSkill.completionStart
+	sSkill.mu.Unlock()
+	if kind != completionSkill || start != len("hello ") {
+		t.Fatalf("mid-text $ completion = (kind=%v, start=%d), want (completionSkill, %d)", kind, start, len("hello "))
+	}
+
+	// '@' 在文字中间两个空格之间触发提及补全
+	fake := NewFakeClient()
+	fake.SetFiles([]FileMatch{{Name: "main.go", Path: "src/main.go"}})
+	sMention := newChatState(fake)
+	ttMention := composerTester(sMention)
+	ttMention.Type("hello  world")
+	for i := 0; i < 6; i++ {
+		ttMention.Key(0, ui.KeyLeft)
+	}
+	ttMention.Type("@")
+	waitFor(t, ttMention, func() bool { return ttMention.HasText("src/main.go") })
+	sMention.mu.Lock()
+	kind = sMention.completionKind
+	start = sMention.completionStart
+	sMention.mu.Unlock()
+	if kind != completionMention || start != len("hello ") {
+		t.Fatalf("mid-text @ completion = (kind=%v, start=%d), want (completionMention, %d)", kind, start, len("hello "))
+	}
+
+	// Esc 取消后同一光标位置不重弹；光标移走后再移回重新触发
+	ttMention.Key(0, ui.KeyEscape)
+	ttMention.Advance(DurFast + 50*time.Millisecond)
+	ttMention.Frame()
+	if ttMention.HasText("src/main.go") {
+		t.Fatal("completion must stay dismissed at the same caret position")
+	}
+	ttMention.Key(0, ui.KeyLeft)
+	ttMention.Frame()
+	ttMention.Key(0, ui.KeyRight)
+	waitFor(t, ttMention, func() bool { return ttMention.HasText("src/main.go") })
+}
+
+func TestCompletionConfirmMidTextKeepsTail(t *testing.T) {
+	origScan := scanSkills
+	resetSkillCache()
+	t.Cleanup(func() {
+		scanSkills = origScan
+		resetSkillCache()
+	})
+	scanSkills = func(opts agentconf.Options) ([]agentconf.Skill, error) {
+		return []agentconf.Skill{
+			{Agent: "claude", Scope: "project", Name: "design-mockup", Description: "设计稿", Path: opts.ProjectDir + "/d/SKILL.md"},
+		}, nil
+	}
+
+	// 1. '$' 端到端确认：保留尾部 " world"，不产生双空格，光标落到插入文本之后且面板收起
+	sSkill := newChatState(NewFakeClient())
+	sSkill.projects = []Project{{ID: "p1", Name: "repo", Path: "/repo"}}
+	sSkill.threads = []Thread{{ID: "t1", ProjectID: "p1"}}
+	ttSkill := composerTester(sSkill)
+	ttSkill.Type("hello  world")
+	for i := 0; i < 6; i++ {
+		ttSkill.Key(0, ui.KeyLeft)
+	}
+	ttSkill.Type("$")
+	waitFor(t, ttSkill, func() bool { return ttSkill.HasText("$design-mockup") })
+	ttSkill.Key(0, ui.KeyEnter)
+	wantSkillDraft := "hello $design-mockup world"
+	wantSkillCaret := utf8.RuneCountInString("hello $design-mockup")
+	if sSkill.draft != wantSkillDraft {
+		t.Fatalf("mid-text skill draft = %q, want %q", sSkill.draft, wantSkillDraft)
+	}
+	if sSkill.completionCaretTarget != -1 {
+		t.Fatalf("completionCaretTarget must reset to -1 after frame, got %d", sSkill.completionCaretTarget)
+	}
+	if sSkill.completionCaret != wantSkillCaret {
+		t.Fatalf("caret after confirm = %d, want %d", sSkill.completionCaret, wantSkillCaret)
+	}
+	ttSkill.Advance(DurFast + 50*time.Millisecond)
+	ttSkill.Frame()
+	if sSkill.completionCaret != wantSkillCaret {
+		t.Fatalf("caret after frame = %d, want %d", sSkill.completionCaret, wantSkillCaret)
+	}
+	if sSkill.completionKind != completionNone {
+		t.Fatalf("completion must stay closed after mid-text confirm, got %v", sSkill.completionKind)
+	}
+
+	// 2. '@' 直接状态确认：保留尾部 " world"，无双空格，光标落到插入文本之后
+	sMention := newChatState(NewFakeClient())
+	sMention.draft = "hello @sr world"
+	sMention.completionKind = completionMention
+	sMention.completionStart = len("hello ")
+	sMention.completionCaret = utf8.RuneCountInString("hello @sr")
+	sMention.completionItems = []completionItem{{Label: "src/main.go", Insert: "@src/main.go"}}
+	sMention.completionSelected = 0
+	newText, handled := sMention.handleCompletionKey(ui.KeyEnter, 0)
+	wantMentionDraft := "hello @src/main.go world"
+	wantMentionCaret := utf8.RuneCountInString("hello @src/main.go")
+	if !handled || newText != wantMentionDraft || sMention.draft != wantMentionDraft {
+		t.Fatalf("mid-text @ confirm = (%v, %q), draft=%q, want %q", handled, newText, sMention.draft, wantMentionDraft)
+	}
+	if sMention.completionCaretTarget != wantMentionCaret {
+		t.Fatalf("@ completionCaretTarget = %d, want %d", sMention.completionCaretTarget, wantMentionCaret)
+	}
+
+	// 3. keepOpen（目录/分类）与会话引用胶囊在文字中间也保留尾部
+	sDir := newChatState(NewFakeClient())
+	sDir.draft = "hello @sr world"
+	sDir.completionKind = completionMention
+	sDir.completionStart = len("hello ")
+	sDir.completionCaret = utf8.RuneCountInString("hello @sr")
+	sDir.completionItems = []completionItem{{Label: "src/", Insert: "@src/"}}
+	newDir, handled := sDir.handleCompletionKey(ui.KeyTab, 0)
+	if !handled || newDir != "hello @src/ world" || sDir.completionCaretTarget != utf8.RuneCountInString("hello @src/") {
+		t.Fatalf("mid-text keepOpen = (%v, %q, target=%d)", handled, newDir, sDir.completionCaretTarget)
+	}
+
+	sThread := newChatState(NewFakeClient())
+	sThread.threads = []Thread{{ID: "t9", Title: "新会话"}}
+	sThread.draft = "hello @新 world"
+	sThread.completionKind = completionMention
+	sThread.completionStart = len("hello ")
+	sThread.completionCaret = utf8.RuneCountInString("hello @新")
+	sThread.completionItems = []completionItem{{Label: "新会话", Insert: "@新会话", ThreadID: "t9", Icon: "thread"}}
+	newThread, handled := sThread.handleCompletionKey(ui.KeyEnter, 0)
+	if !handled || newThread != "hello  world" || sThread.completionCaretTarget != utf8.RuneCountInString("hello ") {
+		t.Fatalf("mid-text thread mention = (%v, %q, target=%d)", handled, newThread, sThread.completionCaretTarget)
+	}
+}
+
+func TestCompletionSlashRequiresCaretAtEnd(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.commandsCache["t1"] = []SlashCommand{{Name: "plan"}}
+	s.draft = "/plan"
+
+	s.completionCaret = 2
+	s.updateCompletion("t1")
+	if s.completionKind != completionNone {
+		t.Fatalf("slash completion at caret 2 must not trigger, got %v", s.completionKind)
+	}
+
+	s.completionCaret = utf8.RuneCountInString(s.draft)
+	s.updateCompletion("t1")
+	if s.completionKind != completionSlash || s.completionQuery != "plan" {
+		t.Fatalf("slash completion at end = (%v, %q), want (completionSlash, 'plan')", s.completionKind, s.completionQuery)
+	}
+}
+
+func TestCompletionDoesNotTriggerMidWord(t *testing.T) {
+	s := newChatState(NewFakeClient())
+
+	s.draft = "$skill"
+	s.completionCaret = 3 // "$sk" 后、后接 "ill"
+	s.updateCompletion("t1")
+	if s.completionKind != completionNone {
+		t.Fatalf("skill completion mid-word must not trigger, got %v", s.completionKind)
+	}
+
+	s.draft = "@main.go"
+	s.completionCaret = 5 // "@main" 后、后接 ".go"
+	s.updateCompletion("t1")
+	if s.completionKind != completionNone {
+		t.Fatalf("mention completion mid-word must not trigger, got %v", s.completionKind)
 	}
 }

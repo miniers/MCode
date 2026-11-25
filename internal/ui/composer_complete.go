@@ -539,16 +539,40 @@ func nextUsableCompletionIndex(reasons []string, from int) int {
 	return -1
 }
 
-// updateCompletion 在每帧渲染输入框后，根据最新 draft 更新补全状态。
+// caretByteOffset 把 rune 下标转为字符串的字节下标；负数或越界时夹到文末。
+func caretByteOffset(s string, caretRune int) int {
+	if caretRune < 0 {
+		return len(s)
+	}
+	i := 0
+	for byteOff := range s {
+		if i == caretRune {
+			return byteOff
+		}
+		i++
+	}
+	return len(s)
+}
+
+// updateCompletion 在每帧渲染输入框后，根据最新 draft 与光标位置更新补全状态。
 func (s *chatState) updateCompletion(threadID string) {
 	s.mu.Lock()
 	draft := s.draft
 	dismissedFor := s.completionDismissedFor
-	kind, start, query := detectCompletion(draft)
+	caretByte := caretByteOffset(draft, s.completionCaret)
+	atEnd := caretByte == len(draft)
+	kind, start, query := detectCompletion(draft[:caretByte])
 	if s.isComposing || s.completionSuspended {
 		kind = completionNone
+	} else if kind == completionSlash && !atEnd {
+		kind = completionNone
+	} else if (kind == completionMention || kind == completionSkill) && !atEnd {
+		nextRune, _ := utf8.DecodeRuneInString(draft[caretByte:])
+		if !unicode.IsSpace(nextRune) {
+			kind = completionNone
+		}
 	}
-	if kind == completionNone || (dismissedFor != "" && dismissedFor == draft[start:] && s.completionStart == start && s.completionThreadID == threadID) {
+	if kind == completionNone || (dismissedFor != "" && dismissedFor == draft[start:caretByte] && s.completionStart == start && s.completionThreadID == threadID) {
 		wasOpen := s.completionKind != completionNone
 		s.completionKind = completionNone
 		s.completionItems = nil
@@ -763,19 +787,29 @@ func (s *chatState) confirmCompletion(item completionItem) string {
 // 仍然命中触发符；候选列表保留到下一帧重建，避免面板闪一下。
 func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool) string {
 	s.syncDraftTags()
-	start := utf8.RuneCountInString(s.draft[:s.completionStart])
+	totalRunes := s.draftText.Len()
+	compStart := min(max(s.completionStart, 0), len(s.draft))
+	start := utf8.RuneCountInString(s.draft[:compStart])
+	if start > totalRunes {
+		start = totalRunes
+	}
+	end := totalRunes
+	if s.completionCaret >= 0 {
+		end = min(max(s.completionCaret, start), totalRunes)
+	}
 	if s.completionKind == completionMention && item.ThreadID != "" {
 		// 会话引用改成独立胶囊：不再把长标题插进正文，只把触发用的 "@查询" 从草稿里去掉。
 		s.addDraftThreadMention(item.ThreadID, item.Label)
-		if start > utf8.RuneCountInString(s.draft) {
-			start = utf8.RuneCountInString(s.draft)
-		}
-		s.draftText = s.draftText.Replace(start, s.draftText.Len(), richtext.NewText(""))
+		s.draftText = s.draftText.Replace(start, end, richtext.NewText(""))
 		s.draft = s.draftText.String()
 		s.completionKind = completionNone
 		s.completionItems = nil
 		s.completionDismissedFor = ""
 		s.mentionSeq++
+		s.completionCaretTarget = start
+		if s.completionCaret >= 0 {
+			s.completionCaret = start
+		}
 		s.completionCaretToEnd = true
 		return s.draft
 	}
@@ -787,7 +821,7 @@ func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool
 		})
 	}
 	if keepOpen {
-		s.draftText = s.draftText.Replace(start, s.draftText.Len(), insert)
+		s.draftText = s.draftText.Replace(start, end, insert)
 		s.draft = s.draftText.String()
 		sigil := "@"
 		if s.completionKind == completionSkill {
@@ -798,17 +832,41 @@ func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool
 		s.completionLoading = false
 		s.completionSelected = 0
 		s.mentionSeq++
+		target := start + insert.Len()
+		s.completionCaretTarget = target
+		if s.completionCaret >= 0 {
+			s.completionCaret = target
+		}
 		s.completionCaretToEnd = true
 		return s.draft
 	}
-	s.draftText = s.draftText.Replace(start, s.draftText.Len(), insert.Append(" ", richtext.Attributes{}))
+	inserted := insert
+	caretByte := caretByteOffset(s.draft, end)
+	followedBySpace := false
+	if caretByte < len(s.draft) {
+		nextRune, _ := utf8.DecodeRuneInString(s.draft[caretByte:])
+		followedBySpace = unicode.IsSpace(nextRune)
+	}
+	if !followedBySpace {
+		inserted = inserted.Append(" ", richtext.Attributes{})
+	}
+	s.draftText = s.draftText.Replace(start, end, inserted)
 	s.draft = s.draftText.String()
 	s.completionKind = completionNone
 	s.completionItems = nil
-	s.completionDismissedFor = ""
+	if followedBySpace {
+		s.completionDismissedFor = item.Insert
+	} else {
+		s.completionDismissedFor = ""
+	}
 	s.completionSkillScope = ""
 	s.completionSkillDraftScope = ""
 	s.mentionSeq++
+	target := start + inserted.Len()
+	s.completionCaretTarget = target
+	if s.completionCaret >= 0 {
+		s.completionCaret = target
+	}
 	s.completionCaretToEnd = true
 	return s.draft
 }
@@ -922,8 +980,9 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 
 	n := len(s.completionItems)
 	if key == ui.KeyEscape && mods == 0 {
-		if s.completionStart >= 0 && s.completionStart <= len(s.draft) {
-			s.completionDismissedFor = s.draft[s.completionStart:]
+		caretByte := caretByteOffset(s.draft, s.completionCaret)
+		if s.completionStart >= 0 && s.completionStart <= caretByte && caretByte <= len(s.draft) {
+			s.completionDismissedFor = s.draft[s.completionStart:caretByte]
 		}
 		s.completionKind = completionNone
 		s.completionItems = nil
@@ -1213,6 +1272,7 @@ func (s *chatState) clearDraftAndCompletion() {
 	s.completionKind = completionNone
 	s.completionItems = nil
 	s.completionDismissedFor = ""
+	s.completionCaretTarget = -1
 	s.completionSkillScope = ""
 	s.completionSkillDraftScope = ""
 	s.mu.Unlock()

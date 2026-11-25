@@ -957,11 +957,18 @@ func renderComposer(c *ui.Context, s *chatState) {
 							in.Focus()
 						}
 
-						// 补全改写草稿后光标会留在原处，这里在新文本生效的下一帧把它放到文末。
+						// 补全改写草稿后光标会留在原处，这里在新文本生效的下一帧把它放到目标位置（默认文末）。
 						if s.completionCaretToEnd {
 							s.completionCaretToEnd = false
 							n := utf8.RuneCountInString(s.draft)
-							in.SetTextSelection(n, n)
+							target := n
+							if s.completionCaretTarget >= 0 {
+								if s.completionCaretTarget < target {
+									target = s.completionCaretTarget
+								}
+								s.completionCaretTarget = -1
+							}
+							in.SetTextSelection(target, target)
 						}
 
 						// 粘贴图片或文件时作为附件加入并吞掉这次粘贴；长文本收成附件行里的卡片，短文本仍交给输入框正常插入。
@@ -985,7 +992,8 @@ func renderComposer(c *ui.Context, s *chatState) {
 							s.invalidate()
 						}
 						start, end := in.TextSelection()
-						suspended := start != end || end != utf8.RuneCountInString(s.draft) || isSendingDisabled
+						s.completionCaret = end
+						suspended := start != end || isSendingDisabled
 						if s.completionSuspended != suspended {
 							s.completionSuspended = suspended
 							// 补全层先于输入框构建，读到的是上一帧的值；变化时补一帧让它开始收起或重新展开。

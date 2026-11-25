@@ -552,8 +552,10 @@ type chatState struct {
 	completionDismissedFor string
 	// completionSnap 是补全层最近一次可见的候选，关闭动画期间继续渲染它。
 	completionSnap []completionItem
-	// completionCaretToEnd 表示补全刚改写了草稿，下一帧需把光标放到文末；TextKey 无法移动光标，只能在构建视图时用 SetTextSelection。
+	// completionCaretToEnd 表示补全刚改写了草稿，下一帧需把光标放到目标位置；TextKey 无法移动光标，只能在构建视图时用 SetTextSelection。
 	completionCaretToEnd      bool
+	completionCaret           int // 输入框当前光标位置（rune 下标，-1 表示未追踪，按文末处理）
+	completionCaretTarget     int // 补全确认后要放置的光标位置（rune 下标，-1 表示无，按旧逻辑放文末）
 	completionThreadID        string
 	completionSuspended       bool
 	completionLoading         bool
@@ -651,36 +653,38 @@ type chatState struct {
 
 func newChatState(client Client) *chatState {
 	s := &chatState{
-		client:               client,
-		threadsByProj:        make(map[string][]Thread),
-		collapsedProj:        make(map[string]bool),
-		expandedDormantProj:  make(map[string]bool),
-		visibleThreadsProj:   make(map[string]int),
-		bulkRangeDays:        7,
-		expandedReasoning:    make(map[string]bool),
-		expandedTool:         make(map[string]bool),
-		expandedCommandSteps: make(map[string]bool),
-		mermaidShowSource:    make(map[string]bool),
-		revealedMsgs:         make(map[string]bool),
-		streamedRevealMsgs:   make(map[string]struct{}),
-		seenMsgIDs:           make(map[string]struct{}),
-		streamedMsgIDs:       make(map[string]struct{}),
-		timelineUnread:       timelineUnreadState{anchors: make(map[string]timelineUnreadAnchor)},
-		threadUsage:          ThreadUsage{Turns: make(map[int]TokenUsage)},
-		sidebarWidth:         SidebarDefaultWidth,
-		commandsCache:        make(map[string][]SlashCommand),
-		queue:                make(map[string][]QueuedFollowUp),
-		interrupted:          make(map[string]bool),
-		continueDismissed:    make(map[string]string),
-		optimisticRunning:    make(map[string]bool),
-		turnFinished:         make(map[string]string),
-		drafts:               make(map[string]composerDraft),
-		modelPrefCache:       make(map[string]ModelPreference),
-		modelPrefLoading:     make(map[string]bool),
-		resolvedPlans:        make(map[string][]resolvedPlan),
-		answeredQuestions:    make(map[string][]answeredQuestion),
-		collapsedPlans:       make(map[string]bool),
-		stewardTaskSeen:      make(map[string]time.Time),
+		client:                client,
+		threadsByProj:         make(map[string][]Thread),
+		collapsedProj:         make(map[string]bool),
+		expandedDormantProj:   make(map[string]bool),
+		visibleThreadsProj:    make(map[string]int),
+		bulkRangeDays:         7,
+		expandedReasoning:     make(map[string]bool),
+		expandedTool:          make(map[string]bool),
+		expandedCommandSteps:  make(map[string]bool),
+		mermaidShowSource:     make(map[string]bool),
+		revealedMsgs:          make(map[string]bool),
+		streamedRevealMsgs:    make(map[string]struct{}),
+		seenMsgIDs:            make(map[string]struct{}),
+		streamedMsgIDs:        make(map[string]struct{}),
+		timelineUnread:        timelineUnreadState{anchors: make(map[string]timelineUnreadAnchor)},
+		threadUsage:           ThreadUsage{Turns: make(map[int]TokenUsage)},
+		sidebarWidth:          SidebarDefaultWidth,
+		commandsCache:         make(map[string][]SlashCommand),
+		completionCaret:       -1,
+		completionCaretTarget: -1,
+		queue:                 make(map[string][]QueuedFollowUp),
+		interrupted:           make(map[string]bool),
+		continueDismissed:     make(map[string]string),
+		optimisticRunning:     make(map[string]bool),
+		turnFinished:          make(map[string]string),
+		drafts:                make(map[string]composerDraft),
+		modelPrefCache:        make(map[string]ModelPreference),
+		modelPrefLoading:      make(map[string]bool),
+		resolvedPlans:         make(map[string][]resolvedPlan),
+		answeredQuestions:     make(map[string][]answeredQuestion),
+		collapsedPlans:        make(map[string]bool),
+		stewardTaskSeen:       make(map[string]time.Time),
 	}
 	s.windowActive.Store(true)
 	s.inspector.Persist = func(tid string, st *inspectorSessionState) { inspectorPersistSession(s, tid, st) }
@@ -1483,6 +1487,7 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 	s.completionKind = completionNone
 	s.completionItems = nil
 	s.completionDismissedFor = ""
+	s.completionCaretTarget = -1
 	s.mentionSeq++
 	if oldThreadID != "" && oldThreadID != threadID && len(s.messages) > 0 {
 		if lastID := s.messages[len(s.messages)-1].ID; lastID != "" {
