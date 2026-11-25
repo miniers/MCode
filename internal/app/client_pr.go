@@ -317,9 +317,36 @@ func prReviewBlock(text string) (string, bool) {
 
 // prReviewResult 是模型输出的一条审查意见。
 type prReviewResult struct {
-	Path string `json:"path"`
-	Line int    `json:"line"`
-	Body string `json:"body"`
+	Path     string `json:"path"`
+	Line     int    `json:"line"`
+	Body     string `json:"body"`
+	Severity string `json:"severity"`
+	Headline string `json:"headline"`
+	Impact   string `json:"impact"`
+	Fix      string `json:"fix"`
+	Patch    string `json:"patch"`
+}
+
+// prReviewCommentBody 把单条审查意见格式化为 GitHub 行内评论正文；
+// body 非空时直接返回，否则拼接 headline、影响与建议并跳过空字段，不写入 patch。
+func prReviewCommentBody(item prReviewResult) string {
+	if body := strings.TrimSpace(item.Body); body != "" {
+		return body
+	}
+	var parts []string
+	if headline := strings.TrimSpace(item.Headline); headline != "" {
+		if strings.TrimSpace(item.Severity) == "blocking" {
+			headline = "[阻塞] " + headline
+		}
+		parts = append(parts, headline)
+	}
+	if impact := strings.TrimSpace(item.Impact); impact != "" {
+		parts = append(parts, "影响："+impact)
+	}
+	if fix := strings.TrimSpace(item.Fix); fix != "" {
+		parts = append(parts, "建议："+fix)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // parsePRAIReview 解析模型输出，同时兼容新版结论对象（含 comments 字段）与旧版评论数组，
@@ -369,7 +396,7 @@ func parsePRAIReview(out, patch string) ([]git.PRReviewComment, error) {
 	comments := make([]git.PRReviewComment, 0, len(items))
 	for _, item := range items {
 		path := strings.TrimSpace(item.Path)
-		body := strings.TrimSpace(item.Body)
+		body := prReviewCommentBody(item)
 		if path == "" || body == "" || item.Line <= 0 || !valid[path][item.Line] {
 			continue
 		}

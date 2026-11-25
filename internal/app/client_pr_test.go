@@ -446,6 +446,76 @@ func TestGitPRDiffQuotedPath(t *testing.T) {
 	}
 }
 
+// TestGitPRAIReviewParseStructured 覆盖结构化评论字段解析与旧 body 兼容。
+func TestGitPRAIReviewParseStructured(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want []git.PRReviewComment
+	}{
+		{
+			name: "新格式对象含阻塞前缀并忽略 patch",
+			out: `{"verdict":"fix","reason":"需先修复空指针后再合并","comments":[` +
+				`{"path":"a.go","line":2,"severity":"blocking","headline":"缺少空值检查","impact":"输入为 nil 时会 panic","fix":"在入口处补充判空返回","patch":"@@ -1,2 +1,4 @@\n+if x == nil {\n+ return\n+}"},` +
+				`{"path":"b.go","line":2,"severity":"suggestion","headline":"命名可以更明确","impact":"降低后续阅读效率","fix":"改为 NewRunner"}` +
+				`]}`,
+			want: []git.PRReviewComment{
+				{Path: "a.go", Line: 2, Side: "RIGHT", Body: "[阻塞] 缺少空值检查\n\n影响：输入为 nil 时会 panic\n\n建议：在入口处补充判空返回"},
+				{Path: "b.go", Line: 2, Side: "RIGHT", Body: "命名可以更明确\n\n影响：降低后续阅读效率\n\n建议：改为 NewRunner"},
+			},
+		},
+		{
+			name: "跳过空的 impact 或 fix",
+			out: `{"verdict":"comment","reason":"部分信息可省略","comments":[` +
+				`{"path":"a.go","line":2,"severity":"blocking","headline":"越界访问","impact":"","fix":"先校验长度"},` +
+				`{"path":"b.go","line":2,"severity":"suggestion","headline":"缺少错误透传","impact":"调用方无法区分错误原因","fix":""}` +
+				`]}`,
+			want: []git.PRReviewComment{
+				{Path: "a.go", Line: 2, Side: "RIGHT", Body: "[阻塞] 越界访问\n\n建议：先校验长度"},
+				{Path: "b.go", Line: 2, Side: "RIGHT", Body: "缺少错误透传\n\n影响：调用方无法区分错误原因"},
+			},
+		},
+		{
+			name: "只给旧 body 时原样使用",
+			out:  `{"verdict":"fix","reason":"兼容旧字段","comments":[{"path":"a.go","line":2,"body":"旧格式完整正文"}]}`,
+			want: []git.PRReviewComment{
+				{Path: "a.go", Line: 2, Side: "RIGHT", Body: "旧格式完整正文"},
+			},
+		},
+		{
+			name: "只有 headline 时正文就是 headline",
+			out:  `{"verdict":"comment","reason":"仅标题","comments":[{"path":"a.go","line":2,"severity":"suggestion","headline":"这里需要加锁"}]}`,
+			want: []git.PRReviewComment{
+				{Path: "a.go", Line: 2, Side: "RIGHT", Body: "这里需要加锁"},
+			},
+		},
+		{
+			name: "结构化正文全空时跳过",
+			out:  `{"verdict":"merge","reason":"无有效正文","comments":[{"path":"a.go","line":2,"severity":"blocking","patch":"@@ -1 +1 @@"}]}`,
+			want: []git.PRReviewComment{},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parsePRAIReview(tc.out, prReviewTestPatch)
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if got == nil {
+				t.Fatal("空结果也必须是空切片，不能是 nil")
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("条数 = %d, 期望 %d: %+v", len(got), len(tc.want), got)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("第 %d 条 = %+v, 期望 %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 // TestGitPRCreateValidation 验证空标题与空目标分支在调用任何 git 或 backend 之前就报错。
 func TestGitPRCreateValidation(t *testing.T) {
 	c := NewClient(nil)
