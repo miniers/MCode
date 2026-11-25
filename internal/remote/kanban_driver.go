@@ -320,6 +320,18 @@ func (b *MemoryBackend) sessionStatusLocked(ctx context.Context, threadID string
 		interrupted = interruptedTurnStatus(recentTurn.Status)
 	}
 
+	restartInterrupted := false
+	if !running && interrupted {
+		if recentTurn == nil && b.store != nil {
+			if turns, err := b.store.ListRecentTurns(ctx, threadID, 1); err == nil && len(turns) > 0 {
+				recentTurn = &turns[len(turns)-1]
+			}
+		}
+		if recentTurn != nil && recentTurn.ErrorMessage == restartTurnErrorMessage {
+			restartInterrupted = true
+		}
+	}
+
 	return kanban.SessionState{
 		Running:              running,
 		Failed:               failed,
@@ -327,6 +339,7 @@ func (b *MemoryBackend) sessionStatusLocked(ctx context.Context, threadID string
 		AwaitingInput:        awaitingInput,
 		FailureReason:        failureReason,
 		Interrupted:          interrupted,
+		RestartInterrupted:   restartInterrupted,
 		LastFileChangeAt:     td.lastFileChangeAt,
 		HostToolsUnavailable: b.hostToolsUnavailableLocked(td.summary.Provider),
 	}

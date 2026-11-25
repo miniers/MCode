@@ -96,6 +96,8 @@ type SessionState struct {
 	// Interrupted 表示最近一轮是被用户中断或取消结束的（不处于运行中时才可能为真）；
 	// 供 Swarm 判断该 Lead 是否被用户停过，据此不自动续跑汇报。
 	Interrupted bool
+	// RestartInterrupted 表示最近一轮是宿主重启时被收尾为中断的。
+	RestartInterrupted bool
 	// Progress 是不透明的进展指纹：会话有任何新输出（消息、流式文本、工具调用）时都会变化，
 	// 供看门狗判断 bee 是否仍在推进；具体组成由各驱动自行决定，调用方只做相等比较。
 	Progress string
@@ -739,8 +741,9 @@ func (s *Service) startTaskInternal(ctx context.Context, taskID string, expected
 	task.IsDraft = false
 	task.AttemptCount++
 	task.LastFailureReason = nil
-	if meta, err := ParseTaskMeta(task.Meta); err == nil && meta.NextAttemptAt != "" {
+	if meta, err := ParseTaskMeta(task.Meta); err == nil && (meta.NextAttemptAt != "" || meta.WatchdogInterrupted) {
 		meta.NextAttemptAt = ""
+		meta.WatchdogInterrupted = false
 		task.Meta = EncodeTaskMeta(meta)
 	}
 

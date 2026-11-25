@@ -2,6 +2,7 @@ package kanban
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -832,7 +833,7 @@ func TestStartPromptMentionsSubmitResult(t *testing.T) {
 	}
 }
 
-// TestDecideFinishedInterruptedSendsResumePrompt 验证中断会话无回执时发送续跑文案，不把任务标为 done 或 review。
+// TestDecideFinishedInterruptedSendsResumePrompt 验证重启中断会话无回执时发送续跑文案，不把任务标为 done 或 review。
 func TestDecideFinishedInterruptedSendsResumePrompt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -844,9 +845,10 @@ func TestDecideFinishedInterruptedSendsResumePrompt(t *testing.T) {
 	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-interrupted", ProjectID: "proj-1", Title: "中断续跑"},
 		store.Task{ID: "task-interrupted", Title: "中断任务", Status: string(TaskStatusInProgress), ThreadID: &threadID})
 	driver.setThreadState(threadID, SessionState{
-		Running:           false,
-		Interrupted:       true,
-		LastAssistantText: "做了一半，还没收尾",
+		Running:            false,
+		Interrupted:        true,
+		RestartInterrupted: true,
+		LastAssistantText:  "做了一半，还没收尾",
 	})
 
 	if err := wd.Check(ctx); err != nil {
@@ -869,7 +871,7 @@ func TestDecideFinishedInterruptedSendsResumePrompt(t *testing.T) {
 	}
 }
 
-// TestDecideFinishedInterruptedHostToolsUnavailableNotDone 验证 HostToolsUnavailable 且 Interrupted 时，
+// TestDecideFinishedInterruptedHostToolsUnavailableNotDone 验证 HostToolsUnavailable 且 RestartInterrupted 时，
 // 总管 owner 任务返回 ResultFailed（不把半截助手文本当成完成），非 owner 任务返回 ResultNeedsDecision。
 func TestDecideFinishedInterruptedHostToolsUnavailableNotDone(t *testing.T) {
 	t.Parallel()
@@ -894,6 +896,7 @@ func TestDecideFinishedInterruptedHostToolsUnavailableNotDone(t *testing.T) {
 	st := SessionState{
 		Running:              false,
 		Interrupted:          true,
+		RestartInterrupted:   true,
 		HostToolsUnavailable: true,
 		LastAssistantText:    "半截回复",
 	}
@@ -996,5 +999,203 @@ func TestConcurrentWatchdogAndSchedulerFinishOnce(t *testing.T) {
 	}
 	if asks := driver.sentFollowUps(); len(asks) != 0 {
 		t.Fatalf("并发收尾有回执时不应误发追问，实际: %d", len(asks))
+	}
+}
+
+// TestDecideFinishedUserInterruptedCreatesDecision 验证用户手动中断时不追问、不自动续跑、
+// 不把任务当完成；普通任务与总管 owner 任务均转 needs_approval 并建决策卡，且重复巡视不重复建卡。
+func TestDecideFinishedUserInterruptedCreatesDecision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	svc, s, wd, scheduler := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	normalThread := "thread-user-int-normal"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-user-int-normal", ProjectID: "proj-1", Title: "手动中断"},
+		store.Task{ID: "task-user-int-normal", Title: "普通任务", Status: string(TaskStatusInProgress), ThreadID: &normalThread})
+	driver.setThreadState(normalThread, SessionState{
+		Running:            false,
+		Interrupted:        true,
+		RestartInterrupted: false,
+	})
+
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("watchdog check 失败: %v", err)
+	}
+	if asks := driver.sentFollowUps(); len(asks) != 0 {
+		t.Fatalf("手动中断不应发送 SendFollowUp，实际: %+v", asks)
+	}
+
+	normalTask, err := s.GetTask(ctx, "task-user-int-normal")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if normalTask.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("期望手动中断后任务转为 needs_approval，实际: %s", normalTask.Status)
+	}
+	normalMeta, err := ParseTaskMeta(normalTask.Meta)
+	if err != nil || normalMeta.DecisionID == "" {
+		t.Fatalf("期望生成决策卡并写入 DecisionID，实际 meta=%+v err=%v", normalMeta, err)
+	}
+	d, err := s.GetStewardDecision(ctx, normalMeta.DecisionID)
+	if err != nil {
+		t.Fatalf("获取决策卡失败: %v", err)
+	}
+	if d.Status != store.DecisionStatusOpen || d.Question != "执行会话已被手动中断，怎么处理" {
+		t.Fatalf("决策卡内容不符合预期: %+v", d)
+	}
+	var opts []DecisionOption
+	if err := json.Unmarshal([]byte(d.OptionsJSON), &opts); err != nil {
+		t.Fatalf("解析决策选项失败: %v", err)
+	}
+	if len(opts) != 2 || opts[0].Key != "A" || opts[0].Text != "继续执行" || opts[1].Key != "B" || opts[1].Text != "停下" {
+		t.Fatalf("期望选项 A 为「继续执行」、B 为「停下」，实际: %+v", opts)
+	}
+
+	// 再次巡视与调度不应重复建卡
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("二次 watchdog check 失败: %v", err)
+	}
+	scheduler.Tick(ctx)
+	normalAgain, _ := s.GetTask(ctx, "task-user-int-normal")
+	metaAgain, _ := ParseTaskMeta(normalAgain.Meta)
+	if metaAgain.DecisionID != normalMeta.DecisionID {
+		t.Fatalf("不应重复建卡，期望 DecisionID=%q，实际=%q", normalMeta.DecisionID, metaAgain.DecisionID)
+	}
+
+	// 总管 owner 任务手动中断同样建卡而不是 ResultFailed
+	ownerThread := "thread-user-int-owner"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-user-int-owner", ProjectID: "proj-1", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{
+			ID:       "task-user-int-owner",
+			Title:    "总管任务",
+			Status:   string(TaskStatusInProgress),
+			ThreadID: &ownerThread,
+			Meta:     EncodeTaskMeta(TaskMeta{Origin: "owner"}),
+		})
+	driver.setThreadState(ownerThread, SessionState{
+		Running:            false,
+		Interrupted:        true,
+		RestartInterrupted: false,
+	})
+	ownerTask, err := s.GetTask(ctx, "task-user-int-owner")
+	if err != nil {
+		t.Fatalf("获取总管任务失败: %v", err)
+	}
+	ownerDecision := svc.decideFinished(ctx, ownerTask, now, SessionState{Running: false, Interrupted: true})
+	if ownerDecision.kind != finishDone || ownerDecision.result.Status != ResultNeedsDecision {
+		t.Fatalf("总管 owner 任务手动中断应返回 ResultNeedsDecision，实际: %+v", ownerDecision)
+	}
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("总管任务 watchdog check 失败: %v", err)
+	}
+	ownerLatest, _ := s.GetTask(ctx, "task-user-int-owner")
+	if ownerLatest.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("总管 owner 任务手动中断应转为 needs_approval，实际: %s", ownerLatest.Status)
+	}
+	if asks := driver.sentFollowUps(); len(asks) != 0 {
+		t.Fatalf("总管 owner 任务手动中断不应发送 SendFollowUp，实际: %+v", asks)
+	}
+}
+
+// TestDecideFinishedRestartInterruptedResumes 验证 RestartInterrupted=true 时发送 taskResumePrompt 续跑。
+func TestDecideFinishedRestartInterruptedResumes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 25, 10, 30, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	_, s, wd, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	threadID := "thread-restart-resume"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-restart-resume", ProjectID: "proj-1", Title: "重启续跑"},
+		store.Task{ID: "task-restart-resume", Title: "重启任务", Status: string(TaskStatusInProgress), ThreadID: &threadID})
+	driver.setThreadState(threadID, SessionState{
+		Running:            false,
+		Interrupted:        true,
+		RestartInterrupted: true,
+	})
+
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("watchdog check 失败: %v", err)
+	}
+	asks := driver.sentFollowUps()
+	if len(asks) != 1 || asks[0].text != taskResumePrompt("task-restart-resume") {
+		t.Fatalf("期望发送 1 次重启续跑文案，实际: %+v", asks)
+	}
+}
+
+// TestWatchdogRescueInterruptedResumes 验证卡死救援后 meta.WatchdogInterrupted 为真、
+// 会话转中断后下一轮发送续跑文案并清除标记，且续跑中用户再手动中断能被识别为手动中断。
+func TestWatchdogRescueInterruptedResumes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	currTime := time.Date(2026, 11, 25, 11, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	svc, s, wd := setupPokeWatchdog(t, driver, true, 600*time.Second, 1800*time.Second, func() time.Time { return currTime })
+
+	task, err := svc.CreateTask(ctx, CreateTaskInput{ProjectID: "proj-1", Title: "卡死救援续跑"})
+	if err != nil {
+		t.Fatalf("创建任务失败: %v", err)
+	}
+	threadID := *task.ThreadID
+
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("首次 check 失败: %v", err)
+	}
+	currTime = currTime.Add(650 * time.Second)
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("催促 check 失败: %v", err)
+	}
+	currTime = currTime.Add(1250 * time.Second)
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("救援 check 失败: %v", err)
+	}
+
+	rescued, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	rescuedMeta, err := ParseTaskMeta(rescued.Meta)
+	if err != nil || !rescuedMeta.WatchdogInterrupted {
+		t.Fatalf("期望卡死救援后 meta.WatchdogInterrupted 为真，实际 meta=%+v err=%v", rescuedMeta, err)
+	}
+
+	driver.setThreadState(threadID, SessionState{Running: false, Interrupted: true})
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("续跑 check 失败: %v", err)
+	}
+	asks := driver.sentFollowUps()
+	if len(asks) != 2 || asks[1].text != taskResumePrompt(task.ID) {
+		t.Fatalf("期望发送续跑文案，实际: %+v", asks)
+	}
+
+	resumed, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	resumedMeta, err := ParseTaskMeta(resumed.Meta)
+	if err != nil || resumedMeta.WatchdogInterrupted {
+		t.Fatalf("期望发出续跑后清除 WatchdogInterrupted，实际 meta=%+v err=%v", resumedMeta, err)
+	}
+
+	// 续跑中用户再手动中断，应识别为用户中断并建决策卡，不再自动续跑
+	driver.setThreadState(threadID, SessionState{Running: true})
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("运行中 check 失败: %v", err)
+	}
+	driver.setThreadState(threadID, SessionState{Running: false, Interrupted: true})
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("手动中断 check 失败: %v", err)
+	}
+	if len(driver.sentFollowUps()) != 2 {
+		t.Fatalf("续跑中用户手动中断不得再次自动续跑，实际追问数: %d", len(driver.sentFollowUps()))
+	}
+	stopped, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if stopped.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("期望用户再次手动中断后转为 needs_approval，实际: %s", stopped.Status)
 	}
 }

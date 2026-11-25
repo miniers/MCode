@@ -391,7 +391,7 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			}
 			continue
 		}
-		// 会话已恢复运行：把任务从 needs_approval 改回 in_progress
+		// 会话已恢复运行：把任务从 needs_approval 改回 in_progress，并清理卡死救援中断标记
 		if st.Running {
 			if t.Status == string(TaskStatusNeedsApproval) {
 				if err := g.svc.closeTaskDecisions(ctx, &t); err != nil {
@@ -400,6 +400,17 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				t.Status = string(TaskStatusInProgress)
 				// 用户已经回复，执行会话重新跑起来，解除求助标记
 				g.svc.clearReceiptBlocked(t.ID)
+				if meta, err := ParseTaskMeta(t.Meta); err == nil && meta.WatchdogInterrupted {
+					meta.WatchdogInterrupted = false
+					t.Meta = EncodeTaskMeta(meta)
+				}
+				if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+					tasks[i] = up
+					goalChanged = true
+				}
+			} else if meta, err := ParseTaskMeta(t.Meta); err == nil && meta.WatchdogInterrupted {
+				meta.WatchdogInterrupted = false
+				t.Meta = EncodeTaskMeta(meta)
 				if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
 					tasks[i] = up
 					goalChanged = true

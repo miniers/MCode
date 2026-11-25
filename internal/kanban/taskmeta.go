@@ -25,8 +25,9 @@ type TaskMeta struct {
 	Follows         string   `json:"follows,omitempty"`
 	Provider        string   `json:"provider,omitempty"`
 	Model           string   `json:"model,omitempty"`
-	NoChange        bool     `json:"no_change,omitempty"`
-	NextAttemptAt   string   `json:"next_attempt_at,omitempty"`
+	NoChange            bool     `json:"no_change,omitempty"`
+	NextAttemptAt       string   `json:"next_attempt_at,omitempty"`
+	WatchdogInterrupted bool     `json:"watchdog_interrupted,omitempty"`
 }
 
 func ParseTaskMeta(s string) (TaskMeta, error) {

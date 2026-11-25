@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"mcode/internal/harness"
 	"mcode/internal/remote/wire"
 	"mcode/internal/store"
 )
@@ -148,5 +149,88 @@ func TestSessionState_FailureReasonFallbackWhenNoError(t *testing.T) {
 	}
 	if st2.FailureReason != "attention: failed" {
 		t.Fatalf("expected FailureReason to fallback to 'attention: failed', got %q", st2.FailureReason)
+	}
+}
+
+// TestSessionStateRestartInterrupted 验证宿主重启收尾的中断线程 RestartInterrupted 为真，
+// 而普通 InterruptCurrent 中断的线程 RestartInterrupted 为假。
+func TestSessionStateRestartInterrupted(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "restart.db")
+	now := time.Now().UTC()
+
+	s1, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	projDir := t.TempDir()
+	if err := s1.UpsertProject(ctx, store.Project{ID: "p1", Name: "P1", Path: projDir, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	if err := s1.CreateThread(ctx, store.Thread{
+		ID: "t-restart-int", ProjectID: "p1", Title: "重启中断", Provider: "mock",
+		CreatedAt: now, UpdatedAt: now, LastStatus: "completed",
+	}); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if err := s1.CreateTurn(ctx, store.Turn{
+		ID: "turn-restart-int", ThreadID: "t-restart-int", TurnIndex: 0,
+		Status: "running", StartedAt: now, UserPrompt: "执行中",
+	}); err != nil {
+		t.Fatalf("create running turn: %v", err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	s2, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer s2.Close()
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	if err := backend.AttachStore(ctx, s2); err != nil {
+		t.Fatalf("attach store: %v", err)
+	}
+
+	stRestart, err := backend.SessionState(ctx, "t-restart-int")
+	if err != nil {
+		t.Fatalf("SessionState restart failed: %v", err)
+	}
+	if stRestart.Running || !stRestart.Interrupted || !stRestart.RestartInterrupted {
+		t.Fatalf("期望重启收尾线程 Running=false Interrupted=true RestartInterrupted=true，实际: %+v", stRestart)
+	}
+
+	startedCh := make(chan struct{}, 1)
+	backend.SetHarness(&blockingInterruptHarness{startedCh: startedCh}, projDir, harness.ModeAgent)
+	manualThreadID := "00000000-0000-0000-0000-0000000000a1"
+	backend.AddThread(wire.ThreadSummary{ID: manualThreadID, ProjectID: "p1", Title: "手动中断", Provider: "mock"}, nil)
+	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+		ThreadID: manualThreadID,
+		Text:     "run",
+		ActionID: "00000000-0000-0000-0000-0000000000a2",
+	}); err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	select {
+	case <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for harness to start")
+	}
+	if _, err := backend.InterruptCurrent(ctx, manualThreadID); err != nil {
+		t.Fatalf("InterruptCurrent failed: %v", err)
+	}
+	waitThreadIdle(t, backend, ctx, manualThreadID)
+
+	stManual, err := backend.SessionState(ctx, manualThreadID)
+	if err != nil {
+		t.Fatalf("SessionState manual failed: %v", err)
+	}
+	if stManual.Running || !stManual.Interrupted || stManual.RestartInterrupted {
+		t.Fatalf("期望普通 InterruptCurrent 线程 Running=false Interrupted=true RestartInterrupted=false，实际: %+v", stManual)
 	}
 }

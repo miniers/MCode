@@ -345,6 +345,17 @@ func (w *Watchdog) Check(ctx context.Context) error {
 		}
 
 		// 3. 仍在运行中：比较活跃指纹，指纹变化即视为有新输出并刷新活动时间
+		if meta, err := ParseTaskMeta(t.Meta); err == nil && meta.WatchdogInterrupted {
+			meta.WatchdogInterrupted = false
+			t.Meta = EncodeTaskMeta(meta)
+			w.svc.mu.Lock()
+			if up, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+				t = up
+				w.svc.revision.Add(1)
+				changed = true
+			}
+			w.svc.mu.Unlock()
+		}
 		fingerprint := activityFingerprint(st)
 		prevFingerprint, hasPrev := w.lastProgress[t.ID]
 		if !hasPrev || fingerprint != prevFingerprint {
@@ -410,6 +421,10 @@ func (w *Watchdog) Check(ctx context.Context) error {
 				reason := fmt.Sprintf("任务连续 %d 秒无活动，卡死救援已自动中断", int(interruptTimeout.Seconds()))
 				t.LastFailureReason = &reason
 				t.LastActivityText = &reason
+				if meta, err := ParseTaskMeta(t.Meta); err == nil {
+					meta.WatchdogInterrupted = true
+					t.Meta = EncodeTaskMeta(meta)
+				}
 				w.svc.mu.Lock()
 				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
 					w.svc.revision.Add(1)

@@ -401,16 +401,37 @@ func finishNeedsDecision(summary, question string) finishDecision {
 			Status:         ResultNeedsDecision,
 			Summary:        summary,
 			Question:       question,
-			Options:        []DecisionOption{{Key: "A", Text: "重新执行"}, {Key: "B", Text: "停下"}},
+			Options:        []DecisionOption{{Key: "A", Text: "继续执行"}, {Key: "B", Text: "停下"}},
 			Recommendation: "A",
 		},
 	}
 }
 
+// clearWatchdogInterrupted 在系统中断发出续跑后清除 WatchdogInterrupted，
+// 避免续跑期间用户再次手动中断时被误判为系统中断。
+func (s *Service) clearWatchdogInterrupted(ctx context.Context, t *store.Task) {
+	if s.opts.Store == nil {
+		return
+	}
+	meta, err := ParseTaskMeta(t.Meta)
+	if err != nil || !meta.WatchdogInterrupted {
+		return
+	}
+	meta.WatchdogInterrupted = false
+	t.Meta = EncodeTaskMeta(meta)
+	s.mu.Lock()
+	if up, err := s.opts.Store.UpdateTask(ctx, *t, t.Revision); err == nil {
+		*t = up
+		s.revision.Add(1)
+	}
+	s.mu.Unlock()
+	s.notifyChange()
+}
+
 // decideFinished 决定一个已停止、未失败、未等待的会话该如何收尾。
-// watchdog 与调度器共用这套规则：有回执按回执走；没有回执时，若上一轮被中断则发续跑追问
-// （无法追问时总管 owner 任务返回失败、其余建决策卡）；未中断且无法追问按旧行为直接完成，
-// 其余情况先追问两次，仍无回执再升级给人工建决策卡。
+// watchdog 与调度器共用这套规则：有回执按回执走；没有回执时，系统中断（重启或看门狗救援）发续跑追问
+// （无法追问时总管 owner 任务返回失败、其余建决策卡），用户手动中断直接建决策卡；
+// 未中断且无法追问按旧行为直接完成，其余情况先追问两次，仍无回执再升级给人工建决策卡。
 func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Time, st SessionState) finishDecision {
 	if receipt, ok := s.takeReceipt(t.ID, threadIDOf(t)); ok {
 		if receipt.Result.Status == ResultNeedsDecision {
@@ -424,10 +445,16 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 		return finishDecision{kind: finishDone, summary: summary, fromReceipt: true}
 	}
 
+	meta, _ := ParseTaskMeta(t.Meta)
+	systemInterrupted := st.Interrupted && (st.RestartInterrupted || meta.WatchdogInterrupted)
+	if st.Interrupted && !systemInterrupted {
+		return finishNeedsDecision("执行会话已被手动中断", "执行会话已被手动中断，怎么处理")
+	}
+
 	messenger, supportsFollowUp := s.opts.Driver.(SessionMessenger)
-	// 会话里调不到回执工具或驱动不支持追问时：未中断保持旧行为，中断则不能把半截工作当成完成。
+	// 会话里调不到回执工具或驱动不支持追问时：未中断保持旧行为，系统中断不能把半截工作当成完成。
 	if s.opts.Driver == nil || !supportsFollowUp || messenger == nil || st.HostToolsUnavailable {
-		if st.Interrupted {
+		if systemInterrupted {
 			const summary = "执行会话被中断"
 			if s.isStewardOwnerTask(ctx, t) {
 				return finishDecision{kind: finishDone, summary: summary, result: ExecutorResult{Status: ResultFailed, Summary: summary}}
@@ -457,11 +484,13 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 	case receiptAskSend:
 		if threadID := threadIDOf(t); threadID != "" {
 			prompt := taskReceiptPrompt(t.ID)
-			if st.Interrupted {
+			if systemInterrupted {
 				prompt = taskResumePrompt(t.ID)
 			}
 			// 追问失败不阻塞本轮处理，下一轮 Tick 会按宽限重试或升级
-			_ = messenger.SendFollowUp(ctx, threadID, prompt)
+			if err := messenger.SendFollowUp(ctx, threadID, prompt); err == nil && systemInterrupted && meta.WatchdogInterrupted {
+				s.clearWatchdogInterrupted(ctx, &t)
+			}
 		}
 		return finishDecision{kind: finishWait}
 	case receiptAskEscalate:
@@ -489,6 +518,7 @@ func (s *Service) applyExecutorResult(ctx context.Context, t *store.Task, res Ex
 	if err != nil {
 		return err
 	}
+	meta.WatchdogInterrupted = false
 	meta.ResultStatus, meta.Summary = string(res.Status), res.Summary
 	meta.NoChange = res.Status == ResultDone && res.NoChange
 	switch res.Status {

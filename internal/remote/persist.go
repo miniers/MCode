@@ -39,6 +39,8 @@ const (
 	followUpEventRetention = 30 * 24 * time.Hour
 	// interruptedToolNotice 是崩溃收尾时追加到工具消息正文的说明。store 不依赖 remote，文案由调用方传入。
 	interruptedToolNotice = "工具执行被中断：宿主重启，未收到结果。"
+	// restartTurnErrorMessage 是宿主重启收尾未完成轮次时写入 turns.error_message 的说明。
+	restartTurnErrorMessage = "宿主重启，本轮未正常收尾，已标记为中断"
 	// backgroundToolNotice 是启动时收敛 provider 托管后台任务的说明。
 	backgroundToolNotice = "宿主重启，后台任务已中断，输出未收回。"
 	// residentExitToolNotice 是常驻进程退出时收敛 provider 托管后台任务的说明。
@@ -614,7 +616,7 @@ func (b *MemoryBackend) finalizeOrphanTurns(ctx context.Context, s *store.Store,
 		unfinished[t.ID] = struct{}{}
 		writeCtx, writeCancel := persistCtx()
 		// 结束时间按最后活动时间估算。
-		err := s.FinalizeInterruptedTurn(writeCtx, t.ID, now, now, "宿主重启，本轮未正常收尾，已标记为中断", interruptedToolNotice)
+		err := s.FinalizeInterruptedTurn(writeCtx, t.ID, now, now, restartTurnErrorMessage, interruptedToolNotice)
 		writeCancel()
 		if err != nil {
 			log.Printf("store finalize orphan turn %s error: %v", t.ID, err)
