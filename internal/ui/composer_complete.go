@@ -771,6 +771,28 @@ func (s *chatState) syncDraftTags() {
 	s.draftText = s.draftText.Replace(start, a, richtext.NewText(string(next[start:b])))
 }
 
+// deleteTagRunAt 在光标处删除整段引用片段：Backspace 命中 start < caret <= end，Delete 命中 start <= caret < end。
+func (s *chatState) deleteTagRunAt(caret int, forward bool) (draft string, newCaret int, ok bool) {
+	s.syncDraftTags()
+	for start, run := range s.draftText.Runs(0, s.draftText.Len()) {
+		if run.Attributes.Tag == "" {
+			continue
+		}
+		end := start + utf8.RuneCountInString(run.Text)
+		hit := start < caret && caret <= end
+		if forward {
+			hit = start <= caret && caret < end
+		}
+		if !hit {
+			continue
+		}
+		s.draftText = s.draftText.Replace(start, end, richtext.NewText(""))
+		s.draft = s.draftText.String()
+		return s.draft, start, true
+	}
+	return "", 0, false
+}
+
 func (s *chatState) mentionRanges(color ui.Color) []ui.TextRange {
 	var ranges []ui.TextRange
 	for start, run := range s.draftText.Runs(0, s.draftText.Len()) {

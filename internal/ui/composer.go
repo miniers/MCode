@@ -1024,6 +1024,22 @@ func renderComposer(c *ui.Context, s *chatState) {
 									return true
 								}
 							}
+							if !s.isComposing && k.Mods == 0 && start == end && (k.Key == ui.KeyBackspace || k.Key == ui.KeyDelete) {
+								if draft, newCaret, ok := s.deleteTagRunAt(end, k.Key == ui.KeyDelete); ok {
+									k.SetText(draft)
+									s.completionCaretToEnd = true
+									s.completionCaretTarget = newCaret
+									if s.completionCaret >= 0 {
+										s.completionCaret = newCaret
+									}
+									if s.editingQueuedID() == "" {
+										s.noteComposerDraft(currentThreadID, s.draft)
+									}
+									s.updateCompletion(currentThreadID)
+									s.invalidate()
+									return true
+								}
+							}
 							s.updateCompletion(currentThreadID)
 
 							// 用户改动了回填的历史文本时退出导航，保留已输入的文本
