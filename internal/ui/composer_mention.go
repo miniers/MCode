@@ -119,6 +119,7 @@ func (s *chatState) resetMentionStateLocked() {
 	s.mentionFilesLoaded = false
 	s.mentionFilesLoading = false
 	s.mentionDirAnim = ""
+	s.mentionPreviewCache = nil
 }
 
 // cycleMentionTabLocked 在 '@' 补全打开时按 ←/→ 循环切换「全部 / 文件 / 会话」页签。调用方需持有 s.mu。
@@ -614,10 +615,7 @@ func (s *chatState) ensureMentionSelectionPreviewLocked() {
 		}
 
 		s.mu.Lock()
-		if !s.closed {
-			if s.mentionPreviewCache == nil {
-				s.mentionPreviewCache = make(map[string]*mentionItemPreview)
-			}
+		if !s.closed && s.mentionPreviewCache != nil && s.mentionPreviewCache[key] == entry {
 			s.mentionPreviewCache[key] = result
 		}
 		s.mu.Unlock()
@@ -1132,7 +1130,7 @@ func renderMentionRow(
 				FontSize(uiFont(TypeBody)).
 				TextColor(ThemeSecondaryText(c)).
 				Shrink(0).
-				MaxWidth(listW*mentionMenuNameMaxRatio).
+				MaxWidth(listW * mentionMenuNameMaxRatio).
 				SingleLine().
 				Ellipsis("…")
 			ui.Spacer(c)

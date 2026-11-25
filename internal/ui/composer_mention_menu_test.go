@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"context"
 	"errors"
 	"math"
 	"strings"
@@ -396,4 +397,162 @@ func TestMentionMenuTabEnterHeaderAndOutOfBounds(t *testing.T) {
 			}
 		})
 	}
+}
+
+type blockingMentionPreviewClient struct {
+	*FakeClient
+	started chan struct{}
+	gate    chan struct{}
+}
+
+func (c *blockingMentionPreviewClient) FilesRead(ctx context.Context, threadID, path string, offset, length int64) (FileContent, error) {
+	if c.started != nil {
+		select {
+		case c.started <- struct{}{}:
+		default:
+		}
+	}
+	if c.gate != nil {
+		select {
+		case <-c.gate:
+		case <-ctx.Done():
+			return FileContent{}, ctx.Err()
+		}
+	}
+	return c.FakeClient.FilesRead(ctx, threadID, path, offset, length)
+}
+
+func TestMentionMenuPreviewCacheResets(t *testing.T) {
+	t.Run("reload_after_reopen", func(t *testing.T) {
+		fake := NewFakeClient()
+		fake.SetFileTree(map[string][]FileEntry{
+			"": {
+				{Name: "main.go", Path: "main.go"},
+			},
+		})
+		fake.SetFileContents(map[string]FileContent{
+			"main.go": {Path: "main.go", Kind: "text", Text: "old preview line\n"},
+		})
+		s, tt := newMentionMenuTester(t, fake, []Thread{{ID: "t1", ProjectID: "p1", Title: "当前会话"}})
+
+		tt.Type("@")
+		waitFor(t, tt, func() bool { return tt.HasText("main.go") && tt.HasText("old preview line") })
+
+		fake.SetFileContents(map[string]FileContent{
+			"main.go": {Path: "main.go", Kind: "text", Text: "new preview line\n"},
+		})
+
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		if s.completionKind != completionNone {
+			t.Fatalf("expected menu closed after Escape, got %v", s.completionKind)
+		}
+		tt.Key(0, ui.KeyBackspace)
+		tt.Frame()
+		tt.Type("@")
+		waitFor(t, tt, func() bool { return tt.HasText("main.go") && tt.HasText("new preview line") })
+		if tt.HasText("old preview line") {
+			t.Fatalf("stale preview rendered after reopen: %v", tt.Texts())
+		}
+	})
+
+	t.Run("stale_inflight_does_not_overwrite_after_reset", func(t *testing.T) {
+		waitInvalidate := func(s *chatState, before uint64) {
+			t.Helper()
+			deadline := time.Now().Add(2 * time.Second)
+			for s.invalidateGen.Load() == before {
+				if time.Now().After(deadline) {
+					t.Fatal("timed out waiting for preview goroutine invalidate")
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}
+
+		// 1) 复位后缓存为 nil，旧请求返回后不得重新创建缓存。
+		fake1 := NewFakeClient()
+		fake1.SetFileContents(map[string]FileContent{
+			"main.go": {Path: "main.go", Kind: "text", Text: "stale nil case\n"},
+		})
+		client1 := &blockingMentionPreviewClient{
+			FakeClient: fake1,
+			started:    make(chan struct{}, 1),
+			gate:       make(chan struct{}),
+		}
+		s1 := newChatState(client1)
+		t.Cleanup(s1.close)
+
+		s1.mu.Lock()
+		s1.completionKind = completionMention
+		s1.completionThreadID = "t1"
+		s1.completionItems = []completionItem{{Label: "main.go", Path: "main.go", Insert: "@main.go"}}
+		s1.completionSelected = 0
+		s1.ensureMentionSelectionPreviewLocked()
+		s1.mu.Unlock()
+
+		select {
+		case <-client1.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for FilesRead start")
+		}
+
+		s1.mu.Lock()
+		s1.resetMentionStateLocked()
+		s1.mu.Unlock()
+
+		before1 := s1.invalidateGen.Load()
+		close(client1.gate)
+		waitInvalidate(s1, before1)
+
+		s1.mu.Lock()
+		cacheAfterNilReset := s1.mentionPreviewCache
+		s1.mu.Unlock()
+		if cacheAfterNilReset != nil {
+			t.Fatalf("expected mentionPreviewCache to remain nil after reset, got %v", cacheAfterNilReset)
+		}
+
+		// 2) 复位后已有新 entry 占位，旧请求返回不得覆盖新 entry。
+		fake2 := NewFakeClient()
+		fake2.SetFileContents(map[string]FileContent{
+			"main.go": {Path: "main.go", Kind: "text", Text: "stale entry case\n"},
+		})
+		client2 := &blockingMentionPreviewClient{
+			FakeClient: fake2,
+			started:    make(chan struct{}, 1),
+			gate:       make(chan struct{}),
+		}
+		s2 := newChatState(client2)
+		t.Cleanup(s2.close)
+
+		s2.mu.Lock()
+		s2.completionKind = completionMention
+		s2.completionThreadID = "t1"
+		s2.completionItems = []completionItem{{Label: "main.go", Path: "main.go", Insert: "@main.go"}}
+		s2.completionSelected = 0
+		s2.ensureMentionSelectionPreviewLocked()
+		s2.mu.Unlock()
+
+		select {
+		case <-client2.started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for second FilesRead start")
+		}
+
+		key := mentionPreviewCacheKey("t1", "main.go", false)
+		newEntry := &mentionItemPreview{loading: true}
+		s2.mu.Lock()
+		s2.resetMentionStateLocked()
+		s2.mentionPreviewCache = map[string]*mentionItemPreview{key: newEntry}
+		s2.mu.Unlock()
+
+		before2 := s2.invalidateGen.Load()
+		close(client2.gate)
+		waitInvalidate(s2, before2)
+
+		s2.mu.Lock()
+		got := s2.mentionPreviewCache[key]
+		s2.mu.Unlock()
+		if got != newEntry {
+			t.Fatalf("stale inflight request overwrote new cache entry: got=%+v want=%+v", got, newEntry)
+		}
+	})
 }
