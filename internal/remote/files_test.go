@@ -391,6 +391,110 @@ func TestFilesSearch_SuccessAndBounds(t *testing.T) {
 	}
 }
 
+func TestFilesSearchRanksAndScopes(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed on system, skipping git tests")
+	}
+
+	ctx := context.Background()
+	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)
+
+	initCmd := exec.CommandContext(ctx, "git", "init")
+	initCmd.Dir = workDir
+	if err := initCmd.Run(); err != nil {
+		t.Fatalf("git init failed: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(workDir, ".gitignore"), []byte("*.ignored\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []string{
+		"main",
+		"main_test.go",
+		"cmd/domain.go",
+		"m_a_i_n.go",
+		"main.ignored",
+		"sub/sub_main.go",
+		"sub/nested/other_main.txt",
+		"other/outside_main.go",
+	}
+	for _, rel := range files {
+		full := filepath.Join(workDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("ok"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := b.FilesSearch(ctx, wire.RemoteFilesSearchParams{
+		ThreadID: threadID,
+		Query:    "main",
+	})
+	if err != nil {
+		t.Fatalf("FilesSearch failed: %v", err)
+	}
+
+	indexByPath := make(map[string]int, len(res.Entries))
+	entryByPath := make(map[string]wire.RemoteFileEntry, len(res.Entries))
+	seenIgnored := false
+	for i, e := range res.Entries {
+		p := filepath.ToSlash(e.Path)
+		indexByPath[p] = i
+		entryByPath[p] = e
+		if e.Ignored {
+			seenIgnored = true
+		} else if seenIgnored {
+			t.Fatalf("non-ignored entry %q appeared after ignored entry in %+v", p, res.Entries)
+		}
+	}
+
+	order := []string{"main", "main_test.go", "cmd/domain.go", "m_a_i_n.go", "main.ignored"}
+	for _, p := range order {
+		if _, ok := indexByPath[p]; !ok {
+			t.Fatalf("expected entry %q in results: %+v", p, res.Entries)
+		}
+	}
+	for i := 0; i < len(order)-1; i++ {
+		cur, next := order[i], order[i+1]
+		if indexByPath[cur] >= indexByPath[next] {
+			t.Errorf("expected %q (idx %d) before %q (idx %d)", cur, indexByPath[cur], next, indexByPath[next])
+		}
+	}
+	if !entryByPath["main.ignored"].Ignored {
+		t.Errorf("expected main.ignored to have Ignored=true, got %+v", entryByPath["main.ignored"])
+	}
+
+	scopedRes, err := b.FilesSearch(ctx, wire.RemoteFilesSearchParams{
+		ThreadID: threadID,
+		Query:    "main",
+		Path:     "sub",
+	})
+	if err != nil {
+		t.Fatalf("scoped FilesSearch failed: %v", err)
+	}
+	if len(scopedRes.Entries) == 0 {
+		t.Fatalf("expected scoped entries under sub/, got none")
+	}
+	for _, e := range scopedRes.Entries {
+		p := filepath.ToSlash(e.Path)
+		if !strings.HasPrefix(p, "sub/") {
+			t.Errorf("expected scoped path to start with sub/, got %q", p)
+		}
+	}
+
+	_, err = b.FilesSearch(ctx, wire.RemoteFilesSearchParams{
+		ThreadID: threadID,
+		Query:    "main",
+		Path:     "../x",
+	})
+	if err == nil {
+		t.Fatalf("expected error for Path=../x, got nil")
+	}
+}
+
 // 5. git.status 与 git.branches 在非仓库与真实仓库两种情况下的表现
 func TestGitStatusAndBranches(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

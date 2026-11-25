@@ -660,6 +660,30 @@ func fileContentHashHex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+type scoredFileMatch struct {
+	entry wire.RemoteFileEntry
+	score int
+}
+
+// scoreFileSearchMatch 按匹配程度打分（不区分大小写）：
+// 0 = 文件名完全等于 query；1 = 文件名以 query 开头；2 = 文件名包含 query；
+// 3 = 相对路径包含 query；4 = 仅子序列模糊匹配。
+func scoreFileSearchMatch(lowerQuery, lowerName, lowerRel string) int {
+	if lowerName == lowerQuery {
+		return 0
+	}
+	if strings.HasPrefix(lowerName, lowerQuery) {
+		return 1
+	}
+	if strings.Contains(lowerName, lowerQuery) {
+		return 2
+	}
+	if strings.Contains(lowerRel, lowerQuery) {
+		return 3
+	}
+	return 4
+}
+
 // FilesSearch 在工作区内根据文件名和相对路径进行模糊搜索。
 func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearchParams) (wire.RemoteFilesSearchResult, error) {
 	query := strings.TrimSpace(p.Query)
@@ -682,13 +706,28 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 		return wire.RemoteFilesSearchResult{}, err
 	}
 
+	searchRoot := root
+	if p.Path != "" {
+		searchRoot, err = resolveWorkspacePath(root, p.Path)
+		if err != nil {
+			return wire.RemoteFilesSearchResult{}, err
+		}
+		if isGitRelated(p.Path, searchRoot) {
+			return wire.RemoteFilesSearchResult{}, &wire.RPCError{
+				Code:    wire.InvalidParams,
+				Message: "cannot search .git internals",
+			}
+		}
+	}
+
 	const maxResults = 200
 	const scanBudget = 10000
 	scannedCount := 0
 	truncated := false
-	var matches []wire.RemoteFileEntry
+	lowerQuery := strings.ToLower(query)
+	var matches []scoredFileMatch
 
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(searchRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
@@ -697,7 +736,7 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 		}
 
 		name := d.Name()
-		if path == root {
+		if path == searchRoot {
 			return nil
 		}
 
@@ -741,19 +780,18 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 				size = lfi.Size()
 			}
 
-			matches = append(matches, wire.RemoteFileEntry{
-				Name:      name,
-				Path:      rel,
-				Kind:      kind,
-				Size:      size,
-				Ignored:   false,
-				Protected: false,
+			score := scoreFileSearchMatch(lowerQuery, strings.ToLower(name), strings.ToLower(rel))
+			matches = append(matches, scoredFileMatch{
+				entry: wire.RemoteFileEntry{
+					Name:      name,
+					Path:      rel,
+					Kind:      kind,
+					Size:      size,
+					Ignored:   false,
+					Protected: false,
+				},
+				score: score,
 			})
-
-			if len(matches) >= maxResults {
-				truncated = true
-				return filepath.SkipAll
-			}
 		}
 
 		return nil
@@ -769,24 +807,44 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 	if len(matches) > 0 {
 		paths := make([]string, len(matches))
 		for i, m := range matches {
-			paths[i] = m.Path
+			paths[i] = m.entry.Path
 		}
 		ignoredMap := gitCheckIgnored(ctx, root, paths)
 		if ignoredMap != nil {
 			for i := range matches {
-				if ignoredMap[matches[i].Path] {
-					matches[i].Ignored = true
+				if ignoredMap[matches[i].entry.Path] {
+					matches[i].entry.Ignored = true
 				}
 			}
 		}
+
+		sort.Slice(matches, func(i, j int) bool {
+			a, b := matches[i], matches[j]
+			if a.entry.Ignored != b.entry.Ignored {
+				return !a.entry.Ignored
+			}
+			if a.score != b.score {
+				return a.score < b.score
+			}
+			if len(a.entry.Path) != len(b.entry.Path) {
+				return len(a.entry.Path) < len(b.entry.Path)
+			}
+			return a.entry.Path < b.entry.Path
+		})
+
+		if len(matches) > maxResults {
+			truncated = true
+			matches = matches[:maxResults]
+		}
 	}
 
-	if matches == nil {
-		matches = make([]wire.RemoteFileEntry, 0)
+	entries := make([]wire.RemoteFileEntry, len(matches))
+	for i, m := range matches {
+		entries[i] = m.entry
 	}
 
 	return wire.RemoteFilesSearchResult{
-		Entries:   matches,
+		Entries:   entries,
 		Truncated: truncated,
 	}, nil
 }

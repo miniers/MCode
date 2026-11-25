@@ -2535,6 +2535,7 @@ export type RemoteFilesReadResponse = {
 export type RemoteFilesSearchParams = {
   threadID: UUID;
   query: string;
+  path?: string;
 };
 
 export type RemoteFilesSearchResult = {

@@ -9849,6 +9849,9 @@
         "query": {
           "type": "string",
           "maxLength": 256
+        },
+        "path": {
+          "type": "string"
         }
       },
       "required": [

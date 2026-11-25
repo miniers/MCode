@@ -22,9 +22,15 @@ func (c *Client) SearchFiles(ctx context.Context, threadID, query string) ([]mco
 
 // SearchFileEntries 在工作区内搜索，并返回后端的截断状态。
 func (c *Client) SearchFileEntries(ctx context.Context, threadID, query string) (mcodeui.FileSearchResult, error) {
+	return c.SearchFileEntriesIn(ctx, threadID, "", query)
+}
+
+// SearchFileEntriesIn 在指定子目录内搜索，dir 为空表示整个工作区。
+func (c *Client) SearchFileEntriesIn(ctx context.Context, threadID, dir, query string) (mcodeui.FileSearchResult, error) {
 	res, err := c.backend.FilesSearch(ctx, wire.RemoteFilesSearchParams{
 		ThreadID: threadID,
 		Query:    query,
+		Path:     dir,
 	})
 	if err != nil {
 		return mcodeui.FileSearchResult{}, err
@@ -32,9 +38,10 @@ func (c *Client) SearchFileEntries(ctx context.Context, threadID, query string) 
 	matches := make([]mcodeui.FileMatch, len(res.Entries))
 	for i, entry := range res.Entries {
 		matches[i] = mcodeui.FileMatch{
-			Name:  entry.Name,
-			Path:  entry.Path,
-			IsDir: entry.Kind == wire.RemoteFileEntryKindDirectory,
+			Name:    entry.Name,
+			Path:    entry.Path,
+			IsDir:   entry.Kind == wire.RemoteFileEntryKindDirectory,
+			Ignored: entry.Ignored,
 		}
 	}
 	return mcodeui.FileSearchResult{Entries: matches, Truncated: res.Truncated}, nil

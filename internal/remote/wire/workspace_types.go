@@ -72,6 +72,8 @@ type RemoteFilesReadResult struct {
 type RemoteFilesSearchParams struct {
 	ThreadID string `json:"threadID"`
 	Query    string `json:"query"`
+	// Path 为相对工作区根的子目录，空表示根目录。
+	Path string `json:"path,omitempty"`
 }
 
 // RemoteFilesSearchResult 对应 files.search 成功返回。

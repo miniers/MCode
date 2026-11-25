@@ -1067,12 +1067,20 @@ func (f *FakeClient) SearchFiles(ctx context.Context, threadID, query string) ([
 }
 
 func (f *FakeClient) SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error) {
+	return f.SearchFileEntriesIn(ctx, threadID, "", query)
+}
+
+func (f *FakeClient) SearchFileEntriesIn(ctx context.Context, threadID, dir, query string) (FileSearchResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.searchFilesErr != nil {
 		return FileSearchResult{}, f.searchFilesErr
 	}
-	if query == "" {
+	prefix := ""
+	if trimmedDir := strings.TrimSuffix(strings.TrimSpace(dir), "/"); trimmedDir != "" {
+		prefix = trimmedDir + "/"
+	}
+	if query == "" && prefix == "" {
 		res := make([]FileMatch, len(f.files))
 		copy(res, f.files)
 		return FileSearchResult{Entries: res, Truncated: f.filesTruncated}, nil
@@ -1080,7 +1088,10 @@ func (f *FakeClient) SearchFileEntries(ctx context.Context, threadID, query stri
 	q := strings.ToLower(query)
 	var res []FileMatch
 	for _, m := range f.files {
-		if strings.Contains(strings.ToLower(m.Path), q) || strings.Contains(strings.ToLower(m.Name), q) {
+		if prefix != "" && !strings.HasPrefix(m.Path, prefix) {
+			continue
+		}
+		if q == "" || strings.Contains(strings.ToLower(m.Path), q) || strings.Contains(strings.ToLower(m.Name), q) {
 			res = append(res, m)
 		}
 	}

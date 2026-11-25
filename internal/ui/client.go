@@ -580,9 +580,10 @@ type SlashCommand struct {
 
 // FileMatch @ 提及候选文件，Path 为相对项目根的路径。
 type FileMatch struct {
-	Name  string
-	Path  string
-	IsDir bool
+	Name    string
+	Path    string
+	IsDir   bool
+	Ignored bool // 被 .gitignore 忽略
 }
 
 // FileSearchResult 是工作区文件搜索的结果及截断状态。
@@ -594,6 +595,11 @@ type FileSearchResult struct {
 // FileEntrySearcher 是支持返回截断状态的可选搜索能力。
 type FileEntrySearcher interface {
 	SearchFileEntries(ctx context.Context, threadID, query string) (FileSearchResult, error)
+}
+
+// FileScopedSearcher 是可选能力：只在工作区的某个子目录内搜索，dir 为空表示整个工作区。
+type FileScopedSearcher interface {
+	SearchFileEntriesIn(ctx context.Context, threadID, dir, query string) (FileSearchResult, error)
 }
 
 // FileEntry 工作区文件列表中的单个条目，Path 为相对工作区根的路径。
