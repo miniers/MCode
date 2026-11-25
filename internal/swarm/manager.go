@@ -4346,6 +4346,13 @@ func BuildReport(bees []Bee) string {
 			}
 			sb.WriteString(fmt.Sprintf("- 重跑验收：若是验收命令写错，改正后派一条 reworkOf=%s、rerun=true、带新 acceptance 的条目，在保留副本上重跑，不启动新 bee\n", target))
 		}
+		if len(h.DesignFiles) > 0 {
+			quoted := make([]string, len(h.DesignFiles))
+			for i, p := range h.DesignFiles {
+				quoted[i] = "`" + p + "`"
+			}
+			sb.WriteString(fmt.Sprintf("- 设计稿：%s\n", strings.Join(quoted, "、")))
+		}
 
 		// Summary
 		// 超长总结只保留开头，全文在存档里：ID 字段排在其他字段之后、总结之前，界面会把总结之后的文字都并入总结。

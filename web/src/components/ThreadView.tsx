@@ -165,6 +165,9 @@ const SaveTaskPage = React.forwardRef<ThreadMenuPageHandle, SaveTaskPageProps>(
 const SwarmQuestionBanner = lazy(() =>
   import('./thread/SwarmQuestionBanner').then((module) => ({ default: module.SwarmQuestionBanner }))
 );
+const SwarmDesignBanner = lazy(() =>
+  import('./thread/SwarmDesignBanner').then((module) => ({ default: module.SwarmDesignBanner }))
+);
 const ThreadFindBar = lazy(() =>
   import('./thread/ThreadFindBar').then((module) => ({ default: module.ThreadFindBar }))
 );
@@ -3021,6 +3024,16 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               bees={swarmBees}
               onAnswer={replaceThreadByID}
               onForward={(beeThreadID, requestID) => void handleForwardSwarmQuestion(beeThreadID, requestID)}
+            />
+          </LazyBoundary>
+        )}
+
+        {/* 设计稿待确认：主会话里直接打开对应子代理的设计稿预览 */}
+        {!swarmState?.isBee && previewSupported && swarmBees.some((bee) => bee.awaitingFinalize && (bee.designFiles?.length ?? 0) > 0) && (
+          <LazyBoundary label="正在加载设计稿入口…">
+            <SwarmDesignBanner
+              bees={swarmBees}
+              onOpenDesign={pushThreadDesignHash}
             />
           </LazyBoundary>
         )}

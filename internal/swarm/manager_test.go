@@ -1408,6 +1408,38 @@ func TestBuildReportIncludesStats(t *testing.T) {
 	}
 }
 
+// 验证 BuildReport 的「设计稿」行：含多个路径时用反引号包裹并以顿号分隔，且位于汇报总结之前；空时不输出。
+func TestBuildReport_DesignFiles(t *testing.T) {
+	t.Parallel()
+	bee := Bee{
+		Name:        "Bee-Design",
+		Task:        "绘制设计稿",
+		Status:      StatusCompleted,
+		DesignFiles: []string{"docs/design/home.html", "docs/design/detail.html"},
+		Summary:     "已完成设计稿。",
+	}
+	report := BuildReport([]Bee{bee})
+	want := "- 设计稿：`docs/design/home.html`、`docs/design/detail.html`\n"
+	designIdx := strings.Index(report, want)
+	if designIdx < 0 {
+		t.Fatalf("汇报中缺少设计稿行 %q:\n%s", want, report)
+	}
+	summaryIdx := strings.Index(report, "- 汇报总结：")
+	if summaryIdx < 0 || designIdx >= summaryIdx {
+		t.Fatalf("设计稿行应出现在汇报总结之前 (designIdx=%d, summaryIdx=%d):\n%s", designIdx, summaryIdx, report)
+	}
+
+	empty := Bee{
+		Name:    "Bee-NoDesign",
+		Task:    "无设计稿",
+		Status:  StatusCompleted,
+		Summary: "已完成。",
+	}
+	if emptyReport := BuildReport([]Bee{empty}); strings.Contains(emptyReport, "设计稿：") {
+		t.Fatalf("空 DesignFiles 不应输出设计稿行:\n%s", emptyReport)
+	}
+}
+
 // (a & b) human 审查档：bee 完成后 Tick → Status=completed、PendingMerge=true、ChangedFiles 含改动文件、目标仓库文件未改变；
 // 审查未出结论前不汇报。接着 ApproveMerge → Merged=true、PendingMerge=false、目标仓库文件内容已变；
 // 再 Tick 一次汇报一次且含「已合入（审查通过）」。
