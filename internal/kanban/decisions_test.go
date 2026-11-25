@@ -536,3 +536,320 @@ func TestAnswerDecisionStopStopsRunningSessionInNeedsApproval(t *testing.T) {
 		t.Fatalf("任务应变为 cancelled 且清空 DecisionID: %+v, %+v, %v", got, meta, err)
 	}
 }
+
+type failingFollowUpDriver struct {
+	*pokeDriver
+	err error
+}
+
+func (d *failingFollowUpDriver) SendFollowUp(ctx context.Context, threadID, text string) error {
+	_ = d.pokeDriver.SendFollowUp(ctx, threadID, text)
+	return d.err
+}
+
+func TestAnswerDecisionResumesOriginalSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	threadID := "thread-resume"
+	driver.setThreadState(threadID, SessionState{Running: false})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-resume",
+		Title:    "继续原会话",
+		Status:   string(TaskStatusNeedsApproval),
+		ThreadID: &threadID,
+		Meta:     EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 预设一轮未消费回执，验证送回原会话时会清空上一轮回执与追问状态。
+	if err := svc.SubmitExecutorResult(ctx, "task-resume", threadID, ExecutorResult{
+		Status:   ResultNeedsDecision,
+		Summary:  "等待决定",
+		Question: "是否合并",
+		Options:  []DecisionOption{{Key: "A", Text: "允许合并"}, {Key: "B", Text: "暂不合并"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if action := svc.planReceiptAsk("task-resume", now); action != receiptAskSend {
+		t.Fatalf("预期先记录一次追问: %v", action)
+	}
+
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{
+		TaskID:      "task-resume",
+		Question:    "是否合并",
+		OptionsJSON: `[{"key":"A","text":"允许合并"},{"key":"B","text":"暂不合并"}]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := svc.AnswerDecision(ctx, d.ID, "A", "user:desktop")
+	if err != nil || answered.Status != store.DecisionStatusAnswered {
+		t.Fatalf("答卡失败: %+v, %v", answered, err)
+	}
+
+	got, err := db.GetTask(ctx, "task-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(TaskStatusInProgress) || got.ThreadID == nil || *got.ThreadID != threadID {
+		t.Fatalf("应回到 in_progress 且保留原 ThreadID: %+v", got)
+	}
+	if meta.GateOverride != d.ID || meta.DecisionID != "" {
+		t.Fatalf("应写入 GateOverride 且清空 DecisionID: %+v", meta)
+	}
+	calls := driver.sentFollowUps()
+	wantPrompt := decisionResumePrompt(got.ID, d.ID, d.Question, "A · 允许合并")
+	if len(calls) != 1 || calls[0].threadID != threadID || calls[0].text != wantPrompt {
+		t.Fatalf("应向原会话发送续跑文案: got=%+v, want thread=%s text=%q", calls, threadID, wantPrompt)
+	}
+	if _, ok := svc.takeReceipt("task-resume", threadID); ok {
+		t.Fatal("送回原会话后应清空上一轮回执")
+	}
+	if action := svc.planReceiptAsk("task-resume", now.Add(time.Second)); action != receiptAskSend {
+		t.Fatalf("送回原会话后应重置追问计数: %v", action)
+	}
+}
+
+func TestAnswerDecisionFallsBackToTodoWhenSessionGone(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		setup func(*pokeDriver, string) SessionDriver
+	}{
+		{
+			name: "session_not_found",
+			setup: func(d *pokeDriver, _ string) SessionDriver {
+				return d
+			},
+		},
+		{
+			name: "host_tools_unavailable",
+			setup: func(d *pokeDriver, threadID string) SessionDriver {
+				d.setThreadState(threadID, SessionState{Running: false, HostToolsUnavailable: true})
+				return d
+			},
+		},
+		{
+			name: "send_follow_up_error",
+			setup: func(d *pokeDriver, threadID string) SessionDriver {
+				d.setThreadState(threadID, SessionState{Running: false})
+				return &failingFollowUpDriver{pokeDriver: d, err: errors.New("send failed")}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+			base := newPokeDriver()
+			threadID := "thread-missing"
+			driver := tc.setup(base, threadID)
+			svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+			if err := db.CreateTask(ctx, store.Task{
+				ID:       "task-fallback",
+				Title:    "回退待办",
+				Status:   string(TaskStatusNeedsApproval),
+				ThreadID: &threadID,
+				Meta:     EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"}),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-fallback", Question: "继续吗"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.AnswerDecision(ctx, d.ID, "继续", "user:desktop"); err != nil {
+				t.Fatalf("答卡失败: %v", err)
+			}
+			got, err := db.GetTask(ctx, "task-fallback")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := ParseTaskMeta(got.Meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != string(TaskStatusTodo) || meta.GateOverride != d.ID || meta.DecisionID != "" {
+				t.Fatalf("无法送回原会话时应回退 todo 且保留 GateOverride: %+v, %+v", got, meta)
+			}
+			if tc.name != "send_follow_up_error" && len(base.sentFollowUps()) != 0 {
+				t.Fatalf("条件不满足时不应发送跟进: %+v", base.sentFollowUps())
+			}
+		})
+	}
+}
+
+func TestAnswerDecisionIgnoreDoesNotUnlockGate(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	threadID := "thread-ignore"
+	driver.setThreadState(threadID, SessionState{Running: false})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-ignore",
+		Title:    "忽略授权",
+		Status:   string(TaskStatusNeedsApproval),
+		ThreadID: &threadID,
+		Meta:     EncodeTaskMeta(TaskMeta{DecisionID: "D-0001"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.CreateStewardDecision(ctx, store.StewardDecision{
+		TaskID:      "task-ignore",
+		Question:    "是否强制推送",
+		OptionsJSON: `[{"key":"A","text":"允许"}]`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AnswerDecision(ctx, d.ID, "忽略", "user:desktop"); err != nil {
+		t.Fatalf("答卡失败: %v", err)
+	}
+	got, err := db.GetTask(ctx, "task-ignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(TaskStatusInProgress) || got.ThreadID == nil || *got.ThreadID != threadID {
+		t.Fatalf("忽略后应送回原会话继续其余工作: %+v", got)
+	}
+	if meta.GateOverride != "" || meta.DecisionID != "" {
+		t.Fatalf("忽略不得解锁 GateOverride: %+v", meta)
+	}
+	calls := driver.sentFollowUps()
+	wantPrompt := decisionIgnorePrompt(got.ID, d.ID, d.Question)
+	if len(calls) != 1 || calls[0].threadID != threadID || calls[0].text != wantPrompt {
+		t.Fatalf("应发送忽略文案: got=%+v, want thread=%s text=%q", calls, threadID, wantPrompt)
+	}
+}
+
+func TestAnswerWaitDecisionIgnoreKeepsWaiting(t *testing.T) {
+	t.Parallel()
+	for _, status := range []TaskStatus{TaskStatusNeedsApproval, TaskStatusWaiting} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+			driver := newPokeDriver()
+			threadID := "thread-wait-ignore"
+			driver.setThreadState(threadID, SessionState{Running: false})
+			svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+			initMeta := TaskMeta{
+				DecisionID: "D-0001",
+				WaitKind:   "human",
+				WakeAt:     now.Add(-time.Minute).Format(time.RFC3339),
+				WaitCheck:  "echo ok",
+				WaitBase:   "base",
+				Wakes:      3,
+			}
+			if err := db.CreateTask(ctx, store.Task{
+				ID:       "task-wait-ignore",
+				ThreadID: &threadID,
+				Status:   string(status),
+				Meta:     EncodeTaskMeta(initMeta),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			d, err := db.CreateStewardDecision(ctx, store.StewardDecision{TaskID: "task-wait-ignore", Question: "人工确认好了吗"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.AnswerDecision(ctx, d.ID, "忽略", "user:desktop"); err != nil {
+				t.Fatalf("答卡失败: %v", err)
+			}
+			got, err := db.GetTask(ctx, "task-wait-ignore")
+			if err != nil {
+				t.Fatal(err)
+			}
+			meta, err := ParseTaskMeta(got.Meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != string(TaskStatusWaiting) {
+				t.Fatalf("等待卡忽略应保持 waiting: %+v", got)
+			}
+			wake, wakeErr := time.Parse(time.RFC3339, meta.WakeAt)
+			if wakeErr != nil || !wake.After(now) {
+				t.Fatalf("WakeAt 应续期到 now 之后: %q, %v", meta.WakeAt, wakeErr)
+			}
+			if meta.Wakes != 0 || meta.GateOverride != "" || meta.DecisionID != "" || meta.WaitKind != "human" || meta.WaitCheck != "echo ok" || meta.WaitBase != "base" {
+				t.Fatalf("等待元数据异常: %+v", meta)
+			}
+			if len(driver.sentFollowUps()) != 0 {
+				t.Fatalf("等待卡忽略不应唤醒原会话: %+v", driver.sentFollowUps())
+			}
+		})
+	}
+}
+
+func TestAnswerWaitDecisionResumesOriginalSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	threadID := "thread-wait-resume"
+	driver.setThreadState(threadID, SessionState{Running: false})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	initMeta := TaskMeta{
+		WaitKind:  "human",
+		WakeAt:    now.Add(-time.Minute).Format(time.RFC3339),
+		WaitCheck: "echo ok",
+		WaitBase:  "base",
+		Wakes:     2,
+		Summary:   "人工确认",
+	}
+	if err := db.CreateTask(ctx, store.Task{
+		ID:       "task-wait-resume",
+		ThreadID: &threadID,
+		Status:   string(TaskStatusWaiting),
+		Meta:     EncodeTaskMeta(initMeta),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 1 {
+		t.Fatalf("等待到期决策卡: %+v, %v", decisions, err)
+	}
+	if _, err := svc.AnswerDecision(ctx, decisions[0].ID, "继续执行下一步", "user:desktop"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetTask(ctx, "task-wait-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(TaskStatusInProgress) || got.ThreadID == nil || *got.ThreadID != threadID {
+		t.Fatalf("等待卡普通回答应送回原会话: %+v", got)
+	}
+	if meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 || meta.GateOverride != "" || meta.DecisionID != "" {
+		t.Fatalf("等待元数据应已清空且不写 GateOverride: %+v", meta)
+	}
+	calls := driver.sentFollowUps()
+	wantPrompt := decisionResumePrompt(got.ID, decisions[0].ID, decisions[0].Question, "继续执行下一步")
+	if len(calls) != 1 || calls[0].threadID != threadID || calls[0].text != wantPrompt {
+		t.Fatalf("应发送续跑文案: got=%+v, want thread=%s text=%q", calls, threadID, wantPrompt)
+	}
+}

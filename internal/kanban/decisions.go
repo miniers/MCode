@@ -66,7 +66,11 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 	trimmedAnswer := strings.TrimSpace(answerText)
 	stop := strings.HasPrefix(trimmedAnswer, "停下") || strings.HasPrefix(trimmedAnswer, "停止") || strings.HasPrefix(trimmedAnswer, "取消")
 	continueWaiting := trimmedAnswer == "继续等"
+	ignore := trimmedAnswer == "忽略"
 	cancelled := false
+	var followUpMessenger SessionMessenger
+	followUpThread := ""
+	followUpPrompt := ""
 	if d.TaskID != "" {
 		task, err := s.opts.Store.GetTask(ctx, d.TaskID)
 		if err != nil {
@@ -91,6 +95,7 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 		task.Notes = strings.TrimSpace(task.Notes + "\n\n" + line)
 		stale := !reanswer && meta.DecisionID != d.ID
 		status := TaskStatus(task.Status)
+		tryResume := false
 		if !stale {
 			if stop && (status == TaskStatusNeedsApproval || status == TaskStatusWaiting || status == TaskStatusTodo || status == TaskStatusInProgress) {
 				if !CanTransition(status, TaskStatusCancelled) {
@@ -111,22 +116,59 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 					meta.DecisionID = ""
 					if meta.WaitKind != "" {
 						// 等待到期弹出的决策卡不写硬锁授权，按等待分支语义更新状态。
-						applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
+						if continueWaiting || ignore {
+							applyWaitDecisionAnswer(&task, &meta, now, true)
+						} else {
+							applyWaitDecisionAnswer(&task, &meta, now, false)
+							tryResume = true
+						}
 					} else {
-						task.Status = string(TaskStatusTodo)
-						meta.GateOverride = d.ID
+						if !ignore {
+							meta.GateOverride = d.ID
+						}
+						tryResume = true
 					}
 				case TaskStatusWaiting:
 					meta.DecisionID = ""
-					applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
+					if continueWaiting || ignore {
+						applyWaitDecisionAnswer(&task, &meta, now, true)
+					} else {
+						applyWaitDecisionAnswer(&task, &meta, now, false)
+						tryResume = true
+					}
+				}
+			}
+			if tryResume {
+				if messenger, thread, ok := s.canResumeDecisionSession(ctx, task); ok {
+					task.Status = string(TaskStatusInProgress)
+					followUpMessenger = messenger
+					followUpThread = thread
+					if ignore {
+						followUpPrompt = decisionIgnorePrompt(task.ID, d.ID, d.Question)
+					} else {
+						followUpPrompt = decisionResumePrompt(task.ID, d.ID, d.Question, answerDisplay)
+					}
+				} else {
+					task.Status = string(TaskStatusTodo)
 				}
 			}
 			task.Meta = EncodeTaskMeta(meta)
 		}
-		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err != nil {
+		updated, err := s.opts.Store.UpdateTask(ctx, task, task.Revision)
+		if err != nil {
 			return d, err
 		}
 		changed = true
+		if followUpMessenger != nil {
+			// 先落库再唤醒原会话，保证新轮次读取到最新的硬锁授权与任务状态，并在发送前清掉上一轮回执计数。
+			s.clearReceiptRound(updated.ID)
+			if err := followUpMessenger.SendFollowUp(ctx, followUpThread, followUpPrompt); err != nil {
+				updated.Status = string(TaskStatusTodo)
+				if _, rbErr := s.opts.Store.UpdateTask(ctx, updated, updated.Revision); rbErr != nil {
+					return d, rbErr
+				}
+			}
+		}
 		if cancelled && task.GoalID != nil && *task.GoalID != "" {
 			s.updateGoalProgressLocked(ctx, *task.GoalID)
 		}
@@ -177,4 +219,30 @@ func applyWaitDecisionAnswer(task *store.Task, meta *TaskMeta, now time.Time, co
 	}
 	task.Status = string(TaskStatusTodo)
 	meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+}
+
+func (s *Service) canResumeDecisionSession(ctx context.Context, task store.Task) (SessionMessenger, string, bool) {
+	thread := strings.TrimSpace(threadIDOf(task))
+	if thread == "" || s.opts.Driver == nil {
+		return nil, "", false
+	}
+	messenger, supportsFollowUp := s.opts.Driver.(SessionMessenger)
+	if !supportsFollowUp || messenger == nil {
+		return nil, "", false
+	}
+	st, err := s.opts.Driver.SessionState(ctx, thread)
+	if err != nil || st.HostToolsUnavailable {
+		return nil, "", false
+	}
+	return messenger, thread, true
+}
+
+func decisionResumePrompt(taskID, decisionID, question, answerDisplay string) string {
+	return fmt.Sprintf("任务 ID：`%s`。用户回答了决策 %s：%s → %s。请按这个决定继续完成任务，不要重做已完成的部分；完成后调用 kanban_submit_result 提交结果。",
+		taskID, decisionID, question, answerDisplay)
+}
+
+func decisionIgnorePrompt(taskID, decisionID, question string) string {
+	return fmt.Sprintf("任务 ID：`%s`。用户忽略了决策 %s（%s），没有授权该操作。请不做这件事，继续完成其余工作；做不下去就提交 needs_decision 或 failed。",
+		taskID, decisionID, question)
 }
