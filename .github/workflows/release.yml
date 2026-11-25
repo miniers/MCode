@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 60
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v7
 
@@ -159,3 +160,27 @@ jobs:
           fi
           printf '%s\n' 'Windows 版未做代码签名，首次运行如遇 SmartScreen 提示，请点「更多信息」→「仍要运行」。' >> "$RUNNER_TEMP/notes.md"
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: 更新 Homebrew tap
+        if: env.HOMEBREW_TAP_TOKEN != ''
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo '预发布标签跳过更新 Homebrew tap。'
+            exit 0
+          fi
+          version="$(jq -r .version mygo.json)"
+          tap_dir="$RUNNER_TEMP/homebrew-tap"
+          rm -rf "$tap_dir"
+          GIT_TERMINAL_PROMPT=0 git clone --depth 1 --quiet "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/miniers/homebrew-tap.git" "$tap_dir"
+          mkdir -p "$tap_dir/Casks"
+          scripts/homebrew_cask.sh "$version" dist/SHA256SUMS > "$tap_dir/Casks/mcode.rb"
+          cd "$tap_dir"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/mcode.rb
+          if git diff --cached --quiet; then
+            echo 'Homebrew cask 无改动。'
+            exit 0
+          fi
+          git commit -m "mcode ${version}"
+          GIT_TERMINAL_PROMPT=0 git push --quiet

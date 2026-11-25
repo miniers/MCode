@@ -16,6 +16,12 @@
 
 MCode 要求 macOS 14.0 及以上版本，支持 Apple 芯片（arm64）与 Intel 芯片（amd64）。Windows 为尽力支持。
 
+macOS 可用 Homebrew 安装：
+
+```sh
+brew install --cask miniers/tap/mcode
+```
+
 下载地址：[MCode 发布页](https://github.com/miniers/MCode/releases/latest)。
 
 | 系统 | 安装包 |
@@ -45,7 +51,7 @@ MCode 要求 macOS 14.0 及以上版本，支持 Apple 芯片（arm64）与 Inte
 
 MCode 默认从 [GitHub Releases（miniers/MCode）](https://github.com/miniers/MCode/releases) 检查新版本：启动约 1 分钟后检查一次，之后每 6 小时检查一次。
 
-在「设置 → 关于」中点「检查更新」可手动检查。发现新版本时，页面显示版本号和「前往下载页」，设置入口和关于页导航也会出现小圆点。点「前往下载页」下载安装包，再按「安装 MCode」的步骤覆盖安装：macOS 打开 DMG 并复制 `.app`，Windows 运行安装程序。
+在「设置 → 关于」中点「检查更新」可手动检查。发现新版本时，页面显示版本号和「前往下载页」，设置入口和关于页导航也会出现小圆点。点「前往下载页」下载安装包，再按「安装 MCode」的步骤覆盖安装：macOS 打开 DMG 并复制 `.app`，Windows 运行安装程序。通过 Homebrew 安装的 macOS 用户可用 `brew upgrade --cask mcode` 更新。
 
 同一位置的「自动检查更新」开关可以关闭后台检查，关闭后仍可手动检查。此设置保存在 `config.json` 中，会随备份一起备份和恢复。MCode 不会在应用内自动下载或替换安装。
 
