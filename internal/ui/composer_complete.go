@@ -1875,8 +1875,9 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							FillWidth().
 							MinHeight(ControlMD).
 							Padding(Space1, Space3).
-							AlignItems(ui.Start).
+							AlignItems(ui.Center).
 							Background(ThemeOverlay(c, OverlayFaint)).
+							Label("选中项说明").
 							Children(func() {
 								ui.Text(c, previewText).
 									FontSize(uiFont(TypeFootnote)).

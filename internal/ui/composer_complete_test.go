@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -1503,5 +1504,41 @@ func TestCompletionPreviewWrapsLongText(t *testing.T) {
 	}
 	if longH > maxAllowed {
 		t.Fatalf("长描述高度 %.2f 不应超过 3 行上限 %.2f", longH, maxAllowed)
+	}
+}
+
+func TestCompletionPreviewSingleLineCentered(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	s.commandsCache["t1"] = []SlashCommand{{Name: "plan", Detail: "生成执行计划"}}
+
+	items := slashCommandsToItems(s.commandsCache["t1"], "pl")
+	wantPreview := completionPreviewText(completionSlash, items[0])
+	if !strings.Contains(wantPreview, "参数：") {
+		t.Fatalf("预期说明包含参数提示，实际=%q", wantPreview)
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposer(c, s)
+	}, 900, 500)
+
+	tt.Type("/pl")
+	waitFor(t, tt, func() bool { return tt.HasText("/plan") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	rowRect, ok := tt.Find("选中项说明")
+	if !ok {
+		t.Fatalf("未找到底部说明条行，Texts=%v", tt.Texts())
+	}
+	textRect, ok := tt.Find(wantPreview)
+	if !ok {
+		t.Fatalf("未找到底部说明文字 %q，Texts=%v", wantPreview, tt.Texts())
+	}
+	rowCenterY := rowRect.Y + rowRect.H/2
+	textCenterY := textRect.Y + textRect.H/2
+	if diff := math.Abs(float64(rowCenterY - textCenterY)); diff > 1 {
+		t.Fatalf("单行说明未垂直居中: rowCenterY=%.2f textCenterY=%.2f diff=%.2f (row=%+v text=%+v)", rowCenterY, textCenterY, diff, rowRect, textRect)
 	}
 }
