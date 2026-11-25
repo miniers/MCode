@@ -1351,3 +1351,35 @@ func TestStewardQueueNotPausedOnTaskFailure(t *testing.T) {
 		}
 	})
 }
+
+func TestSchedulerNeedsApprovalLostSessionResetsTodo(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	driver := newPokeDriver()
+	_, s, _, scheduler := setupReceiptTestService(t, driver, true, false, nil)
+	lostThread := "thread-lost-needs-approval"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-lost-needs-approval", ProjectID: "proj-1", Title: "丢失会话恢复"},
+		store.Task{
+			ID:       "task-lost-needs-approval",
+			Title:    "失联审批任务",
+			Status:   string(TaskStatusNeedsApproval),
+			ThreadID: &lostThread,
+		})
+	// pokeDriver 中未注册 lostThread，SessionState 返回 store.ErrNotFound
+
+	scheduler.Tick(ctx)
+
+	task, err := s.GetTask(ctx, "task-lost-needs-approval")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusTodo) {
+		t.Fatalf("会话丢失且无决策卡时应重置为 todo，实际: %s", task.Status)
+	}
+	if task.ThreadID != nil {
+		t.Fatalf("会话丢失重置后应清空 ThreadID，实际: %v", *task.ThreadID)
+	}
+	if task.LastActivityText == nil || *task.LastActivityText != "会话已不存在，任务已重置为待办" {
+		t.Fatalf("期望写入会话丢失提示，实际: %v", task.LastActivityText)
+	}
+}

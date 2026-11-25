@@ -268,68 +268,77 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					w.svc.mu.Unlock()
 				}
 			} else {
-				// 会话已停止：有回执按回执收尾；没有回执时按驱动能力决定是否追问
-				decision := w.svc.decideFinished(ctx, t, now, st.HostToolsUnavailable)
-				if decision.kind == finishWait {
-					continue
-				}
-				if err := w.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
-					continue
-				}
-				text := decision.summary
-				switch decision.kind {
-				case finishBlocked:
-					if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
-						t.Status = string(TaskStatusNeedsApproval)
+				// 会话已停止：持 finishMu 串行收尾（先 finishMu 后 s.mu），避免与调度器并发消费或建卡。
+				var up store.Task
+				var updateErr error
+				var decision finishDecision
+				func() {
+					w.svc.receipts.finishMu.Lock()
+					defer w.svc.receipts.finishMu.Unlock()
+
+					latest, gerr := w.svc.opts.Store.GetTask(ctx, t.ID)
+					if gerr != nil || latest.Revision != t.Revision || latest.Status != t.Status {
+						return
 					}
-					text = receiptBlockedPrefix + decision.summary
-					w.svc.markReceiptBlocked(t.ID)
-				case finishEscalate:
-					if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
-						t.Status = string(TaskStatusNeedsApproval)
+					t = latest
+					decision = w.svc.decideFinished(ctx, t, now, st)
+					if decision.kind == finishWait {
+						return
 					}
-					text = receiptEscalatedText
-					w.svc.markReceiptBlocked(t.ID)
-				default:
-					if decision.result.Status != "" && decision.result.Status != ResultDone {
-						break
+					if err := w.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
+						return
 					}
-					if w.svc.isStewardOwnerTask(ctx, t) {
-						t.Status = string(TaskStatusDone)
-						break
-					}
-					switch {
-					case autoReview:
-						if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
-							t.Status = string(TaskStatusReview)
+					text := decision.summary
+					switch decision.kind {
+					case finishBlocked:
+						if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
+							t.Status = string(TaskStatusNeedsApproval)
 						}
-					case w.autoAcceptEnabled(ctx, t):
-						// 自动接受由目标调度器按策略处理：把回执摘要留给它，避免它误判为缺回执
-						w.svc.stashPendingDone(t.ID, decision.summary)
+						text = receiptBlockedPrefix + decision.summary
+						w.svc.markReceiptBlocked(t.ID)
 					default:
-						// 自动接受与自动评审都关闭：迁到 review 等人工处理，不能把任务留在 in_progress
-						if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
-							t.Status = string(TaskStatusReview)
+						if decision.result.Status != "" && decision.result.Status != ResultDone {
+							break
 						}
-						// 有回执时卡片直接显示执行会话的结论，旧行为仍是原有文案
-						if !decision.fromReceipt {
-							text = manualReviewText
+						if w.svc.isStewardOwnerTask(ctx, t) {
+							t.Status = string(TaskStatusDone)
+							break
+						}
+						switch {
+						case autoReview:
+							if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
+								t.Status = string(TaskStatusReview)
+							}
+						case w.autoAcceptEnabled(ctx, t):
+							// 自动接受由目标调度器按策略处理：把回执摘要留给它，避免它误判为缺回执
+							w.svc.stashPendingDone(t.ID, decision.summary)
+						default:
+							// 自动接受与自动评审都关闭：迁到 review 等人工处理，不能把任务留在 in_progress
+							if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
+								t.Status = string(TaskStatusReview)
+							}
+							// 有回执时卡片直接显示执行会话的结论，旧行为仍是原有文案
+							if !decision.fromReceipt {
+								text = manualReviewText
+							}
 						}
 					}
-				}
-				t.LastActivityText = &text
-				w.svc.mu.Lock()
-				up, updateErr := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision)
-				if updateErr == nil {
-					w.svc.revision.Add(1)
-					changed = true
-				}
-				w.svc.mu.Unlock()
-				if updateErr == nil && up.Status == string(TaskStatusReview) && len(ParseAcceptanceCommands(up.AcceptanceCriteria)) > 0 {
-					w.svc.startAcceptanceCommands(up, w.autoAcceptEnabled(ctx, up))
-				}
-				if updateErr == nil && !(up.Status == string(TaskStatusTodo) && decision.result.Status == ResultFailed) {
-					w.svc.notifyResult(ctx, up, decision.result)
+					t.LastActivityText = &text
+					w.svc.mu.Lock()
+					up, updateErr = w.svc.opts.Store.UpdateTask(ctx, t, t.Revision)
+					if updateErr == nil {
+						w.svc.revision.Add(1)
+						changed = true
+					}
+					w.svc.mu.Unlock()
+				}()
+				if decision.kind != finishWait && updateErr == nil && up.ID != "" {
+					if up.Status == string(TaskStatusReview) && len(ParseAcceptanceCommands(up.AcceptanceCriteria)) > 0 {
+						w.svc.startAcceptanceCommands(up, w.autoAcceptEnabled(ctx, up))
+					}
+					if !(up.Status == string(TaskStatusTodo) && decision.result.Status == ResultFailed) {
+						w.svc.notifyResult(ctx, up, decision.result)
+					}
 				}
 			}
 			continue
@@ -401,9 +410,6 @@ func (w *Watchdog) Check(ctx context.Context) error {
 				reason := fmt.Sprintf("任务连续 %d 秒无活动，卡死救援已自动中断", int(interruptTimeout.Seconds()))
 				t.LastFailureReason = &reason
 				t.LastActivityText = &reason
-				if CanTransition(TaskStatus(t.Status), TaskStatusTodo) {
-					t.Status = string(TaskStatusTodo)
-				}
 				w.svc.mu.Lock()
 				if _, err := w.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
 					w.svc.revision.Add(1)

@@ -2,7 +2,6 @@ package kanban
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -162,7 +161,8 @@ func TestWatchdogPokeSendsFollowUpOnce(t *testing.T) {
 	}
 }
 
-// TestWatchdogInterruptPutsTaskBackToTodo 验证超过 interrupt 超时且开启 AutoRescueStuck 时中断会话并把任务置回待办。
+// TestWatchdogInterruptPutsTaskBackToTodo 验证超过 interrupt 超时且开启 AutoRescueStuck 时中断会话，
+// 保持 in_progress 与原 ThreadID 并写明原因，留待下一轮走中断续跑追问。
 func TestWatchdogInterruptPutsTaskBackToTodo(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -200,8 +200,8 @@ func TestWatchdogInterruptPutsTaskBackToTodo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("获取任务失败: %v", err)
 	}
-	if latest.Status != string(TaskStatusTodo) {
-		t.Fatalf("期望中断后状态为 todo，实际为 %s", latest.Status)
+	if latest.Status != string(TaskStatusInProgress) {
+		t.Fatalf("期望中断后保持 in_progress，实际为 %s", latest.Status)
 	}
 	if latest.ThreadID == nil || *latest.ThreadID != threadID {
 		t.Fatalf("期望中断后保留 ThreadID %q，实际为 %v", threadID, latest.ThreadID)
@@ -352,8 +352,8 @@ func TestWatchdogInterruptFailureKeepsTaskAndRetries(t *testing.T) {
 	}
 }
 
-// TestWatchdogStuckRescueKeepsThreadID 验证卡死救援把任务重置为 todo 后仍保留原 ThreadID，
-// 从而在旧会话尚未停止时阻止重派新会话。
+// TestWatchdogStuckRescueKeepsThreadID 验证卡死救援中断后任务保持 in_progress 且保留原 ThreadID，
+// 并在会话以 Interrupted=true 停止后触发续跑追问。
 func TestWatchdogStuckRescueKeepsThreadID(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -386,13 +386,20 @@ func TestWatchdogStuckRescueKeepsThreadID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("获取任务失败: %v", err)
 	}
-	if latest.Status != string(TaskStatusTodo) {
-		t.Fatalf("期望救援后状态为 todo，实际为 %s", latest.Status)
+	if latest.Status != string(TaskStatusInProgress) {
+		t.Fatalf("期望救援后保持 in_progress，实际为 %s", latest.Status)
 	}
 	if latest.ThreadID == nil || *latest.ThreadID != threadID {
 		t.Fatalf("期望救援后保留 ThreadID %q，实际为 %v", threadID, latest.ThreadID)
 	}
-	if _, err := svc.StartTask(ctx, latest.ID, latest.Revision); !errors.Is(err, ErrSessionStillRunning) {
-		t.Fatalf("旧会话仍在运行时重派应返回 ErrSessionStillRunning，实际: %v", err)
+
+	// 中断落地后会话停止并标记 Interrupted=true，下一轮走续跑追问而非重派新会话
+	driver.setThreadState(threadID, SessionState{Running: false, Interrupted: true})
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("续跑 check 失败: %v", err)
+	}
+	asks := driver.sentFollowUps()
+	if len(asks) != 2 || asks[1].text != taskResumePrompt(task.ID) {
+		t.Fatalf("期望中断后发送续跑追问，实际: %+v", asks)
 	}
 }

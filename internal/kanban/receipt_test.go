@@ -3,6 +3,7 @@ package kanban
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -431,8 +432,12 @@ func TestReceiptMissingAsksThenEscalates(t *testing.T) {
 	if task.Status != string(TaskStatusNeedsApproval) {
 		t.Fatalf("追问满额后应升级为 needs_approval，实际: %s", task.Status)
 	}
-	if task.LastActivityText == nil || *task.LastActivityText != receiptEscalatedText {
+	if task.LastActivityText == nil || *task.LastActivityText != "执行会话两次追问后仍未提交结果" {
 		t.Fatalf("期望升级文案，实际: %v", task.LastActivityText)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.DecisionID == "" {
+		t.Fatalf("追问满额升级后应创建决策卡并写入 DecisionID，实际 meta=%+v err=%v", meta, err)
 	}
 
 	// 升级后继续 Tick 不能把任务推进 review，也不能再追问
@@ -824,5 +829,172 @@ func TestStartPromptMentionsSubmitResult(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "用 kanban_update_card 的 progress 参数写一句不超过 80 字的进展") {
 		t.Fatalf("启动提示词应包含进展报告要求，实际: %s", prompt)
+	}
+}
+
+// TestDecideFinishedInterruptedSendsResumePrompt 验证中断会话无回执时发送续跑文案，不把任务标为 done 或 review。
+func TestDecideFinishedInterruptedSendsResumePrompt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	_, s, wd, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	threadID := "thread-interrupted"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-interrupted", ProjectID: "proj-1", Title: "中断续跑"},
+		store.Task{ID: "task-interrupted", Title: "中断任务", Status: string(TaskStatusInProgress), ThreadID: &threadID})
+	driver.setThreadState(threadID, SessionState{
+		Running:           false,
+		Interrupted:       true,
+		LastAssistantText: "做了一半，还没收尾",
+	})
+
+	if err := wd.Check(ctx); err != nil {
+		t.Fatalf("watchdog check 失败: %v", err)
+	}
+
+	asks := driver.sentFollowUps()
+	if len(asks) != 1 {
+		t.Fatalf("期望发送 1 次续跑追问，实际: %d", len(asks))
+	}
+	if asks[0].text != taskResumePrompt("task-interrupted") {
+		t.Fatalf("期望发送续跑文案 %q，实际: %q", taskResumePrompt("task-interrupted"), asks[0].text)
+	}
+	latest, err := s.GetTask(ctx, "task-interrupted")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if latest.Status != string(TaskStatusInProgress) {
+		t.Fatalf("中断续跑追问期间任务不得标为 done/review，实际: %s", latest.Status)
+	}
+}
+
+// TestDecideFinishedInterruptedHostToolsUnavailableNotDone 验证 HostToolsUnavailable 且 Interrupted 时，
+// 总管 owner 任务返回 ResultFailed（不把半截助手文本当成完成），非 owner 任务返回 ResultNeedsDecision。
+func TestDecideFinishedInterruptedHostToolsUnavailableNotDone(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	svc, s, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+
+	threadOwner := "thread-owner-int"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-owner-int", ProjectID: "proj-1", Title: "总管", Owner: goalOwnerSteward},
+		store.Task{
+			ID:       "task-owner-int",
+			Title:    "总管任务",
+			Status:   string(TaskStatusInProgress),
+			ThreadID: &threadOwner,
+			Meta:     EncodeTaskMeta(TaskMeta{Origin: "owner"}),
+		})
+	ownerTask, err := s.GetTask(ctx, "task-owner-int")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	st := SessionState{
+		Running:              false,
+		Interrupted:          true,
+		HostToolsUnavailable: true,
+		LastAssistantText:    "半截回复",
+	}
+	decision := svc.decideFinished(ctx, ownerTask, now, st)
+	if decision.kind != finishDone || decision.result.Status != ResultFailed || decision.result.Summary != "执行会话被中断" {
+		t.Fatalf("总管 owner 任务中断且无法追问时应返回 ResultFailed，实际: %+v", decision)
+	}
+
+	threadNormal := "thread-normal-int"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-normal-int", ProjectID: "proj-1", Title: "普通目标"},
+		store.Task{ID: "task-normal-int", Title: "普通任务", Status: string(TaskStatusInProgress), ThreadID: &threadNormal})
+	normalTask, err := s.GetTask(ctx, "task-normal-int")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	normalDecision := svc.decideFinished(ctx, normalTask, now, st)
+	if normalDecision.kind != finishDone || normalDecision.result.Status != ResultNeedsDecision {
+		t.Fatalf("非总管任务中断且无法追问时应建决策卡，实际: %+v", normalDecision)
+	}
+}
+
+// TestReceiptEscalateCreatesDecision 验证两次追问仍无回执时任务转为 needs_approval，生成 open 决策卡并释放并发槽位。
+func TestReceiptEscalateCreatesDecision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	currTime := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	_, s, _, scheduler := setupReceiptTestService(t, driver, true, false, func() time.Time { return currTime })
+
+	threadID := "thread-escalate-card"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-escalate-card", ProjectID: "proj-1", Title: "追问建卡"},
+		store.Task{ID: "task-escalate-card", Title: "无回执任务", Status: string(TaskStatusInProgress), ThreadID: &threadID})
+	driver.setThreadState(threadID, SessionState{Running: false})
+
+	scheduler.Tick(ctx)
+	currTime = currTime.Add(receiptAskGrace + time.Second)
+	scheduler.Tick(ctx)
+	currTime = currTime.Add(receiptAskGrace + time.Second)
+	scheduler.Tick(ctx)
+
+	task, err := s.GetTask(ctx, "task-escalate-card")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("追问达上限后应为 needs_approval，实际: %s", task.Status)
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.DecisionID == "" {
+		t.Fatalf("追问达上限后应设置 DecisionID，实际 meta=%+v err=%v", meta, err)
+	}
+	decision, err := s.GetStewardDecision(ctx, meta.DecisionID)
+	if err != nil {
+		t.Fatalf("获取决策卡失败: %v", err)
+	}
+	if decision.Status != store.DecisionStatusOpen || decision.TaskID != task.ID {
+		t.Fatalf("期望存在 open 决策卡，实际: %+v", decision)
+	}
+	if got := occupiedSlots([]store.Task{task}, nil); got != 0 {
+		t.Fatalf("已建决策卡的 needs_approval 不应占用槽位，实际: %d", got)
+	}
+}
+
+// TestConcurrentWatchdogAndSchedulerFinishOnce 验证 Watchdog 与 GoalScheduler 并发收尾同一任务时串行执行，
+// 只消费一次回执、不会重复建卡或误发追问。
+func TestConcurrentWatchdogAndSchedulerFinishOnce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	currTime := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
+	driver := newPokeDriver()
+	svc, s, wd, scheduler := setupReceiptTestService(t, driver, true, false, func() time.Time { return currTime })
+
+	threadID := "thread-concurrent-finish"
+	seedSchedulerGoal(t, ctx, s, store.Goal{ID: "goal-concurrent-finish", ProjectID: "proj-1", Title: "并发收尾"},
+		store.Task{ID: "task-concurrent-finish", Title: "并发收尾任务", Status: string(TaskStatusInProgress), ThreadID: &threadID})
+	driver.setThreadState(threadID, SessionState{Running: false})
+	if err := svc.SubmitTaskResult(ctx, "task-concurrent-finish", threadID, ReceiptOutcomeDone, "并发收尾完成"); err != nil {
+		t.Fatalf("提交回执失败: %v", err)
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		<-start
+		_ = wd.Check(ctx)
+	})
+	wg.Go(func() {
+		<-start
+		scheduler.Tick(ctx)
+	})
+	close(start)
+	wg.Wait()
+
+	task, err := s.GetTask(ctx, "task-concurrent-finish")
+	if err != nil {
+		t.Fatalf("获取任务失败: %v", err)
+	}
+	if task.Status != string(TaskStatusReview) {
+		t.Fatalf("并发收尾后应进入 review，实际: %s", task.Status)
+	}
+	if asks := driver.sentFollowUps(); len(asks) != 0 {
+		t.Fatalf("并发收尾有回执时不应误发追问，实际: %d", len(asks))
 	}
 }

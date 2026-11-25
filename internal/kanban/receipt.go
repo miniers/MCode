@@ -27,13 +27,16 @@ const (
 	receiptSummaryLimit = 500
 	// receiptBlockedPrefix 是执行会话求助时卡片活动文本的前缀。
 	receiptBlockedPrefix = "执行会话求助："
-	// receiptEscalatedText 是追问满额仍然没有回执、交给人工确认时的卡片文案。
-	receiptEscalatedText = "执行会话两次追问后仍未提交结果，需要人工确认"
 )
 
 // taskReceiptPrompt 是执行会话停止却没有提交回执时发送的追问文案。
 func taskReceiptPrompt(taskID string) string {
-	return "任务 ID：`" + taskID + "`。这一轮还没有提交任务结果。请调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。不要重做已完成的部分。只有交付物已经到达用户手上，并且没有剩下需要用户决定、授权或验收的事，才算 done；工具调用成功或命令跑通不等于完成，还要用户拍板的用 needs_decision。"
+	return "任务 ID：`" + taskID + "`。这一轮还没有提交任务结果。请调用 kanban_submit_result，status 选择 done、failed、waiting、delegated 或 needs_decision，并填写对应结果。不要重做已完成的部分。waiting 只用于本轮结束后还要等外部事件（人工处理、外部系统、定时条件）的情况；本轮还在进行的工作（命令、测试、你派出的 bee）不算等待，等它们完成后再提交。提交结果是本轮最后一步。只有交付物已经到达用户手上，并且没有剩下需要用户决定、授权或验收的事，才算 done；工具调用成功或命令跑通不等于完成，还要用户拍板的用 needs_decision。"
+}
+
+// taskResumePrompt 是上一轮执行被中断后重新唤醒会话继续完成的文案。
+func taskResumePrompt(taskID string) string {
+	return "任务 ID：`" + taskID + "`。上一轮被中断了（应用重启或会话长时间无进展被停止）。请检查工作区现状，从中断处继续完成任务，不要重做已完成的部分；完成后调用 kanban_submit_result 提交结果。"
 }
 
 // TaskReceipt 是任务执行会话在结束这一轮前提交的结果回执。
@@ -54,6 +57,9 @@ type receiptAsk struct {
 // receiptState 汇总看板进程内的回执、追问与求助状态。
 // 它使用独立的互斥锁，避免与 Service.mu 的落库路径互相阻塞。
 type receiptState struct {
+	// finishMu 串行化 Watchdog 与 GoalScheduler 对已停止会话的收尾流程。
+	// 如需再持 Service.mu，必须先持 finishMu 再持 Service.mu。
+	finishMu sync.Mutex
 	mu       sync.Mutex
 	receipts map[string]TaskReceipt
 	asks     map[string]receiptAsk
@@ -349,8 +355,6 @@ const (
 	finishBlocked
 	// finishWait 表示回执还没到，本轮不推进任务。
 	finishWait
-	// finishEscalate 表示追问满额仍无回执，需要人工确认。
-	finishEscalate
 )
 
 // finishDecision 是 decideFinished 的决策结果，summary 会写入卡片活动文本。
@@ -388,10 +392,26 @@ func (s *Service) lastAssistantText(ctx context.Context, t store.Task) string {
 	return clipReceiptText(st.LastAssistantText)
 }
 
+// finishNeedsDecision 构造交由人工决策的收尾结果，供中断无法追问与追问满额升级共用。
+func finishNeedsDecision(summary, question string) finishDecision {
+	return finishDecision{
+		kind:    finishDone,
+		summary: summary,
+		result: ExecutorResult{
+			Status:         ResultNeedsDecision,
+			Summary:        summary,
+			Question:       question,
+			Options:        []DecisionOption{{Key: "A", Text: "重新执行"}, {Key: "B", Text: "停下"}},
+			Recommendation: "A",
+		},
+	}
+}
+
 // decideFinished 决定一个已停止、未失败、未等待的会话该如何收尾。
-// watchdog 与调度器共用这套规则：有回执按回执走；没有回执时，驱动不支持追问或会话调不到
-// 回执工具（hostToolsUnavailable）都保持旧行为，其余情况先追问两次，仍无回执再升级给人工。
-func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Time, hostToolsUnavailable bool) finishDecision {
+// watchdog 与调度器共用这套规则：有回执按回执走；没有回执时，若上一轮被中断则发续跑追问
+// （无法追问时总管 owner 任务返回失败、其余建决策卡）；未中断且无法追问按旧行为直接完成，
+// 其余情况先追问两次，仍无回执再升级给人工建决策卡。
+func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Time, st SessionState) finishDecision {
 	if receipt, ok := s.takeReceipt(t.ID, threadIDOf(t)); ok {
 		if receipt.Result.Status == ResultNeedsDecision {
 			return finishDecision{kind: finishBlocked, summary: receipt.Summary, fromReceipt: true, result: receipt.Result}
@@ -405,8 +425,15 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 	}
 
 	messenger, supportsFollowUp := s.opts.Driver.(SessionMessenger)
-	// 会话里调不到回执工具时追问没有意义（Agent 拿不到 kanban_submit_result），按旧行为直接完成。
-	if s.opts.Driver == nil || !supportsFollowUp || messenger == nil || hostToolsUnavailable {
+	// 会话里调不到回执工具或驱动不支持追问时：未中断保持旧行为，中断则不能把半截工作当成完成。
+	if s.opts.Driver == nil || !supportsFollowUp || messenger == nil || st.HostToolsUnavailable {
+		if st.Interrupted {
+			const summary = "执行会话被中断"
+			if s.isStewardOwnerTask(ctx, t) {
+				return finishDecision{kind: finishDone, summary: summary, result: ExecutorResult{Status: ResultFailed, Summary: summary}}
+			}
+			return finishNeedsDecision(summary, "执行会话被中断，怎么处理")
+		}
 		summary := strings.TrimSpace(s.lastAssistantText(ctx, t))
 		if s.isStewardOwnerTask(ctx, t) {
 			status := ResultDone
@@ -429,16 +456,20 @@ func (s *Service) decideFinished(ctx context.Context, t store.Task, now time.Tim
 	switch s.planReceiptAsk(t.ID, now) {
 	case receiptAskSend:
 		if threadID := threadIDOf(t); threadID != "" {
+			prompt := taskReceiptPrompt(t.ID)
+			if st.Interrupted {
+				prompt = taskResumePrompt(t.ID)
+			}
 			// 追问失败不阻塞本轮处理，下一轮 Tick 会按宽限重试或升级
-			_ = messenger.SendFollowUp(ctx, threadID, taskReceiptPrompt(t.ID))
+			_ = messenger.SendFollowUp(ctx, threadID, prompt)
 		}
 		return finishDecision{kind: finishWait}
 	case receiptAskEscalate:
+		const summary = "执行会话两次追问后仍未提交结果"
 		if s.isStewardOwnerTask(ctx, t) {
-			summary := "执行会话两次追问后仍未提交结果"
 			return finishDecision{kind: finishDone, summary: summary, result: ExecutorResult{Status: ResultFailed, Summary: summary}}
 		}
-		return finishDecision{kind: finishEscalate}
+		return finishNeedsDecision(summary, "执行会话两次追问后仍未提交结果，怎么处理")
 	default:
 		return finishDecision{kind: finishWait}
 	}

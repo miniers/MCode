@@ -356,6 +356,25 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 		}
 		st, err := g.svc.opts.Driver.SessionState(ctx, *t.ThreadID)
 		if err != nil {
+			if t.Status == string(TaskStatusNeedsApproval) && errors.Is(err, store.ErrNotFound) {
+				if meta, merr := ParseTaskMeta(t.Meta); merr == nil && meta.DecisionID == "" {
+					if cerr := g.svc.closeTaskDecisions(ctx, &t); cerr != nil {
+						return cerr
+					}
+					if CanTransition(TaskStatus(t.Status), TaskStatusTodo) {
+						t.Status = string(TaskStatusTodo)
+					}
+					t.ThreadID = nil
+					resetMsg := "会话已不存在，任务已重置为待办"
+					t.LastActivityText = &resetMsg
+					g.svc.clearReceiptBlocked(t.ID)
+					if up, uerr := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); uerr == nil {
+						tasks[i] = up
+						failedThisTick[up.ID] = struct{}{}
+						goalChanged = true
+					}
+				}
+			}
 			continue
 		}
 		// 会话仍在等审批或等输入：任务停在 needs_approval、保留 ThreadID 并继续占着并发槽位，
@@ -436,56 +455,69 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 			if t.Status == string(TaskStatusNeedsApproval) && g.svc.isReceiptBlocked(t.ID) {
 				continue
 			}
-			// 会话已停止：有回执按回执收尾；没有回执时按驱动能力决定是否追问
-			decision := g.svc.decideFinished(ctx, t, now, st.HostToolsUnavailable)
-			if decision.kind == finishWait {
-				continue
-			}
-			if err := g.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
-				return err
-			}
-			text := decision.summary
-			autoAcceptNow := false
-			switch decision.kind {
-			case finishBlocked:
-				if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
-					t.Status = string(TaskStatusNeedsApproval)
+			// 会话已停止：持 finishMu 串行收尾，避免与 Watchdog 并发消费回执、重复追问或重复建卡。
+			var up store.Task
+			var updateErr error
+			var decision finishDecision
+			var autoAcceptNow bool
+			var applyErr error
+			func() {
+				g.svc.receipts.finishMu.Lock()
+				defer g.svc.receipts.finishMu.Unlock()
+
+				latest, gerr := g.svc.opts.Store.GetTask(ctx, t.ID)
+				if gerr != nil || latest.Revision != t.Revision || latest.Status != t.Status {
+					return
 				}
-				text = receiptBlockedPrefix + decision.summary
-				g.svc.markReceiptBlocked(t.ID)
-			case finishEscalate:
-				if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
-					t.Status = string(TaskStatusNeedsApproval)
+				t = latest
+				decision = g.svc.decideFinished(ctx, t, now, st)
+				if decision.kind == finishWait {
+					return
 				}
-				text = receiptEscalatedText
-				g.svc.markReceiptBlocked(t.ID)
-			default:
-				if decision.result.Status != "" && decision.result.Status != ResultDone {
-					break
+				if err := g.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
+					applyErr = err
+					return
 				}
-				if isStewardOwnerIn(goal, t) {
-					t.Status = string(TaskStatusDone)
-					break
-				}
-				// 完成：按目标策略自动接受、送审，两个开关都关闭时交给人工处理。
-				// 命令异步验收通过后才能自动接受；[你验] 始终等用户确认。
-				autoAcceptNow = autoAccept && !hasUserVerify(t) && len(ParseAcceptanceCommands(t.AcceptanceCriteria)) == 0
-				if autoAcceptNow {
-					// 先落到 review 写库，再走与人工接受完全相同的评审接受路径触发合并
-					t.Status = string(TaskStatusReview)
-				} else if g.svc.AutoReviewEnabled() {
-					t.Status = string(TaskStatusReview)
-				} else {
-					// 自动接受与自动评审都关闭：迁到 review 等人工处理，不能把任务留在 in_progress
-					t.Status = string(TaskStatusReview)
-					// 有回执时卡片直接显示执行会话的结论，旧行为仍是原有文案
-					if !decision.fromReceipt {
-						text = manualReviewText
+				text := decision.summary
+				switch decision.kind {
+				case finishBlocked:
+					if CanTransition(TaskStatus(t.Status), TaskStatusNeedsApproval) {
+						t.Status = string(TaskStatusNeedsApproval)
+					}
+					text = receiptBlockedPrefix + decision.summary
+					g.svc.markReceiptBlocked(t.ID)
+				default:
+					if decision.result.Status != "" && decision.result.Status != ResultDone {
+						break
+					}
+					if isStewardOwnerIn(goal, t) {
+						t.Status = string(TaskStatusDone)
+						break
+					}
+					// 完成：按目标策略自动接受、送审，两个开关都关闭时交给人工处理。
+					// 命令异步验收通过后才能自动接受；[你验] 始终等用户确认。
+					autoAcceptNow = autoAccept && !hasUserVerify(t) && len(ParseAcceptanceCommands(t.AcceptanceCriteria)) == 0
+					if autoAcceptNow {
+						// 先落到 review 写库，再走与人工接受完全相同的评审接受路径触发合并
+						t.Status = string(TaskStatusReview)
+					} else if g.svc.AutoReviewEnabled() {
+						t.Status = string(TaskStatusReview)
+					} else {
+						// 自动接受与自动评审都关闭：迁到 review 等人工处理，不能把任务留在 in_progress
+						t.Status = string(TaskStatusReview)
+						// 有回执时卡片直接显示执行会话的结论，旧行为仍是原有文案
+						if !decision.fromReceipt {
+							text = manualReviewText
+						}
 					}
 				}
+				t.LastActivityText = &text
+				up, updateErr = g.svc.opts.Store.UpdateTask(ctx, t, t.Revision)
+			}()
+			if applyErr != nil {
+				return applyErr
 			}
-			t.LastActivityText = &text
-			if up, err := g.svc.opts.Store.UpdateTask(ctx, t, t.Revision); err == nil {
+			if decision.kind != finishWait && updateErr == nil && up.ID != "" {
 				if up.Status == string(TaskStatusTodo) && decision.result.Status == ResultFailed {
 					failedThisTick[up.ID] = struct{}{}
 				} else {
