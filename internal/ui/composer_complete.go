@@ -500,6 +500,7 @@ func (s *chatState) ensureSelectableCompletionLocked() {
 	}
 	if next := nextUsableCompletionIndex(reasons, -1); next >= 0 {
 		s.completionSelected = next
+		s.completionScrollSelection = true
 	}
 }
 
@@ -518,6 +519,7 @@ func (s *chatState) selectAdjacentCompletion(step int) {
 		idx := ((start+step*i)%n + n) % n
 		if s.completionUnusableReasonLocked(s.completionItems[idx]) == "" {
 			s.completionSelected = idx
+			s.completionScrollSelection = true
 			return
 		}
 	}
@@ -606,6 +608,7 @@ func (s *chatState) updateCompletion(threadID string) {
 	if changed {
 		s.completionItems = nil
 		s.completionSelected = 0
+		s.completionScrollSelection = true
 		s.completionLoading = false
 		s.completionLoaded = false
 		s.mentionSeq++
@@ -831,6 +834,7 @@ func (s *chatState) confirmCompletionKeepOpen(item completionItem, keepOpen bool
 		s.completionLoaded = false
 		s.completionLoading = false
 		s.completionSelected = 0
+		s.completionScrollSelection = true
 		s.mentionSeq++
 		target := start + insert.Len()
 		s.completionCaretTarget = target
@@ -1018,6 +1022,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 		// 分类行与目录项在 Tab 时保持面板打开：前者下钻一层，后者进入子目录。
 		if s.completionSelected < 0 || s.completionSelected >= n {
 			s.completionSelected = 0
+			s.completionScrollSelection = true
 		}
 		item := s.completionItems[s.completionSelected]
 		if s.completionUnusableReasonLocked(item) != "" {
@@ -1029,6 +1034,7 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 	case key == ui.KeyEnter && mods == 0:
 		if s.completionSelected < 0 || s.completionSelected >= n {
 			s.completionSelected = 0
+			s.completionScrollSelection = true
 		}
 		item := s.completionItems[s.completionSelected]
 		if s.completionUnusableReasonLocked(item) != "" {
@@ -1070,6 +1076,7 @@ func (s *chatState) cycleSkillScopeLocked(step int) {
 func (s *chatState) setSkillScopeLocked(scope string) {
 	s.completionSkillScope = scope
 	s.completionSelected = 0
+	s.completionScrollSelection = true
 	s.refreshSkillCompletionItemsLocked()
 }
 
@@ -1641,10 +1648,15 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		// 选中项落在分组标题或已失效项上时移到最近的可用项；全部不可用则保持原值。
 		if next := nextUsableCompletionIndex(reasons, s.completionSelected); next >= 0 {
 			s.completionSelected = next
+			s.completionScrollSelection = true
 		}
 	}
 	items := append([]completionItem(nil), s.completionSnap...)
 	selected := s.completionSelected
+	scrollSelection := s.completionScrollSelection
+	prevPointerOn := s.completionPointerOn
+	prevPointerX := s.completionPointerX
+	prevPointerY := s.completionPointerY
 	draft := s.draft
 	s.mu.Unlock()
 
@@ -1655,6 +1667,10 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	// 没在补全、也没有上一帧的候选可收起时，整块浮层都不建：分屏时每个输入框都会往
 	// overlay 根上挂一个面板，同 key 会让 mygo 立刻 panic；空态也因此只在补全中显示。
 	if !visible && len(items) == 0 {
+		s.mu.Lock()
+		s.completionScrollSelection = false
+		s.completionPointerOn = false
+		s.mu.Unlock()
 		s.composerView.skillScopeIndicatorReady = false
 		return
 	}
@@ -1727,6 +1743,8 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		if !visible && p <= 0.01 {
 			s.mu.Lock()
 			s.completionSnap = nil
+			s.completionScrollSelection = false
+			s.completionPointerOn = false
 			s.mu.Unlock()
 			s.composerView.skillScopeIndicatorReady = false
 			return
@@ -1738,10 +1756,17 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 				{At: DurFast, Value: 0, Ease: ui.EaseOut},
 			}, ui.KeyframeOptions{Run: run})
 		}
+		lx, ly, pointerOver := col.PointerPosition()
+		px, py := lx, ly
+		if pointerOver {
+			px, py = col.LocalToWindow(lx, ly)
+		}
+		pointerMoved := pointerOver && (!prevPointerOn || px != prevPointerX || py != prevPointerY)
 		transition := motionPopover(c, -6)
 		// 关闭由高度和透明度进度负责，不能叠加退出快照。
 		transition.Exit = nil
 		applyElevation(c, col, ElevPopover).
+			KeepFocus().
 			AttachTo(card, ui.AnchorTopLeft, ui.AnchorBottomLeft).Width(width).Margin(Space2, 0, Space2, 0).
 			Transition(transition).
 			Translate(slide, 0).
@@ -1759,6 +1784,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 					renderSkillScopeTabs(c, s, skillScope, len(items))
 				}
 				scrollable := rows < len(items)+btoi(loading)
+				hoveredIdx := -1
 				list := func() {
 					for i, item := range items {
 						idx := i
@@ -1785,6 +1811,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							AlignItems(ui.Center).
 							Gap(Space3)
 						if it.Category {
+							row.Cursor(ui.CursorPointer)
 							// 分类行是“进目录”的入口：点一下只把前缀写进草稿，面板保持打开。
 							row.OnClick(func() {
 								s.mu.Lock()
@@ -1795,6 +1822,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								s.invalidate()
 							})
 						} else if reason == "" {
+							row.Cursor(ui.CursorPointer)
 							// 失效的会话引用不注册点击，鼠标也插不进去。
 							row.OnClick(func() {
 								s.mu.Lock()
@@ -1812,11 +1840,14 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								s.invalidate()
 							})
 						}
+						if (it.Category || reason == "") && row.Hovered() {
+							hoveredIdx = idx
+						}
 
 						if idx == selected {
 							row.Background(ThemeHover(c))
-							if scrollable {
-								// 键盘移动选中行时让它留在可见区域。
+							if scrollable && scrollSelection {
+								// 仅键盘移动或候选重建后把选中行滚进可见区域，避免滚轮/拖滚动条被每帧拉回。
 								row.ScrollIntoView()
 							}
 						}
@@ -1953,6 +1984,25 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 				}
 				if showFooter {
 					renderCompletionFooter(c, kind)
+				}
+				if pointerOver != prevPointerOn || pointerMoved || scrollSelection {
+					needInvalidate := false
+					s.mu.Lock()
+					s.completionPointerOn = pointerOver
+					s.completionPointerX = px
+					s.completionPointerY = py
+					// 仅在指针实际进入或移动时按悬停切换选中，防止静止悬停在滚动或键盘导航时抢回选中。
+					if visible && pointerMoved && hoveredIdx >= 0 && hoveredIdx != s.completionSelected {
+						s.completionSelected = hoveredIdx
+						s.completionScrollSelection = false
+						needInvalidate = true
+					} else if scrollSelection && s.completionSelected == selected {
+						s.completionScrollSelection = false
+					}
+					s.mu.Unlock()
+					if needInvalidate {
+						s.invalidate()
+					}
 				}
 			})
 	})

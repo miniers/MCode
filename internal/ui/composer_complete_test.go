@@ -1788,3 +1788,198 @@ func TestCompletionDoesNotTriggerMidWord(t *testing.T) {
 		t.Fatalf("mention completion mid-word must not trigger, got %v", s.completionKind)
 	}
 }
+
+func TestCompletionWheelScrollKeepsOffset(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	cmds := make([]SlashCommand, 0, 20)
+	for i := 1; i <= 20; i++ {
+		cmds = append(cmds, SlashCommand{Name: fmt.Sprintf("cmd%02d", i), Detail: fmt.Sprintf("命令 %02d", i)})
+	}
+	s.commandsCache["t1"] = cmds
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposer(c, s)
+	}, 900, 500)
+
+	// "/" 空查询展示全部命令，不会被过滤上限（8 条）截断，从而触发内部滚动。
+	tt.Type("/")
+	waitFor(t, tt, func() bool { return tt.HasText("/cmd01") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	if r15, ok := tt.Find("/cmd15"); ok && r15.H > 0 {
+		t.Fatalf("初始未滚动时 /cmd15 不应有可见高度: %+v", r15)
+	}
+	rect0, ok := tt.Find("/cmd01")
+	if !ok {
+		t.Fatalf("未找到列表项 /cmd01，Texts=%v", tt.Texts())
+	}
+
+	cx, cy := rect0.X+rect0.W/2, rect0.Y+rect0.H/2
+	tt.Move(cx, cy)
+	tt.Frame()
+	tt.Wheel(cx, cy, 0, 200)
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+
+	r02Scrolled, _ := tt.Find("/cmd02")
+	r15Scrolled, ok15 := tt.Find("/cmd15")
+	if !ok15 || r15Scrolled.H <= 0 || r02Scrolled.H > 0 {
+		t.Fatalf("滚轮向下后列表未滚动到下方区域: cmd15=(%v,%+v) cmd02=%+v", ok15, r15Scrolled, r02Scrolled)
+	}
+
+	tt.Advance(200 * time.Millisecond)
+	tt.Frame()
+	r15Settled, ok15Settled := tt.Find("/cmd15")
+	if !ok15Settled || r15Settled.H <= 0 || math.Abs(float64(r15Settled.Y-r15Scrolled.Y)) > 0.5 {
+		t.Fatalf("列表滚动位置发生回弹: ok=%v before=%+v after=%+v", ok15Settled, r15Scrolled, r15Settled)
+	}
+
+	tt.Key(0, ui.KeyDown)
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	r02AfterDown, ok02 := tt.Find("/cmd02")
+	if !ok02 || r02AfterDown.H <= 0 {
+		t.Fatalf("按 Down 后未把选中行 /cmd02 滚回可见区域: ok=%v rect=%+v", ok02, r02AfterDown)
+	}
+}
+
+func TestCompletionHoverSelectsRow(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	s.commandsCache["t1"] = []SlashCommand{
+		{Name: "zz-first", Detail: "第一项说明"},
+		{Name: "zz-second", Detail: "第二项说明"},
+		{Name: "zz-third", Detail: "第三项说明"},
+	}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		renderComposer(c, s)
+	}, 900, 500)
+
+	tt.Type("/zz")
+	waitFor(t, tt, func() bool { return tt.HasText("/zz-first") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	row2, ok := tt.Find("/zz-second")
+	if !ok {
+		t.Fatalf("未找到第二项 /zz-second，Texts=%v", tt.Texts())
+	}
+	tt.Move(row2.X+row2.W/2, row2.Y+row2.H/2)
+	tt.Frame()
+
+	s.mu.Lock()
+	selected := s.completionSelected
+	s.mu.Unlock()
+	if selected != 1 {
+		t.Fatalf("悬停第二项后 completionSelected = %d, want 1", selected)
+	}
+	if tt.Cursor() != ui.CursorPointer {
+		t.Fatalf("悬停可点击行时指针样式 = %v, want ui.CursorPointer", tt.Cursor())
+	}
+	if !tt.HasText("第二项说明") {
+		t.Fatalf("底部说明条未更新为第二项说明，Texts=%v", tt.Texts())
+	}
+
+	// 指针静止不动时按 Down，键盘导航不得被悬停抢回。
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	s.mu.Lock()
+	afterDown := s.completionSelected
+	s.mu.Unlock()
+	if afterDown != 2 {
+		t.Fatalf("按 Down 后 completionSelected = %d, want 2（不应被静止悬停抢回）", afterDown)
+	}
+}
+
+func TestCompletionClickKeepsComposerFocus(t *testing.T) {
+	origScan := scanSkills
+	resetSkillCache()
+	t.Cleanup(func() {
+		scanSkills = origScan
+		resetSkillCache()
+	})
+	scanSkills = func(opts agentconf.Options) ([]agentconf.Skill, error) {
+		return []agentconf.Skill{
+			{Agent: "claude", Scope: "project", Name: "proj-skill", Description: "项目技能", Path: opts.ProjectDir + "/p/SKILL.md"},
+			{Agent: "codex", Scope: "global", Name: "glob-skill", Description: "全局技能", Path: "/g/SKILL.md"},
+		}, nil
+	}
+
+	s := newChatState(NewFakeClient())
+	s.projects = []Project{{ID: "p1", Name: "repo", Path: "/repo"}}
+	tt := composerTester(s)
+
+	tt.Type("$")
+	waitFor(t, tt, func() bool { return tt.HasText("$proj-skill") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	if err := tt.Click("项目"); err != nil {
+		t.Fatalf("点击技能范围页签失败: %v", err)
+	}
+	tt.Frame()
+
+	s.mu.Lock()
+	scope := s.completionSkillScope
+	focused := s.composerFocused
+	s.mu.Unlock()
+	if scope != "project" {
+		t.Fatalf("点击「项目」页签后 scope = %q, want project", scope)
+	}
+	if !focused {
+		t.Fatal("点击技能范围页签后输入框失去焦点")
+	}
+
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(DurFast + 50*time.Millisecond)
+	tt.Frame()
+	if tt.HasText("$proj-skill") {
+		t.Fatalf("点击页签后按 Esc 浮层未收起，Texts=%v", tt.Texts())
+	}
+}
+
+func TestCompletionHidesWhenComposerBlurred(t *testing.T) {
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	s.commandsCache["t1"] = []SlashCommand{{Name: "plan", Detail: "制定计划"}}
+
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Column(c).FillWidth().Children(func() {
+			ui.Button(c, "外部按钮").OnClick(func() {})
+			renderComposer(c, s)
+		})
+	}, 900, 500)
+
+	tt.Type("/pl")
+	waitFor(t, tt, func() bool { return tt.HasText("/plan") })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	// 点击浮层与输入卡片之外的可聚焦控件，使输入框失焦。
+	if err := tt.Click("外部按钮"); err != nil {
+		t.Fatalf("点击外部按钮失败: %v", err)
+	}
+	tt.Advance(DurFast + 50*time.Millisecond)
+	tt.Frame()
+
+	s.mu.Lock()
+	focused := s.composerFocused
+	suspended := s.completionSuspended
+	kind := s.completionKind
+	s.mu.Unlock()
+	if focused {
+		t.Fatal("点击外部后输入框仍处于聚焦状态")
+	}
+	if !suspended || kind != completionNone {
+		t.Fatalf("失焦后补全状态未挂起收起: suspended=%v kind=%v", suspended, kind)
+	}
+	if tt.HasText("/plan") {
+		t.Fatalf("输入框失焦后补全浮层未收起，Texts=%v", tt.Texts())
+	}
+}

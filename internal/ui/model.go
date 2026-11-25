@@ -544,12 +544,16 @@ type chatState struct {
 	killingTools              map[string]bool
 
 	// 补全状态
-	completionKind         completionKind
-	completionStart        int
-	completionQuery        string
-	completionItems        []completionItem
-	completionSelected     int
-	completionDismissedFor string
+	completionKind            completionKind
+	completionStart           int
+	completionQuery           string
+	completionItems           []completionItem
+	completionSelected        int
+	completionScrollSelection bool
+	completionPointerOn       bool
+	completionPointerX        float32
+	completionPointerY        float32
+	completionDismissedFor    string
 	// completionSnap 是补全层最近一次可见的候选，关闭动画期间继续渲染它。
 	completionSnap []completionItem
 	// completionCaretToEnd 表示补全刚改写了草稿，下一帧需把光标放到目标位置；TextKey 无法移动光标，只能在构建视图时用 SetTextSelection。

@@ -993,7 +993,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 						}
 						start, end := in.TextSelection()
 						s.completionCaret = end
-						suspended := start != end || isSendingDisabled
+						suspended := start != end || isSendingDisabled || !in.Focused()
 						if s.completionSuspended != suspended {
 							s.completionSuspended = suspended
 							// 补全层先于输入框构建，读到的是上一帧的值；变化时补一帧让它开始收起或重新展开。
