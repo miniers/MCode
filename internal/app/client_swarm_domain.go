@@ -207,7 +207,7 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 		// 查询次数翻倍。
 		if turns, total, err := c.backend.ThreadUsage(ctx, h.ThreadID); err == nil {
 			progress.tokens = int(total.InputTokens + total.OutputTokens)
-			progress.costUSD = beeSessionCost(turns, provider == "claude" || c.backend.ProviderIsACP(provider))
+			progress.costUSD = beeSessionCost(turns, c.beeCostIsCumulative(provider))
 		} else {
 			cacheable = false
 		}
@@ -237,6 +237,16 @@ func (c *Client) swarmState(ctx context.Context, st swarm.State, leadID string, 
 	// 实时活动文本会覆盖「思考中」提示，最后按无进展时长补回。
 	applySwarmThinking(st.Bees, result.Bees)
 	return result
+}
+
+// beeCostIsCumulative 判断 bee 所属 provider 上报的 CostUSD 是否为会话累计值：
+// claude 与 ACP agent 均报进程内累计；agy 默认走 ACP 通道上报会话累计费用，但后端
+// ProviderIsACP("agy") 为假（stream-json 通道费用恒为 0，按累计处理无副作用），因此一并视为累计。
+func (c *Client) beeCostIsCumulative(provider string) bool {
+	if provider == "claude" || provider == "agy" {
+		return true
+	}
+	return c != nil && c.backend != nil && c.backend.ProviderIsACP(provider)
 }
 
 // beeSessionCost 算一个 bee 会话的花费（美元）。bee 会话与主会话一样受 provider 上报语义约束：

@@ -50,7 +50,7 @@ type Usage struct {
 	// InputTokens 是整段提示词：已含缓存读写部分（各 provider 适配器统一并入）。
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
-	// CachedTokens 是缓存读写合计，是 InputTokens 的子集，缓存命中率按 Cached/Input 算。
+	// CachedTokens 是缓存读取（命中）token，是 InputTokens 的子集；缓存写入只并入 InputTokens，不计入这里。
 	CachedTokens int64 `json:"cached_tokens"`
 	// ContextTokens 是本轮最后一次模型请求实际带入的上下文大小（输入 + 输出，tokens），只用于
 	// 「上下文窗口占用」口径；InputTokens/OutputTokens 仍可能是整轮累计的计费用量，远超窗口上限。

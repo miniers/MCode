@@ -507,7 +507,8 @@ func TestKillTerminatesProcessAfterMarkDead(t *testing.T) {
 	}
 }
 
-// TestUsageInfoDoesNotOverrideTurnUsage 验证 session.usage_info（上下文占用）不会覆盖 assistant.usage 的累计用量。
+// TestUsageInfoDoesNotOverrideTurnUsage 验证 session.usage_info 更新 ContextTokens/ContextWindow 并发 EventUsage，
+// 同时保留 assistant.usage 的计费累计值（不清零）。
 func TestUsageInfoDoesNotOverrideTurnUsage(t *testing.T) {
 	turn := harness.Turn{ID: "turn-1", SessionID: "sid-1", Mode: harness.ModeFullAccess}
 	proc := &sessionProc{deadCh: make(chan struct{})}
@@ -523,8 +524,65 @@ func TestUsageInfoDoesNotOverrideTurnUsage(t *testing.T) {
 	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"assistant.usage","data":{"inputTokens":10,"outputTokens":5}}}`))
 	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"session.usage_info","data":{"currentTokens":4000,"tokenLimit":128000}}}`))
 
-	if len(usages) != 1 || usages[0].InputTokens != 10 || usages[0].OutputTokens != 5 {
-		t.Fatalf("usage 事件 = %+v，期望仅 assistant.usage 一条", usages)
+	if len(usages) != 2 {
+		t.Fatalf("usage 事件数量 = %d，期望 2: %+v", len(usages), usages)
+	}
+	if usages[1].InputTokens != 10 || usages[1].OutputTokens != 5 || usages[1].ContextTokens != 4000 || usages[1].ContextWindow != 128000 {
+		t.Fatalf("第二条 usage 事件 = %+v，期望保留累计 10/5 并带出 ContextTokens=4000, ContextWindow=128000", usages[1])
+	}
+}
+
+// TestCopilotUsageInfoContext 验证 session.usage_info 与 assistant.usage 互不丢失字段，
+// 且 CachedTokens 只记缓存读取不计写入。
+func TestCopilotUsageInfoContext(t *testing.T) {
+	turn := harness.Turn{ID: "turn-1", SessionID: "sid-1", Mode: harness.ModeFullAccess}
+	proc := &sessionProc{deadCh: make(chan struct{})}
+	proc.setSessionID("sid-1")
+	var usages []*harness.Usage
+	h := newEventHandler(proc, turn, func(e harness.Event) {
+		if e.Type == harness.EventUsage {
+			usages = append(usages, e.Usage)
+		}
+	}, context.Background())
+	h.beginTurn()
+
+	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"session.usage_info","data":{"currentTokens":3200,"tokenLimit":200000}}}`))
+	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"assistant.usage","data":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":80,"cacheWriteTokens":40}}}`))
+
+	if len(usages) != 2 {
+		t.Fatalf("usage 事件数量 = %d，期望 2: %+v", len(usages), usages)
+	}
+	if usages[0].InputTokens != 0 || usages[0].OutputTokens != 0 || usages[0].ContextTokens != 3200 || usages[0].ContextWindow != 200000 {
+		t.Fatalf("首条 usage_info 事件 = %+v", usages[0])
+	}
+	if usages[1].InputTokens != 120 || usages[1].OutputTokens != 30 || usages[1].CachedTokens != 80 || usages[1].ContextTokens != 3200 || usages[1].ContextWindow != 200000 {
+		t.Fatalf("assistant.usage 应沿用 ContextTokens/ContextWindow 且 CachedTokens 只记读取: %+v", usages[1])
+	}
+}
+
+// TestCopilotCompactionEmitsCompacted 验证 session.compaction_complete 发出 EventContextCompacted。
+func TestCopilotCompactionEmitsCompacted(t *testing.T) {
+	turn := harness.Turn{ID: "turn-1", SessionID: "sid-1", Mode: harness.ModeFullAccess}
+	proc := &sessionProc{deadCh: make(chan struct{})}
+	proc.setSessionID("sid-1")
+	var events []harness.Event
+	h := newEventHandler(proc, turn, func(e harness.Event) {
+		events = append(events, e)
+	}, context.Background())
+	h.beginTurn()
+
+	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"session.compaction_complete","data":{"success":true,"preCompactionTokens":150000,"postCompactionTokens":25000}}}`))
+	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"session.compaction_complete","data":{"success":false,"preCompactionTokens":150000,"postCompactionTokens":25000}}}`))
+	h.handleEvent(json.RawMessage(`{"sessionId":"sid-1","event":{"type":"session.compaction_complete","data":{}}}`))
+
+	if len(events) != 2 {
+		t.Fatalf("期望 2 条 EventContextCompacted（success:false 不发），实际 %+v", events)
+	}
+	if events[0].Type != harness.EventContextCompacted || events[0].CompactTokensBefore != 150000 || events[0].CompactTokensAfter != 25000 {
+		t.Fatalf("第一条压缩事件 = %+v", events[0])
+	}
+	if events[1].Type != harness.EventContextCompacted || events[1].CompactTokensBefore != 0 || events[1].CompactTokensAfter != 0 {
+		t.Fatalf("缺省字段的压缩事件 = %+v", events[1])
 	}
 }
 

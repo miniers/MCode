@@ -874,6 +874,9 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 		// lastStepContext 记录本轮最后一次模型请求实际带入的上下文大小（输入 + 输出）。
 		// result 里的 usage 是整轮多步累计的计费用量，不能当上下文占用，所以只能从单步 usage 取。
 		var lastStepContext int64
+		// stepInputSum / stepOutputSum / stepCachedSum 按步累加本轮计费用量，
+		// 避免在 result 到达前中断时落库只剩最后一步。
+		var stepInputSum, stepOutputSum, stepCachedSum int64
 
 		// closeTurnInput 在本轮结束时关闭 stdin，让子进程退出。
 		// 实测 agy 1.4.0：stream-json 模式下输出 result 后并不会自行退出，而是继续等待
@@ -930,17 +933,21 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 										requestClock.Begin(now())
 									}
 									if step.Usage != nil {
-										// 单步 usage 就是这一次模型请求的用量，可直接当作本轮上下文占用。
+										// 单步 usage 就是这一次模型请求的用量：上下文占用取单步 input+output，
+										// 计费三项按步累加发出，防止 result 之前中断时落库只剩最后一步。
 										if speed, ok := requestClock.Finish(now(), step.Usage.OutputTokens); ok {
 											requestSpeeds = append(requestSpeeds, speed)
 										}
 										lastStepContext = step.Usage.InputTokens + step.Usage.OutputTokens
+										stepInputSum += step.Usage.InputTokens
+										stepOutputSum += step.Usage.OutputTokens
+										stepCachedSum += step.Usage.CacheReadTokens
 										_ = harness.Emit(emit, harness.Event{
 											Type: harness.EventUsage,
 											Usage: &harness.Usage{
-												InputTokens:   step.Usage.InputTokens,
-												OutputTokens:  step.Usage.OutputTokens,
-												CachedTokens:  step.Usage.CacheReadTokens,
+												InputTokens:   stepInputSum,
+												OutputTokens:  stepOutputSum,
+												CachedTokens:  stepCachedSum,
 												ContextTokens: lastStepContext,
 												Requests:      requestSpeedSamples(requestSpeeds),
 											},

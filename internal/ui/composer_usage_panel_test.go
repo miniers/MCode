@@ -594,6 +594,69 @@ func TestRenderUsagePanel_TurnCostHiddenWhenZero(t *testing.T) {
 	}
 }
 
+// 累计语义（claude、ACP、agy）在第 2 轮起减去前一非零轮次的累计费用；进程重开导致差值为负时直接取最新轮值。
+func TestUsagePanelCumulativeCostDelta(t *testing.T) {
+	testenv.TempHome(t)
+	render := func(provider string, turns map[int]TokenUsage) []string {
+		s := newChatState(NewFakeClient())
+		s.providers = []ProviderInfo{
+			{ID: "claude", Models: []ModelInfo{{ID: "", IsDefault: true, ContextLimit: 200_000}}},
+			{ID: "maki", ACP: true, Models: []ModelInfo{{ID: "", IsDefault: true, ContextLimit: 200_000}}},
+			{ID: "pi", Models: []ModelInfo{{ID: "", IsDefault: true, ContextLimit: 200_000}}},
+		}
+		s.threadUsage = ThreadUsage{
+			Turns: turns,
+			Total: TokenUsage{Input: 1200, Output: 80},
+		}
+		SetChatQuotaWindowsForProvider(s, provider, nil)
+		tt := ui.NewTester(func(c *ui.Context) {
+			renderUsagePanel(c, s, &Thread{ID: "t1", Provider: provider})
+		}, 400, 400)
+		return tt.Texts()
+	}
+
+	// 连续两轮累计：0.10 -> 0.25，本轮增量 0.1500。
+	texts := render("claude", map[int]TokenUsage{
+		0: {Input: 500, Output: 40, ContextTokens: 540, CostUSD: 0.10},
+		1: {Input: 700, Output: 40, ContextTokens: 1200, CostUSD: 0.25},
+	})
+	joined := strings.Join(texts, "\n")
+	if !strings.Contains(joined, "本轮费用 $0.1500") {
+		t.Fatalf("claude 连续轮次应显示增量 $0.1500，实际 %q", texts)
+	}
+
+	// 中间有 CostUSD=0 的轮次时，跳过 0 找到更早最近一个 >0 轮次相减。
+	texts = render("maki", map[int]TokenUsage{
+		0: {CostUSD: 0.10},
+		1: {CostUSD: 0},
+		2: {Input: 700, Output: 40, ContextTokens: 1200, CostUSD: 0.30},
+	})
+	joined = strings.Join(texts, "\n")
+	if !strings.Contains(joined, "本轮费用 $0.2000") {
+		t.Fatalf("ACP 跳过 0 轮次后应显示增量 $0.2000，实际 %q", texts)
+	}
+
+	// agy 同样按累计语义相减；进程重开回落（0.30 -> 0.08）时直接取最新轮值 $0.0800。
+	texts = render("agy", map[int]TokenUsage{
+		0: {CostUSD: 0.30},
+		1: {Input: 700, Output: 40, ContextTokens: 1200, CostUSD: 0.08},
+	})
+	joined = strings.Join(texts, "\n")
+	if !strings.Contains(joined, "本轮费用 $0.0800") {
+		t.Fatalf("累计回落后应直接显示最新轮 $0.0800，实际 %q", texts)
+	}
+
+	// 非累计语义（pi）直接取最新轮值。
+	texts = render("pi", map[int]TokenUsage{
+		0: {CostUSD: 0.10},
+		1: {Input: 700, Output: 40, ContextTokens: 1200, CostUSD: 0.25},
+	})
+	joined = strings.Join(texts, "\n")
+	if !strings.Contains(joined, "本轮费用 $0.2500") {
+		t.Fatalf("pi 应直接显示最新轮 $0.2500，实际 %q", texts)
+	}
+}
+
 // 上下文窗口上限来自后端上报的 ContextWindow，优先于模型目录里的静态值。
 func TestRenderUsagePanel_PrefersReportedContextWindow(t *testing.T) {
 	testenv.TempHome(t)

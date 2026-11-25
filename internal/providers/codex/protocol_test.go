@@ -443,9 +443,9 @@ func TestTurnCompletedAndUsage(t *testing.T) {
 	}
 	wantUsage := harness.Usage{
 		InputTokens:   120,
-		OutputTokens:  55,
+		OutputTokens:  45,
 		CachedTokens:  30,
-		ContextTokens: 175,
+		ContextTokens: 165,
 	}
 	if !reflect.DeepEqual(*events[0].Usage, wantUsage) {
 		t.Errorf("usage mismatch: got %+v, want %+v", *events[0].Usage, wantUsage)
@@ -484,9 +484,9 @@ func TestTokenUsageAccumulatedTwice(t *testing.T) {
 
 	want1 := harness.Usage{
 		InputTokens:   100,
-		OutputTokens:  50,
+		OutputTokens:  40,
 		CachedTokens:  20,
-		ContextTokens: 150,
+		ContextTokens: 140,
 	}
 	if !reflect.DeepEqual(*events[0].Usage, want1) {
 		t.Errorf("event 0 usage mismatch: got %+v, want %+v", *events[0].Usage, want1)
@@ -494,9 +494,9 @@ func TestTokenUsageAccumulatedTwice(t *testing.T) {
 
 	want2 := harness.Usage{
 		InputTokens:   150,
-		OutputTokens:  75,
+		OutputTokens:  60,
 		CachedTokens:  30,
-		ContextTokens: 75,
+		ContextTokens: 70,
 	}
 	if !reflect.DeepEqual(*events[1].Usage, want2) {
 		t.Errorf("event 1 usage mismatch: got %+v, want %+v", *events[1].Usage, want2)
@@ -521,7 +521,7 @@ func TestRequestSpeedSamplesPerRequest(t *testing.T) {
 		}
 	}
 
-	// 第一次请求：正文 delta 起算，1.2 秒后到达用量帧（输出 40 + 推理 10）。
+	// 第一次请求：正文 delta 起算，1.2 秒后到达用量帧（输出 40，已含推理 10）。
 	handle(`{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"item_1","delta":"hi"}}`)
 	now = base.Add(1200 * time.Millisecond)
 	handle(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"last":{"inputTokens":100,"outputTokens":40,"reasoningOutputTokens":10,"cachedInputTokens":20}}}}`)
@@ -552,12 +552,12 @@ func TestRequestSpeedSamplesPerRequest(t *testing.T) {
 		t.Fatalf("expected 4 usage events, got %d", len(usages))
 	}
 
-	want1 := []harness.RequestSpeed{{OutputTokens: 50, DurationMs: 1200}}
+	want1 := []harness.RequestSpeed{{OutputTokens: 40, DurationMs: 1200}}
 	if !reflect.DeepEqual(usages[0].Requests, want1) {
 		t.Errorf("request 0 speeds mismatch: got %+v, want %+v", usages[0].Requests, want1)
 	}
 
-	want2 := []harness.RequestSpeed{{OutputTokens: 50, DurationMs: 1200}, {OutputTokens: 15, DurationMs: 900}}
+	want2 := []harness.RequestSpeed{{OutputTokens: 40, DurationMs: 1200}, {OutputTokens: 15, DurationMs: 900}}
 	if !reflect.DeepEqual(usages[1].Requests, want2) {
 		t.Errorf("request 1 speeds mismatch: got %+v, want %+v", usages[1].Requests, want2)
 	}
@@ -639,9 +639,9 @@ func TestTokenUsageTotalNotDoubleCounted(t *testing.T) {
 	}
 
 	wants := []harness.Usage{
-		{InputTokens: 120, OutputTokens: 55, CachedTokens: 30, ContextTokens: 175, ContextWindow: 272000},
-		{InputTokens: 120, OutputTokens: 55, CachedTokens: 30, ContextTokens: 175, ContextWindow: 272000},
-		{InputTokens: 250, OutputTokens: 110, CachedTokens: 100, ContextTokens: 185, ContextWindow: 272000},
+		{InputTokens: 120, OutputTokens: 45, CachedTokens: 30, ContextTokens: 165, ContextWindow: 272000},
+		{InputTokens: 120, OutputTokens: 45, CachedTokens: 30, ContextTokens: 165, ContextWindow: 272000},
+		{InputTokens: 250, OutputTokens: 90, CachedTokens: 100, ContextTokens: 175, ContextWindow: 272000},
 	}
 	for i, want := range wants {
 		if events[i].Type != harness.EventUsage || events[i].Usage == nil {
@@ -650,6 +650,128 @@ func TestTokenUsageTotalNotDoubleCounted(t *testing.T) {
 		if !reflect.DeepEqual(*events[i].Usage, want) {
 			t.Errorf("event %d usage mismatch: got %+v, want %+v", i, *events[i].Usage, want)
 		}
+	}
+}
+
+// TestCodexUsageReasoningNotDoubleCounted 验证 outputTokens 已含 reasoningOutputTokens，
+// 无论带 total 还是不带 total 的报文都不再重复相加，ContextTokens 等于 input+output。
+func TestCodexUsageReasoningNotDoubleCounted(t *testing.T) {
+	t.Run("带 total 报文", func(t *testing.T) {
+		h := NewProtocolHandler(harness.Turn{Mode: harness.ModeAgent})
+		var events []harness.Event
+		emit := func(e harness.Event) { events = append(events, e) }
+
+		line1 := []byte(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":1120,"outputTokens":245,"reasoningOutputTokens":60,"cachedInputTokens":330,"totalTokens":1365},"last":{"inputTokens":120,"outputTokens":45,"reasoningOutputTokens":15,"cachedInputTokens":30,"totalTokens":165},"modelContextWindow":272000}}}`)
+		line2 := []byte(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":1200,"outputTokens":295,"reasoningOutputTokens":80,"cachedInputTokens":380,"totalTokens":1495},"last":{"inputTokens":80,"outputTokens":50,"reasoningOutputTokens":20,"cachedInputTokens":50,"totalTokens":130},"modelContextWindow":272000}}}`)
+
+		for _, line := range [][]byte{line1, line2} {
+			if _, err := h.HandleLine(context.Background(), line, emit); err != nil {
+				t.Fatalf("handle line failed: %v", err)
+			}
+		}
+		if len(events) != 2 {
+			t.Fatalf("expected 2 events, got %d", len(events))
+		}
+		want1 := harness.Usage{InputTokens: 120, OutputTokens: 45, CachedTokens: 30, ContextTokens: 165, ContextWindow: 272000}
+		if !reflect.DeepEqual(*events[0].Usage, want1) {
+			t.Errorf("event 0 usage mismatch: got %+v, want %+v", *events[0].Usage, want1)
+		}
+		want2 := harness.Usage{InputTokens: 200, OutputTokens: 95, CachedTokens: 80, ContextTokens: 130, ContextWindow: 272000}
+		if !reflect.DeepEqual(*events[1].Usage, want2) {
+			t.Errorf("event 1 usage mismatch: got %+v, want %+v", *events[1].Usage, want2)
+		}
+	})
+
+	t.Run("不带 total 报文", func(t *testing.T) {
+		h := NewProtocolHandler(harness.Turn{Mode: harness.ModeAgent})
+		var events []harness.Event
+		emit := func(e harness.Event) { events = append(events, e) }
+
+		line := []byte(`{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"last":{"inputTokens":120,"outputTokens":45,"reasoningOutputTokens":15,"cachedInputTokens":30}}}}`)
+		if _, err := h.HandleLine(context.Background(), line, emit); err != nil {
+			t.Fatalf("handle line failed: %v", err)
+		}
+		if len(events) != 1 || events[0].Usage == nil {
+			t.Fatalf("expected 1 usage event, got %+v", events)
+		}
+		want := harness.Usage{InputTokens: 120, OutputTokens: 45, CachedTokens: 30, ContextTokens: 165}
+		if !reflect.DeepEqual(*events[0].Usage, want) {
+			t.Errorf("usage mismatch: got %+v, want %+v", *events[0].Usage, want)
+		}
+	})
+}
+
+// TestCodexUsagePlanRestartAccumulates 验证同一轮内 plan 审批后重建 ProtocolHandler 时，
+// 新处理器会把前段最后上报的累计用量作为偏移加到后续 EventUsage 上，并保留前段 Requests 样本，
+// 而 ContextTokens/ContextWindow 仍只反映当次请求。
+func TestCodexUsagePlanRestartAccumulates(t *testing.T) {
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := base
+
+	h1 := NewProtocolHandler(harness.Turn{Mode: harness.ModeReadOnly, InteractionMode: "plan"})
+	h1.now = func() time.Time { return now }
+
+	var events []harness.Event
+	emit := func(e harness.Event) { events = append(events, e) }
+	handle := func(h *ProtocolHandler, line string) {
+		t.Helper()
+		if _, err := h.HandleLine(context.Background(), []byte(line), emit); err != nil {
+			t.Fatalf("handle line failed: %v", err)
+		}
+	}
+
+	handle(h1, `{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"item_1","delta":"plan"}}`)
+	now = base.Add(1200 * time.Millisecond)
+	handle(h1, `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_1","tokenUsage":{"total":{"inputTokens":1120,"outputTokens":245,"reasoningOutputTokens":60,"cachedInputTokens":330},"last":{"inputTokens":120,"outputTokens":45,"reasoningOutputTokens":15,"cachedInputTokens":30},"modelContextWindow":272000}}}`)
+
+	// 模拟中间一段未收到 tokenUsage 即重建处理器，偏移与速度样本仍必须穿透保留。
+	hMid := NewProtocolHandler(harness.Turn{Mode: harness.ModeReadOnly, InteractionMode: "plan"})
+	hMid.inheritUsageFrom(h1)
+
+	h2 := NewProtocolHandler(harness.Turn{Mode: harness.ModeFullAccess})
+	h2.inheritUsageFrom(hMid)
+	h2.now = func() time.Time { return now }
+
+	now = base.Add(5 * time.Second)
+	handle(h2, `{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"itemId":"item_2","delta":"impl"}}`)
+	now = now.Add(800 * time.Millisecond)
+	handle(h2, `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"th_1","turnId":"turn_2","tokenUsage":{"total":{"inputTokens":1320,"outputTokens":325,"reasoningOutputTokens":80,"cachedInputTokens":380},"last":{"inputTokens":200,"outputTokens":80,"reasoningOutputTokens":20,"cachedInputTokens":50},"modelContextWindow":272000}}}`)
+
+	var usages []*harness.Usage
+	for _, ev := range events {
+		if ev.Type == harness.EventUsage && ev.Usage != nil {
+			usages = append(usages, ev.Usage)
+		}
+	}
+	if len(usages) != 2 {
+		t.Fatalf("expected 2 usage events, got %d", len(usages))
+	}
+
+	want1 := harness.Usage{
+		InputTokens:   120,
+		OutputTokens:  45,
+		CachedTokens:  30,
+		ContextTokens: 165,
+		ContextWindow: 272000,
+		Requests:      []harness.RequestSpeed{{OutputTokens: 45, DurationMs: 1200}},
+	}
+	if !reflect.DeepEqual(*usages[0], want1) {
+		t.Errorf("segment 1 usage mismatch: got %+v, want %+v", *usages[0], want1)
+	}
+
+	want2 := harness.Usage{
+		InputTokens:   320,
+		OutputTokens:  125,
+		CachedTokens:  80,
+		ContextTokens: 280,
+		ContextWindow: 272000,
+		Requests: []harness.RequestSpeed{
+			{OutputTokens: 45, DurationMs: 1200},
+			{OutputTokens: 80, DurationMs: 800},
+		},
+	}
+	if !reflect.DeepEqual(*usages[1], want2) {
+		t.Errorf("segment 2 usage mismatch: got %+v, want %+v", *usages[1], want2)
 	}
 }
 

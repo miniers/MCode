@@ -541,3 +541,89 @@ func TestModel_ResyncFrameReloadsMessages(t *testing.T) {
 	}
 	t.Fatalf("resync 帧后应按会话重拉消息，got %v", ids)
 }
+
+// TestWatchUpdateFetchesUsageOnContextChange 验证运行中 EventUsage 与正文在同一 16ms 批次合并下发
+// （update.Messages 非空且 IsRunning 仍为 true）时，只要 ContextUsedTokens 或 ContextWindow 变化，
+// 也会触发 fetchUsage 刷新本地 s.threadUsage。
+func TestWatchUpdateFetchesUsageOnContextChange(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetThreadUsage("t1", ThreadUsage{
+		Turns: map[int]TokenUsage{0: {Input: 1000, Output: 200, ContextTokens: 42_000, ContextWindow: 200_000}},
+	})
+	state := newChatState(fake)
+	t.Cleanup(state.close)
+
+	now := time.Now()
+	state.mu.Lock()
+	state.selectedThreadID = "t1"
+	state.threads = []Thread{{
+		ID:                "t1",
+		ProjectID:         "p1",
+		IsRunning:         true,
+		UpdatedAt:         now,
+		ContextUsedTokens: 10_000,
+		ContextWindow:     200_000,
+	}}
+	state.threadsByProj["p1"] = []Thread{state.threads[0]}
+	state.mu.Unlock()
+
+	// 1. Messages 非空且仍处于运行中，仅 ContextUsedTokens 变化 -> 必须拉取用量。
+	state.onWatchUpdate(ThreadUpdate{
+		ThreadID: "t1",
+		Thread: Thread{
+			ID:                "t1",
+			ProjectID:         "p1",
+			IsRunning:         true,
+			UpdatedAt:         now,
+			ContextUsedTokens: 42_000,
+			ContextWindow:     200_000,
+		},
+		Messages: []Message{{ID: "m1", Role: "assistant", Text: "正在生成"}},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state.mu.Lock()
+		got := state.threadUsage.Turns[0].ContextTokens
+		state.mu.Unlock()
+		if got == 42_000 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	state.mu.Lock()
+	gotTokens := state.threadUsage.Turns[0].ContextTokens
+	state.mu.Unlock()
+	if gotTokens != 42_000 {
+		t.Fatalf("ContextUsedTokens 变化且 Messages 非空时应拉取用量，got %d", gotTokens)
+	}
+
+	// 2. ContextUsedTokens 不变、仅 ContextWindow 变化且 Messages 非空 -> 也必须拉取用量。
+	fake.SetThreadUsage("t1", ThreadUsage{
+		Turns: map[int]TokenUsage{0: {Input: 1000, Output: 200, ContextTokens: 42_000, ContextWindow: 1_000_000}},
+	})
+	state.onWatchUpdate(ThreadUpdate{
+		ThreadID: "t1",
+		Thread: Thread{
+			ID:                "t1",
+			ProjectID:         "p1",
+			IsRunning:         true,
+			UpdatedAt:         now,
+			ContextUsedTokens: 42_000,
+			ContextWindow:     1_000_000,
+		},
+		Messages: []Message{{ID: "m1", Role: "assistant", Text: "继续生成"}},
+	})
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state.mu.Lock()
+		got := state.threadUsage.Turns[0].ContextWindow
+		state.mu.Unlock()
+		if got == 1_000_000 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("ContextWindow 变化且 Messages 非空时应拉取用量")
+}

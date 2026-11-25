@@ -1793,12 +1793,17 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 			}
 		}
 		var wasRunning bool
+		var prevContextUsed, prevContextWindow int64
 		for _, th := range s.threads {
 			if th.ID == update.ThreadID {
 				wasRunning = th.IsRunning
+				prevContextUsed = th.ContextUsedTokens
+				prevContextWindow = th.ContextWindow
 				break
 			}
 		}
+		contextChanged := prevContextUsed != update.Thread.ContextUsedTokens ||
+			prevContextWindow != update.Thread.ContextWindow
 		if wasRunning && !update.Thread.IsRunning {
 			shouldFetchUsage = true
 			// 增量里没带模型时回退到本地会话摘要，确保 pi 线程拿得到端点 key。
@@ -1811,8 +1816,9 @@ func (s *chatState) onWatchUpdate(update ThreadUpdate) {
 					}
 				}
 			}
-		} else if len(update.Messages) == 0 && len(update.RemovedIDs) == 0 && len(s.messages) > 0 {
-			// 有消息的会话收到空增量时也刷新用量，空会话转正不重拉 History。
+		} else if contextChanged || (len(update.Messages) == 0 && len(update.RemovedIDs) == 0 && len(s.messages) > 0) {
+			// 有消息的会话收到空增量时，或上下文用量/窗口变化时（运行中 EventUsage 与文本同批下发、
+			// 或压缩后摘要变化）也刷新用量，空会话转正不重拉 History。
 			shouldFetchUsage = true
 		}
 		s.messages = UpsertMessages(s.messages, update.Messages, update.RemovedIDs)

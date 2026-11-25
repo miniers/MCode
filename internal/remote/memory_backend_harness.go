@@ -569,6 +569,7 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				durationSummaries []wire.ThreadSummary
 				archiveTask       *toolOutputArchiveTask
 				logAction         *logHubAction
+				compactedUsage    *harness.Usage
 			)
 
 			b.mu.Lock()
@@ -778,6 +779,30 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 					contextCompactedText(e.CompactTokensBefore, e.CompactTokensAfter), b.nowLocked())
 				msgToPublish = []wire.ThreadMessage{msg}
 				currentSummary = summary
+				if e.CompactTokensAfter > 0 {
+					if b.usage == nil {
+						b.usage = make(map[string]map[int]harness.Usage)
+					}
+					if b.usage[threadID] == nil {
+						b.usage[threadID] = make(map[int]harness.Usage)
+					}
+					u, ok := b.usage[threadID][turnIndex]
+					if !ok {
+						// 该轮尚未记录用量时，从索引最大的已有轮次拷贝 ContextWindow。
+						latestIdx := -1
+						for idx, prev := range b.usage[threadID] {
+							if idx > latestIdx {
+								latestIdx = idx
+								u.ContextWindow = prev.ContextWindow
+							}
+						}
+					}
+					u.ContextTokens = e.CompactTokensAfter
+					b.usage[threadID][turnIndex] = u
+					uCopy := u
+					compactedUsage = &uCopy
+					currentSummary = b.summaryForPublishLocked(td)
+				}
 
 			case harness.EventToolStart:
 				currentTextMsgID = "" // 结束当前正文与思考消息，使工具调用后的正文和思考都新开一条
@@ -1233,6 +1258,10 @@ func (b *MemoryBackend) runHarness(runCtx context.Context, threadID string, turn
 				}
 			}
 			b.mu.Unlock()
+
+			if compactedUsage != nil {
+				b.persistTurnUsage(threadID, turnIndex, *compactedUsage)
+			}
 
 			if archiveTask != nil {
 				if size, err := archiveToolOutput(archiveTask.dataDir, archiveTask.threadID, archiveTask.messageID, archiveTask.text); err != nil {

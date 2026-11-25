@@ -255,3 +255,65 @@ func TestApplyThreadSummarySkipsWhenNotInitialized(t *testing.T) {
 		t.Fatalf("未初始化时不应重拉列表，实际调用 %d 次", got)
 	}
 }
+
+// TestApplyThreadSummarySyncsContextFields 验证 apply 会把推送里的 ContextUsedTokens、
+// ContextWindow、AIDuration、TotalDuration 同步到 s.threads 与 s.threadsByProj。
+func TestApplyThreadSummarySyncsContextFields(t *testing.T) {
+	s := &chatState{
+		threads: []Thread{
+			{
+				ID:                "t1",
+				ProjectID:         "p1",
+				ContextUsedTokens: 10_000,
+				ContextWindow:     128_000,
+				AIDuration:        5 * time.Second,
+				TotalDuration:     8 * time.Second,
+			},
+			{
+				ID:                "t2",
+				ProjectID:         "p1",
+				ContextUsedTokens: 20_000,
+				ContextWindow:     200_000,
+				AIDuration:        3 * time.Second,
+				TotalDuration:     4 * time.Second,
+			},
+		},
+		threadsByProj: map[string][]Thread{
+			"p1": {
+				{
+					ID:                "t1",
+					ProjectID:         "p1",
+					ContextUsedTokens: 10_000,
+					ContextWindow:     128_000,
+					AIDuration:        5 * time.Second,
+					TotalDuration:     8 * time.Second,
+				},
+			},
+		},
+	}
+
+	s.applyThreadSummary(Thread{
+		ID:                "t1",
+		ProjectID:         "p1",
+		ContextUsedTokens: 45_000,
+		ContextWindow:     200_000,
+		AIDuration:        12 * time.Second,
+		TotalDuration:     15 * time.Second,
+	})
+
+	got := s.threads[0]
+	if got.ContextUsedTokens != 45_000 || got.ContextWindow != 200_000 ||
+		got.AIDuration != 12*time.Second || got.TotalDuration != 15*time.Second {
+		t.Fatalf("s.threads[0] 未同步上下文与用时字段: %+v", got)
+	}
+	gotProj := s.threadsByProj["p1"][0]
+	if gotProj.ContextUsedTokens != 45_000 || gotProj.ContextWindow != 200_000 ||
+		gotProj.AIDuration != 12*time.Second || gotProj.TotalDuration != 15*time.Second {
+		t.Fatalf("s.threadsByProj[p1][0] 未同步上下文与用时字段: %+v", gotProj)
+	}
+	other := s.threads[1]
+	if other.ContextUsedTokens != 20_000 || other.ContextWindow != 200_000 ||
+		other.AIDuration != 3*time.Second || other.TotalDuration != 4*time.Second {
+		t.Fatalf("其他会话字段不应被修改: %+v", other)
+	}
+}

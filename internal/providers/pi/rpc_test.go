@@ -112,8 +112,8 @@ func TestTranslateTextToolUsageFixture(t *testing.T) {
 	if events[4].Text != "该动手了" {
 		t.Errorf("思考增量错误: %q", events[4].Text)
 	}
-	if usage := events[6].Usage; usage == nil || usage.InputTokens != 200 || usage.OutputTokens != 20 || usage.CachedTokens != 50 {
-		t.Errorf("message_end 用量（含缓存读写合并）错误: %+v", events[6].Usage)
+	if usage := events[6].Usage; usage == nil || usage.InputTokens != 200 || usage.OutputTokens != 20 || usage.CachedTokens != 40 {
+		t.Errorf("message_end 用量（缓存写入只并入输入，CachedTokens 只记读取）错误: %+v", events[6].Usage)
 	}
 	if events[7].StopReason != "completed" {
 		t.Errorf("结束原因应为 completed，得到 %q", events[7].StopReason)
@@ -475,7 +475,7 @@ func TestParseUsage(t *testing.T) {
 	}{
 		{name: "总计", raw: `{"totalTokens":64}`, want: harness.Usage{InputTokens: 64}, ok: true},
 		{name: "下划线总计", raw: `{"total_tokens":70}`, want: harness.Usage{InputTokens: 70}, ok: true},
-		{name: "四段拆分", raw: `{"inputTokens":10,"outputTokens":2,"cacheReadTokens":3,"cacheWriteTokens":4}`, want: harness.Usage{InputTokens: 17, OutputTokens: 2, CachedTokens: 7}, ok: true},
+		{name: "四段拆分", raw: `{"inputTokens":10,"outputTokens":2,"cacheReadTokens":3,"cacheWriteTokens":4}`, want: harness.Usage{InputTokens: 17, OutputTokens: 2, CachedTokens: 3}, ok: true},
 		{name: "短键名", raw: `{"input":5,"output":1,"cache_read_tokens":2}`, want: harness.Usage{InputTokens: 7, OutputTokens: 1, CachedTokens: 2}, ok: true},
 		{name: "缓存远大于输入", raw: `{"inputTokens":12,"outputTokens":3,"cacheReadTokens":589000,"cacheWriteTokens":0}`, want: harness.Usage{InputTokens: 589012, OutputTokens: 3, CachedTokens: 589000}, ok: true},
 		{name: "零值", raw: `{"totalTokens":0}`, want: harness.Usage{}, ok: false},
@@ -672,5 +672,56 @@ func TestTranslateRecordsRequestSpeeds(t *testing.T) {
 	got := usages[1].Requests
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("最后一次用量应带本轮完整样本 %+v，得到 %+v", want, got)
+	}
+}
+
+// TestPiCompactionFillsTokensAfter 断言 compaction_end 成功时会把 result.estimatedTokensAfter 填进 CompactTokensAfter。
+func TestPiCompactionFillsTokensAfter(t *testing.T) {
+	state := newStreamState()
+	var events []harness.Event
+	emit := func(event harness.Event) { events = append(events, event) }
+	ev, err := parseEvent([]byte(`{"type":"compaction_end","reason":"threshold","result":{"summary":"s","firstKeptEntryId":"abc123","tokensBefore":150000,"estimatedTokensAfter":32000},"aborted":false,"willRetry":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.translate(ev, emit)
+
+	var compacted []harness.Event
+	for _, e := range events {
+		if e.Type == harness.EventContextCompacted {
+			compacted = append(compacted, e)
+		}
+	}
+	if len(compacted) != 1 {
+		t.Fatalf("应发出一个 EventContextCompacted，实际 %+v", events)
+	}
+	if compacted[0].CompactTokensBefore != 150000 || compacted[0].CompactTokensAfter != 32000 {
+		t.Fatalf("压缩前后 token = %d → %d，期望 150000 → 32000", compacted[0].CompactTokensBefore, compacted[0].CompactTokensAfter)
+	}
+}
+
+// TestPiUsageCachedTokensOnlyReads 断言 CachedTokens 只记缓存读取，cacheWrite 只并入 InputTokens。
+func TestPiUsageCachedTokensOnlyReads(t *testing.T) {
+	state := newStreamState()
+	var events []harness.Event
+	emit := func(event harness.Event) { events = append(events, event) }
+	for _, line := range []string{
+		`{"type":"message_start","message":{"role":"assistant","id":"m1"}}`,
+		`{"type":"message_end","message":{"role":"assistant","usage":{"input":100,"output":15,"cacheRead":200,"cacheWrite":50},"stopReason":"end_turn"}}`,
+	} {
+		ev, err := parseEvent([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		state.translate(ev, emit)
+	}
+	var got *harness.Usage
+	for _, e := range events {
+		if e.Type == harness.EventUsage {
+			got = e.Usage
+		}
+	}
+	if got == nil || got.InputTokens != 350 || got.OutputTokens != 15 || got.CachedTokens != 200 {
+		t.Fatalf("用量 = %+v，期望 InputTokens=350, OutputTokens=15, CachedTokens=200", got)
 	}
 }

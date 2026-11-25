@@ -110,8 +110,7 @@ func (s *streamState) appendRequestSpeed(outputTokens int64) {
 	}
 }
 
-// addUsage 把本次请求的计费类 token 累加进本轮累计值。commandcode 不上报上下文占用
-// 快照，所以这里没有需要「只取最后一次请求」的字段。
+// addUsage 把本次请求的计费类 token 累加进本轮累计值；ContextTokens 在发送时取单次请求大小。
 func (s *streamState) addUsage(request harness.Usage) {
 	s.turnUsage.InputTokens += request.InputTokens
 	s.turnUsage.OutputTokens += request.OutputTokens
@@ -213,6 +212,7 @@ func (s *streamState) handleEvent(raw json.RawMessage, emit func(harness.Event))
 		s.appendRequestSpeed(usage.OutputTokens)
 		s.addUsage(usage)
 		total := s.turnUsage
+		total.ContextTokens = usage.InputTokens + usage.OutputTokens
 		total.Requests = requestSpeedSamples(s.requestSpeeds)
 		_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &total})
 	case "tool_queued":
@@ -434,6 +434,7 @@ func contentText(raw json.RawMessage) string {
 }
 
 // parseUsage 解析 model_request_end 的用量载荷，键名兼容 UsageNormalizer 的通用表。
+// 真实日志里 input 已含 cacheRead；CachedTokens 只记缓存读取（cacheRead），不计入写入。
 // 全部为 0 时返回 false（不发空用量事件）；只有总量时把总量记到输入侧，避免丢用量。
 func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	if len(raw) == 0 {
@@ -468,7 +469,7 @@ func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	return harness.Usage{
 		InputTokens:  input,
 		OutputTokens: output,
-		CachedTokens: cacheRead + cacheWrite,
+		CachedTokens: cacheRead,
 	}, true
 }
 

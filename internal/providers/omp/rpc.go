@@ -181,6 +181,9 @@ type rpcEvent struct {
 	MaxAttempts  int    `json:"maxAttempts"`
 	ErrorMessage string `json:"errorMessage"`
 	FinalError   string `json:"finalError"`
+
+	// auto_compaction_end：是否被中止（失败原因走 ErrorMessage，结果走 Result）
+	Aborted bool `json:"aborted"`
 }
 
 // deltaPayload 是 message_update 中的增量载荷（assistantMessageEvent）。
@@ -205,11 +208,13 @@ type contentBlock struct {
 	Text string `json:"text"`
 }
 
-// toolResult 是 tool_execution_end 的结果载荷。
-// 结果详情（exitCode、oldText/newText 等）没有对应的 harness 字段，这里不解析。
+// toolResult 是 tool_execution_end 与 auto_compaction_end 共用的 result 载荷。
+// 工具结果用 content/isError；自动压缩结果取压缩前后的 token 数（结构按同源的 pi compaction_end 解析）。
 type toolResult struct {
-	Content []contentBlock `json:"content"`
-	IsError bool           `json:"isError"`
+	Content              []contentBlock `json:"content"`
+	IsError              bool           `json:"isError"`
+	TokensBefore         int64          `json:"tokensBefore"`
+	EstimatedTokensAfter int64          `json:"estimatedTokensAfter"`
 }
 
 // parseEvent 解析 omp stdout 上的一行 JSON。空行与缺少 type 的行返回 nil, nil；
@@ -246,6 +251,8 @@ type streamState struct {
 	// usage 是本轮所有模型请求的累计用量。remote 对同一轮用量是覆盖写，而 omp 每次模型请求
 	// 都在 message_end 上报一次「这一次请求」的用量，所以必须在这里逐次累加。
 	usage harness.Usage
+	// contextWindow 是当前模型的上下文窗口上限，零值表示未知、不上报；由 omp.go 从 get_state 填写。
+	contextWindow int64
 	// clock 为当前这次模型请求计时：首个流式内容帧到达时 Begin，用量帧到达时 Finish。
 	clock harness.RequestClock
 	// requests 是本轮已完成的每次模型请求的速度样本，随每次用量事件完整上报。
@@ -350,10 +357,29 @@ func (s *streamState) translate(ev *rpcEvent, emit func(harness.Event)) bool {
 			s.turnErr = ev.FinalError
 		}
 		return false
+	case "auto_compaction_start":
+		// 压缩进行中不发独立事件，等 auto_compaction_end 落压缩边界。
+		return false
+	case "auto_compaction_end":
+		// omp README 与 testdata 无 auto_compaction_end 样本；omp 继承自 pi，
+		// 按 pi 的 compaction_end 结构解析 result.tokensBefore / result.estimatedTokensAfter，拿不到留 0。
+		if !ev.Aborted && ev.ErrorMessage == "" && ev.errorMessage() == "" {
+			var before, after int64
+			if ev.Result != nil {
+				before = ev.Result.TokensBefore
+				after = ev.Result.EstimatedTokensAfter
+			}
+			_ = harness.Emit(emit, harness.Event{
+				Type:                harness.EventContextCompacted,
+				CompactTokensBefore: before,
+				CompactTokensAfter:  after,
+			})
+		}
+		return false
 	default:
 		// agent_end / agent_settled（omp 在重试前也会发，当轮终点是 prompt_result）、
 		// tool_execution_update（部分输出没有对应事件）、subagent_*（子代理 Bee 尚未实现）、
-		// command_output / session_info_update / available_commands_update、auto_compaction_*、
+		// command_output / session_info_update / available_commands_update、
 		// notice、extension_error 等没有对应的 harness 事件，忽略。
 		return false
 	}
@@ -439,6 +465,7 @@ func (s *streamState) addUsage(u harness.Usage, costUSD float64, emit func(harne
 	s.usage.CostUSD += costUSD
 	total := s.usage
 	total.ContextTokens = u.InputTokens + u.OutputTokens
+	total.ContextWindow = s.contextWindow
 	total.Requests = s.requestSamples()
 	_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &total})
 }
@@ -468,6 +495,7 @@ func (s *streamState) emitPartialUsage(u harness.Usage, costUSD float64, emit fu
 	total.CachedTokens += u.CachedTokens
 	total.CostUSD += costUSD
 	total.ContextTokens = u.InputTokens + u.OutputTokens
+	total.ContextWindow = s.contextWindow
 	total.Requests = s.requestSamples()
 	_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &total})
 }
@@ -553,7 +581,7 @@ func (ev *rpcEvent) errorMessage() string {
 // parseUsage 解析 omp 的用量载荷，兼容多种键名。
 // omp 上报的 input 不含缓存读写，这里把 cacheRead + cacheWrite 并入 InputTokens
 // （与 codex 口径一致：InputTokens 已包含缓存命中部分），
-// CachedTokens 单独保留缓存命中量供上层展示，不再重复计入上下文估算之外。
+// CachedTokens 只记缓存读取（cacheRead），缓存写入只并入 InputTokens。
 // 只带 totalTokens 的载荷把总量记到输入侧，避免丢失用量。
 func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	if len(raw) == 0 {
@@ -591,7 +619,7 @@ func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	return harness.Usage{
 		InputTokens:  input + cacheRead + cacheWrite,
 		OutputTokens: output,
-		CachedTokens: cacheRead + cacheWrite,
+		CachedTokens: cacheRead,
 	}, true
 }
 
@@ -656,6 +684,28 @@ func sessionIDFromState(ev *rpcEvent) string {
 		return file
 	}
 	return jsonText(state, "sessionId")
+}
+
+// contextWindowFromState 从 get_state 应答的 data.model.contextWindow 取出当前模型的上下文窗口上限。
+// 模型未选中、字段缺失或非正数时返回 0，表示未知，用量事件里不上报。
+func contextWindowFromState(ev *rpcEvent) int64 {
+	data := ev.Data
+	if len(data) == 0 {
+		data = ev.Message
+	}
+	var state struct {
+		Model struct {
+			ContextWindow json.RawMessage `json:"contextWindow"`
+		} `json:"model"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return 0
+	}
+	window, _ := jsonInt(state.Model.ContextWindow)
+	if window <= 0 {
+		return 0
+	}
+	return window
 }
 
 // hasCommand 判断命令表应答里是否列出了指定命令。

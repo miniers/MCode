@@ -173,6 +173,27 @@ func runFakeAgy(mode string) {
 		})
 		os.Exit(0)
 
+	case "usage_no_result":
+		writeMsg(map[string]any{
+			"event":           "init",
+			"conversation_id": "usage-no-result-conv-001",
+		})
+		for i, u := range []map[string]int{
+			{"input_tokens": 1200, "output_tokens": 100, "cache_read_tokens": 800},
+			{"input_tokens": 1300, "output_tokens": 120, "cache_read_tokens": 900},
+		} {
+			writeMsg(map[string]any{
+				"event": "step_update",
+				"step_update": map[string]any{
+					"step_index": i,
+					"step_type":  "agent_response",
+					"text_delta": fmt.Sprintf("step %d", i),
+					"usage":      u,
+				},
+			})
+		}
+		os.Exit(1)
+
 	case "request_speed":
 		writeMsg(map[string]any{
 			"event":           "init",
@@ -857,6 +878,53 @@ func TestAgy_UsageSplitsBillingAndContext(t *testing.T) {
 	// 上下文口径：仍是最后一次单步 usage，而不是整轮累计的 2720。
 	if last.ContextTokens != 1420 {
 		t.Fatalf("context tokens = %d, want 1420 (last step input+output)", last.ContextTokens)
+	}
+}
+
+func TestAgyStepUsageAccumulates(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+
+	h := New(Options{Binary: exe})
+
+	var mu sync.Mutex
+	var events []harness.Event
+
+	turn := harness.Turn{
+		Prompt: "usage no result test",
+		Mode:   harness.ModeSupervised,
+		Env:    []string{fakeAgyEnv + "=usage_no_result"},
+	}
+	err = h.Run(context.Background(), turn, func(e harness.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, e)
+	})
+	if err == nil {
+		t.Fatal("expected error when fake agy exits before result")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var usages []harness.Usage
+	for _, e := range events {
+		if e.Type == harness.EventUsage && e.Usage != nil {
+			usages = append(usages, *e.Usage)
+		}
+	}
+	if len(usages) != 2 {
+		t.Fatalf("want 2 usage events, got %d: %+v", len(usages), usages)
+	}
+
+	last := usages[len(usages)-1]
+	if last.InputTokens != 2500 || last.OutputTokens != 220 || last.CachedTokens != 1700 {
+		t.Fatalf("accumulated step usage = %+v, want input=2500 output=220 cached=1700", last)
+	}
+	if last.ContextTokens != 1420 {
+		t.Fatalf("context tokens = %d, want 1420 (second step input+output)", last.ContextTokens)
 	}
 }
 

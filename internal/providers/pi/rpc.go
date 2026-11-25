@@ -155,7 +155,7 @@ type rpcEvent struct {
 	// agent_end：pi 说明这次结束是否还会自行重试
 	WillRetry bool `json:"willRetry"`
 
-	// compaction_end：压缩结果（含压缩前 token 数）、是否被中止与失败原因
+	// compaction_end：压缩结果（含压缩前后 token 数）、是否被中止与失败原因
 	Aborted      bool   `json:"aborted"`
 	ErrorMessage string `json:"errorMessage"`
 
@@ -201,11 +201,12 @@ type contentBlock struct {
 }
 
 // toolResult 是 tool_execution_end 与 compaction_end 共用的 result 载荷：
-// 工具结果用 content/isError，压缩结果只取压缩前的 token 数。
+// 工具结果用 content/isError，压缩结果取压缩前后的 token 数。
 type toolResult struct {
-	Content      []contentBlock `json:"content"`
-	IsError      bool           `json:"isError"`
-	TokensBefore int64          `json:"tokensBefore"`
+	Content              []contentBlock `json:"content"`
+	IsError              bool           `json:"isError"`
+	TokensBefore         int64          `json:"tokensBefore"`
+	EstimatedTokensAfter int64          `json:"estimatedTokensAfter"`
 }
 
 // parseEvent 解析 pi stdout 上的一行 JSON。空行与缺少 type 的行返回 nil, nil；
@@ -354,6 +355,7 @@ func (s *streamState) translate(ev *rpcEvent, emit func(harness.Event)) bool {
 			_ = harness.Emit(emit, harness.Event{
 				Type:                harness.EventContextCompacted,
 				CompactTokensBefore: ev.Result.TokensBefore,
+				CompactTokensAfter:  ev.Result.EstimatedTokensAfter,
 			})
 		}
 		return false
@@ -598,7 +600,7 @@ func (s *streamState) finish(emit func(harness.Event)) bool {
 
 // parseUsage 解析 pi 的用量载荷，兼容多种键名。
 // InputTokens 含缓存读与缓存写（与 codex 口径一致），因此 Input+Output 就是该轮真正
-// 进入模型的上下文；命中量另记在 CachedTokens 里单独保留。
+// 进入模型的上下文；CachedTokens 只记缓存读取（命中量），缓存写入只并入 InputTokens。
 // 只带 totalTokens 的载荷把总量记到输入侧，避免丢失用量。
 func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	if len(raw) == 0 {
@@ -636,7 +638,7 @@ func parseUsage(raw json.RawMessage) (harness.Usage, bool) {
 	return harness.Usage{
 		InputTokens:  input + cacheRead + cacheWrite,
 		OutputTokens: output,
-		CachedTokens: cacheRead + cacheWrite,
+		CachedTokens: cacheRead,
 	}, true
 }
 

@@ -1268,6 +1268,13 @@ func runFakeACPFeatures(mode string) {
 				}
 				result["usage"] = map[string]any{"inputTokens": 500, "outputTokens": 20, "thoughtTokens": 5, "cachedReadTokens": 100}
 			}
+			if mode == "feature_usage_update_only" {
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{"sessionUpdate": "usage_update", "used": 200, "size": 2000}}})
+			}
+			if mode == "feature_usage_update_after_prompt" {
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{"sessionUpdate": "usage_update", "used": 100, "size": 2000}}})
+				result["usage"] = map[string]any{"inputTokens": 500, "outputTokens": 20, "thoughtTokens": 5, "cachedReadTokens": 100}
+			}
 			if mode == "feature_usage_cost" || mode == "feature_usage_cost_eur" {
 				currency := "USD"
 				if mode == "feature_usage_cost_eur" {
@@ -1283,6 +1290,9 @@ func runFakeACPFeatures(mode string) {
 				result["stopReason"] = "refusal"
 			}
 		case "session/close":
+			if mode == "feature_usage_update_after_prompt" {
+				write(map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": map[string]any{"update": map[string]any{"sessionUpdate": "usage_update", "used": 350, "size": 2000}}})
+			}
 			write(map[string]any{"jsonrpc": "2.0", "id": msg["id"], "result": result})
 			return
 		}
@@ -1926,7 +1936,7 @@ func TestACPPromptUsage(t *testing.T) {
 			if len(usages) != 3 {
 				t.Fatalf("usages = %v", usages)
 			}
-			if want := (harness.Usage{InputTokens: 200, ContextTokens: 200, ContextWindow: 2000}); !reflect.DeepEqual(usages[1], want) {
+			if want := (harness.Usage{ContextTokens: 200, ContextWindow: 2000}); !reflect.DeepEqual(usages[1], want) {
 				t.Fatalf("update = %+v", usages[1])
 			}
 			if want := (harness.Usage{InputTokens: 500, OutputTokens: tc.wantOutput, CachedTokens: 100, ContextTokens: 200, ContextWindow: 2000}); !reflect.DeepEqual(usages[2], want) {
@@ -1937,6 +1947,57 @@ func TestACPPromptUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestACPUsageUpdateDoesNotBillContext(t *testing.T) {
+	t.Run("only_usage_update_keeps_billed_zero", func(t *testing.T) {
+		_, events, err := runACPFeature(t, "feature_usage_update_only", AgentOpenCode, harness.Turn{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var usages []harness.Usage
+		for _, e := range events {
+			if e.Type == harness.EventUsage {
+				usages = append(usages, *e.Usage)
+			}
+		}
+		want := []harness.Usage{{InputTokens: 0, ContextTokens: 200, ContextWindow: 2000}}
+		if !reflect.DeepEqual(usages, want) {
+			t.Fatalf("usages = %+v, want %+v", usages, want)
+		}
+	})
+
+	t.Run("usage_update_after_prompt_keeps_prompt_billing", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			agent      Agent
+			wantOutput int64
+		}{
+			{name: "agy", agent: AgentAgy, wantOutput: 20},
+			{name: "opencode", agent: AgentOpenCode, wantOutput: 25},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				_, events, err := runACPFeature(t, "feature_usage_update_after_prompt", tc.agent, harness.Turn{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var usages []harness.Usage
+				for _, e := range events {
+					if e.Type == harness.EventUsage {
+						usages = append(usages, *e.Usage)
+					}
+				}
+				want := []harness.Usage{
+					{InputTokens: 0, OutputTokens: 0, CachedTokens: 0, ContextTokens: 100, ContextWindow: 2000},
+					{InputTokens: 500, OutputTokens: tc.wantOutput, CachedTokens: 100, ContextTokens: 100, ContextWindow: 2000},
+					{InputTokens: 500, OutputTokens: tc.wantOutput, CachedTokens: 100, ContextTokens: 350, ContextWindow: 2000},
+				}
+				if !reflect.DeepEqual(usages, want) {
+					t.Fatalf("usages = %+v, want %+v", usages, want)
+				}
+			})
+		}
+	})
 }
 
 func TestACPAgySkipsUnchangedModel(t *testing.T) {

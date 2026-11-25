@@ -371,6 +371,27 @@ func TestSessionStatsCostCumulativeReset(t *testing.T) {
 	}
 }
 
+// TestSessionCostIsCumulativeAgy 验证 agy 默认走 ACP 通道上报会话累计费用：
+// 即使 providers 表里 agy.ACP 为 false，sessionCostIsCumulative("agy") 也返回 true，
+// sessionStatsCost 按分段累计计算而非逐轮相加。
+func TestSessionCostIsCumulativeAgy(t *testing.T) {
+	providers := []ProviderInfo{{ID: "agy", ACP: false}}
+	if !sessionCostIsCumulative(providers, "agy") {
+		t.Fatal("agy 必须视为累计花费")
+	}
+	usage := ThreadUsage{
+		Turns: map[int]TokenUsage{
+			0: {CostUSD: 1.0},
+			1: {CostUSD: 2.5},
+			2: {CostUSD: 4.0},
+		},
+	}
+	got, reported, ok := sessionStatsCost(usage, providers, "agy", "")
+	if !ok || !reported || math.Abs(got-4.0) > 1e-9 {
+		t.Fatalf("agy 累计语义应返回最后一轮 4.0，得到 %v (reported=%v ok=%v)", got, reported, ok)
+	}
+}
+
 // TestSessionStatsEstimatedWithBeeKeepsEstimate 验证主会话是目录价估算时，加上 bee 上报花费后
 // 总计仍标记为估算（costReported=false，显示保留「≈」），金额为两者之和。
 func TestSessionStatsEstimatedWithBeeKeepsEstimate(t *testing.T) {

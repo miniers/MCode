@@ -1440,7 +1440,9 @@ func (h *Harness) runTurnAttempt(ctx context.Context, turn harness.Turn, route *
 				turn.Images = nil
 				planApproval = &req
 				slashKind = slashRequestNone
+				prevHandler := handler
 				handler = NewProtocolHandler(turn)
+				handler.inheritUsageFrom(prevHandler)
 				handler.interrupt = cancelTurn
 				activeTurn = &activeTurnContext{
 					ctx: ctx, turn: turn, handler: handler, emit: emitter.emit,

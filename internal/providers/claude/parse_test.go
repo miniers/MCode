@@ -733,3 +733,134 @@ func TestParser_RequestSpeedsSkipTooShortRequest(t *testing.T) {
 		t.Fatalf("过短的请求不应产出样本: %+v", got)
 	}
 }
+
+// TestClaudeUsageCachedIsReadOnly 校验 CachedTokens 只记缓存读取（命中），缓存写入只并入 InputTokens。
+func TestClaudeUsageCachedIsReadOnly(t *testing.T) {
+	events := feedParserLines(t,
+		`{"type":"result","subtype":"success","usage":{"input_tokens":100,"cache_read_input_tokens":740,"cache_creation_input_tokens":260,"output_tokens":50}}`,
+	)
+
+	usage := pickUsage(t, events)
+	if wantIn := int64(100 + 740 + 260); usage.InputTokens != wantIn {
+		t.Errorf("InputTokens = %d, want %d", usage.InputTokens, wantIn)
+	}
+	if usage.CachedTokens != 740 {
+		t.Errorf("CachedTokens = %d, want 740（只记缓存读取）", usage.CachedTokens)
+	}
+	if usage.OutputTokens != 50 {
+		t.Errorf("OutputTokens = %d, want 50", usage.OutputTokens)
+	}
+}
+
+// TestClaudeUsageContextWindowPrefersMainModel 校验 modelUsage 同时有主模型与 [1m] 辅助模型时，
+// 优先取顶层主模型的上下文窗口；子代理与 <synthetic> 消息不覆盖主模型，去掉前缀或 [..] 后缀也能匹配。
+func TestClaudeUsageContextWindowPrefersMainModel(t *testing.T) {
+	t.Run("精确匹配主模型", func(t *testing.T) {
+		events := feedParserLines(t,
+			`{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":10},"content":[{"type":"text","text":"ok"}]}}`,
+			`{"type":"assistant","parent_tool_use_id":"toolu_sub","message":{"model":"claude-haiku-5-5[1m]","usage":{"input_tokens":50,"output_tokens":5},"content":[{"type":"text","text":"sub"}]}}`,
+			`{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"err"}]}}`,
+			`{"type":"result","subtype":"success","usage":{"input_tokens":100,"output_tokens":10},"modelUsage":{"claude-sonnet-4-6":{"contextWindow":200000},"claude-haiku-5-5[1m]":{"contextWindow":1000000}}}`,
+		)
+		if got := pickUsage(t, events).ContextWindow; got != 200000 {
+			t.Errorf("ContextWindow = %d, want 200000", got)
+		}
+	})
+
+	t.Run("去掉前缀与后缀后匹配主模型", func(t *testing.T) {
+		events := feedParserLines(t,
+			`{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":10},"content":[{"type":"text","text":"ok"}]}}`,
+			`{"type":"result","subtype":"success","usage":{"input_tokens":100,"output_tokens":10},"modelUsage":{"anthropic/claude-sonnet-4-6[200k]":{"contextWindow":200000},"claude-haiku-5-5[1m]":{"contextWindow":1000000}}}`,
+		)
+		if got := pickUsage(t, events).ContextWindow; got != 200000 {
+			t.Errorf("ContextWindow = %d, want 200000", got)
+		}
+	})
+}
+
+// TestClaudeUsageSyntheticKeepsContextSnapshot 校验 usage 四项全为 0 的消息（如 <synthetic> 或空 message_start）
+// 不会把此前记录的上下文快照覆盖成 0。
+func TestClaudeUsageSyntheticKeepsContextSnapshot(t *testing.T) {
+	t.Run("synthetic assistant 四项全零不覆盖快照", func(t *testing.T) {
+		events := feedParserLines(t,
+			`{"type":"assistant","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"cache_read_input_tokens":2000,"cache_creation_input_tokens":500,"output_tokens":120},"content":[{"type":"text","text":"hi"}]}}`,
+			`{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"Rate limited"}]},"error":"rate_limit"}`,
+			`{"type":"result","subtype":"success","is_error":true,"result":"Rate limited","usage":{"input_tokens":1000,"output_tokens":120}}`,
+		)
+		if got, want := pickUsage(t, events).ContextTokens, int64(1000+2000+500+120); got != want {
+			t.Errorf("ContextTokens = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("message_start 四项全零不覆盖快照", func(t *testing.T) {
+		events := feedParserLines(t,
+			`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":800,"cache_read_input_tokens":200,"output_tokens":50}}}}`,
+			`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_2","usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}}}}`,
+			`{"type":"result","subtype":"success","usage":{"input_tokens":800,"output_tokens":50}}`,
+		)
+		if got, want := pickUsage(t, events).ContextTokens, int64(800+200+50); got != want {
+			t.Errorf("ContextTokens = %d, want %d", got, want)
+		}
+	})
+}
+
+// TestClaudeUsageChainedSteerAccumulates 校验 steer 串联派生新 parser 时，第二次 result 发出的
+// Input/Output/Cached 为两段之和、Requests 含两段样本，CostUSD/ContextTokens/ContextWindow 取本段。
+func TestClaudeUsageChainedSteerAccumulates(t *testing.T) {
+	f := newSpeedFeeder(t)
+
+	// 第一段：一条请求产出样本1，随后 result 1
+	f.feed(0, `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":500,"output_tokens":1}}}}`)
+	f.feed(100*time.Millisecond, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"one"}}}`)
+	f.feed(200*time.Millisecond, `{"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":20}}}`)
+	f.feed(0, `{"type":"assistant","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":500,"output_tokens":20},"content":[{"type":"text","text":"one"}]}}`)
+	f.feed(0, `{"type":"result","subtype":"success","total_cost_usd":0.01,"usage":{"input_tokens":100,"cache_read_input_tokens":300,"cache_creation_input_tokens":100,"output_tokens":20},"modelUsage":{"claude-sonnet-4-6":{"contextWindow":200000}}}`)
+
+	// 串联第二段 parser
+	f.p = newChainedParser(f.p)
+	f.feed(0, `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_2","usage":{"input_tokens":700,"output_tokens":1}}}}`)
+	f.feed(100*time.Millisecond, `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"two"}}}`)
+	f.feed(300*time.Millisecond, `{"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":35}}}`)
+	f.feed(0, `{"type":"assistant","message":{"id":"msg_2","model":"claude-opus-4-6","usage":{"input_tokens":700,"output_tokens":35},"content":[{"type":"text","text":"two"}]}}`)
+	f.feed(0, `{"type":"result","subtype":"success","total_cost_usd":0.025,"usage":{"input_tokens":200,"cache_read_input_tokens":450,"cache_creation_input_tokens":50,"output_tokens":35},"modelUsage":{"claude-opus-4-6":{"contextWindow":1000000}}}`)
+
+	var usages []harness.Usage
+	for _, e := range f.events {
+		if e.Type == harness.EventUsage && e.Usage != nil {
+			usages = append(usages, *e.Usage)
+		}
+	}
+	if len(usages) != 2 {
+		t.Fatalf("expected 2 usage events, got %d: %+v", len(usages), f.events)
+	}
+
+	got := usages[1]
+	// Input = (100+300+100) + (200+450+50) = 500 + 700 = 1200
+	if got.InputTokens != 1200 {
+		t.Errorf("InputTokens = %d, want 1200", got.InputTokens)
+	}
+	// Output = 20 + 35 = 55
+	if got.OutputTokens != 55 {
+		t.Errorf("OutputTokens = %d, want 55", got.OutputTokens)
+	}
+	// Cached = 300 + 450 = 750
+	if got.CachedTokens != 750 {
+		t.Errorf("CachedTokens = %d, want 750", got.CachedTokens)
+	}
+	wantReqs := []harness.RequestSpeed{
+		{OutputTokens: 20, DurationMs: 200},
+		{OutputTokens: 35, DurationMs: 300},
+	}
+	if !reflect.DeepEqual(got.Requests, wantReqs) {
+		t.Errorf("Requests = %+v, want %+v", got.Requests, wantReqs)
+	}
+	if got.CostUSD != 0.025 {
+		t.Errorf("CostUSD = %v, want 0.025（会话累计不加偏移）", got.CostUSD)
+	}
+	if got.ContextTokens != 735 {
+		t.Errorf("ContextTokens = %d, want 735（取本段）", got.ContextTokens)
+	}
+	if got.ContextWindow != 1000000 {
+		t.Errorf("ContextWindow = %d, want 1000000（取本段）", got.ContextWindow)
+	}
+}

@@ -19,7 +19,7 @@
 // 尚未实现的行为：rollback（会话切片回退）、requestTitle（/rename 取名）、
 // compact、stopAgent（取消单个子代理）、子代理 Bee 与 Channel（omp 的 task 子代理映射）、
 // 常驻进程复用（这里按轮启停）、斜杠命令列表、用量限额识别
-// （usageLimit）、notice 类事件与上下文窗口上报。逐条见 README.md。
+// （usageLimit）、notice 类事件。逐条见 README.md。
 //
 // 已在 internal/app 注册并接入设置页，实机联调尚未进行。
 package omp
@@ -480,6 +480,9 @@ func (h *Harness) Run(ctx context.Context, turn harness.Turn, emit func(harness.
 					if sessionID := sessionIDFromState(event); sessionID != "" {
 						h.setRunSession(run, sessionID)
 						_ = harness.Emit(emit, harness.Event{Type: harness.EventSession, SessionID: sessionID})
+					}
+					if window := contextWindowFromState(event); window > 0 {
+						state.contextWindow = window
 					}
 					if err := sendPrompt(); err != nil {
 						return fmt.Errorf("omp: write prompt: %w", err)

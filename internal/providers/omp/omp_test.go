@@ -276,8 +276,8 @@ func TestRunReplaysTurnEvents(t *testing.T) {
 	if events[6].Path != "internal/app/app.go" {
 		t.Errorf("文件改动事件错误: %+v", events[6])
 	}
-	if usage := events[10].Usage; usage == nil || usage.InputTokens != 200 || usage.OutputTokens != 20 || usage.CachedTokens != 50 {
-		t.Errorf("message_end 用量（含缓存读写合并）错误: %+v", events[10].Usage)
+	if usage := events[10].Usage; usage == nil || usage.InputTokens != 200 || usage.OutputTokens != 20 || usage.CachedTokens != 40 {
+		t.Errorf("message_end 用量（缓存写入只并入输入，CachedTokens 只记读取）错误: %+v", events[10].Usage)
 	}
 	if events[11].StopReason != "completed" {
 		t.Errorf("结束原因应为 completed，得到 %q", events[11].StopReason)
@@ -878,4 +878,40 @@ func TestAnswerApprovalByInteractionMode(t *testing.T) {
 			t.Fatalf("supervised 应把命令抛给审批方: %+v", approver.requests)
 		}
 	})
+}
+
+// TestOmpUsageContextWindowFromState 验证 get_state 里的 data.model.contextWindow 会填入每次 EventUsage。
+func TestOmpUsageContextWindowFromState(t *testing.T) {
+	fake := newFakeOmp(t, "rpc_text_tool_usage.jsonl")
+	configPath := filepath.Join(t.TempDir(), "launch.yml")
+	h := New(Options{Binary: fake.binary, Env: fake.env, ConfigPath: configPath})
+
+	var usages []*harness.Usage
+	turn := harness.Turn{
+		ID:      "turn-1",
+		WorkDir: t.TempDir(),
+		Prompt:  "查上下文窗口",
+		Mode:    harness.ModeFullAccess,
+	}
+	if err := h.Run(context.Background(), turn, func(e harness.Event) {
+		if e.Type == harness.EventUsage && e.Usage != nil {
+			usages = append(usages, e.Usage)
+		}
+	}); err != nil {
+		t.Fatalf("Run 返回错误: %v", err)
+	}
+	if len(usages) == 0 {
+		t.Fatal("应发出至少一条 EventUsage")
+	}
+	for i, u := range usages {
+		if u.ContextWindow != 200000 {
+			t.Fatalf("第 %d 条 EventUsage.ContextWindow = %d，期望 200000", i, u.ContextWindow)
+		}
+	}
+
+	// 缺少或非正数时返回 0。
+	evZero, _ := parseEvent([]byte(`{"type":"response","id":"s1","command":"get_state","success":true,"data":{"model":{"contextWindow":0}}}`))
+	if got := contextWindowFromState(evZero); got != 0 {
+		t.Fatalf("非正数 contextWindow 应返回 0，得到 %d", got)
+	}
 }

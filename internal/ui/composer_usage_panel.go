@@ -779,6 +779,42 @@ func formatTurnCostUSD(cost float64) string {
 	return fmt.Sprintf("本轮费用 $%.4f", cost)
 }
 
+// latestTurnCostLocked 计算最新一轮的费用（美元）；调用方需持有 s.mu。
+// 累计语义（claude、ACP、agy）上报的是会话累计花费，取最新轮 CostUSD 减去更早轮次里最近一个
+// CostUSD > 0 的值；差值为负（CLI 进程重开、累计从 0 重新开始）时直接取最新轮值。
+func latestTurnCostLocked(u ThreadUsage, cumulative bool) float64 {
+	latestIdx := -1
+	var latestCost float64
+	for idx, turn := range u.Turns {
+		if idx > latestIdx {
+			latestIdx = idx
+			latestCost = turn.CostUSD
+		}
+	}
+	if latestIdx < 0 || latestCost <= 0 {
+		return 0
+	}
+	if !cumulative {
+		return latestCost
+	}
+	prevIdx := -1
+	var prevCost float64
+	for idx, turn := range u.Turns {
+		if idx < latestIdx && idx > prevIdx && turn.CostUSD > 0 {
+			prevIdx = idx
+			prevCost = turn.CostUSD
+		}
+	}
+	if prevIdx < 0 {
+		return latestCost
+	}
+	delta := latestCost - prevCost
+	if delta < 0 {
+		return latestCost
+	}
+	return delta
+}
+
 const usagePopoverWidth float32 = 360
 
 // renderUsagePanel 渲染上下文用量浮窗内容（卡片外观由 PopoverBase 的外层面板提供）。
@@ -804,17 +840,12 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 			hasContextData := ok && limit > 0
 			s.mu.Lock()
 			total := s.threadUsage.Total
-			latestTurn, hasLatestTurn := latestTurnUsageLocked(s.threadUsage)
+			costUSD := latestTurnCostLocked(s.threadUsage, sessionCostIsCumulative(s.providers, threadProvider))
 			canForward := th != nil && th.ID != "" && len(s.messages) > 0 && (s.selectedThreadID == "" || s.selectedThreadID == th.ID)
 			forwarding := th != nil && s.forwardInflight[th.ID]
 			s.mu.Unlock()
 			if th != nil && stewardSelected(s, th.ID) {
 				canForward = false
-			}
-			// 本轮费用取最新一轮的 CostUSD；provider 未上报时保持 0，面板不显示费用行。
-			costUSD := 0.0
-			if hasLatestTurn {
-				costUSD = latestTurn.CostUSD
 			}
 
 			ui.Column(c.Key("composer-usage-context-section")).

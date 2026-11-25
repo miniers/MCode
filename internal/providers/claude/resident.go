@@ -900,8 +900,8 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 				continue
 			}
 			if i < len(backlog)-1 {
-				// 中间那一段的收尾：换新解析器继续，后面的行同样并入本轮。
-				parser = newParser()
+				// 中间那一段的收尾：换新解析器继续，并继承本轮前段的累计用量与速度样本。
+				parser = newChainedParser(parser)
 				continue
 			}
 			drained = true
@@ -1012,9 +1012,10 @@ func (h *Harness) runOnResident(ctx context.Context, p *residentProc, turn harne
 			_ = parser.handleLine(line, out)
 			if parser.sawResult {
 				if chained {
-					// 排队的 steer 已经在路上：换新解析器等它的回显与 result，没有任何输出就按首输出超时处理。
+					// 排队的 steer 已经在路上：换新解析器等它的回显与 result，并继承前段累计用量与样本；
+					// 没有任何输出就按首输出超时处理。
 					chained = false
-					parser = newParser()
+					parser = newChainedParser(parser)
 					reset(h.opts.firstOutputTimeout())
 					continue
 				}

@@ -1067,6 +1067,33 @@ func TestCurrentThreadContextTokensPrefersReportedContextWindow(t *testing.T) {
 	}
 }
 
+func TestCurrentThreadContextTokensPrefersSummaryWindow(t *testing.T) {
+	s := &chatState{providers: []ProviderInfo{{
+		ID:     "pi",
+		Models: []ModelInfo{{ID: "other-model", ContextLimit: 128_000}},
+	}}}
+	s.threadUsage = ThreadUsage{
+		Turns: map[int]TokenUsage{0: {Input: 300, Output: 200, ContextTokens: 50_000}},
+	}
+	// 模型 id 未命中目录时，优先使用后端摘要里的 ContextWindow，而不是目录首条模型的 128k。
+	if used, limit, ok := currentThreadContextTokens(s, &Thread{Provider: "pi", Model: "upstream/unlisted", ContextWindow: 200_000}); !ok || used != 50_000 || limit != 200_000 {
+		t.Fatalf("summary window must precede firstModelContextLimit: used=%d limit=%d ok=%v", used, limit, ok)
+	}
+	// 摘要窗口为 0 时才退回目录首条模型窗口。
+	if used, limit, ok := currentThreadContextTokens(s, &Thread{Provider: "pi", Model: "upstream/unlisted", ContextWindow: 0}); !ok || used != 50_000 || limit != 128_000 {
+		t.Fatalf("zero summary window must fallback to firstModelContextLimit: used=%d limit=%d ok=%v", used, limit, ok)
+	}
+	// provider 不在目录里时也能用摘要窗口。
+	if used, limit, ok := currentThreadContextTokens(s, &Thread{Provider: "custom", Model: "m", ContextWindow: 256_000}); !ok || used != 50_000 || limit != 256_000 {
+		t.Fatalf("missing provider must also use summary window: used=%d limit=%d ok=%v", used, limit, ok)
+	}
+	// turn.ContextWindow（CLI 实测窗口）仍优先于摘要窗口。
+	s.threadUsage.Turns[0] = TokenUsage{Input: 300, Output: 200, ContextTokens: 50_000, ContextWindow: 1_000_000}
+	if used, limit, ok := currentThreadContextTokens(s, &Thread{Provider: "pi", Model: "upstream/unlisted", ContextWindow: 200_000}); !ok || used != 50_000 || limit != 1_000_000 {
+		t.Fatalf("turn ContextWindow must still win: used=%d limit=%d ok=%v", used, limit, ok)
+	}
+}
+
 // Composer 侧只读取启用状态，固定模型列表本身不做删改：关闭 codex 后 pinnedModelPins 仍返回全部条目，
 // providerEnabledState 把 codex 标记为关闭，供选择器在展示时过滤。
 func TestProviderEnabledStateHidesDisabledProviderWithoutTouchingModelList(t *testing.T) {

@@ -280,9 +280,11 @@ func sessionStatsCost(usage ThreadUsage, providers []ProviderInfo, provider, mod
 
 // sessionCostIsCumulative 判断 provider 上报的花费是否为整次会话的累计值：
 // ACP agent 按规范上报会话累计；claude 的 result.total_cost_usd 同样是整次会话累计。
+// agy 默认走 ACP 通道上报累计费用，但后端 providerIsACP("agy") 为假（stream-json 通道费用恒为 0，
+// 按累计处理无副作用），因此这里一并视为累计。
 // ACP 标记由后端按 harness 能力下发，自定义 agent 无需枚举。
 func sessionCostIsCumulative(providers []ProviderInfo, provider string) bool {
-	if provider == "claude" {
+	if provider == "claude" || provider == "agy" {
 		return true
 	}
 	prov, ok := findProviderInfo(providers, provider)

@@ -166,7 +166,7 @@ func TestParseUsage(t *testing.T) {
 		{
 			name: "snake_case 键名",
 			raw:  `{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":3,"cache_write_input_tokens":2}`,
-			want: harness.Usage{InputTokens: 10, OutputTokens: 5, CachedTokens: 5},
+			want: harness.Usage{InputTokens: 10, OutputTokens: 5, CachedTokens: 3},
 			ok:   true,
 		},
 		{
@@ -363,11 +363,11 @@ func TestUsageAccumulatesAcrossRequests(t *testing.T) {
 	if len(usages) != 2 {
 		t.Fatalf("want 2 usage events, got %d: %+v", len(usages), usages)
 	}
-	if usages[0].InputTokens != 10 || usages[0].OutputTokens != 100 || usages[0].CachedTokens != 5 {
-		t.Fatalf("第一次请求的用量 = %+v, want 10 / 100 / 5", usages[0])
+	if usages[0].InputTokens != 10 || usages[0].OutputTokens != 100 || usages[0].CachedTokens != 5 || usages[0].ContextTokens != 110 {
+		t.Fatalf("第一次请求的用量 = %+v, want 10 / 100 / 5 / ctx=110", usages[0])
 	}
-	if usages[1].InputTokens != 30 || usages[1].OutputTokens != 350 || usages[1].CachedTokens != 12 {
-		t.Fatalf("第二次请求应带上整轮累计用量 30 / 350 / 12，得到 %+v", usages[1])
+	if usages[1].InputTokens != 30 || usages[1].OutputTokens != 350 || usages[1].CachedTokens != 5 || usages[1].ContextTokens != 270 {
+		t.Fatalf("第二次请求应带上整轮累计用量 30 / 350 / 5 与单次 ctx=270，得到 %+v", usages[1])
 	}
 
 	next := replayUsages(t, newStreamState(""), []string{
@@ -395,4 +395,27 @@ func replayUsages(t *testing.T, state *streamState, frames []string) []harness.U
 		state.handle(frame, emit)
 	}
 	return usages
+}
+
+// TestCommandcodeUsageContextTokensLastRequest 验证 ContextTokens 取本轮最后一次请求的 input+output，
+// 且 CachedTokens 只记缓存读取、不计缓存写入。
+func TestCommandcodeUsageContextTokensLastRequest(t *testing.T) {
+	state := newStreamState("")
+	usages := replayUsages(t, state, []string{
+		`{"type":"event","event":{"type":"model_request_end","usage":{"inputTokens":1200,"outputTokens":100,"cacheReadInputTokens":800,"cacheCreationInputTokens":200}}}`,
+		`{"type":"event","event":{"type":"model_request_end","usage":{"inputTokens":1500,"outputTokens":250,"cacheReadInputTokens":1100,"cacheCreationInputTokens":300}}}`,
+	})
+	if len(usages) != 2 {
+		t.Fatalf("want 2 usage events, got %d: %+v", len(usages), usages)
+	}
+	if usages[0].ContextTokens != 1300 {
+		t.Fatalf("第一次请求 ContextTokens = %d, want 1300", usages[0].ContextTokens)
+	}
+	last := usages[1]
+	if last.InputTokens != 2700 || last.OutputTokens != 350 || last.CachedTokens != 1900 {
+		t.Fatalf("累计计费字段错误 = %+v, want 2700 / 350 / 1900", last)
+	}
+	if last.ContextTokens != 1750 {
+		t.Fatalf("最后一次请求 ContextTokens = %d, want 1750", last.ContextTokens)
+	}
 }

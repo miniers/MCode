@@ -238,8 +238,7 @@ func (h *eventHandler) handleEvent(params json.RawMessage) {
 		h.handleUsage(data)
 
 	case "session.usage_info":
-		// 这是上下文窗口占用（currentTokens/tokenLimit），不是本轮用量；harness.Usage 没有
-		// 对应字段，且消费方按轮次取最后一条 usage，混进来会覆盖 assistant.usage 的累计值。
+		h.handleUsageInfo(data)
 
 	case "tool.execution_start":
 		h.handleToolStart(data)
@@ -254,8 +253,11 @@ func (h *eventHandler) handleEvent(params json.RawMessage) {
 	case "permission.completed":
 		// 请求已了结，harness 无对应事件。
 
-	case "session.mode_changed", "session.title_changed", "session.compaction_complete", "tool.execution_partial_result", "tool.execution_progress":
-		// harness 事件面没有对应类型（模式、标题、压缩提示、工具增量输出）。
+	case "session.compaction_complete":
+		h.handleCompactionComplete(data)
+
+	case "session.mode_changed", "session.title_changed", "tool.execution_partial_result", "tool.execution_progress":
+		// harness 事件面没有对应类型（模式、标题、工具增量输出）。
 
 	case "session.error":
 		msg := errorMessage(data)
@@ -421,7 +423,7 @@ func (h *eventHandler) handleToolComplete(data json.RawMessage) {
 }
 
 // handleUsage 累计 assistant.usage 的令牌用量并派发 usage 事件。
-// 键名兼容多种候选写法。
+// CachedTokens 仅匹配缓存读取键名（不计缓存写入）；ContextTokens 与 ContextWindow 沿用最近一次 session.usage_info。
 func (h *eventHandler) handleUsage(data json.RawMessage) {
 	in, _ := usageNumber(data, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
 	out, _ := usageNumber(data, "outputTokens", "output_tokens", "completionTokens", "completion_tokens")
@@ -441,18 +443,57 @@ func (h *eventHandler) handleUsage(data json.RawMessage) {
 	if speed, ok := h.requestClock.Finish(h.nowTime(), int64(out)); ok {
 		h.requestSpeeds = append(h.requestSpeeds, speed)
 	}
-	cur := h.usage
-	speeds := requestSpeedSamples(h.requestSpeeds)
+	snap := h.snapshotUsageLocked()
 	h.mu.Unlock()
 
+	h.emitEvent(harness.Event{Type: harness.EventUsage, Usage: snap})
+}
+
+// handleUsageInfo 保存 session.usage_info 的上下文占用与窗口上限，并立即发一次 EventUsage
+// （计费三项保留当前本轮累计值，不清零）。
+func (h *eventHandler) handleUsageInfo(data json.RawMessage) {
+	curTokens, hasCur := usageNumber(data, "currentTokens")
+	tokenLimit, hasLimit := usageNumber(data, "tokenLimit")
+	if !hasCur && !hasLimit {
+		return
+	}
+
+	h.mu.Lock()
+	if hasCur && curTokens >= 0 {
+		h.usage.ContextTokens = int64(curTokens)
+	}
+	if hasLimit && tokenLimit > 0 {
+		h.usage.ContextWindow = int64(tokenLimit)
+	}
+	snap := h.snapshotUsageLocked()
+	h.mu.Unlock()
+
+	h.emitEvent(harness.Event{Type: harness.EventUsage, Usage: snap})
+}
+
+// snapshotUsageLocked 在持有 h.mu 时复制当前累计用量与上下文/窗口状态。
+func (h *eventHandler) snapshotUsageLocked() *harness.Usage {
+	cur := h.usage
+	cur.Requests = requestSpeedSamples(h.requestSpeeds)
+	return &cur
+}
+
+// handleCompactionComplete 将 session.compaction_complete 映射为 EventContextCompacted。
+// 本包 testdata 无该事件样本，按 Copilot SDK（github/copilot-sdk 协议 v3）的字段名解析：
+// success（缺省按 true 处理，同 tool.execution_complete）、preCompactionTokens、postCompactionTokens。
+func (h *eventHandler) handleCompactionComplete(data json.RawMessage) {
+	var d struct {
+		Success *bool `json:"success"`
+	}
+	if len(data) > 0 && json.Unmarshal(data, &d) == nil && d.Success != nil && !*d.Success {
+		return
+	}
+	before, _ := usageNumber(data, "preCompactionTokens")
+	after, _ := usageNumber(data, "postCompactionTokens")
 	h.emitEvent(harness.Event{
-		Type: harness.EventUsage,
-		Usage: &harness.Usage{
-			InputTokens:  cur.InputTokens,
-			OutputTokens: cur.OutputTokens,
-			CachedTokens: cur.CachedTokens,
-			Requests:     speeds,
-		},
+		Type:                harness.EventContextCompacted,
+		CompactTokensBefore: int64(before),
+		CompactTokensAfter:  int64(after),
 	})
 }
 

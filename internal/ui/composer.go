@@ -2779,7 +2779,9 @@ func latestTurnUsageLocked(u ThreadUsage) (TokenUsage, bool) {
 // 占用优先取该轮最后一次模型请求实际带入的上下文（ContextTokens），拿不到时退回
 // 最新一轮的输入 + 输出；不是全会话累计计费的 Total。
 // 上限优先取最新一轮用量里 CLI 上报的 ContextWindow（实测值，能认出 1M 变体、聚合型 CLI 的模型名），
-// 没有时取当前会话模型在模型目录（models.dev）里的 ContextLimit；都拿不到时返回 ok=false，
+// 没有时取当前会话模型在模型目录（models.dev）里的 ContextLimit；模型 id 未命中目录时先用
+// 会话摘要携带的 ContextWindow（后端按 internal/remote/models.go modelContextLimit 兜底表算出），
+// 为 0 时再退回目录里第一个带窗口的行，让圆环与侧栏悬浮卡同源。都拿不到时返回 ok=false，
 // 不再用固定默认值兜底，否则小窗口模型被低估、大窗口模型被高估，圆环比例完全失真。
 func currentThreadContextTokens(s *chatState, currentThread *Thread) (used int64, limit int64, ok bool) {
 	if s == nil || currentThread == nil {
@@ -2787,19 +2789,29 @@ func currentThreadContextTokens(s *chatState, currentThread *Thread) (used int64
 	}
 	s.mu.Lock()
 	turn, hasTurn := latestTurnUsageLocked(s.threadUsage)
+	foundInCatalog := false
 	for _, p := range s.providers {
 		if p.ID == currentThread.Provider {
 			limit = resolveModelInfo(p.Models, currentThread.Model).ContextLimit
 			if limit <= 0 {
 				// 模型 id 对不上目录（pi/omp 等聚合型 CLI 的模型名带上游前缀、目录里只有占位行）时，
-				// 退回该 provider 目录里任一带窗口的行，避免圆环恒显示「暂无上下文用量数据」。
+				// 先用后端摘要按 modelContextLimit 兜底表算出的 ContextWindow，它为 0 时才退回该
+				// provider 目录里任一带窗口的行，让圆环与侧栏悬浮卡同源，避免恒显示「暂无上下文用量数据」。
 				// 目录里已经有该模型、只是没给出上限时仍报无数据，不拿别的模型顶分母。
-				if _, found := findModelInfo(p.Models, currentThread.Model); !found {
-					limit = firstModelContextLimit(p.Models)
+				_, foundInCatalog = findModelInfo(p.Models, currentThread.Model)
+				if !foundInCatalog {
+					if currentThread.ContextWindow > 0 {
+						limit = currentThread.ContextWindow
+					} else {
+						limit = firstModelContextLimit(p.Models)
+					}
 				}
 			}
 			break
 		}
+	}
+	if limit <= 0 && !foundInCatalog && currentThread.ContextWindow > 0 {
+		limit = currentThread.ContextWindow
 	}
 	s.mu.Unlock()
 

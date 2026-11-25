@@ -735,6 +735,21 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 	// sessionCostBits 是 usage_update 最近上报的会话累计花费（USD，float64 位模式）。
 	// 后端对同轮 EventUsage 整条替换，所以之后每条 EventUsage 都要带上它，否则会被覆盖成 0。
 	var sessionCostBits atomic.Uint64
+	// billedInput / billedOutput / billedCached 记录本轮已知的累计计费用量（来自 promptResult.Usage）。
+	// usage_update 只带上下文快照，发出的 EventUsage 必须沿用这份计费累计，
+	// 避免把上下文大小计成输入用量，也避免轮末之后再到的 usage_update 抹掉轮末计费。
+	var billedInput, billedOutput, billedCached atomic.Int64
+	recordBilledUsage := func(u acpPromptUsage) int64 {
+		// agy 的 outputTokens 已含 thoughtTokens，不能重复相加；其他 Agent 仍按 ACP 规范草案累加。
+		output := u.OutputTokens + u.ThoughtTokens
+		if h.opts.Agent == AgentAgy {
+			output = u.OutputTokens
+		}
+		billedInput.Store(u.InputTokens)
+		billedOutput.Store(output)
+		billedCached.Store(u.CachedReadTokens)
+		return output
+	}
 
 	setSessionID := func(id string) {
 		sessionMu.Lock()
@@ -1426,7 +1441,9 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 				_ = harness.Emit(emit, harness.Event{
 					Type: harness.EventUsage,
 					Usage: &harness.Usage{
-						InputTokens:   contextUsed.Load(),
+						InputTokens:   billedInput.Load(),
+						OutputTokens:  billedOutput.Load(),
+						CachedTokens:  billedCached.Load(),
 						ContextTokens: contextUsed.Load(),
 						ContextWindow: contextSize.Load(),
 						CostUSD:       math.Float64frombits(sessionCostBits.Load()),
@@ -1946,6 +1963,7 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 				totalUsage.OutputTokens += promptResult.Usage.OutputTokens
 				totalUsage.ThoughtTokens += promptResult.Usage.ThoughtTokens
 				totalUsage.CachedReadTokens += promptResult.Usage.CachedReadTokens
+				recordBilledUsage(totalUsage)
 
 				autoDenyMu.Lock()
 				denials := autoDenials
@@ -2069,11 +2087,7 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 	if promptErr == nil && agyErr == nil && (h.opts.Agent != AgentAgy || ctx.Err() == nil) {
 		u := promptResult.Usage
 		if u.InputTokens != 0 || u.OutputTokens != 0 || u.ThoughtTokens != 0 || u.CachedReadTokens != 0 {
-			// agy 的 outputTokens 已含 thoughtTokens，不能重复相加；其他 Agent 仍按 ACP 规范草案累加。
-			output := u.OutputTokens + u.ThoughtTokens
-			if h.opts.Agent == AgentAgy {
-				output = u.OutputTokens
-			}
+			output := recordBilledUsage(u)
 			_ = harness.Emit(emit, harness.Event{Type: harness.EventUsage, Usage: &harness.Usage{
 				InputTokens: u.InputTokens, OutputTokens: output, CachedTokens: u.CachedReadTokens,
 				ContextTokens: contextUsed.Load(), ContextWindow: contextSize.Load(),

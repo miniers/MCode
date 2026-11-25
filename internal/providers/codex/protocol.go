@@ -82,6 +82,8 @@ type ProtocolHandler struct {
 	accumulatedUsage  harness.Usage
 	usageBase         usageCounts
 	usageBaseSet      bool
+	priorUsage        usageCounts
+	lastUsage         usageCounts
 	loggedUnknown     map[string]struct{}
 	turnDone          bool
 	turnSucceeded     bool
@@ -89,9 +91,11 @@ type ProtocolHandler struct {
 	updatedPlan       string
 	planUpdateCount   uint64
 
-	// 每个 ProtocolHandler 只服务一轮，请求计时和样本列表随本轮创建、随本轮丢弃。
+	// 每个 ProtocolHandler 只服务一轮，请求计时和样本列表随本轮创建、随本轮丢弃；
+	// plan 审批在同一轮内重建处理器时，需把前段已上报的用量与速度样本结转过来。
 	requestClock  harness.RequestClock
 	requestSpeeds []harness.RequestSpeed
+	priorRequests []harness.RequestSpeed
 	now           func() time.Time
 }
 
@@ -795,13 +799,17 @@ type usageCounts struct {
 	cached int64
 }
 
-// counts 把一份 tokenUsage breakdown 转成计费口径的三项计数。
+// counts 把一份 tokenUsage breakdown 转成计费口径的三项计数；outputTokens 已含 reasoningOutputTokens。
 func (b rawTokenUsageBreakdown) counts() usageCounts {
 	return usageCounts{
 		input:  b.InputTokens,
-		output: b.OutputTokens + b.ReasoningOutputTokens,
+		output: b.OutputTokens,
 		cached: b.CachedInputTokens,
 	}
+}
+
+func (c usageCounts) add(o usageCounts) usageCounts {
+	return usageCounts{input: c.input + o.input, output: c.output + o.output, cached: c.cached + o.cached}
 }
 
 func (c usageCounts) sub(o usageCounts) usageCounts {
@@ -852,10 +860,36 @@ func (h *ProtocolHandler) finishRequest(outputTokens int64) {
 func (h *ProtocolHandler) requestSpeedSnapshot() []harness.RequestSpeed {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.requestSpeeds) == 0 {
+	total := len(h.priorRequests) + len(h.requestSpeeds)
+	if total == 0 {
 		return nil
 	}
-	return append([]harness.RequestSpeed(nil), h.requestSpeeds...)
+	out := make([]harness.RequestSpeed, 0, total)
+	out = append(out, h.priorRequests...)
+	out = append(out, h.requestSpeeds...)
+	return out
+}
+
+// inheritUsageFrom 把同一轮前段处理器最后一次上报的累计用量与速度样本结转给当前处理器，
+// 用于 plan 审批后重建 ProtocolHandler 时避免后续 EventUsage 覆盖前段统计。
+func (h *ProtocolHandler) inheritUsageFrom(prev *ProtocolHandler) {
+	if prev == nil || prev == h {
+		return
+	}
+	prev.mu.Lock()
+	offset := prev.priorUsage.add(prev.lastUsage)
+	var requests []harness.RequestSpeed
+	if n := len(prev.priorRequests) + len(prev.requestSpeeds); n > 0 {
+		requests = make([]harness.RequestSpeed, 0, n)
+		requests = append(requests, prev.priorRequests...)
+		requests = append(requests, prev.requestSpeeds...)
+	}
+	prev.mu.Unlock()
+
+	h.mu.Lock()
+	h.priorUsage = offset
+	h.priorRequests = requests
+	h.mu.Unlock()
 }
 
 func (h *ProtocolHandler) handleTokenUsage(params json.RawMessage, emit func(harness.Event)) {
@@ -882,7 +916,7 @@ func (h *ProtocolHandler) handleTokenUsage(params json.RawMessage, emit func(har
 		if !h.usageBaseSet {
 			h.usageBase = usageCounts{
 				input:  totalCounts.input - last.InputTokens,
-				output: totalCounts.output - (last.OutputTokens + last.ReasoningOutputTokens),
+				output: totalCounts.output - last.OutputTokens,
 				cached: totalCounts.cached - last.CachedInputTokens,
 			}
 			h.usageBaseSet = true
@@ -890,7 +924,7 @@ func (h *ProtocolHandler) handleTokenUsage(params json.RawMessage, emit func(har
 		cur = totalCounts.sub(h.usageBase).nonNegative()
 	} else {
 		h.accumulatedUsage.InputTokens += last.InputTokens
-		h.accumulatedUsage.OutputTokens += last.OutputTokens + last.ReasoningOutputTokens
+		h.accumulatedUsage.OutputTokens += last.OutputTokens
 		h.accumulatedUsage.CachedTokens += last.CachedInputTokens
 		cur = usageCounts{
 			input:  h.accumulatedUsage.InputTokens,
@@ -898,20 +932,22 @@ func (h *ProtocolHandler) handleTokenUsage(params json.RawMessage, emit func(har
 			cached: h.accumulatedUsage.CachedTokens,
 		}
 	}
+	h.lastUsage = cur
+	reported := h.priorUsage.add(cur)
 	h.mu.Unlock()
 
 	// ContextTokens/ContextWindow 是「单次请求」口径：取 last 和模型窗口上限，与累计计费量无关。
 	lastCounts := last.counts()
 
-	// last 是单次请求的用量，用它结算这次请求的速度样本；输出 token 含推理输出，与计数口径一致。
+	// last 是单次请求的用量，用它结算这次请求的速度样本；输出 token 已含推理输出，与计数口径一致。
 	h.finishRequest(lastCounts.output)
 
 	_ = harness.Emit(emit, harness.Event{
 		Type: harness.EventUsage,
 		Usage: &harness.Usage{
-			InputTokens:   cur.input,
-			OutputTokens:  cur.output,
-			CachedTokens:  cur.cached,
+			InputTokens:   reported.input,
+			OutputTokens:  reported.output,
+			CachedTokens:  reported.cached,
 			ContextTokens: lastCounts.input + lastCounts.output,
 			ContextWindow: p.TokenUsage.ModelContextWindow,
 			Requests:      h.requestSpeedSnapshot(),

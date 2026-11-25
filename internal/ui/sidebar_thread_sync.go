@@ -123,6 +123,22 @@ func (s *chatState) applyThreadSummary(update Thread) {
 			item.Provider = update.Provider
 			changed = true
 		}
+		if item.ContextUsedTokens != update.ContextUsedTokens {
+			item.ContextUsedTokens = update.ContextUsedTokens
+			changed = true
+		}
+		if item.ContextWindow != update.ContextWindow {
+			item.ContextWindow = update.ContextWindow
+			changed = true
+		}
+		if item.AIDuration != update.AIDuration {
+			item.AIDuration = update.AIDuration
+			changed = true
+		}
+		if item.TotalDuration != update.TotalDuration {
+			item.TotalDuration = update.TotalDuration
+			changed = true
+		}
 	}
 	for i := range s.threads {
 		apply(&s.threads[i])

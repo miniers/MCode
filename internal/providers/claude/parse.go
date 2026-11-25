@@ -39,6 +39,19 @@ type parser struct {
 	// ctxSnapshot 是本轮最后一次顶层（非子代理）模型请求带入上下文的用量快照。
 	// result.usage 是整轮多次请求的累计，不能当作上下文大小，所以单独记最近一次请求。
 	ctxSnapshot contextSnapshot
+	// mainModel 记录最近一次顶层（非子代理、非 <synthetic>）assistant 消息的模型名，
+	// 供 result.modelUsage 优先挑选主模型的上下文窗口。
+	mainModel string
+	// prior* 是本轮前段串联（steer / backlog drain）已上报的用量偏移，last* 是本解析器
+	// 最近一次 result 实际发出的累计值，供下一次 newChainedParser 继承。
+	priorInput    int64
+	priorOutput   int64
+	priorCached   int64
+	priorRequests []harness.RequestSpeed
+	lastInput     int64
+	lastOutput    int64
+	lastCached    int64
+	lastRequests  []harness.RequestSpeed
 	// clock 为当前模型请求计时；requests 收集本轮每次顶层请求的输出速度样本。
 	clock    harness.RequestClock
 	requests []harness.RequestSpeed
@@ -114,6 +127,28 @@ func newParser() *parser {
 		curReasoningIndex: -1,
 		reqSampleIdx:      -1,
 	}
+}
+
+// newChainedParser 从同一轮上一段的旧解析器派生新解析器（steer 串联或排空 backlog）：
+// 继承旧解析器最近一次 result 发出的累计用量与速度样本，同时清空流式增量与上下文快照。
+func newChainedParser(prev *parser) *parser {
+	p := newParser()
+	if prev == nil {
+		return p
+	}
+	p.now = prev.now
+	p.priorInput = prev.lastInput
+	p.priorOutput = prev.lastOutput
+	p.priorCached = prev.lastCached
+	if len(prev.lastRequests) > 0 {
+		p.priorRequests = make([]harness.RequestSpeed, len(prev.lastRequests))
+		copy(p.priorRequests, prev.lastRequests)
+	}
+	p.lastInput = p.priorInput
+	p.lastOutput = p.priorOutput
+	p.lastCached = p.priorCached
+	p.lastRequests = p.priorRequests
+	return p
 }
 
 // nowTime 返回当前时间，测试可替换 p.now 注入时钟。
@@ -490,7 +525,9 @@ func (p *parser) handleStreamEvent(line []byte, emit func(harness.Event)) {
 		if se.Event.Message != nil {
 			requestID = se.Event.Message.ID
 			if se.Event.Message.Usage != nil {
-				p.ctxSnapshot = se.Event.Message.Usage.snapshot()
+				if snap := se.Event.Message.Usage.snapshot(); snap != (contextSnapshot{}) {
+					p.ctxSnapshot = snap
+				}
 			}
 		}
 		p.beginNewRequest(requestID)
@@ -559,6 +596,7 @@ func (p *parser) handleAssistant(line []byte, isSubagent bool, emit func(harness
 		Error   string `json:"error"`
 		Message struct {
 			ID              string  `json:"id"`
+			Model           string  `json:"model"`
 			ParentToolUseID *string `json:"parent_tool_use_id"`
 			Content         []struct {
 				Type     string          `json:"type"`
@@ -584,10 +622,18 @@ func (p *parser) handleAssistant(line []byte, isSubagent bool, emit func(harness
 		p.errCode = asst.Error
 	}
 
+	// 记录最近一次顶层真实模型请求（非子代理、非 <synthetic>）的模型名，供 result.modelUsage 选窗口。
+	if !isSubagent && asst.Message.Model != "" && asst.Message.Model != "<synthetic>" {
+		p.mainModel = asst.Message.Model
+	}
+
 	// 顶层 assistant 完整消息带 message.usage 时以它为准覆盖快照：一条完整消息就是一次模型请求的
-	// 最终用量；子代理消息的 usage 不属于本轮的上下文。
+	// 最终用量；子代理消息的 usage 不属于本轮的上下文。usage 四项全为 0（如 <synthetic> 错误消息）
+	// 时不覆盖已有的有效快照。
 	if !isSubagent && asst.Message.Usage != nil {
-		p.ctxSnapshot = asst.Message.Usage.snapshot()
+		if snap := asst.Message.Usage.snapshot(); snap != (contextSnapshot{}) {
+			p.ctxSnapshot = snap
+		}
 		// 没有 partial 流（没有 message_delta）时，用助手消息的 output_tokens 结算该请求。
 		p.settleFromAssistant(asst.Message.ID, asst.Message.Usage)
 	}
@@ -885,9 +931,38 @@ type modelUsageInfo struct {
 	ContextWindow int64 `json:"contextWindow"`
 }
 
-// maxContextWindow 取 modelUsage 中最大的上下文窗口：一轮可能同时用到主模型与小模型，
-// 界面关心的是主模型那一档，取最大值即可；没有该字段时返回 0。
-func maxContextWindow(modelUsage map[string]modelUsageInfo) int64 {
+// normalizeModelKey 去掉模型名里的渠道前缀（如 xxx/）与规格后缀（如 [1m]），用于回退匹配 modelUsage。
+func normalizeModelKey(s string) string {
+	if i := strings.LastIndexByte(s, '/'); i >= 0 {
+		s = s[i+1:]
+	}
+	if i := strings.IndexByte(s, '['); i >= 0 && strings.HasSuffix(s, "]") {
+		s = s[:i]
+	}
+	return s
+}
+
+// pickContextWindow 优先按本轮顶层主模型在 modelUsage 中挑选上下文窗口，避免子代理或辅助小模型
+// 的 1M 窗口把主模型的 200K 分母放大：先精确匹配 key，再尝试去掉 `[...]` 后缀或 `xxx/` 前缀后相等的项，
+// 都匹配不到再退回 modelUsage 中的最大值；没有该字段时返回 0。
+func pickContextWindow(modelUsage map[string]modelUsageInfo, mainModel string) int64 {
+	if mainModel != "" {
+		if m, ok := modelUsage[mainModel]; ok && m.ContextWindow > 0 {
+			return m.ContextWindow
+		}
+		if normMain := normalizeModelKey(mainModel); normMain != "" {
+			keys := make([]string, 0, len(modelUsage))
+			for k := range modelUsage {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if normalizeModelKey(k) == normMain && modelUsage[k].ContextWindow > 0 {
+					return modelUsage[k].ContextWindow
+				}
+			}
+		}
+	}
 	var max int64
 	for _, m := range modelUsage {
 		if m.ContextWindow > max {
@@ -924,24 +999,32 @@ func (p *parser) handleResult(line []byte, emit func(harness.Event)) {
 	}
 
 	if res.Usage != nil {
-		// 计费用量仍是整轮累计（多次请求之和）；上下文占用只认本轮最后一次顶层请求的快照，
-		// 拿不到快照时留 0，让界面沿用旧口径。Requests 是本轮每次请求的速度样本。
+		// 计费用量仍是整轮累计（多次请求之和，并加上 steer 串联前段的偏移）；上下文占用只认
+		// 本段最后一次顶层请求的快照，拿不到快照时留 0，让界面沿用旧口径。Requests 是本轮
+		// 至今（含前段串联）每次请求的速度样本。
 		var samples []harness.RequestSpeed
-		if len(p.requests) > 0 {
-			samples = make([]harness.RequestSpeed, len(p.requests))
-			copy(samples, p.requests)
+		if n := len(p.priorRequests) + len(p.requests); n > 0 {
+			samples = make([]harness.RequestSpeed, 0, n)
+			samples = append(samples, p.priorRequests...)
+			samples = append(samples, p.requests...)
 		}
-		// CLI 的 input_tokens 不含缓存读写，这里并入 InputTokens（与 omp/pi/codex 同一口径：
-		// InputTokens 是整段提示词），CachedTokens 记缓存读写合计，缓存命中率按 Cached/Input 算。
-		cached := res.Usage.CacheReadInputTokens + res.Usage.CacheCreationInputTokens
+		// CLI 的 input_tokens 不含缓存读写，InputTokens 并入缓存读写以对齐整段提示词口径；
+		// CachedTokens 只记缓存读取（命中），缓存写入只计入 InputTokens，避免首轮冷写拉高命中率。
+		inputTokens := p.priorInput + res.Usage.InputTokens + res.Usage.CacheReadInputTokens + res.Usage.CacheCreationInputTokens
+		outputTokens := p.priorOutput + res.Usage.OutputTokens
+		cachedTokens := p.priorCached + res.Usage.CacheReadInputTokens
+		p.lastInput = inputTokens
+		p.lastOutput = outputTokens
+		p.lastCached = cachedTokens
+		p.lastRequests = samples
 		_ = harness.Emit(emit, harness.Event{
 			Type: harness.EventUsage,
 			Usage: &harness.Usage{
-				InputTokens:   res.Usage.InputTokens + cached,
-				OutputTokens:  res.Usage.OutputTokens,
-				CachedTokens:  cached,
+				InputTokens:   inputTokens,
+				OutputTokens:  outputTokens,
+				CachedTokens:  cachedTokens,
 				ContextTokens: p.ctxSnapshot.total(),
-				ContextWindow: maxContextWindow(res.ModelUsage),
+				ContextWindow: pickContextWindow(res.ModelUsage, p.mainModel),
 				CostUSD:       res.TotalCostUSD,
 				Requests:      samples,
 			},
