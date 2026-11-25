@@ -1449,3 +1449,59 @@ func TestSlashArgHintBarSettles(t *testing.T) {
 		t.Fatalf("参数提示条退场后不应仍可见: %v", tt.Texts())
 	}
 }
+
+func TestCompletionRowKeepsLabelWidth(t *testing.T) {
+	const label = "/dispatching"
+	longDetail := strings.Repeat("Dispatch multiple independent subagents in parallel to handle isolated implementation tasks quickly. ", 4)
+	s := newChatState(NewFakeClient())
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+	s.commandsCache["t1"] = []SlashCommand{{Name: "dispatching", Detail: longDetail}}
+
+	var naturalLabelW float32
+	tt := ui.NewTester(func(c *ui.Context) {
+		naturalLabelW, _ = c.MeasureText(0, ui.Span{Text: label, Size: uiFont(TypeBody)})
+		renderComposer(c, s)
+	}, 900, 500)
+
+	tt.Type("/dis")
+	waitFor(t, tt, func() bool { return tt.HasText(label) })
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
+
+	if naturalLabelW <= 0 {
+		t.Fatalf("标题自然宽度应大于 0，实际=%v", naturalLabelW)
+	}
+	labelRect, ok := tt.Find(label)
+	if !ok {
+		t.Fatalf("未找到标题文本节点 %q，Texts=%v", label, tt.Texts())
+	}
+	if labelRect.W < naturalLabelW {
+		t.Fatalf("标题布局宽度不足以完整显示: got %.2f, want >= %.2f", labelRect.W, naturalLabelW)
+	}
+}
+
+func TestCompletionPreviewWrapsLongText(t *testing.T) {
+	shortItems := []completionItem{{Label: "/plan", Insert: "/plan", Detail: "短说明"}}
+	longDetail := strings.Repeat("This is a very long skill command description that wraps across multiple lines in the preview bar. ", 6)
+	longItems := []completionItem{{Label: "/dispatching", Insert: "/dispatching", Detail: longDetail}}
+
+	var shortH, longH, maxAllowed float32
+	tt := ui.NewTester(func(c *ui.Context) {
+		shortH = completionPreviewHeight(c, completionSlash, shortItems, composerCompleteWidth)
+		longH = completionPreviewHeight(c, completionSlash, longItems, composerCompleteWidth)
+		_, threeLineH := cachedMeasureText(c, 0, ui.Span{Text: "A\nA\nA", Size: uiFont(TypeFootnote)})
+		maxAllowed = threeLineH + 2*Space1 + Hairline
+	}, 400, 200)
+	tt.Frame()
+
+	if shortH != composerCompletePreviewH {
+		t.Fatalf("短描述高度 = %.2f, want %.2f", shortH, composerCompletePreviewH)
+	}
+	if longH <= shortH {
+		t.Fatalf("长描述高度 %.2f 应大于短描述高度 %.2f", longH, shortH)
+	}
+	if longH > maxAllowed {
+		t.Fatalf("长描述高度 %.2f 不应超过 3 行上限 %.2f", longH, maxAllowed)
+	}
+}

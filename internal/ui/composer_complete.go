@@ -1518,6 +1518,34 @@ func completionPreviewText(kind completionKind, item completionItem) string {
 	return ""
 }
 
+// completionPreviewHeight 计算底部说明条高度：取所有候选说明的最大高度，以 3 行封顶并保留单行下限。
+func completionPreviewHeight(c *ui.Context, kind completionKind, items []completionItem, width float32) float32 {
+	maxW := width - 2*Space3
+	var maxTextH float32
+	for _, it := range items {
+		t := completionPreviewText(kind, it)
+		if t == "" {
+			continue
+		}
+		_, h := cachedMeasureText(c, maxW, ui.Span{Text: t, Size: uiFont(TypeFootnote)})
+		if h > maxTextH {
+			maxTextH = h
+		}
+	}
+	if maxTextH <= 0 {
+		return 0
+	}
+	_, threeLineH := cachedMeasureText(c, 0, ui.Span{Text: "A\nA\nA", Size: uiFont(TypeFootnote)})
+	if threeLineH > 0 && maxTextH > threeLineH {
+		maxTextH = threeLineH
+	}
+	h := maxTextH + 2*Space1 + Hairline
+	if h < composerCompletePreviewH {
+		return composerCompletePreviewH
+	}
+	return h
+}
+
 // renderCompletionMenu 渲染补全候选列表弹层。
 // 关闭时不用框架的 Exit 复制体（兄弟节点会瞬间补位，顶部直接贴到输入框边缘），
 // 而是保留最后一次的候选快照，用 AnimateTo 驱动高度、外边距与透明度一起收到 0，卡片随之逐帧上移。
@@ -1607,7 +1635,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	showPreview := previewText != ""
 	previewH := float32(0)
 	if showPreview {
-		previewH = composerCompletePreviewH
+		previewH = completionPreviewHeight(c, kind, items, width)
 	}
 	// 只有分类行时是下钻入口，不显示键位页脚；叶子列表与空态都带页脚。
 	showFooter := empty || (len(items) > 0 && !allCategoryItems(items))
@@ -1756,7 +1784,10 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							ui.Text(c, label).
 								FontSize(uiFont(TypeBody)).
 								TextColor(labelColor).
-								SingleLine()
+								Shrink(0).
+								MaxWidth(width * 0.45).
+								MaxLines(1).
+								Ellipsis("…")
 
 							if reason != "" {
 								// 右侧说明换成失效原因，用危险色提示。
@@ -1764,7 +1795,10 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								ui.Text(c, reason).
 									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeDanger(c)).
-									SingleLine()
+									SingleLine().
+									Ellipsis("…").
+									Shrink(1).
+									MinWidth(0)
 							} else if kind == completionSkill {
 								ui.Spacer(c)
 								// '$' 技能行保持单行：右侧只展示来源胶囊，详细描述见底部预览条。
@@ -1798,7 +1832,8 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 										TextColor(ThemeSecondaryText(c)).
 										SingleLine().
 										Ellipsis("…").
-										Shrink(1)
+										Shrink(1).
+										MinWidth(0)
 								}
 							}
 						})
@@ -1840,13 +1875,15 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 							FillWidth().
 							MinHeight(ControlMD).
 							Padding(Space1, Space3).
-							AlignItems(ui.Center).
+							AlignItems(ui.Start).
 							Background(ThemeOverlay(c, OverlayFaint)).
 							Children(func() {
 								ui.Text(c, previewText).
 									FontSize(uiFont(TypeFootnote)).
 									TextColor(ThemeSecondaryText(c)).
-									SingleLine().
+									FillWidth().
+									MinWidth(0).
+									MaxLines(3).
 									Ellipsis("…")
 							})
 					})
