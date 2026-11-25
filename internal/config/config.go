@@ -183,6 +183,16 @@ const (
 	DefaultComposerAttachmentLimit = 10
 	MaxComposerAttachmentLimit     = 20
 
+	// DefaultCompactSuggestPercent、MinCompactSuggestPercent、MaxCompactSuggestPercent 分别是压缩建议阈值占上下文窗口百分比的默认值、最小值和最大值。
+	DefaultCompactSuggestPercent = 70
+	MinCompactSuggestPercent     = 10
+	MaxCompactSuggestPercent     = 95
+
+	// DefaultCompactSuggestMaxK、MinCompactSuggestMaxK、MaxCompactSuggestMaxK 分别是压缩建议阈值上限（千 tokens）的默认值、最小值和最大值。
+	DefaultCompactSuggestMaxK = 140
+	MinCompactSuggestMaxK     = 10
+	MaxCompactSuggestMaxK     = 1000
+
 	// DefaultNoProgressMinutes 是会话或 bee 连续无文件改动、无看板变化的默认阈值（分钟）。
 	DefaultNoProgressMinutes = 45
 
@@ -592,6 +602,8 @@ type SessionConfig struct {
 	InsertIntoRunningTurn   bool   `json:"insert_into_running_turn"`            // 运行中的消息插入当前回合（Provider 支持中途注入时），不支持则排队；默认 true
 	AutoContinueAfterLimit  bool   `json:"auto_continue_after_limit"`           // 额度用尽后自动等待续跑，默认 false
 	AskCompactBeforeResume  *bool  `json:"ask_compact_before_resume,omitempty"` // 恢复旧会话前询问压缩上下文，nil 视为开启
+	CompactSuggestPercent   int    `json:"compact_suggest_percent,omitempty"`   // 压缩建议阈值占上下文窗口的百分比，0 视为默认 70，范围 10..95
+	CompactSuggestMaxK      int    `json:"compact_suggest_max_k,omitempty"`     // 压缩建议阈值上限（千 tokens），窗口未知时也用它；0 视为默认 140，范围 10..1000
 	ComposerAttachmentLimit int    `json:"composer_attachment_limit,omitempty"` // 单条消息附件数量上限，0 或负数视为默认 10，范围 1..20
 	ComposerSendKey         string `json:"composer_send_key,omitempty"`         // 发送消息快捷键：enter | shift_enter，默认 enter（Enter 发送，Shift+Enter 换行）
 	SkillsInjectsPrompt     *bool  `json:"skills_injects_prompt,omitempty"`     // 技能规则注入提示词，nil 视为开启
@@ -739,6 +751,39 @@ func (s SessionConfig) AskCompactOnResume() bool {
 		return true
 	}
 	return *s.AskCompactBeforeResume
+}
+
+// CompactSuggestThreshold 按模型上下文窗口上限计算压缩建议的上下文占用阈值（tokens）。
+// 窗口 > 0 时取 min(window*percent/100, maxK*1000)；窗口未知（<= 0）时取 maxK*1000。
+// CompactSuggestPercent / CompactSuggestMaxK 为 0 时分别取默认值 70 和 140，越界时 clamp 到各自允许范围。
+func (s SessionConfig) CompactSuggestThreshold(window int64) int64 {
+	percent := s.CompactSuggestPercent
+	if percent == 0 {
+		percent = DefaultCompactSuggestPercent
+	} else if percent < MinCompactSuggestPercent {
+		percent = MinCompactSuggestPercent
+	} else if percent > MaxCompactSuggestPercent {
+		percent = MaxCompactSuggestPercent
+	}
+
+	maxK := s.CompactSuggestMaxK
+	if maxK == 0 {
+		maxK = DefaultCompactSuggestMaxK
+	} else if maxK < MinCompactSuggestMaxK {
+		maxK = MinCompactSuggestMaxK
+	} else if maxK > MaxCompactSuggestMaxK {
+		maxK = MaxCompactSuggestMaxK
+	}
+
+	capTokens := int64(maxK) * 1000
+	if window <= 0 {
+		return capTokens
+	}
+	ratioTokens := window * int64(percent) / 100
+	if ratioTokens < capTokens {
+		return ratioTokens
+	}
+	return capTokens
 }
 
 // ShowReasoningEnabled 返回是否显示思考过程，nil 时默认开启。

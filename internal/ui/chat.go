@@ -482,27 +482,8 @@ func renderChat(c *ui.Context, s *chatState) {
 	renderStewardTaskDetailSheet(c, s)
 }
 
-// 长会话压缩建议的判定阈值（空闲 1 小时，上下文占用达到窗口的 70%）。
-// compactSuggestionUnknownWindowTokens 是窗口未知时使用的固定阈值：
-// 没有窗口分母可用时，上下文要涨到这个绝对量才提示。
-const (
-	compactSuggestionUnknownWindowTokens int64 = 100_000
-	compactSuggestionIdleInterval              = time.Hour
-
-	// compactSuggestionWindowRatioNum/Den 表示阈值取模型上下文窗口的 70%（用整数分子分母避免浮点）。
-	compactSuggestionWindowRatioNum int64 = 7
-	compactSuggestionWindowRatioDen int64 = 10
-)
-
-// compactSuggestionThreshold 按模型上下文窗口上限计算压缩建议的上下文占用阈值。
-// limit 为上下文窗口上限（tokens）：大于 0 时一律取窗口的 70% 且不封顶，
-// 32k 窗口得到 22.4k，200k 得到 140k，1M 得到 700k；limit <= 0（窗口未知）时返回固定 100k。
-func compactSuggestionThreshold(limit int64) int64 {
-	if limit <= 0 {
-		return compactSuggestionUnknownWindowTokens
-	}
-	return limit * compactSuggestionWindowRatioNum / compactSuggestionWindowRatioDen
-}
+// compactSuggestionIdleInterval 是触发长会话压缩建议的最小空闲时长。
+const compactSuggestionIdleInterval = time.Hour
 
 // forwardSuggestionRatio 是“转发到新会话”建议的上下文占用阈值（窗口的 80%）。
 // 用浮点常量直接写比例，与 contextUsageFraction 的浮点结果比较。
@@ -525,18 +506,18 @@ func shouldOfferForward(dismissed, running bool, used, limit int64, draft string
 }
 
 // shouldOfferCompact 判定是否显示长会话压缩建议卡片。
-// 条件：开启“恢复旧会话前询问压缩”、本会话未被忽略、
-// 当前上下文占用（used）达到按模型窗口换算的阈值（limit 为窗口上限）、
-// 会话空闲超过阈值、当前草稿不是以“/”开头的命令。
-// limit 为 0 表示窗口未知，此时按固定 100k 判定；used 只用当前上下文占用，不用累计计费量。
-func shouldOfferCompact(askCompact, dismissed bool, used, limit int64, idle time.Duration, draft string) bool {
-	if !askCompact || dismissed {
+// 条件：会话配置开启“恢复旧会话前询问压缩”、本会话未被忽略、
+// 当前上下文占用（used）达到 session.CompactSuggestThreshold(limit) 计算的阈值（limit 为窗口上限，<= 0 表示窗口未知）、
+// 会话空闲超过 compactSuggestionIdleInterval、当前草稿不是以“/”开头的命令。
+// used 只用当前上下文占用，不用累计计费量。
+func shouldOfferCompact(session config.SessionConfig, dismissed bool, used, limit int64, idle time.Duration, draft string) bool {
+	if !session.AskCompactOnResume() || dismissed {
 		return false
 	}
 	if strings.HasPrefix(strings.TrimSpace(draft), "/") {
 		return false
 	}
-	if used < compactSuggestionThreshold(limit) {
+	if used < session.CompactSuggestThreshold(limit) {
 		return false
 	}
 	return idle >= compactSuggestionIdleInterval
@@ -584,7 +565,7 @@ func renderCompactSuggestionCard(c *ui.Context, s *chatState, threadID string) b
 	// 按“当前上下文占用 / 模型窗口”判定；currentThreadContextTokens 内部会加锁，
 	// 必须在上面解锁之后调用。
 	used, limit, _ := currentThreadContextTokens(s, &currentThread)
-	if !shouldOfferCompact(s.askCompactOnResumeEnabled(), compactSuggestionDismissed(s, threadID), used, limit, idle, draft) {
+	if !shouldOfferCompact(s.compactSuggestSession(), compactSuggestionDismissed(s, threadID), used, limit, idle, draft) {
 		return false
 	}
 

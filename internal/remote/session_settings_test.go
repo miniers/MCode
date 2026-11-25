@@ -500,7 +500,7 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		backend.usage = make(map[string]map[int]harness.Usage)
 	}
 	backend.usage[thID] = map[int]harness.Usage{
-		0: {InputTokens: 60000, OutputTokens: 50000}, // 110,000 tokens >= 100,000
+		0: {InputTokens: 90000, OutputTokens: 50000}, // 140,000 tokens >= 140,000
 	}
 	backend.mu.Unlock()
 
@@ -519,7 +519,7 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		t.Errorf("expected ShouldOfferCompact to return false when AskCompactBeforeResume is false")
 	}
 
-	// 3. 恢复开启，但 tokens 不足 100,000：应返回 false
+	// 3. 恢复开启，但 tokens 不足 140,000：应返回 false
 	backend.SetGeneralSettingsFunc(func() config.Config {
 		return config.Config{Session: config.SessionConfig{
 			AskCompactBeforeResume: testBoolPtr(true),
@@ -527,12 +527,12 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 	})
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
-		0: {InputTokens: 20000, OutputTokens: 10000}, // 30,000 tokens < 100,000
+		0: {InputTokens: 20000, OutputTokens: 10000}, // 30,000 tokens < 140,000
 	}
 	backend.mu.Unlock()
 
 	if backend.ShouldOfferCompact(thID) {
-		t.Errorf("expected ShouldOfferCompact to return false when tokens < 100,000")
+		t.Errorf("expected ShouldOfferCompact to return false when tokens < 140,000")
 	}
 
 	// 4. 最新一轮带上下文窗口信息：上下文 25k / 窗口 32k，达到 70%（22.4k）阈值，空闲 2 小时：应返回 true
@@ -559,7 +559,7 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		t.Errorf("expected ShouldOfferCompact to return false for context 20k / window 200k")
 	}
 
-	// 6. 同一份上下文用量、但缺少窗口字段：按固定 100k 阈值判定（20,000 < 100,000）：应返回 false
+	// 6. 同一份上下文用量、但缺少窗口字段：按默认上限 140k 阈值判定（20,000 < 140,000）：应返回 false
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
 		0: {InputTokens: 20000, OutputTokens: 10000},
@@ -571,28 +571,45 @@ func TestSessionSettings_ShouldOfferCompact(t *testing.T) {
 		t.Errorf("expected ShouldOfferCompact to return false when context window is missing")
 	}
 
-	// 7. 多轮累计 Input+Output 超过 100k，但最新一轮 ContextTokens=20k、ContextWindow=0：不提示
+	// 7. 多轮累计 Input+Output 超过 140k，但最新一轮 ContextTokens=20k、ContextWindow=0：不提示
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
-		0: {InputTokens: 60000, OutputTokens: 50000},
+		0: {InputTokens: 100000, OutputTokens: 50000},
 		1: {InputTokens: 15000, OutputTokens: 5000, ContextTokens: 20000, ContextWindow: 0},
 	}
 	backend.mu.Unlock()
 
 	if backend.ShouldOfferCompact(thID) {
-		t.Errorf("expected ShouldOfferCompact to return false when cumulative > 100k but latest ContextTokens=20k and ContextWindow=0")
+		t.Errorf("expected ShouldOfferCompact to return false when cumulative > 140k but latest ContextTokens=20k and ContextWindow=0")
 	}
 
-	// 8. 最新一轮 ContextTokens=0、Input+Output=120k、ContextWindow=0：提示
+	// 8. 最新一轮 ContextTokens=0、Input+Output=140k、ContextWindow=0：提示
 	backend.mu.Lock()
 	backend.usage[thID] = map[int]harness.Usage{
 		0: {InputTokens: 10000, OutputTokens: 5000},
-		1: {InputTokens: 90000, OutputTokens: 30000, ContextTokens: 0, ContextWindow: 0},
+		1: {InputTokens: 100000, OutputTokens: 40000, ContextTokens: 0, ContextWindow: 0},
 	}
 	backend.mu.Unlock()
 
 	if !backend.ShouldOfferCompact(thID) {
-		t.Errorf("expected ShouldOfferCompact to return true when latest ContextTokens=0, Input+Output=120k, ContextWindow=0")
+		t.Errorf("expected ShouldOfferCompact to return true when latest ContextTokens=0, Input+Output=140k, ContextWindow=0")
+	}
+
+	// 9. 设置 CompactSuggestMaxK=20 后，25k / 1M 窗口应达到 20k 上限并返回 true
+	backend.SetGeneralSettingsFunc(func() config.Config {
+		return config.Config{Session: config.SessionConfig{
+			AskCompactBeforeResume: testBoolPtr(true),
+			CompactSuggestMaxK:     20,
+		}}
+	})
+	backend.mu.Lock()
+	backend.usage[thID] = map[int]harness.Usage{
+		0: {InputTokens: 24000, OutputTokens: 1000, ContextTokens: 25000, ContextWindow: 1000000},
+	}
+	backend.mu.Unlock()
+
+	if !backend.ShouldOfferCompact(thID) {
+		t.Errorf("expected ShouldOfferCompact to return true when CompactSuggestMaxK=20 and context=25k / window=1M")
 	}
 }
 
@@ -603,15 +620,15 @@ func TestCompactSuggestionThreshold(t *testing.T) {
 		window int64
 		want   int64
 	}{
-		{"窗口未知时用固定 100k", 0, 100000},
+		{"窗口未知时用默认上限 140k", 0, 140000},
 		{"32k 窗口取 70%", 32000, 22400},
-		{"200k 窗口取 70% 不封顶", 200000, 140000},
-		{"1M 窗口取 70% 不封顶", 1000000, 700000},
+		{"200k 窗口取 70%（140k）", 200000, 140000},
+		{"1M 窗口受默认上限 140k 封顶", 1000000, 140000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := compactSuggestionThreshold(tc.window); got != tc.want {
-				t.Errorf("compactSuggestionThreshold(%d) = %d, want %d", tc.window, got, tc.want)
+			if got := (config.SessionConfig{}).CompactSuggestThreshold(tc.window); got != tc.want {
+				t.Errorf("SessionConfig{}.CompactSuggestThreshold(%d) = %d, want %d", tc.window, got, tc.want)
 			}
 		})
 	}
