@@ -3,11 +3,13 @@ package kanban
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"mcode/internal/agent/gate"
 	"mcode/internal/procattr"
+	"mcode/internal/procutil"
 	"mcode/internal/store"
 )
 
@@ -80,53 +82,35 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 			} else if !gate.IsReadOnlyCommand(meta.WaitCheck) {
 				question = "等待检查命令不是只读命令，是否继续"
 			} else {
-				if t.ProjectID == nil || s.opts.Projects == nil {
-					failure := fmt.Errorf("等待任务 %s 缺少项目目录", t.ID)
-					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-						firstErr = updateErr
+				var root string
+				if t.ProjectID != nil && s.opts.Projects != nil {
+					if r, err := s.opts.Projects.ProjectRoot(ctx, *t.ProjectID); err == nil && strings.TrimSpace(r) != "" {
+						root = r
 					}
-					if firstErr == nil {
-						firstErr = failure
-					}
-					continue
 				}
-				root, err := s.opts.Projects.ProjectRoot(ctx, *t.ProjectID)
-				if err != nil {
-					failure := fmt.Errorf("等待任务 %s 获取项目目录失败: %w", t.ID, err)
-					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-						firstErr = updateErr
-					}
-					if firstErr == nil {
-						firstErr = err
-					}
-					continue
-				}
-				if strings.TrimSpace(root) == "" {
-					failure := fmt.Errorf("等待任务 %s 的项目目录为空", t.ID)
-					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-						firstErr = updateErr
-					}
-					if firstErr == nil {
-						firstErr = failure
-					}
-					continue
-				}
-				checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-				cmd := procattr.ShellCommand(checkCtx, meta.WaitCheck)
-				cmd.Dir = root
-				err = cmd.Run()
-				cancel()
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if err == nil {
-					t.Status = string(TaskStatusTodo)
-					meta.WaitKind, meta.WaitCheck, meta.WakeAt, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				if root == "" {
+					question = "等待检查无法执行：找不到项目目录，是否继续等"
 				} else {
-					meta.Wakes++
-					meta.WakeAt = now.Add(time.Duration(BackoffMinutes(meta.Wakes)) * time.Minute).Format(time.RFC3339)
-					if meta.Wakes > MaxWaitWakes {
-						question = "等待超时：" + meta.Summary
+					checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					cmd := procattr.ShellCommand(checkCtx, meta.WaitCheck)
+					cmd.Dir = root
+					procutil.SetProcessGroup(cmd)
+					cmd.Cancel = func() error { return procutil.KillProcessGroup(cmd, os.Kill) }
+					cmd.WaitDelay = 2 * time.Second
+					err = cmd.Run()
+					cancel()
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if err == nil {
+						t.Status = string(TaskStatusTodo)
+						meta.WaitKind, meta.WaitCheck, meta.WakeAt, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+					} else {
+						meta.Wakes++
+						meta.WakeAt = now.Add(time.Duration(BackoffMinutes(meta.Wakes)) * time.Minute).Format(time.RFC3339)
+						if meta.Wakes > MaxWaitWakes {
+							question = "等待超时：" + meta.Summary
+						}
 					}
 				}
 			}

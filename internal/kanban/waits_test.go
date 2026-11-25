@@ -241,3 +241,34 @@ func TestCheckWaitsExpiredWhileSessionStoppedCreatesDecision(t *testing.T) {
 		t.Fatalf("会话未运行时应创建等待到期决策卡: %+v, %v", decisions, err)
 	}
 }
+
+func TestCheckWaitsMachineMissingProjectCreatesDecision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return now })
+	meta := TaskMeta{
+		WaitKind:  "machine",
+		WaitCheck: "true",
+		WakeAt:    now.Add(-time.Minute).Format(time.RFC3339),
+		Summary:   "等待服务就绪",
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "missing-project", Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(meta)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "missing-project")
+	if err != nil || task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("缺少项目目录应升级为 needs_approval: %+v, %v", task, err)
+	}
+	gotMeta, err := ParseTaskMeta(task.Meta)
+	if err != nil || gotMeta.DecisionID == "" || gotMeta.WaitKind != "machine" {
+		t.Fatalf("等待决策元数据异常: %+v, %v", gotMeta, err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 1 || decisions[0].Question != "等待检查无法执行：找不到项目目录，是否继续等" {
+		t.Fatalf("缺少项目目录决策卡异常: %+v, %v", decisions, err)
+	}
+}
