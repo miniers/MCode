@@ -143,8 +143,8 @@ type mcpPageUIState struct {
 	expandedServers        map[string]bool
 	detailAdvancedExpanded map[string]bool
 	toolsCache             map[string][]agentconf.MCPToolInfo
-	toolsLoading    map[string]bool
-	toolsErr        map[string]string
+	toolsLoading           map[string]bool
+	toolsErr               map[string]string
 
 	// authIDs 缓存「名称+地址」到 AuthID 的映射，signedIn/signedInBusy 缓存登录状态与
 	// 后台刷新标记（见 settings_page_mcp_cache.go）。渲染路径只读这些缓存，
@@ -185,8 +185,8 @@ func newMCPPageUIState(dataDir string) *mcpPageUIState {
 		expandedServers:        make(map[string]bool),
 		detailAdvancedExpanded: make(map[string]bool),
 		toolsCache:             make(map[string][]agentconf.MCPToolInfo),
-		toolsLoading:    make(map[string]bool),
-		toolsErr:        make(map[string]string),
+		toolsLoading:           make(map[string]bool),
+		toolsErr:               make(map[string]string),
 
 		authIDs:      make(map[string]string),
 		signedIn:     make(map[string]mcpSignedInEntry),

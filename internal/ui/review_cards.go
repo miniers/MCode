@@ -190,9 +190,9 @@ func prepareReviewCards(c *ui.Context, s *chatState, dp *diffPanelState, host ui
 				})
 			}
 			if railWidth > 0 {
-				ui.Row(c.Key("git-all-file-body-row-"+file.Path)).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
+				ui.Row(c.Key("git-all-file-body-row-" + file.Path)).FillWidth().AlignItems(ui.Stretch).Background(ThemeWindowBg(c)).Children(func() {
 					renderGitTimelineRailLine(c, railWidth)
-					ui.Column(c.Key("git-all-file-body-content-"+file.Path)).Grow(1).MinWidth(0).Children(renderBody)
+					ui.Column(c.Key("git-all-file-body-content-" + file.Path)).Grow(1).MinWidth(0).Children(renderBody)
 				})
 				return
 			}
@@ -217,7 +217,7 @@ func renderReviewCardHead(c *ui.Context, s *chatState, dp *diffPanelState, tid s
 	if rh.dialog {
 		bg = ThemeSurface(c)
 	}
-	head := ui.Row(c.Key("review-card-head-"+file.Path)).Label(file.Path).FillWidth().Height(reviewCardHeadHeight).AlignItems(ui.Center).Focusable().OnClick(onToggle)
+	head := ui.Row(c.Key("review-card-head-" + file.Path)).Label(file.Path).FillWidth().Height(reviewCardHeadHeight).AlignItems(ui.Center).Focusable().OnClick(onToggle)
 	hovered := head.Hovered()
 	switch {
 	case selected:

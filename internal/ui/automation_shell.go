@@ -221,7 +221,13 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 			for _, project := range s.projects {
 				names[project.ID] = project.Name
 			}
-			renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) { automationMu.Lock(); as.fillAutomation(a); as.editorOpen = true; automationMu.Unlock(); s.invalidate() }})
+			renderAutomationList(c, automationListProps{Visible: visible, SelectedID: as.selectedID, Unread: as.unread, RunningIDs: runningIDs, ScopeID: p.ScopeID, ProjectNames: names, Scroll: &as.listScroll, KeyboardFocusID: &as.keyboardFocusID, EditorOpen: as.editorOpen, Now: time.Now(), OnSelect: func(a Automation) { as.selectAutomation(a, s) }, OnEdit: func(a Automation) {
+				automationMu.Lock()
+				as.fillAutomation(a)
+				as.editorOpen = true
+				automationMu.Unlock()
+				s.invalidate()
+			}})
 		})
 	}
 	renderDetail := func() {
@@ -267,7 +273,13 @@ func renderAutomationScopedBody(c *ui.Context, s *chatState, p automationWorkspa
 					appPopover(c, more, &as.moreOpen, nil, func() {
 						popoverCard(c, ui.Column(c.Key("automation-more-menu"))).Padding(Space2, Space2).Children(func() {
 							Button(c.Key("automation-copy"), ButtonOpts{Text: "复制", Label: "复制自动化", Variant: ButtonGhost, OnClick: func() { as.moreOpen = false; s.duplicateAutomation(selected) }})
-							Button(c.Key("automation-delete"), ButtonOpts{Text: "删除", Variant: ButtonDanger, OnClick: func() { as.moreOpen = false; automationMu.Lock(); as.confirmDelete = true; automationMu.Unlock(); s.invalidate() }})
+							Button(c.Key("automation-delete"), ButtonOpts{Text: "删除", Variant: ButtonDanger, OnClick: func() {
+								as.moreOpen = false
+								automationMu.Lock()
+								as.confirmDelete = true
+								automationMu.Unlock()
+								s.invalidate()
+							}})
 						})
 					})
 				},

@@ -335,7 +335,7 @@ func renderStorageCleanupSection(c *ui.Context, st *SettingsState) {
 
 func renderStorageGroup(c *ui.Context, st *SettingsState, g storageGroupView, checked, expanded, disabled bool) {
 	cat := g.def.cat
-	ui.Column(c.Key("storage-group-"+string(cat))).FillWidth().Children(func() {
+	ui.Column(c.Key("storage-group-" + string(cat))).FillWidth().Children(func() {
 		ui.Row(c.Key("storage-group-row-"+string(cat))).
 			Padding(settingsRowPadY, settingsRowPadX).
 			Gap(Space3).
@@ -354,7 +354,7 @@ func renderStorageGroup(c *ui.Context, st *SettingsState, g storageGroupView, ch
 				btn := ui.ButtonBase(c.Key("storage-expand-"+string(cat))).
 					Grow(1).
 					Expanded(expanded).
-					Label("展开 " + g.def.title).
+					Label("展开 "+g.def.title).
 					Padding(Space1, Space2).
 					Radius(RadiusSM)
 				if btn.Hovered() {
@@ -364,7 +364,7 @@ func renderStorageGroup(c *ui.Context, st *SettingsState, g storageGroupView, ch
 					toggleStorageCategoryExpanded(st, cat)
 				}
 				btn.Children(func() {
-					ui.Row(c.Key("storage-expand-inner-"+string(cat))).
+					ui.Row(c.Key("storage-expand-inner-" + string(cat))).
 						FillWidth().
 						Gap(Space3).
 						AlignItems(ui.Center).
@@ -396,7 +396,7 @@ func renderStorageGroup(c *ui.Context, st *SettingsState, g storageGroupView, ch
 				Transition(motionCollapse(c)).
 				Children(func() {
 					for _, it := range g.items {
-						ui.Row(c.Key("storage-item-"+it.ID)).
+						ui.Row(c.Key("storage-item-" + it.ID)).
 							FillWidth().
 							Gap(Space3).
 							AlignItems(ui.Center).

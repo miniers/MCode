@@ -253,7 +253,7 @@ func renderSwarmPairGroupDivider(c *ui.Context, key string) {
 
 func renderSwarmPairResetSlot(c *ui.Context, key, label string, visible bool, onClick func()) {
 	if !visible {
-		ui.Box(c.Key(key + "-spacer")).Size(ControlSM, ControlSM).Shrink(0)
+		ui.Box(c.Key(key+"-spacer")).Size(ControlSM, ControlSM).Shrink(0)
 		return
 	}
 	b := ui.ButtonBase(c.Key(key)).
@@ -338,7 +338,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 
 				// 2. 主代理模型 / 子代理模型分组卡片
 				renderSwarmPairGroupCard(c, "group-pair-models-"+popKey, func() {
-					ui.Row(c.Key("sec-lead-" + popKey)).
+					ui.Row(c.Key("sec-lead-"+popKey)).
 						FillWidth().
 						Padding(Space2, Space3).
 						AlignItems(ui.Center).
@@ -382,7 +382,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 
 					renderSwarmPairGroupDivider(c, "div-pair-models-"+popKey)
 
-					ui.Row(c.Key("sec-worker-" + popKey)).
+					ui.Row(c.Key("sec-worker-"+popKey)).
 						FillWidth().
 						Padding(Space2, Space3).
 						AlignItems(ui.Center).
@@ -473,7 +473,7 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 										tierName = tier.ID
 									}
 
-									ui.Row(c.Key("tier-map-row-" + tier.ID + "-" + popKey)).
+									ui.Row(c.Key("tier-map-row-"+tier.ID+"-"+popKey)).
 										FillWidth().
 										Padding(Space2, Space3).
 										AlignItems(ui.Center).

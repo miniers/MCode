@@ -422,7 +422,11 @@ func TestGitPRCreateDialogInAppUnpushedPushesThenCreates(t *testing.T) {
 				t.Fatal("推送未开始")
 			}
 			close(client.pushRelease)
-			gitPaneWait(t, func() bool { d.mu.Lock(); defer d.mu.Unlock(); return !d.pushing && !d.creating && d.createdNumber == 88 })
+			gitPaneWait(t, func() bool {
+				d.mu.Lock()
+				defer d.mu.Unlock()
+				return !d.pushing && !d.creating && d.createdNumber == 88
+			})
 			tt.Advance(DurSlow)
 
 			client.mu.Lock()

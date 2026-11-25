@@ -182,14 +182,14 @@ func TestStorageScan_SafeCategoriesAndExclusions(t *testing.T) {
 	}
 
 	want := map[string]mcodeui.StorageItem{
-		"media/th-deleted":                 {ID: "media/th-deleted", Category: mcodeui.StorageCategoryDeletedSessions, Bytes: 200},
-		"tool-outputs/th-deleted":          {ID: "tool-outputs/th-deleted", Category: mcodeui.StorageCategoryDeletedSessions, Bytes: 201},
+		"media/th-deleted":                  {ID: "media/th-deleted", Category: mcodeui.StorageCategoryDeletedSessions, Bytes: 200},
+		"tool-outputs/th-deleted":           {ID: "tool-outputs/th-deleted", Category: mcodeui.StorageCategoryDeletedSessions, Bytes: 201},
 		"mcode/sessions/sess-deleted.jsonl": {ID: "mcode/sessions/sess-deleted.jsonl", Category: mcodeui.StorageCategoryDeletedSessions, Bytes: 202},
-		"swarm-landed/orphan.patch":        {ID: "swarm-landed/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 300},
-		"swarm-patches/orphan.patch":       {ID: "swarm-patches/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 301},
-		"swarm-reviews/orphan.patch":       {ID: "swarm-reviews/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 302},
-		"swarm-worktree-backup-20260101":   {ID: "swarm-worktree-backup-20260101", Category: mcodeui.StorageCategoryOldBackups, Bytes: 400},
-		"logs/mcode.log.1":                 {ID: "logs/mcode.log.1", Category: mcodeui.StorageCategoryOldLogs, Bytes: 501},
+		"swarm-landed/orphan.patch":         {ID: "swarm-landed/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 300},
+		"swarm-patches/orphan.patch":        {ID: "swarm-patches/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 301},
+		"swarm-reviews/orphan.patch":        {ID: "swarm-reviews/orphan.patch", Category: mcodeui.StorageCategoryOrphanPatches, Bytes: 302},
+		"swarm-worktree-backup-20260101":    {ID: "swarm-worktree-backup-20260101", Category: mcodeui.StorageCategoryOldBackups, Bytes: 400},
+		"logs/mcode.log.1":                  {ID: "logs/mcode.log.1", Category: mcodeui.StorageCategoryOldLogs, Bytes: 501},
 	}
 
 	if !reflect.DeepEqual(got, want) {

@@ -11,8 +11,8 @@ import (
 
 func TestPopoverAnchorToggle(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		useCard     bool
+		name    string
+		useCard bool
 	}{
 		{name: "appPopover", useCard: false},
 		{name: "PopoverCard", useCard: true},

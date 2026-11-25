@@ -375,15 +375,15 @@ type ThreadCreateResult struct {
 
 // ThreadUpdateParams 对应 threads.update 请求参数
 type ThreadUpdateParams struct {
-	ThreadID    string  `json:"threadID"`
-	Pinned      *bool   `json:"pinned,omitempty"`
-	Dormant     *bool   `json:"dormant,omitempty"`
-	Archived    *bool   `json:"archived,omitempty"`
-	Read        *bool   `json:"read,omitempty"`
-	Title       *string `json:"title,omitempty"`
-	RuntimeMode *string `json:"runtimeMode,omitempty"`
-	Provider    *string `json:"provider,omitempty"`
-	Model       *string `json:"model,omitempty"`
+	ThreadID         string  `json:"threadID"`
+	Pinned           *bool   `json:"pinned,omitempty"`
+	Dormant          *bool   `json:"dormant,omitempty"`
+	Archived         *bool   `json:"archived,omitempty"`
+	Read             *bool   `json:"read,omitempty"`
+	Title            *string `json:"title,omitempty"`
+	RuntimeMode      *string `json:"runtimeMode,omitempty"`
+	Provider         *string `json:"provider,omitempty"`
+	Model            *string `json:"model,omitempty"`
 	Effort           *string `json:"effort,omitempty"`
 	Account          *string `json:"account,omitempty"`
 	SwarmBeesAccount *string `json:"swarmBeesAccount,omitempty"`

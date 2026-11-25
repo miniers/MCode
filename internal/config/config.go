@@ -1200,7 +1200,7 @@ type SourceControlConfig struct {
 	GenerateCommitMessage        *bool                `json:"generate_commit_message,omitempty"`          // 提交信息由 AI 生成，nil 视为开启
 	ShowChangeBadge              *bool                `json:"show_change_badge,omitempty"`                // Git 按钮上叠改动数角标，nil 视为显示
 	AutoFetch                    *bool                `json:"auto_fetch,omitempty"`                       // 后台定期抓取远端，nil 视为开启
-	CommitInstructions           string               `json:"commit_instructions"`                       // 提交信息附加说明
+	CommitInstructions           string               `json:"commit_instructions"`                        // 提交信息附加说明
 	CommitMessageModel           ModelSelectionConfig `json:"commit_message_model,omitempty"`             // 提交信息与会话标题生成模型；Provider 为空时沿用 utility 角色模型
 }
 

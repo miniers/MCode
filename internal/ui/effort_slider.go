@@ -1523,7 +1523,7 @@ func renderToolbarResetButton(c *ui.Context, p EffortSliderCardProps) {
 }
 
 func renderEffortRosterSlots(c *ui.Context, p EffortSliderCardProps) {
-	ui.Column(c.Key(p.KeyPrefix + "roster-card")).
+	ui.Column(c.Key(p.KeyPrefix+"roster-card")).
 		Radius(RadiusLG).
 		Background(effortOnDark.Alpha(0.035)).
 		Border(1, effortOnDark.Alpha(0.08)).
@@ -1617,7 +1617,7 @@ func renderEffortRosterSlot(c *ui.Context, p EffortSliderCardProps, index int, s
 		}
 
 		mainBtn.Children(func() {
-			ui.Row(c.Key(p.KeyPrefix+"roster-main-row-"+rowKey)).
+			ui.Row(c.Key(p.KeyPrefix + "roster-main-row-" + rowKey)).
 				AlignItems(ui.Center).
 				Gap(Space2).
 				MinWidth(0).
@@ -1726,7 +1726,7 @@ func renderEffortRosterSlot(c *ui.Context, p EffortSliderCardProps, index int, s
 				trailBtn.OnClick(slot.OnOpenList)
 			}
 			trailBtn.Children(func() {
-				ui.Row(c.Key(p.KeyPrefix+"roster-trail-row-"+rowKey)).
+				ui.Row(c.Key(p.KeyPrefix + "roster-trail-row-" + rowKey)).
 					AlignItems(ui.Center).
 					Gap(Space1).
 					Children(func() {

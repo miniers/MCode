@@ -397,4 +397,3 @@ func TestUIReview3OpenChatFindKeepsCursorWhenOpen(t *testing.T) {
 		t.Fatalf("计数文案应保持 2/3，实际 Texts=%v", tt.Texts())
 	}
 }
-

@@ -551,7 +551,7 @@ func renderMermaidCodeBlock(c *ui.Context, s *chatState, b *markdown.CodeBlockVi
 				b.Body(c)
 				return
 			}
-			ui.Column(c.Key(cardKey+"-body")).
+			ui.Column(c.Key(cardKey + "-body")).
 				AlignSelf(ui.Stretch).
 				AlignItems(ui.Center).
 				Padding(Space3).

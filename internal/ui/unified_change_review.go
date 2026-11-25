@@ -583,7 +583,7 @@ func renderChangeReviewDiff(c *ui.Context, keyPrefix string, st *changeReviewSta
 				Border(Hairline, ThemeBorder(c)).
 				Clip().
 				Children(func() {
-					head := ui.Row(c.Key(cardKey + "-head")).
+					head := ui.Row(c.Key(cardKey+"-head")).
 						Label(path).
 						Tooltip(path).
 						FillWidth().
@@ -810,7 +810,7 @@ func renderChangeReviewBanner(c *ui.Context, key string, opts changeReviewBanner
 				if opts.AcceptanceBee.AcceptanceStep > 0 && opts.AcceptanceBee.AcceptanceStep <= len(opts.AcceptanceBee.Acceptance) {
 					renderAcceptanceProgress(c, *opts.AcceptanceBee)
 				} else {
-					ui.Row(c.Key(key+"-acceptance-summary")).
+					ui.Row(c.Key(key + "-acceptance-summary")).
 						FillWidth().
 						MinWidth(0).
 						Gap(Space1).
@@ -870,7 +870,7 @@ type changeReviewApprovalBarOpts struct {
 
 // renderChangeReviewApprovalBar 渲染统一的底部审批动作条：可选反馈输入框、错误行与主/次操作按钮。
 func renderChangeReviewApprovalBar(c *ui.Context, key string, opts changeReviewApprovalBarOpts) {
-	ui.Column(c.Key(key+"-approval-bar")).
+	ui.Column(c.Key(key + "-approval-bar")).
 		FillWidth().
 		MinWidth(0).
 		Gap(Space3).
@@ -900,7 +900,7 @@ func renderChangeReviewApprovalBar(c *ui.Context, key string, opts changeReviewA
 				if busyKey == "" {
 					busyKey = key + "-approval-busy"
 				}
-				ui.Row(c.Key(key+"-busy-row")).
+				ui.Row(c.Key(key + "-busy-row")).
 					Gap(Space1).
 					AlignItems(ui.Center).
 					Shrink(0).
@@ -929,7 +929,7 @@ func renderChangeReviewApprovalBar(c *ui.Context, key string, opts changeReviewA
 						OnClick:  a.OnClick,
 					})
 				}
-				ui.Row(c.Key(key+"-review-actions")).
+				ui.Row(c.Key(key + "-review-actions")).
 					Gap(Space3).
 					AlignItems(ui.Center).
 					Wrap().

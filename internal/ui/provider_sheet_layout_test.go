@@ -63,7 +63,9 @@ func Test供应商面板_单页与高级折叠(t *testing.T) {
 	fake.SetProviders([]ProviderInfo{{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{{ID: "test-model", Name: "测试模型"}}}})
 	tt, _ := openProvidersPageTest(t, fake)
 	clickProviderDetailTabForTest(t, tt, "claude", "")
-	waitFor(t, tt, func() bool { return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("可执行文件路径") })
+	waitFor(t, tt, func() bool {
+		return tt.HasText("账号") && tt.HasText("模型") && tt.HasText("可执行文件路径")
+	})
 	if tt.HasText("返回概览") || tt.HasText("展开高级") || tt.HasText("收起高级") {
 		t.Fatalf("高级设置应直接平铺展开：%v", tt.Texts())
 	}

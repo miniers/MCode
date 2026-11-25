@@ -466,7 +466,7 @@ func renderTasksAttentionItemRow(c *ui.Context, s *chatState, ks *kanbanState, b
 	}
 
 	row.Children(func() {
-		btn := ui.ButtonBase(c.Key("tasks-attention-select-"+item.Key)).
+		btn := ui.ButtonBase(c.Key("tasks-attention-select-" + item.Key)).
 			Label(item.Title).
 			Grow(1).
 			MinWidth(0).
@@ -475,8 +475,8 @@ func renderTasksAttentionItemRow(c *ui.Context, s *chatState, ks *kanbanState, b
 			})
 		focusRing(c, btn)
 		btn.Children(func() {
-			ui.Column(c.Key("tasks-attention-body-"+item.Key)).FillWidth().MinWidth(0).Gap(Space1).Children(func() {
-				ui.Row(c.Key("tasks-attention-top-"+item.Key)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
+			ui.Column(c.Key("tasks-attention-body-" + item.Key)).FillWidth().MinWidth(0).Gap(Space1).Children(func() {
+				ui.Row(c.Key("tasks-attention-top-" + item.Key)).FillWidth().MinWidth(0).AlignItems(ui.Center).Gap(Space2).Children(func() {
 					if item.FromSteward {
 						renderStewardOriginBadge(c, "tasks-attention-steward-"+item.Key)
 					}

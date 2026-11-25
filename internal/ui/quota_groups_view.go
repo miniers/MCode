@@ -189,7 +189,7 @@ func renderQuotaRadioRing(c *ui.Context, key string, selected, disabled, rowHove
 	dotScale := ring.AnimateTo("radio-dot", dotTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseOut})
 	ring.Children(func() {
 		if dotScale > 0 {
-			ui.Box(c.Key(key + "-dot")).
+			ui.Box(c.Key(key+"-dot")).
 				Size(6, 6).
 				Radius(RadiusPill).
 				Background(ThemeOnAccent(c)).
@@ -210,7 +210,7 @@ func renderQuotaActiveBadge(c *ui.Context, key string) {
 		Gap(3).
 		Shrink(0).
 		Children(func() {
-			ui.Box(c.Key(key + "-dot")).
+			ui.Box(c.Key(key+"-dot")).
 				Size(4, 4).
 				Radius(RadiusPill).
 				Background(ThemeAccent(c))
@@ -249,14 +249,14 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 	statusColW := quotaStatusColWidth(c)
 	const colGap = Space3
 
-	ui.Column(c.Key(keyPrefix+"list")).
+	ui.Column(c.Key(keyPrefix + "list")).
 		FillWidth().
 		Gap(Space3).
 		Children(func() {
 			for gIdx, g := range groups {
 				groupKey := fmt.Sprintf("%sg-%d", keyPrefix, gIdx)
 				if gIdx > 0 {
-					ui.Row(c.Key(groupKey + "-divider-wrap")).
+					ui.Row(c.Key(groupKey+"-divider-wrap")).
 						FillWidth().
 						Padding(0, Space4).
 						Children(func() {
@@ -576,7 +576,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 										}
 
 										if hasAnyStatus || len(cols) > 0 {
-											ui.Row(c.Key(groupKey+"-col-status")).
+											ui.Row(c.Key(groupKey + "-col-status")).
 												Width(statusColW).
 												Shrink(0).
 												Justify(ui.End).
@@ -672,7 +672,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 								}
 
 								rowEl.Children(func() {
-									ui.Row(c.Key(accKey+"-acc-cell")).
+									ui.Row(c.Key(accKey + "-acc-cell")).
 										Grow(1).
 										MinWidth(0).
 										AlignItems(ui.Center).
@@ -714,7 +714,7 @@ func renderQuotaGroupList(c *ui.Context, keyPrefix string, groups []trayQuotaGro
 											Gap(Space1).
 											Children(func() {
 												if cell.win == nil {
-													ui.Row(c.Key(cellKey+"-dash")).
+													ui.Row(c.Key(cellKey + "-dash")).
 														FillWidth().
 														Justify(ui.Center).
 														Children(func() {

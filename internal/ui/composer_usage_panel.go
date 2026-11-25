@@ -2544,7 +2544,7 @@ func renderComposerQuotaRouteSeg(c *ui.Context, acct composerQuotaAccountState) 
 	}
 	track.Children(func() {
 		for _, seg := range segments {
-			item := ui.ButtonBase(c.Key("composer-quota-route-" + seg.key)).
+			item := ui.ButtonBase(c.Key("composer-quota-route-"+seg.key)).
 				Label(seg.label).
 				Height(ControlXS).
 				Padding(0, Space2).

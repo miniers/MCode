@@ -148,7 +148,7 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 							toggle()
 						}
 						checkRow.Children(func() {
-							box := ui.Box(c.Key(key + "-box")).
+							box := ui.Box(c.Key(key+"-box")).
 								Size(14, 14).
 								Radius(RadiusXS).
 								Center()

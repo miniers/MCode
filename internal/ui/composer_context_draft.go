@@ -446,7 +446,7 @@ func renderContextDraftAttachmentItem(c *ui.Context, s *chatState, st *composerC
 						focusRing(c, thumbBtn)
 						thumbBtn.Children(func() {
 							ui.Image(c, a.Thumb).
-								Key(itemKey+"-thumb").
+								Key(itemKey + "-thumb").
 								Width(composerAttachThumbSize).
 								Height(composerAttachThumbSize)
 						})
@@ -592,7 +592,7 @@ func renderContextDraftAttachmentItem(c *ui.Context, s *chatState, st *composerC
 						FontSize(uiFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c))
 				}
-				ui.Scroll(c.Key(itemKey + "-preview-scroll")).
+				ui.Scroll(c.Key(itemKey+"-preview-scroll")).
 					FillWidth().
 					MaxHeight(composerContextDraftPreviewMaxHeight).
 					Padding(Space2).
@@ -763,7 +763,7 @@ func renderContextDraftSnippetItem(c *ui.Context, s *chatState, st *composerCont
 			}
 
 			if expanded {
-				ui.Scroll(c.Key(itemKey + "-preview-scroll")).
+				ui.Scroll(c.Key(itemKey+"-preview-scroll")).
 					FillWidth().
 					MaxHeight(composerContextDraftPreviewMaxHeight).
 					Padding(Space2).

@@ -192,7 +192,7 @@ var identityPalette = map[string]ui.Color{
 	"sora": ui.Hex("#0891B2"), "theo": ui.Hex("#DB2777"),
 	"uma": ui.Hex("#CA8A04"), "vera": ui.Hex("#4F46E5"),
 	"wynn": ui.Hex("#0D9488"), "yuki": ui.Hex("#EA580C"),
-	"zoe": ui.Hex("#9333EA"),
+	"zoe":    ui.Hex("#9333EA"),
 	"claude": ui.Hex("#D97757"), "codex": ui.Hex("#10A37F"),
 	"gemini": ui.Hex("#4285F4"), "deepseek": ui.Hex("#4D6BFE"),
 	"meta": ui.Hex("#0082FB"),

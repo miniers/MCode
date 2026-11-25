@@ -135,7 +135,7 @@ func tasksDestinationRow(c *ui.Context, s *chatState, current, destination, titl
 
 func tasksSidebarRow(c *ui.Context, key, title string, count int, selected bool, confirm, click func()) {
 	if confirm != nil {
-		row := ui.Row(c.Key(key + "-row")).FillWidth().Height(RowHeight).Padding(0, Space1, 0, Space3).Radius(RowCornerRadius).Gap(Space2).AlignItems(ui.Center)
+		row := ui.Row(c.Key(key+"-row")).FillWidth().Height(RowHeight).Padding(0, Space1, 0, Space3).Radius(RowCornerRadius).Gap(Space2).AlignItems(ui.Center)
 		if selected {
 			row = row.Background(ThemeSelected(c))
 		} else if row.Hovered() {

@@ -252,7 +252,7 @@ func renderTurnWorkItem(c *ui.Context, s *chatState, item timelineItem, usage To
 			}
 
 			if hasTodo {
-				ui.Row(c.Key("turnwork-header-line-"+item.id)).
+				ui.Row(c.Key("turnwork-header-line-" + item.id)).
 					AlignItems(ui.Center).
 					Gap(Space1).
 					Children(func() {

@@ -1890,7 +1890,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 
 							if a.PreviewText != "" {
 								card := ui.ButtonBase(c.Key("composer-attach-"+a.LocalID)).
-									Label("预览上下文 " + a.Name).
+									Label("预览上下文 "+a.Name).
 									Transition(motionListItem(c)).
 									MinHeight(ControlSM).
 									Padding(Space0, Space3, Space0, Space3).
@@ -1918,7 +1918,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 								}
 								card.Scale(scale, scale)
 								card.Children(func() {
-									ui.Row(c.Key("composer-attach-content-"+a.LocalID)).
+									ui.Row(c.Key("composer-attach-content-" + a.LocalID)).
 										Gap(Space2).
 										AlignItems(ui.Center).
 										Children(renderCardContent)

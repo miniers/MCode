@@ -89,9 +89,9 @@ type gitPaneState struct {
 	// 浮层与弹窗只由 UI 线程读写。
 	branchOpen, menuOpen, turnsOpen, forceOpen, detailOpen bool
 	forceBranch                                            string
-	stash                                       *gitStashDialog
-	prCreate                                    *gitPRCreateDialog
-	remotesOpen                                 bool
+	stash                                                  *gitStashDialog
+	prCreate                                               *gitPRCreateDialog
+	remotesOpen                                            bool
 }
 
 func getGitPaneState(s *chatState) *gitPaneState {

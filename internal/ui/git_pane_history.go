@@ -515,7 +515,7 @@ func renderGitPaneHistory(c *ui.Context, s *chatState, threadID string, ps *gitP
 }
 
 func gitHistoryBackBar(c *ui.Context, key string, title string, back func()) {
-	ui.Row(c.Key(key + "-bar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Shrink(0).Children(func() {
+	ui.Row(c.Key(key+"-bar")).FillWidth().Height(diffHeaderHeight).Gap(Space2).AlignItems(ui.Center).Padding(0, Space3).Shrink(0).Children(func() {
 		IconButton(c, IconButtonProps{Key: key, Icon: IconArrowLeft(), Label: "返回", Variant: ButtonGhost, Size: ControlSM, OnClick: back})
 		if title != "" {
 			ui.Text(c, title).FontSize(uiFont(TypeFootnote)).SingleLine().Ellipsis("…").Shrink(1).MinWidth(0)

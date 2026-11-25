@@ -21,11 +21,11 @@ func TestUIReview3FlashTimelineRowReduceMotion(t *testing.T) {
 	}
 
 	view := func(c *ui.Context) {
-		row := ui.Row(c.Key("timeline-row-" + item.id)).Size(120, 40)
+		row := ui.Row(c.Key("timeline-row-"+item.id)).Size(120, 40)
 		flashTimelineRow(c, s, item, row)
 	}
 	expectedView := func(c *ui.Context) {
-		ui.Row(c.Key("timeline-row-" + item.id)).
+		ui.Row(c.Key("timeline-row-"+item.id)).
 			Size(120, 40).
 			Background(ThemeAccent(c).Alpha(0.14)).
 			Border(2, ThemeAccent(c).Alpha(0.5))

@@ -461,7 +461,7 @@ func renderMCPServerRow(
 		})
 		renderSettingsDivider(c, mcpKey+"-div-enabled")
 
-		advToggleBtn := ui.ButtonBase(c.Key(mcpKey + "-adv-toggle")).
+		advToggleBtn := ui.ButtonBase(c.Key(mcpKey+"-adv-toggle")).
 			Label("新会话与批量策略").
 			Expanded(advExpanded).
 			FillWidth().

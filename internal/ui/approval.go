@@ -1609,8 +1609,8 @@ func renderQuestionProgress(c *ui.Context, s *chatState, approval Approval, draf
 	// 数字区宽度按总题数的字符数定死（「10/12」为 5 个字符，按 0.6 倍字号估宽），换题时不抖、不挤题目。
 	numWidth := float32(2*len(strconv.Itoa(total))+1) * uiFont(TypeFootnote) * 0.6
 	trigger.Children(func() {
-		ui.Row(c.Key("question-progress-row-"+id)).AlignItems(ui.Center).Gap(Space1).Children(func() {
-			ui.Row(c.Key("question-progress-num-"+id)).Width(numWidth).Justify(ui.Center).Children(func() {
+		ui.Row(c.Key("question-progress-row-" + id)).AlignItems(ui.Center).Gap(Space1).Children(func() {
+			ui.Row(c.Key("question-progress-num-" + id)).Width(numWidth).Justify(ui.Center).Children(func() {
 				ui.RichText(c.Key("question-progress-text-"+id),
 					ui.Span{Text: strconv.Itoa(current + 1), Weight: 600, Color: ThemePrimaryText(c).Mix(accent, okK)},
 					ui.Span{Text: "/" + strconv.Itoa(total), Color: ThemeTertiaryText(c)},
@@ -1633,8 +1633,8 @@ func renderQuestionPicker(c *ui.Context, s *chatState, approval Approval, draft 
 	gridWidth := float32(cols)*ControlMD + float32(cols-1)*Space1
 	maxHeight := float32(questionPickerRows)*ControlMD + float32(questionPickerRows-1)*Space1
 	popoverCard(c, ui.Column(c.Key("question-picker-card-"+id))).Padding(Space3).Children(func() {
-		ui.Scroll(c.Key("question-picker-scroll-"+id)).MaxHeight(maxHeight).Children(func() {
-			ui.Column(c.Key("question-picker-grid-"+id)).Width(gridWidth).Gap(Space1).Role(ui.RoleGroup).Label("题号").Children(func() {
+		ui.Scroll(c.Key("question-picker-scroll-" + id)).MaxHeight(maxHeight).Children(func() {
+			ui.Column(c.Key("question-picker-grid-" + id)).Width(gridWidth).Gap(Space1).Role(ui.RoleGroup).Label("题号").Children(func() {
 				for start := 0; start < total; start += cols {
 					ui.Row(c.Key(fmt.Sprintf("question-picker-row-%s-%d", id, start/cols))).Gap(Space1).Children(func() {
 						for n := start; n < min(start+cols, total); n++ {

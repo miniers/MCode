@@ -338,7 +338,7 @@ func renderSettingsTreeSheet(c *ui.Context, st *SettingsState, sh settingsSheet)
 				ui.Scroll(c.Key("settings-sheet-scroll-" + sh.ID)).
 					Fill().
 					Children(func() {
-						content := ui.Column(c.Key("settings-sheet-content-"+sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(Space5)
+						content := ui.Column(c.Key("settings-sheet-content-" + sh.ID)).FillWidth().Gap(settingsSectionGap).Padding(Space5)
 						content.Children(func() {
 							if sh.Body != nil {
 								sh.Body(c, st)
@@ -669,7 +669,7 @@ func renderCollapsedSettingsSection(c *ui.Context, st *SettingsState, section se
 			})
 
 			if expanded {
-				ui.Column(c.Key(section.ID + "-collapse-body")).
+				ui.Column(c.Key(section.ID+"-collapse-body")).
 					FillWidth().
 					BorderWidth(Hairline, 0, 0, 0).
 					BorderColor(ThemeHairline(c)).

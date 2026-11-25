@@ -477,10 +477,10 @@ type chatState struct {
 	// 自动休眠扫描节流时间（由 s.mu 保护）
 	autoDormantScannedAt time.Time
 
-	draft         string
-	draftText     richtext.Text
-	isComposing   bool
-	composerView  composerViewState // composer 视图态，仅 UI 线程读写，类型定义在 composer.go
+	draft                string
+	draftText            richtext.Text
+	isComposing          bool
+	composerView         composerViewState // composer 视图态，仅 UI 线程读写，类型定义在 composer.go
 	composerAreaH        float32           // 主 composer 区域上一帧的高度（含标签与卡片），供浮动面板在窄屏停到它上方时避开；受 s.mu 保护
 	chatBottomDockH      float32           // Docked 模式下底部悬浮区上一帧的高度（按整数像素取整）；受 s.mu 保护
 	chatTimelineBounds   ui.Rect           // 时间线容器上一帧的窗口坐标矩形；受 s.mu 保护
@@ -591,9 +591,9 @@ type chatState struct {
 	modelPrefLoading     map[string]bool            // 正在加载偏好的 pin
 	modelPrefWrites      map[string]chan struct{}   // 同一模型的偏好写入按点击顺序执行
 
-	threadListState ui.ListState
-	chatListState   ui.ListState
-	chatScroll      ui.ScrollState // 只用于「跳到最新」的平滑滚动
+	threadListState   ui.ListState
+	chatListState     ui.ListState
+	chatScroll        ui.ScrollState // 只用于「跳到最新」的平滑滚动
 	mdOpts            markdown.Options
 	mdStaticOpts      markdown.Options
 	imagePreview      *imagePreviewState // 正在放大的本地图片，nil 表示没有大图浮层
@@ -648,36 +648,36 @@ type chatState struct {
 
 func newChatState(client Client) *chatState {
 	s := &chatState{
-		client:              client,
-		threadsByProj:       make(map[string][]Thread),
-		collapsedProj:       make(map[string]bool),
-		expandedDormantProj: make(map[string]bool),
-		visibleThreadsProj:  make(map[string]int),
-		bulkRangeDays:       7,
+		client:               client,
+		threadsByProj:        make(map[string][]Thread),
+		collapsedProj:        make(map[string]bool),
+		expandedDormantProj:  make(map[string]bool),
+		visibleThreadsProj:   make(map[string]int),
+		bulkRangeDays:        7,
 		expandedReasoning:    make(map[string]bool),
 		expandedTool:         make(map[string]bool),
 		expandedCommandSteps: make(map[string]bool),
 		mermaidShowSource:    make(map[string]bool),
-		revealedMsgs:        make(map[string]bool),
-		streamedRevealMsgs:  make(map[string]struct{}),
-		seenMsgIDs:          make(map[string]struct{}),
-		streamedMsgIDs:      make(map[string]struct{}),
-		timelineUnread:      timelineUnreadState{anchors: make(map[string]timelineUnreadAnchor)},
-		threadUsage:         ThreadUsage{Turns: make(map[int]TokenUsage)},
-		sidebarWidth:        SidebarDefaultWidth,
-		commandsCache:       make(map[string][]SlashCommand),
-		queue:               make(map[string][]QueuedFollowUp),
-		interrupted:         make(map[string]bool),
-		continueDismissed:   make(map[string]string),
-		optimisticRunning:   make(map[string]bool),
-		turnFinished:        make(map[string]string),
-		drafts:              make(map[string]composerDraft),
-		modelPrefCache:      make(map[string]ModelPreference),
-		modelPrefLoading:    make(map[string]bool),
-		resolvedPlans:       make(map[string][]resolvedPlan),
-		answeredQuestions:   make(map[string][]answeredQuestion),
-		collapsedPlans:      make(map[string]bool),
-		stewardTaskSeen:     make(map[string]time.Time),
+		revealedMsgs:         make(map[string]bool),
+		streamedRevealMsgs:   make(map[string]struct{}),
+		seenMsgIDs:           make(map[string]struct{}),
+		streamedMsgIDs:       make(map[string]struct{}),
+		timelineUnread:       timelineUnreadState{anchors: make(map[string]timelineUnreadAnchor)},
+		threadUsage:          ThreadUsage{Turns: make(map[int]TokenUsage)},
+		sidebarWidth:         SidebarDefaultWidth,
+		commandsCache:        make(map[string][]SlashCommand),
+		queue:                make(map[string][]QueuedFollowUp),
+		interrupted:          make(map[string]bool),
+		continueDismissed:    make(map[string]string),
+		optimisticRunning:    make(map[string]bool),
+		turnFinished:         make(map[string]string),
+		drafts:               make(map[string]composerDraft),
+		modelPrefCache:       make(map[string]ModelPreference),
+		modelPrefLoading:     make(map[string]bool),
+		resolvedPlans:        make(map[string][]resolvedPlan),
+		answeredQuestions:    make(map[string][]answeredQuestion),
+		collapsedPlans:       make(map[string]bool),
+		stewardTaskSeen:      make(map[string]time.Time),
 	}
 	s.windowActive.Store(true)
 	s.inspector.Persist = func(tid string, st *inspectorSessionState) { inspectorPersistSession(s, tid, st) }

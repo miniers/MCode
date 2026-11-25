@@ -63,7 +63,7 @@ type gitPRDialogState struct {
 	prs         []git.PRSummary
 	query       string
 
-	selected          int // 选中项编号，0 表示还没选
+	selected          int    // 选中项编号，0 表示还没选
 	tab               string // "" 表示概览，"changes" 表示改动
 	detailLoading     bool
 	detailErr         string
@@ -1002,7 +1002,7 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 					Gap(Space2).
 					AlignItems(ui.Center).
 					Children(func() {
-						ui.Box(c.Key(key + "-dot")).
+						ui.Box(c.Key(key+"-dot")).
 							Size(Space2, Space2).
 							Radius(RadiusPill).
 							Shrink(0).
@@ -1020,7 +1020,7 @@ func renderGitPRListRow(c *ui.Context, s *chatState, pr git.PRSummary, active bo
 							ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(color).Tooltip(tip)
 						}
 					})
-				ui.Row(c.Key(key + "-line2")).
+				ui.Row(c.Key(key+"-line2")).
 					FillWidth().
 					Gap(Space2).
 					Padding(0, 0, 0, Space4).

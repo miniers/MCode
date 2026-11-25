@@ -52,16 +52,16 @@ type remotePageState struct {
 	renameBusyID    string
 	deviceActionErr string
 
-	tls              RemoteTLSStatus
-	tlsLoaded        bool
-	tlsBusy          bool
-	tlsErr           string
-	tlsResult        string
-	tlsResultErr     bool
-	tlsRemoveConfirm bool
-	tlsFieldsInit    bool
-	tlsDomainText    string
-	tlsPortText      string
+	tls                  RemoteTLSStatus
+	tlsLoaded            bool
+	tlsBusy              bool
+	tlsErr               string
+	tlsResult            string
+	tlsResultErr         bool
+	tlsRemoveConfirm     bool
+	tlsFieldsInit        bool
+	tlsDomainText        string
+	tlsPortText          string
 	tlsTokenInput        string
 	tlsHasToken          bool
 	tlsTokenClearConfirm bool

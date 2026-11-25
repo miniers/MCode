@@ -201,7 +201,7 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 			})
 
 			if summary != "" {
-				ui.Column(c.Key(key + "-summary")).
+				ui.Column(c.Key(key+"-summary")).
 					FillWidth().
 					Padding(Space2, Space2).
 					Children(func() {

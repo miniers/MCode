@@ -358,12 +358,12 @@ func renderQuickReplyDeleteConfirm(c *ui.Context, st *SettingsState, page *quick
 		Tone:            ConfirmDanger,
 		CancelAutoFocus: true,
 		Title:           "删除快捷回复",
-		Body:         body,
-		ConfirmLabel: "删除",
-		ConfirmA11y:  "确认删除快捷回复",
-		CancelA11y:   "取消删除快捷回复",
-		OnConfirm:    func() { confirmDeleteQuickReply(st, page) },
-		OnCancel:     func() { cancelDeleteQuickReply(st, page) },
+		Body:            body,
+		ConfirmLabel:    "删除",
+		ConfirmA11y:     "确认删除快捷回复",
+		CancelA11y:      "取消删除快捷回复",
+		OnConfirm:       func() { confirmDeleteQuickReply(st, page) },
+		OnCancel:        func() { cancelDeleteQuickReply(st, page) },
 	})
 }
 

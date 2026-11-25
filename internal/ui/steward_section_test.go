@@ -174,7 +174,9 @@ func TestHostEventRendersAsCard(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 
-	waitFor(t, tt, func() bool { return tt.HasText("后台任务连续失败两次，需要你判断是否继续重试。") })
+	waitFor(t, tt, func() bool {
+		return tt.HasText("后台任务连续失败两次，需要你判断是否继续重试。")
+	})
 	if strings.Contains(strings.Join(tt.Texts(), "\n"), "宿主转来") {
 		t.Fatalf("宿主事件卡片不应再显示「宿主转来」标签，当前文本: %q", tt.Texts())
 	}

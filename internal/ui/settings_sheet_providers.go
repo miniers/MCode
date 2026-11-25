@@ -26,10 +26,12 @@ func init() {
 			},
 		},
 		settingsSheet{
-			ID:     "provider-add",
-			Width:  720,
-			Title:  "添加供应商",
-			Body:   func(c *ui.Context, st *SettingsState) { renderProviderAddSheetBody(c, st, cliProviderListEntries(st, modelsPageLibrary(c, st))) },
+			ID:    "provider-add",
+			Width: 720,
+			Title: "添加供应商",
+			Body: func(c *ui.Context, st *SettingsState) {
+				renderProviderAddSheetBody(c, st, cliProviderListEntries(st, modelsPageLibrary(c, st)))
+			},
 			FooterVisible: func(st *SettingsState) bool {
 				st.mu.Lock()
 				kind := st.presets.addType

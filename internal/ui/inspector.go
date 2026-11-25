@@ -23,16 +23,16 @@ type inspectorState struct {
 }
 
 type inspectorSessionState struct {
-	owner          *chatState
-	Open           bool
-	Active         string
-	generation     uint64
-	Width          float32
-	Files          *fileManagerState
-	Review         *diffPanelState
-	Git            *gitPaneState
-	Browser        *previewState
-	follow         *inspectorFollowState
+	owner                  *chatState
+	Open                   bool
+	Active                 string
+	generation             uint64
+	Width                  float32
+	Files                  *fileManagerState
+	Review                 *diffPanelState
+	Git                    *gitPaneState
+	Browser                *previewState
+	follow                 *inspectorFollowState
 	workspace              string
 	workspaceKnown         bool
 	pendingPreview         string
