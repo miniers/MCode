@@ -810,7 +810,7 @@ type OrchestrationConfig struct {
 	RequestTimeoutMinutes int    `json:"request_timeout_minutes,omitempty"` // 单次用户请求的编排总时长预算（分钟），0 表示默认 180，范围 30 到 720
 	WorkspaceMode         string `json:"workspace_mode"`                    // 子代理工作区模式：worktree | shared，默认 worktree
 	RetryFailed           bool   `json:"retry_failed"`                      // 失败自动重试，默认 true
-	AutoMerge             bool   `json:"auto_merge"`                        // 「自动合并」：仅本地提交/squash 合并并清理 worktree，不做远端操作，默认 true
+	AutoMerge             bool   `json:"auto_merge"`                        // 「自动合并」：子代理落地即提交到当前分支，同一请求折叠为一个提交，不做远端操作，默认 true
 	// 合并前审查：ReviewMode 取 off | ai | human；三个模型字段空表示自动选择最便宜的可用审查模型。
 	// ReviewMaxChangedLines 故意不带 omitempty：0 表示关闭行数规则，必须能落盘并读回；
 	// 旧配置缺字段时由 Load 的 Defaults() 预填为 40。
