@@ -1,6 +1,9 @@
 package kanban
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseExecutorResultLastBlock(t *testing.T) {
 	t.Parallel()
@@ -53,5 +56,24 @@ func TestParseExecutorResultNoChange(t *testing.T) {
 	}
 	if _, err := ParseExecutorResult(`{"status":"failed","no_change":true}`); err == nil {
 		t.Fatal("非 done 状态不允许 no_change")
+	}
+}
+
+func TestWaitCheckErrorDiscouragesWaitingForBees(t *testing.T) {
+	t.Parallel()
+	err := (ExecutorResult{
+		Status:    ResultWaiting,
+		WaitKind:  "machine",
+		WaitCheck: "rm marker",
+	}).Validate()
+	if err == nil {
+		t.Fatal("非只读 wait_check 应返回错误")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "不要提交 waiting") {
+		t.Fatalf("报错应包含「不要提交 waiting」，实际: %s", msg)
+	}
+	if strings.Contains(msg, "等待 bee 汇报或人工确认请用 human 等待") {
+		t.Fatalf("报错不应包含旧文案，实际: %s", msg)
 	}
 }

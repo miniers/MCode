@@ -446,7 +446,7 @@ func (r *Registry) registerKanbanTools(s *Server) {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"status":         map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}},
+				"status":         map[string]any{"type": "string", "enum": []string{"done", "failed", "waiting", "delegated", "needs_decision"}, "description": "结果状态：waiting 只用于本轮结束后还要等外部事件（人工处理、外部系统、定时条件）的情况；本轮还在进行的工作（命令、测试、派出的 bee）不算 waiting，等它们完成后再提交。"},
 				"no_change":      map[string]any{"type": "boolean", "description": "例行检查且没有任何变化时为 true"},
 				"waiting_on":     map[string]any{"type": "string"},
 				"wait_kind":      map[string]any{"type": "string", "enum": []string{"human", "machine"}},

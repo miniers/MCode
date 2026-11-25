@@ -62,7 +62,7 @@ func (r ExecutorResult) Validate() error {
 			return fmt.Errorf("machine 等待必须提供 wait_check")
 		}
 		if r.WaitKind == "machine" && !gate.IsReadOnlyCommand(strings.TrimSpace(r.WaitCheck)) {
-			return fmt.Errorf("wait_check 必须是只读 shell 命令（在项目根目录执行，退出码 0 表示等待结束）；等待 bee 汇报或人工确认请用 human 等待，或直接提交 done")
+			return fmt.Errorf("wait_check 必须是只读 shell 命令（在项目根目录执行，退出码 0 表示等待结束）；等人工处理请用 human 等待；本轮派出的 bee 还没汇报时不要提交 waiting，等 bee 汇报完再提交结果")
 		}
 	case ResultDelegated:
 		if len(r.Followups) == 0 {
