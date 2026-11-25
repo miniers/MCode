@@ -107,18 +107,18 @@ func (s *Service) AnswerDecision(ctx context.Context, id, answer, by string) (st
 			switch status {
 			case TaskStatusNeedsApproval:
 				if meta.DecisionID == d.ID {
-					task.Status = string(TaskStatusTodo)
-					meta.GateOverride, meta.DecisionID = d.ID, ""
+					meta.DecisionID = ""
+					if meta.WaitKind != "" {
+						// 等待到期弹出的决策卡不写硬锁授权，按等待分支语义更新状态。
+						applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
+					} else {
+						task.Status = string(TaskStatusTodo)
+						meta.GateOverride = d.ID
+					}
 				}
 			case TaskStatusWaiting:
 				meta.DecisionID = ""
-				if continueWaiting {
-					meta.WakeAt = now.Add(time.Duration(BackoffMinutes(0)) * time.Minute).Format(time.RFC3339)
-					meta.Wakes = 0
-				} else {
-					task.Status = string(TaskStatusTodo)
-					meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
-				}
+				applyWaitDecisionAnswer(&task, &meta, now, continueWaiting)
 			}
 		}
 		task.Meta = EncodeTaskMeta(meta)
@@ -164,4 +164,16 @@ func (s *Service) closeTaskDecisions(ctx context.Context, task *store.Task) erro
 	meta.DecisionID = ""
 	task.Meta = EncodeTaskMeta(meta)
 	return nil
+}
+
+// applyWaitDecisionAnswer 根据回答更新等待任务的状态与等待元数据。
+func applyWaitDecisionAnswer(task *store.Task, meta *TaskMeta, now time.Time, continueWaiting bool) {
+	if continueWaiting {
+		task.Status = string(TaskStatusWaiting)
+		meta.WakeAt = now.Add(time.Duration(BackoffMinutes(0)) * time.Minute).Format(time.RFC3339)
+		meta.Wakes = 0
+		return
+	}
+	task.Status = string(TaskStatusTodo)
+	meta.WaitKind, meta.WakeAt, meta.WaitCheck, meta.WaitBase, meta.Wakes = "", "", "", "", 0
 }

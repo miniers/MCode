@@ -28,8 +28,12 @@ func TestAnswerDecision(t *testing.T) {
 			now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 			svc, db, _, _ := setupReceiptTestService(t, newPokeDriver(), true, false, func() time.Time { return now })
 			threadID := "thread-1"
+			taskMeta := TaskMeta{DecisionID: "D-0001"}
+			if tc.status == "waiting" {
+				taskMeta = TaskMeta{DecisionID: "D-0001", WaitKind: "machine", WakeAt: "later", WaitCheck: "check", WaitBase: "base", Wakes: 2}
+			}
 			task := store.Task{ID: "task-1", Title: "任务", Notes: "原描述", ThreadID: &threadID, Status: tc.status,
-				Meta: EncodeTaskMeta(TaskMeta{DecisionID: "D-0001", WaitKind: "machine", WakeAt: "later", WaitCheck: "check", WaitBase: "base", Wakes: 2})}
+				Meta: EncodeTaskMeta(taskMeta)}
 			if err := db.CreateTask(ctx, task); err != nil {
 				t.Fatal(err)
 			}
@@ -312,5 +316,98 @@ func TestExecutorResultGateOverride(t *testing.T) {
 				t.Fatalf("解锁元数据: %+v, %v", meta, err)
 			}
 		})
+	}
+}
+
+func TestAnswerWaitDecisionContinueKeepsWaiting(t *testing.T) {
+	t.Parallel()
+	for _, answer := range []string{"A", "继续等"} {
+		t.Run(answer, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+			driver := newMockDriver()
+			threadID := "thread-wait"
+			driver.setThreadState(threadID, SessionState{Running: false})
+			svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+			initMeta := TaskMeta{
+				WaitKind:  "human",
+				WakeAt:    now.Add(-time.Minute).Format(time.RFC3339),
+				WaitCheck: "echo ok",
+				WaitBase:  "base",
+				Wakes:     3,
+				Summary:   "人工确认",
+			}
+			if err := db.CreateTask(ctx, store.Task{ID: "task-wait", ThreadID: &threadID, Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(initMeta)}); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.CheckWaits(ctx, now); err != nil {
+				t.Fatal(err)
+			}
+			decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+			if err != nil || len(decisions) != 1 {
+				t.Fatalf("等待到期决策卡: %+v, %v", decisions, err)
+			}
+			if _, err := svc.AnswerDecision(ctx, decisions[0].ID, answer, "user:desktop"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := db.GetTask(ctx, "task-wait")
+			if err != nil || got.Status != string(TaskStatusWaiting) {
+				t.Fatalf("继续等应保持 waiting: %+v, %v", got, err)
+			}
+			meta, err := ParseTaskMeta(got.Meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wake, wakeErr := time.Parse(time.RFC3339, meta.WakeAt)
+			if wakeErr != nil || !wake.After(now) {
+				t.Fatalf("WakeAt 应在 now 之后: %q, %v", meta.WakeAt, wakeErr)
+			}
+			if meta.Wakes != 0 || meta.GateOverride != "" || meta.DecisionID != "" || meta.WaitKind != "human" || meta.WaitCheck != "echo ok" || meta.WaitBase != "base" {
+				t.Fatalf("等待元数据异常: %+v", meta)
+			}
+		})
+	}
+}
+
+func TestAnswerWaitDecisionOtherAnswerNoGateOverride(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	driver := newMockDriver()
+	threadID := "thread-wait"
+	driver.setThreadState(threadID, SessionState{Running: false})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+	initMeta := TaskMeta{
+		WaitKind:  "human",
+		WakeAt:    now.Add(-time.Minute).Format(time.RFC3339),
+		WaitCheck: "echo ok",
+		WaitBase:  "base",
+		Wakes:     2,
+		Summary:   "人工确认",
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "task-wait", ThreadID: &threadID, Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(initMeta)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 1 {
+		t.Fatalf("等待到期决策卡: %+v, %v", decisions, err)
+	}
+	if _, err := svc.AnswerDecision(ctx, decisions[0].ID, "先跳过继续执行", "user:desktop"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetTask(ctx, "task-wait")
+	if err != nil || got.Status != string(TaskStatusTodo) {
+		t.Fatalf("其它非停下回答应转为 todo: %+v, %v", got, err)
+	}
+	meta, err := ParseTaskMeta(got.Meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.WaitKind != "" || meta.WakeAt != "" || meta.WaitCheck != "" || meta.WaitBase != "" || meta.Wakes != 0 || meta.GateOverride != "" || meta.DecisionID != "" {
+		t.Fatalf("等待元数据与授权字段应已清空: %+v", meta)
 	}
 }

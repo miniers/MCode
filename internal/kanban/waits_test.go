@@ -176,3 +176,68 @@ func TestCheckWaitsContinuesAfterConflict(t *testing.T) {
 		t.Fatalf("冲突后的剩余 waiting 任务应继续处理并唤醒: %+v, %v", otherTask, err)
 	}
 }
+
+func TestCheckWaitsExpiredWhileSessionRunningResumes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	driver := newMockDriver()
+	threadID := "thread-running"
+	driver.setThreadState(threadID, SessionState{Running: true})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+	meta := TaskMeta{
+		WaitKind:  "human",
+		WaitCheck: "false",
+		WakeAt:    now.Add(-time.Minute).Format(time.RFC3339),
+		WaitBase:  "base",
+		Wakes:     2,
+		Summary:   "人工确认",
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "wait-running", ThreadID: &threadID, Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(meta)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "wait-running")
+	if err != nil || task.Status != string(TaskStatusInProgress) {
+		t.Fatalf("会话运行中时等待到期应回到 in_progress: %+v, %v", task, err)
+	}
+	gotMeta, err := ParseTaskMeta(task.Meta)
+	if err != nil || gotMeta.WaitKind != "" || gotMeta.WaitCheck != "" || gotMeta.WakeAt != "" || gotMeta.WaitBase != "" || gotMeta.Wakes != 0 {
+		t.Fatalf("等待元数据应已清空: %+v, %v", gotMeta, err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 0 {
+		t.Fatalf("会话运行中不应创建决策卡: %+v, %v", decisions, err)
+	}
+}
+
+func TestCheckWaitsExpiredWhileSessionStoppedCreatesDecision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	now := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	driver := newMockDriver()
+	threadID := "thread-stopped"
+	driver.setThreadState(threadID, SessionState{Running: false})
+	svc, db, _, _ := setupReceiptTestService(t, driver, true, false, func() time.Time { return now })
+	meta := TaskMeta{
+		WaitKind: "human",
+		WakeAt:   now.Add(-time.Minute).Format(time.RFC3339),
+		Summary:  "人工确认",
+	}
+	if err := db.CreateTask(ctx, store.Task{ID: "wait-stopped", ThreadID: &threadID, Status: string(TaskStatusWaiting), Meta: EncodeTaskMeta(meta)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.CheckWaits(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(ctx, "wait-stopped")
+	if err != nil || task.Status != string(TaskStatusNeedsApproval) {
+		t.Fatalf("会话未运行时等待到期应升级为 needs_approval: %+v, %v", task, err)
+	}
+	decisions, err := db.ListStewardDecisions(ctx, "open", 0)
+	if err != nil || len(decisions) != 1 || decisions[0].Question != "等待的人工处理已到期，是否继续等" {
+		t.Fatalf("会话未运行时应创建等待到期决策卡: %+v, %v", decisions, err)
+	}
+}

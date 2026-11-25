@@ -64,59 +64,70 @@ func (s *Service) CheckWaits(ctx context.Context, now time.Time) error {
 		if wake.After(now) {
 			continue
 		}
-		question := ""
-		if meta.WaitKind == "human" {
-			question = "等待的人工处理已到期，是否继续等"
-		} else if !gate.IsReadOnlyCommand(meta.WaitCheck) {
-			question = "等待检查命令不是只读命令，是否继续"
-		} else {
-			if t.ProjectID == nil || s.opts.Projects == nil {
-				failure := fmt.Errorf("等待任务 %s 缺少项目目录", t.ID)
-				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-					firstErr = updateErr
-				}
-				if firstErr == nil {
-					firstErr = failure
-				}
-				continue
-			}
-			root, err := s.opts.Projects.ProjectRoot(ctx, *t.ProjectID)
-			if err != nil {
-				failure := fmt.Errorf("等待任务 %s 获取项目目录失败: %w", t.ID, err)
-				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-					firstErr = updateErr
-				}
-				if firstErr == nil {
-					firstErr = err
-				}
-				continue
-			}
-			if strings.TrimSpace(root) == "" {
-				failure := fmt.Errorf("等待任务 %s 的项目目录为空", t.ID)
-				if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
-					firstErr = updateErr
-				}
-				if firstErr == nil {
-					firstErr = failure
-				}
-				continue
-			}
-			checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-			cmd := procattr.ShellCommand(checkCtx, meta.WaitCheck)
-			cmd.Dir = root
-			err = cmd.Run()
-			cancel()
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if err == nil {
-				t.Status = string(TaskStatusTodo)
+		resumed := false
+		if t.ThreadID != nil && *t.ThreadID != "" && s.opts.Driver != nil {
+			// 只在等待到期后核对会话状态，避免执行会话刚提交 waiting 尚在收尾时误判。
+			if st, err := s.opts.Driver.SessionState(ctx, *t.ThreadID); err == nil && st.Running {
+				t.Status = string(TaskStatusInProgress)
 				meta.WaitKind, meta.WaitCheck, meta.WakeAt, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				resumed = true
+			}
+		}
+		question := ""
+		if !resumed {
+			if meta.WaitKind == "human" {
+				question = "等待的人工处理已到期，是否继续等"
+			} else if !gate.IsReadOnlyCommand(meta.WaitCheck) {
+				question = "等待检查命令不是只读命令，是否继续"
 			} else {
-				meta.Wakes++
-				meta.WakeAt = now.Add(time.Duration(BackoffMinutes(meta.Wakes)) * time.Minute).Format(time.RFC3339)
-				if meta.Wakes > MaxWaitWakes {
-					question = "等待超时：" + meta.Summary
+				if t.ProjectID == nil || s.opts.Projects == nil {
+					failure := fmt.Errorf("等待任务 %s 缺少项目目录", t.ID)
+					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+						firstErr = updateErr
+					}
+					if firstErr == nil {
+						firstErr = failure
+					}
+					continue
+				}
+				root, err := s.opts.Projects.ProjectRoot(ctx, *t.ProjectID)
+				if err != nil {
+					failure := fmt.Errorf("等待任务 %s 获取项目目录失败: %w", t.ID, err)
+					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+						firstErr = updateErr
+					}
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
+				}
+				if strings.TrimSpace(root) == "" {
+					failure := fmt.Errorf("等待任务 %s 的项目目录为空", t.ID)
+					if updateErr := s.recordWaitFailure(ctx, &t, failure); updateErr != nil && firstErr == nil {
+						firstErr = updateErr
+					}
+					if firstErr == nil {
+						firstErr = failure
+					}
+					continue
+				}
+				checkCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				cmd := procattr.ShellCommand(checkCtx, meta.WaitCheck)
+				cmd.Dir = root
+				err = cmd.Run()
+				cancel()
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if err == nil {
+					t.Status = string(TaskStatusTodo)
+					meta.WaitKind, meta.WaitCheck, meta.WakeAt, meta.WaitBase, meta.Wakes = "", "", "", "", 0
+				} else {
+					meta.Wakes++
+					meta.WakeAt = now.Add(time.Duration(BackoffMinutes(meta.Wakes)) * time.Minute).Format(time.RFC3339)
+					if meta.Wakes > MaxWaitWakes {
+						question = "等待超时：" + meta.Summary
+					}
 				}
 			}
 		}
