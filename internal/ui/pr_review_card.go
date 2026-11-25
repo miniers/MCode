@@ -425,7 +425,7 @@ func renderPRReviewStatusCapsule(c *ui.Context, key string, status prReviewStatu
 func renderPRReviewPatchBlock(c *ui.Context, itemKey, patch, codeFont string, diffOpen bool, onToggle func()) {
 	ui.Column(c.Key(itemKey+"-patch")).
 		FillWidth().
-		Border(1, ThemeBorder(c)).
+		Border(Hairline, ThemeBorder(c)).
 		Radius(RadiusMD).
 		Background(ThemeSurfaceMain(c)).
 		Clip().
@@ -481,7 +481,7 @@ func renderPRReviewPatchBlock(c *ui.Context, itemKey, patch, codeFont string, di
 						}
 						ui.Box(c.Key(fmt.Sprintf("%s-patch-line-%d", itemKey, li))).
 							FillWidth().
-							Padding(1, Space3).
+							Padding(Hairline, Space3).
 							Background(bg).
 							Children(func() {
 								ui.Text(c, line).
@@ -580,7 +580,7 @@ func renderPRReviewIssueRow(
 				if loc := prReviewLocationText(item.Path, item.Line); loc != "" {
 					ui.Row(c.Key(itemKey+"-loc-row")).
 						FillWidth().
-						Padding(0, 0, 0, IconSM+Space2).
+						Padding(0, 0, 0, Space6).
 						Children(func() {
 							locBtn := ui.ButtonBase(c.Key(itemKey+"-loc")).
 								Label(loc).
@@ -601,7 +601,7 @@ func renderPRReviewIssueRow(
 								openPRReviewLocation(s, itemPath, itemLine)
 							})
 							locBtn.Children(func() {
-								ui.Icon(c, IconFile()).Size(12, 12).TextColor(ThemeTertiaryText(c)).Shrink(0)
+								ui.Icon(c, IconFile()).Size(Space4, Space4).TextColor(ThemeTertiaryText(c)).Shrink(0)
 								ui.Text(c, loc).
 									Font(codeFont).
 									FontSize(scaledFont(TypeCaption)).
@@ -621,7 +621,7 @@ func renderPRReviewIssueRow(
 		ui.Column(c.Key(itemKey+"-detail")).
 			FillWidth().
 			Transition(motionCollapse(c)).
-			Padding(0, Space4, Space3, Space4+IconSM+Space2).
+			Padding(0, Space4, Space3, Space8).
 			Gap(Space2).
 			Children(func() {
 				if item.Impact != "" {
@@ -777,7 +777,7 @@ func renderPRReviewIssueGroup(
 			AlignItems(ui.Center).
 			Gap(Space2).
 			Children(func() {
-				ui.Box(c.Key(groupKey+"-dot")).Size(6, 6).Radius(RadiusPill).Background(dotColor)
+				ui.Box(c.Key(groupKey+"-dot")).Size(Space2, Space2).Radius(RadiusPill).Background(dotColor)
 				ui.Text(c, title).
 					FontSize(scaledFont(TypeCaption)).
 					TextColor(ThemeSecondaryText(c)).
@@ -872,7 +872,7 @@ func renderPRReviewCard(c *ui.Context, s *chatState, b *markdown.CodeBlockView) 
 		Direction(ui.LeftToRight).
 		AlignSelf(ui.Stretch).
 		Background(ThemeSurfaceCard(c)).
-		Border(1, ThemeBorder(c)).
+		Border(Hairline, ThemeBorder(c)).
 		Radius(RadiusLG).
 		Clip().
 		Children(func() {
