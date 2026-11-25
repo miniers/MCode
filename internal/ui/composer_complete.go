@@ -1960,11 +1960,12 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 					list()
 				}
 				if showPreview {
+					previewRowH := previewH - Hairline // 去掉顶部分隔线
 					ui.Column(c.Key("composer-complete-preview")).FillWidth().Gap(0).Children(func() {
 						ui.Box(c.Key("composer-complete-preview-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
 						ui.Row(c.Key("composer-complete-preview-row")).
 							FillWidth().
-							Height(previewH-Hairline).
+							Height(previewRowH).
 							Padding(Space1, Space3).
 							AlignItems(ui.Center).
 							Background(ThemeOverlay(c, OverlayFaint)).
