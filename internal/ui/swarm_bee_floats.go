@@ -1770,11 +1770,8 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 		}
 		return i
 	}
-	if reduceMotion(c) {
-		s.chatListState.MoveAnimation = nil
-	} else {
-		s.chatListState.MoveAnimation = &springGentle
-	}
+	// 贴底跟随时追加行会让整屏旧行一起上滑，显式置 nil 与主聊天列表保持一致。
+	s.chatListState.MoveAnimation = nil
 	lastAssistantPerTurn := s.lastAssistantPerTurn()
 	// 子线程仍在跑时，正在进行中的那一轮还没结束：与主会话一致，压掉它的完成块；
 	// 之前的回合照常显示（bee 自己的运行状态就是这条子线程的状态）。

@@ -250,18 +250,16 @@ func renderChat(c *ui.Context, s *chatState) {
 			ensureChatMarkdown(c, s)
 
 			// 消息列表（虚拟滚动，稳定 Key；FollowEnd 在 newChatState 中设置一次，
-			// KeepOffset 为 false 使 anchorKey 锚定条目，FollowAnimation 为 nil 避免展开时位移动画）
+			// KeepOffset 为 false 使 anchorKey 锚定条目，FollowAnimation 与 MoveAnimation 均为 nil 避免位移动画）
 			s.chatListState.Key = func(i int) any {
 				if i >= 0 && i < len(timelineItems) {
 					return timelineItems[i].id
 				}
 				return i
 			}
-			if reduceMotion(c) {
-				s.chatListState.MoveAnimation = nil
-			} else {
-				s.chatListState.MoveAnimation = &springGentle
-			}
+			// 贴底跟随时追加行会让整屏旧行一起上滑，因此禁用 MoveAnimation；
+			// 显式置 nil 以免与 swarm_bee_floats.go 共用 s.chatListState 切换时残留旧值。
+			s.chatListState.MoveAnimation = nil
 
 			// 每个回合最后一条助手消息（按 messagesRev 缓存，长会话不再逐帧重建）
 			lastAssistantPerTurn := s.lastAssistantPerTurn()
