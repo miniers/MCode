@@ -300,7 +300,7 @@ func renderSidebarChatsSection(
 		})
 	})
 
-	if !isCollapsed {
+	motionUnfoldBody(c, "chats-section-body", !isCollapsed, func() {
 		for _, th := range topThs {
 			renderSidebarThreadRow(c, s, sidebarThreadRowOptions{
 				projectID:      chatsProjID,
@@ -320,7 +320,7 @@ func renderSidebarChatsSection(
 				latchHover:     focusZoneActive,
 			})
 		}
-	}
+	})
 
 	dividerPadY := Space2
 	if m.compact {

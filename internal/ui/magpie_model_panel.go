@@ -613,23 +613,22 @@ func renderMagpieOwnModelGroup(c *ui.Context, st *SettingsState, ps *modelsPageS
 					ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 				})
 			})
-			if !expanded {
-				return
-			}
-			ui.Column(c.Key(key + "-list")).FillWidth().Children(func() {
-				for i, r := range g.Rows {
-					if i > 0 {
-						renderSettingsDivider(c, fmt.Sprintf("div-%s-%d", key, i))
+			motionUnfoldBody(c, key+"-unfold", expanded, func() {
+				ui.Column(c.Key(key + "-list")).FillWidth().Children(func() {
+					for i, r := range g.Rows {
+						if i > 0 {
+							renderSettingsDivider(c, fmt.Sprintf("div-%s-%d", key, i))
+						}
+						name := strings.TrimSpace(r.Model.Name)
+						if name == "" {
+							name = r.Model.ID
+						}
+						ui.Text(c, name).
+							FontSize(uiFont(TypeBody)).
+							TextColor(ThemeSecondaryText(c)).
+							Padding(Space2, Space5)
 					}
-					name := strings.TrimSpace(r.Model.Name)
-					if name == "" {
-						name = r.Model.ID
-					}
-					ui.Text(c, name).
-						FontSize(uiFont(TypeBody)).
-						TextColor(ThemeSecondaryText(c)).
-						Padding(Space2, Space5)
-				}
+				})
 			})
 		})
 }

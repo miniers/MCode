@@ -275,11 +275,11 @@ func renderAboutChangelog(c *ui.Context, st *SettingsState) {
 						ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
 					})
 			})
-			if expanded {
+			motionUnfoldBody(c, "about-changelog-unfold-"+version.Version, expanded, func() {
 				ui.Column(c.Key("about-changelog-body-"+version.Version)).FillWidth().Padding(settingsRowPadY, settingsRowPadX).Children(func() {
 					markdown.View(c.Key("about-changelog-markdown-"+version.Version), version.Body, swarmReportMarkdownOptions(c, st.chat, TypeBody))
 				})
-			}
+			})
 		}
 	})
 }

@@ -586,27 +586,30 @@ func renderContextDraftAttachmentItem(c *ui.Context, s *chatState, st *composerC
 				return
 			}
 
-			if expanded && hasPreview {
-				if truncated {
-					ui.Text(c, "内容超过 256KB，仅支持只读预览").
-						FontSize(uiFont(TypeCaption)).
-						TextColor(ThemeSecondaryText(c))
-				}
-				ui.Scroll(c.Key(itemKey+"-preview-scroll")).
-					FillWidth().
-					MaxHeight(composerContextDraftPreviewMaxHeight).
-					Padding(Space2).
-					Radius(RadiusSM).
-					Background(ThemeSurface(c)).
-					Border(Hairline, ThemeBorder(c)).
-					Children(func() {
-						ui.Text(c, snippetPreview(a.PreviewText)).
-							FillWidth().
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemePrimaryText(c)).
-							Selectable()
-					})
-			} else if hasPreview {
+			motionUnfoldBody(c, itemKey+"-preview-unfold", expanded && hasPreview, func() {
+				ui.Column(c.Key(itemKey + "-preview-wrap")).FillWidth().Gap(Space2).Children(func() {
+					if truncated {
+						ui.Text(c, "内容超过 256KB，仅支持只读预览").
+							FontSize(uiFont(TypeCaption)).
+							TextColor(ThemeSecondaryText(c))
+					}
+					ui.Scroll(c.Key(itemKey+"-preview-scroll")).
+						FillWidth().
+						MaxHeight(composerContextDraftPreviewMaxHeight).
+						Padding(Space2).
+						Radius(RadiusSM).
+						Background(ThemeSurface(c)).
+						Border(Hairline, ThemeBorder(c)).
+						Children(func() {
+							ui.Text(c, snippetPreview(a.PreviewText)).
+								FillWidth().
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(ThemePrimaryText(c)).
+								Selectable()
+						})
+				})
+			})
+			if !expanded && hasPreview {
 				if summary := snippetTitle(a.PreviewText); summary != "" {
 					ui.Text(c, summary).
 						FillWidth().
@@ -762,7 +765,7 @@ func renderContextDraftSnippetItem(c *ui.Context, s *chatState, st *composerCont
 				return
 			}
 
-			if expanded {
+			motionUnfoldBody(c, itemKey+"-preview-unfold", expanded, func() {
 				ui.Scroll(c.Key(itemKey+"-preview-scroll")).
 					FillWidth().
 					MaxHeight(composerContextDraftPreviewMaxHeight).
@@ -777,7 +780,7 @@ func renderContextDraftSnippetItem(c *ui.Context, s *chatState, st *composerCont
 							TextColor(ThemePrimaryText(c)).
 							Selectable()
 					})
-			}
+			})
 		})
 }
 

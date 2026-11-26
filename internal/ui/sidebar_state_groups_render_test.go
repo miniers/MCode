@@ -236,6 +236,8 @@ func TestSidebarVisibleThreadsMatchRenderedOrder(t *testing.T) {
 	state.mu.Unlock()
 	state.invalidate()
 	tt.Frame()
+	tt.Advance(motionUnfold + time.Second)
+	tt.Frame()
 	got = state.visibleThreads()
 	if len(got) != 2 || got[0].ID != "a-pending" || got[1].ID != "b-idle" {
 		t.Fatalf("折叠项目后聚焦区与未折叠项目可见会话列表不符: %+v", got)

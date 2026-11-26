@@ -777,15 +777,15 @@ func renderMCPDetailSheet(c *ui.Context, st *SettingsState) {
 			}
 			row.Children(func() {
 				renderMCPServerRow(c, st, snap.uiSt, srv, i, snap.client, snap.authBusy, snap.authErr, snap.staticAuth, strings.EqualFold(srv.Agent, "custom") || strings.EqualFold(srv.Agent, "mcode"))
-				if !srv.ReadOnly && formOpen {
+				motionUnfoldBody(c, "mcp-detail-edit-unfold-"+selected, !srv.ReadOnly && formOpen, func() {
 					renderSettingsDivider(c, "div-mcp-detail-edit")
 					renderMCPCustomForm(c, st, snap.uiSt)
-				}
+				})
 			})
 		})
-		if isExpanded {
+		motionUnfoldBody(c, "mcp-tools-unfold-"+selected, isExpanded, func() {
 			renderMCPServerToolsSection(c, st, snap.uiSt, srv, i)
-		}
+		})
 		// 确认框只在详情中渲染一次，避免重复叠加。
 		renderMCPServerDeleteModal(c, st, snap.uiSt)
 		return

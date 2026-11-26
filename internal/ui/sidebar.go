@@ -1579,7 +1579,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				})
 
 				// 展开状态下展示该项目的会话列表与已休眠折叠组
-				if !isCollapsed {
+				motionUnfoldBody(c, "proj-body-"+pVal.ID, !isCollapsed, func() {
 					var topThs []Thread
 					var beesByParent map[string][]Thread
 					if lowerQuery != "" {
@@ -1647,13 +1647,23 @@ func renderSidebar(c *ui.Context, s *chatState) {
 						// 1. 活跃会话：按项目自己的展示窗口截取，超过默认条数的部分折叠
 						s.mu.Lock()
 						threadLimit := s.visibleThreadsProj[pVal.ID]
+						pageEnter := s.threadPageEnterProj == pVal.ID &&
+							!s.threadPageEnterAt.IsZero() &&
+							time.Since(s.threadPageEnterAt) < 2*DurBase
 						s.mu.Unlock()
 						if threadLimit <= 0 {
 							threadLimit = sidebarThreadPageInit
 						}
 						visibleThs, hiddenThs := visibleThreadWindow(restThs, threadLimit, selectedID, lowerQuery != "")
 						for _, th := range visibleThs {
-							renderThreadItem(th, false)
+							enterCol := ui.Column(c.Key("thread-enter-" + th.ID)).
+								FillWidth()
+							if pageEnter {
+								enterCol.Transition(motionCollapse(c))
+							}
+							enterCol.Children(func() {
+								renderThreadItem(th, false)
+							})
 						}
 
 						// 搜索时不分页（结果本身就是筛选后的全集），只有默认状态下超过一页才给操作栏；
@@ -1689,6 +1699,8 @@ func renderSidebar(c *ui.Context, s *chatState) {
 											s.visibleThreadsProj = make(map[string]int)
 										}
 										s.visibleThreadsProj[pVal.ID] = threadLimit + sidebarThreadPageStep
+										s.threadPageEnterProj = pVal.ID
+										s.threadPageEnterAt = time.Now()
 										s.mu.Unlock()
 										s.invalidate()
 									})
@@ -1758,14 +1770,14 @@ func renderSidebar(c *ui.Context, s *chatState) {
 									SingleLine()
 							})
 
-							if isDormantOpen {
+							motionUnfoldBody(c, "dormant-group-body-"+pVal.ID, isDormantOpen, func() {
 								for _, th := range dormantThs {
 									renderThreadItem(th, true)
 								}
-							}
+							})
 						}
 					}
-				}
+				})
 
 				// 项目行之间的间距（紧凑模式 6，常规模式 10）
 				ui.Box(c.Key("proj-gap-" + pVal.ID)).
@@ -1819,13 +1831,13 @@ func renderSidebar(c *ui.Context, s *chatState) {
 							Grow(1).
 							SingleLine()
 					})
-					if dormantProjectsOpen {
+					motionUnfoldBody(c, "sidebar-dormant-projects-body", dormantProjectsOpen, func() {
 						for _, p := range dormantProjects {
 							if renderProjectBlock(p) {
 								renderedProject = true
 							}
 						}
-					}
+					})
 				}
 			} else {
 				for _, p := range projects {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -13,6 +14,7 @@ import (
 const (
 	fileTreeSplitMinWidth float32 = 640
 	fileTreeNavWidth      float32 = 200
+	fileTreeEnterWindow           = 2 * DurBase
 )
 
 // fileTreeState 是文件面板的树导航状态，只由 UI 线程读写；
@@ -44,6 +46,11 @@ type fileTreeState struct {
 	rootTruncated bool
 	// rowBuilds 只用于测试：一帧里 Outline 实际构建的行数。
 	rowBuilds int
+
+	// 入场窗口：记录刚展开的目录路径与时刻，只给窗口内首次挂载的直接子行播放展开动效。
+	enterDir     string
+	enterAt      time.Time
+	enterMounted map[string]struct{}
 
 	// git 是路径到 Git 改动状态的缓存，只显示文件行，不汇总到目录。
 	git         map[string]GitChangedFile
@@ -333,6 +340,11 @@ func fileTreeForgetLocked(st *fileManagerState, tree *fileTreeState, path string
 	if tree.restoreAnchor == path || strings.HasPrefix(tree.restoreAnchor, prefix) {
 		tree.restoreAnchor = ""
 	}
+	if tree.enterDir == path || strings.HasPrefix(tree.enterDir, prefix) {
+		tree.enterDir = ""
+		tree.enterAt = time.Time{}
+		tree.enterMounted = nil
+	}
 	fileTreeBumpOutlineGenLocked(tree)
 }
 
@@ -571,6 +583,15 @@ func (s *chatState) fileTreeToggleDir(threadID, path string) {
 		open = true
 	}
 	st.dir = path
+	if open {
+		tree.enterDir = path
+		tree.enterAt = time.Now()
+		tree.enterMounted = nil
+	} else if tree.enterDir == path || strings.HasPrefix(tree.enterDir, path+"/") {
+		tree.enterDir = ""
+		tree.enterAt = time.Time{}
+		tree.enterMounted = nil
+	}
 	needLoad := !tree.onlyChanged && open && tree.children[path] == nil && !tree.loading[path]
 	onlyChanged := tree.onlyChanged
 	fileTreeBumpOutlineGenLocked(tree)
@@ -984,73 +1005,117 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 		rowSelected := selection.Has(path)
 		rowFocused := treeFocused && focusedPath == path
 		tree.rowBuilds++
+		enterAnim := false
+		needJump := false
+		if ok && tree.enterDir != "" && !tree.enterAt.IsZero() && time.Since(tree.enterAt) < fileTreeEnterWindow {
+			if fileManagerParentPath(path) == tree.enterDir {
+				enterAnim = true
+				if tree.enterMounted == nil {
+					tree.enterMounted = make(map[string]struct{})
+				}
+				if _, mounted := tree.enterMounted[path]; !mounted {
+					tree.enterMounted[path] = struct{}{}
+					needJump = true
+				}
+			}
+		} else if tree.enterDir != "" && (tree.enterAt.IsZero() || time.Since(tree.enterAt) >= fileTreeEnterWindow) {
+			tree.enterDir = ""
+			tree.enterAt = time.Time{}
+			tree.enterMounted = nil
+		}
 		fileManagerMu.Unlock()
 		if !ok {
 			return
 		}
-		if depth := strings.Count(path, "/"); depth > 0 {
-			ui.Box(c).Width(float32(depth) * Space3).Shrink(0)
-		}
-		arrow := ui.Box(c.Key("file-tree-arrow-box-"+path)).Size(IconSM, IconSM).Shrink(0).Center()
-		if entry.IsDir {
-			if dirLoading {
-				arrow.Children(func() {
-					LoadingIndicator(c, "file-tree-loading-"+path, "", IconSM, ThemeAccent(c))
-				})
-			} else {
-				arrow.Cursor(ui.CursorPointer)
-				arrow.OnClick(func() {
-					s.fileTreeToggleDir(threadID, path)
-				})
-				angle := float32(0)
-				if isOpen {
-					angle = 90
-				}
-				arrow.Children(func() {
-					icon := ui.Icon(c, IconChevronRight()).
-						Size(IconSM, IconSM).
-						TextColor(ThemeSecondaryText(c))
-					if reduceMotion(c) {
-						icon.Rotate(angle)
-					} else {
-						icon.Rotate(icon.AnimateTo("file-tree-arrow", angle, springSnappy))
-					}
-				})
-			}
-		}
-		ui.Box(c).Width(Space1).Shrink(0)
 
-		props := fileManagerRowProps{
-			key:       "file-tree-row-" + path,
-			icon:      fileManagerEntryIcon(entry),
-			name:      entry.Name,
-			ignored:   entry.Ignored || deleted,
-			protected: entry.Protected,
-			isDir:     entry.IsDir,
-			inTree:    true,
-			selected:  rowSelected,
-			focused:   rowFocused,
-			hasGit:    hasStatus,
-			git:       status,
-			threadID:  threadID,
-			entry:     entry,
-			onOpen: func(pin bool, mods ui.Modifiers) {
-				s.fileTreeClickEntry(threadID, entry, pin, mods)
-			},
-		}
-		if deleted {
-			props.onOpen = nil
-		}
-		row := ui.Row(c.Key("file-tree-content-" + path)).
+		clip := ui.Column(c.Key("file-tree-row-clip-" + path)).
 			Grow(1).
 			MinWidth(0).
-			AlignItems(ui.Center).
-			Transition(motionListItem(c))
-		if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
-			row.Drag(payload)
+			Shrink(0)
+		k := float32(1)
+		if enterAnim && !reduceMotion(c) {
+			if needJump {
+				clip.Jump("file-tree-row-enter", 0)
+			}
+			k = clip.AnimateTo("file-tree-row-enter", 1, ui.Animation{
+				Duration: animateDuration(c, motionUnfold),
+				Ease:     motionEaseStandard,
+			})
 		}
-		row.Children(func() {
-			renderFileManagerRow(c, s, props)
+		clip.Children(func() {
+			inner := ui.Row(c.Key("file-tree-row-inner-" + path)).
+				FillWidth().
+				AlignItems(ui.Center).
+				Shrink(0)
+			inner.Children(func() {
+				if depth := strings.Count(path, "/"); depth > 0 {
+					ui.Box(c).Width(float32(depth) * Space3).Shrink(0)
+				}
+				arrow := ui.Box(c.Key("file-tree-arrow-box-"+path)).Size(IconSM, IconSM).Shrink(0).Center()
+				if entry.IsDir {
+					if dirLoading {
+						arrow.Children(func() {
+							LoadingIndicator(c, "file-tree-loading-"+path, "", IconSM, ThemeAccent(c))
+						})
+					} else {
+						arrow.Cursor(ui.CursorPointer)
+						arrow.OnClick(func() {
+							s.fileTreeToggleDir(threadID, path)
+						})
+						angle := float32(0)
+						if isOpen {
+							angle = 90
+						}
+						arrow.Children(func() {
+							icon := ui.Icon(c, IconChevronRight()).
+								Size(IconSM, IconSM).
+								TextColor(ThemeSecondaryText(c))
+							if reduceMotion(c) {
+								icon.Rotate(angle)
+							} else {
+								icon.Rotate(icon.AnimateTo("file-tree-arrow", angle, springSnappy))
+							}
+						})
+					}
+				}
+				ui.Box(c).Width(Space1).Shrink(0)
+
+				props := fileManagerRowProps{
+					key:       "file-tree-row-" + path,
+					icon:      fileManagerEntryIcon(entry),
+					name:      entry.Name,
+					ignored:   entry.Ignored || deleted,
+					protected: entry.Protected,
+					isDir:     entry.IsDir,
+					inTree:    true,
+					selected:  rowSelected,
+					focused:   rowFocused,
+					hasGit:    hasStatus,
+					git:       status,
+					threadID:  threadID,
+					entry:     entry,
+					onOpen: func(pin bool, mods ui.Modifiers) {
+						s.fileTreeClickEntry(threadID, entry, pin, mods)
+					},
+				}
+				if deleted {
+					props.onOpen = nil
+				}
+				row := ui.Row(c.Key("file-tree-content-" + path)).
+					Grow(1).
+					MinWidth(0).
+					AlignItems(ui.Center)
+				if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
+					row.Drag(payload)
+				}
+				row.Children(func() {
+					renderFileManagerRow(c, s, props)
+				})
+			})
+			if k < 1 {
+				h := inner.LayoutBounds().H
+				clip.ClipY().Height(k * h).Opacity(k)
+			}
 		})
 	}).Grow(1).FillWidth().Padding(Space2, Space2).ContextMenu(fileManagerDirMenu(c, s))
 

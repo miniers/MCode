@@ -324,104 +324,102 @@ func renderMCPCatalogCard(
 					})
 			}
 
-			if !isOpen || len(entryVal.Fields) == 0 {
-				return
-			}
-
-			ui.Column(c.Key(key+"-form")).
-				Padding(settingsCompactPadX, Space4).
-				Margin(Space1, 0, 0, 0).
-				Radius(RadiusSM).
-				Gap(Space3).
-				Background(ThemeOverlay(c, 0.04)).
-				Children(func() {
-					for _, field := range entryVal.Fields {
-						fieldVal := field
-						renderStackedSettingRow(c, key+"-row-"+fieldVal.Key, fieldVal.Label, func() {
-							get := func(*SettingsState) (string, bool) {
-								catSt.mu.Lock()
-								defer catSt.mu.Unlock()
-								return *catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default), false
-							}
-							set := func(st *SettingsState, text string) {
-								catSt.mu.Lock()
-								ptr := catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default)
-								if *ptr != text {
-									*ptr = text
-									catSt.dirty = true
+			motionUnfoldBody(c, key+"-form-unfold", isOpen && len(entryVal.Fields) > 0, func() {
+				ui.Column(c.Key(key+"-form")).
+					Padding(settingsCompactPadX, Space4).
+					Margin(Space1, 0, 0, 0).
+					Radius(RadiusSM).
+					Gap(Space3).
+					Background(ThemeOverlay(c, 0.04)).
+					Children(func() {
+						for _, field := range entryVal.Fields {
+							fieldVal := field
+							renderStackedSettingRow(c, key+"-row-"+fieldVal.Key, fieldVal.Label, func() {
+								get := func(*SettingsState) (string, bool) {
+									catSt.mu.Lock()
+									defer catSt.mu.Unlock()
+									return *catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default), false
 								}
-								catSt.mu.Unlock()
-								st.invalidate()
-							}
-							ctl := textFunc(get, set, fieldVal.Placeholder)
-							if fieldVal.Kind == agentconf.MCPCatalogFieldSecret {
-								ctl = ctl.withSecret()
-							}
-							ctl.render(c, st, setting{ID: key + "-row-" + fieldVal.Key, Title: fieldVal.Label})
-						})
+								set := func(st *SettingsState, text string) {
+									catSt.mu.Lock()
+									ptr := catSt.valuePtrLocked(entryVal.ID, fieldVal.Key, fieldVal.Default)
+									if *ptr != text {
+										*ptr = text
+										catSt.dirty = true
+									}
+									catSt.mu.Unlock()
+									st.invalidate()
+								}
+								ctl := textFunc(get, set, fieldVal.Placeholder)
+								if fieldVal.Kind == agentconf.MCPCatalogFieldSecret {
+									ctl = ctl.withSecret()
+								}
+								ctl.render(c, st, setting{ID: key + "-row-" + fieldVal.Key, Title: fieldVal.Label})
+							})
 
-						if fieldVal.Help != "" {
-							ui.Text(c, fieldVal.Help).
-								FontSize(uiFont(TypeCaption)).
-								TextColor(ThemeSecondaryText(c).Alpha(0.8))
+							if fieldVal.Help != "" {
+								ui.Text(c, fieldVal.Help).
+									FontSize(uiFont(TypeCaption)).
+									TextColor(ThemeSecondaryText(c).Alpha(0.8))
+							}
 						}
-					}
 
-					if errMsg != "" {
-						ui.Text(c, errMsg).
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemeDanger(c))
-					}
+						if errMsg != "" {
+							ui.Text(c, errMsg).
+								FontSize(uiFont(TypeFootnote)).
+								TextColor(ThemeDanger(c))
+						}
 
-					ui.Row(c.Key(key+"-actions")).
-						AlignItems(ui.Center).
-						Gap(settingsCompactPadX).
-						Margin(Space0, 0, 0, 0).
-						Children(func() {
-							saveBtn := ui.ButtonBase(c.Key(key+"-btn-save")).
-								Radius(RadiusSM).
-								Padding(Space1, Space4).
-								Background(ThemeAccent(c))
-							{
-								scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
-								saveBtn.Scale(scale, scale)
-							}
-							if saveBtn.Clicked() {
-								addMCPCatalogEntry(st, catSt, entryVal, client)
-							}
-							saveBtn.Children(func() {
-								ui.Text(c, "保存").
-									FontSize(uiFont(TypeFootnote)).
-									FontWeight(500).
-									TextColor(ThemeOnAccent(c))
-							})
-
-							cancelBtn := ui.ButtonBase(c.Key(key+"-btn-cancel")).
-								Radius(RadiusSM).
-								Padding(Space1, Space4).
-								Background(ThemeOverlay(c, 0.06))
-							{
-								scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
-								cancelBtn.Scale(scale, scale)
-							}
-							if cancelBtn.Clicked() {
-								catSt.mu.Lock()
-								catSt.openEntry = ""
-								catSt.dirty = false
-								delete(catSt.errs, entryVal.ID)
-								for _, field := range entryVal.Fields {
-									delete(catSt.values, entryVal.ID+"."+field.Key)
+						ui.Row(c.Key(key+"-actions")).
+							AlignItems(ui.Center).
+							Gap(settingsCompactPadX).
+							Margin(Space0, 0, 0, 0).
+							Children(func() {
+								saveBtn := ui.ButtonBase(c.Key(key+"-btn-save")).
+									Radius(RadiusSM).
+									Padding(Space1, Space4).
+									Background(ThemeAccent(c))
+								{
+									scale := motionPressScale(c, saveBtn, "button-press-scale", saveBtn.Pressed())
+									saveBtn.Scale(scale, scale)
 								}
-								catSt.mu.Unlock()
-								st.invalidate()
-							}
-							cancelBtn.Children(func() {
-								ui.Text(c, "取消").
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemeSecondaryText(c))
+								if saveBtn.Clicked() {
+									addMCPCatalogEntry(st, catSt, entryVal, client)
+								}
+								saveBtn.Children(func() {
+									ui.Text(c, "保存").
+										FontSize(uiFont(TypeFootnote)).
+										FontWeight(500).
+										TextColor(ThemeOnAccent(c))
+								})
+
+								cancelBtn := ui.ButtonBase(c.Key(key+"-btn-cancel")).
+									Radius(RadiusSM).
+									Padding(Space1, Space4).
+									Background(ThemeOverlay(c, 0.06))
+								{
+									scale := motionPressScale(c, cancelBtn, "button-press-scale", cancelBtn.Pressed())
+									cancelBtn.Scale(scale, scale)
+								}
+								if cancelBtn.Clicked() {
+									catSt.mu.Lock()
+									catSt.openEntry = ""
+									catSt.dirty = false
+									delete(catSt.errs, entryVal.ID)
+									for _, field := range entryVal.Fields {
+										delete(catSt.values, entryVal.ID+"."+field.Key)
+									}
+									catSt.mu.Unlock()
+									st.invalidate()
+								}
+								cancelBtn.Children(func() {
+									ui.Text(c, "取消").
+										FontSize(uiFont(TypeFootnote)).
+										TextColor(ThemeSecondaryText(c))
+								})
 							})
-						})
-				})
+					})
+			})
 		})
 }
 

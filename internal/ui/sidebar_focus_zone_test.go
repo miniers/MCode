@@ -573,6 +573,8 @@ func TestSidebarCollapsedProjectShowsRunningGlyph(t *testing.T) {
 		t.Fatalf("折叠项目乙失败: %v", err)
 	}
 	tt.Frame()
+	tt.Advance(motionUnfold + time.Second)
+	tt.Frame()
 
 	collapsedHeader, ok := tt.Find("展开项目 项目乙")
 	if !ok {

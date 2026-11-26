@@ -428,144 +428,147 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 				})
 			}
 
-			if expanded {
-				title := snap.editTitle
-				content := snap.editContent
-				unit := strings.TrimSpace(snap.editUnitType)
-				importance := snap.editImportance
-				contentRunes := utf8.RuneCountInString(content)
-				ui.Column(c.Key("memory-proposal-editor-" + p.ID)).FillWidth().Gap(Space3).Children(func() {
-					// 已选合并目标时提醒：接受会用当前草稿覆盖已有记忆。
-					if p.TargetMemoryID != "" {
-						Banner(c, BannerProps{
-							Key:  "memory-edit-target-hint-" + p.ID,
-							Tone: ToneWarning,
-							Text: "接受后会用当前标题和内容覆盖已有记忆，建议先点「AI 合并精简」",
-						})
-					}
-					ui.TextInput(c.Key("memory-edit-title-"+p.ID), &title).
-						Label("标题").
-						FillWidth().
-						OnChange(func() { s.setMemoryEdit("title", title) })
-					ui.TextArea(c.Key("memory-edit-content-"+p.ID), &content).
-						Label("内容").
-						Height(memoryEditTextAreaHeight).
-						FillWidth().
-						FontSize(uiFont(TypeFootnote)).
-						Font("monospace").
-						LineHeight(1.4).
-						TextColor(ThemePrimaryText(c)).
-						OnChange(func() { s.setMemoryEdit("content", content) })
-					ui.Row(c.Key("memory-edit-count-" + p.ID)).
-						FillWidth().
-						Wrap().
-						Gap(Space3).
-						GapY(Space1).
-						AlignItems(ui.Center).
-						Children(func() {
-							countColor := ThemeSecondaryText(c)
-							if contentRunes > 600 {
-								countColor = ThemeWarning(c)
-							}
-							ui.Text(c, strconv.Itoa(contentRunes)+" 字").
-								FontSize(uiFont(TypeCaption)).
-								TextColor(countColor)
-							if contentRunes > 600 {
-								ui.Text(c, "建议精简到 600 字以内：检索摘要只取前 400 字").
-									FontSize(uiFont(TypeCaption)).
-									TextColor(ThemeWarning(c))
-							}
-							ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
-							if snap.condensing {
-								LoadingIndicator(c, nil, "", IconSM)
-							}
-							condenseText := "AI 精简"
-							if p.TargetMemoryID != "" {
-								condenseText = "AI 合并精简"
-							}
-							Button(c.Key("memory-edit-condense-"+p.ID), ButtonOpts{
-								Text:     condenseText,
-								Size:     ControlXS,
-								Disabled: snap.condensing || busy,
-								OnClick:  func() { s.condenseMemoryDraft() },
-								Variant:  ButtonSecondary,
-							}).Shrink(0)
-							if snap.condenseErr != "" {
-								ui.Text(c, snap.condenseErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
-							}
-						})
-					ui.Column(c.Key("memory-edit-unit-" + p.ID)).FillWidth().Gap(Space2).Children(func() {
-						ui.Text(c, "类型").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-						ui.Row(c.Key("memory-edit-unit-options-" + p.ID)).
-							FillWidth().
-							Wrap().
-							Gap(Space2).
-							GapY(Space2).
-							AlignItems(ui.Center).
-							Children(func() {
-								for _, option := range memoryUnitTypeOptions {
-									unitOption := option
-									variant := ButtonSecondary
-									if unitOption == unit {
-										variant = ButtonPrimary
-									}
-									Button(c.Key("memory-edit-unit-"+p.ID+"-"+unitOption), ButtonOpts{
-										Text:     memoryUnitTypeLabel(unitOption),
-										Variant:  variant,
-										Size:     ControlXS,
-										Disabled: busy,
-										OnClick: func() {
-											s.setMemoryEdit("unit", unitOption)
-											s.invalidate()
-										},
-									}).Shrink(0)
-								}
+			motionUnfoldBody(c, "memory-proposal-editor-unfold-"+p.ID, expanded, func() {
+				ui.Column(c.Key("memory-proposal-editor-wrap-" + p.ID)).FillWidth().Gap(Space3).Children(func() {
+					title := snap.editTitle
+					content := snap.editContent
+					unit := strings.TrimSpace(snap.editUnitType)
+					importance := snap.editImportance
+					contentRunes := utf8.RuneCountInString(content)
+					ui.Column(c.Key("memory-proposal-editor-" + p.ID)).FillWidth().Gap(Space3).Children(func() {
+						// 已选合并目标时提醒：接受会用当前草稿覆盖已有记忆。
+						if p.TargetMemoryID != "" {
+							Banner(c, BannerProps{
+								Key:  "memory-edit-target-hint-" + p.ID,
+								Tone: ToneWarning,
+								Text: "接受后会用当前标题和内容覆盖已有记忆，建议先点「AI 合并精简」",
 							})
-					})
-					if len(p.Labels) > 0 {
-						ui.Row(c.Key("memory-edit-labels-" + p.ID)).
+						}
+						ui.TextInput(c.Key("memory-edit-title-"+p.ID), &title).
+							Label("标题").
+							FillWidth().
+							OnChange(func() { s.setMemoryEdit("title", title) })
+						ui.TextArea(c.Key("memory-edit-content-"+p.ID), &content).
+							Label("内容").
+							Height(memoryEditTextAreaHeight).
+							FillWidth().
+							FontSize(uiFont(TypeFootnote)).
+							Font("monospace").
+							LineHeight(1.4).
+							TextColor(ThemePrimaryText(c)).
+							OnChange(func() { s.setMemoryEdit("content", content) })
+						ui.Row(c.Key("memory-edit-count-" + p.ID)).
 							FillWidth().
 							Wrap().
-							Gap(Space2).
+							Gap(Space3).
 							GapY(Space1).
 							AlignItems(ui.Center).
 							Children(func() {
-								ui.Text(c, "标签").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
-								for _, label := range p.Labels {
-									memoryChip(c, label)
+								countColor := ThemeSecondaryText(c)
+								if contentRunes > 600 {
+									countColor = ThemeWarning(c)
+								}
+								ui.Text(c, strconv.Itoa(contentRunes)+" 字").
+									FontSize(uiFont(TypeCaption)).
+									TextColor(countColor)
+								if contentRunes > 600 {
+									ui.Text(c, "建议精简到 600 字以内：检索摘要只取前 400 字").
+										FontSize(uiFont(TypeCaption)).
+										TextColor(ThemeWarning(c))
+								}
+								ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
+								if snap.condensing {
+									LoadingIndicator(c, nil, "", IconSM)
+								}
+								condenseText := "AI 精简"
+								if p.TargetMemoryID != "" {
+									condenseText = "AI 合并精简"
+								}
+								Button(c.Key("memory-edit-condense-"+p.ID), ButtonOpts{
+									Text:     condenseText,
+									Size:     ControlXS,
+									Disabled: snap.condensing || busy,
+									OnClick:  func() { s.condenseMemoryDraft() },
+									Variant:  ButtonSecondary,
+								}).Shrink(0)
+								if snap.condenseErr != "" {
+									ui.Text(c, snap.condenseErr).FontSize(uiFont(TypeCaption)).TextColor(ThemeDanger(c))
 								}
 							})
-					}
-					ui.Row(c.Key("memory-edit-actions-" + p.ID)).
-						FillWidth().
-						Wrap().
-						Gap(Space3).
-						GapY(Space2).
-						AlignItems(ui.Center).
-						Children(func() {
-							ui.TextInput(c.Key("memory-edit-importance-"+p.ID), &importance).
-								Label("重要度 (0~1)").
-								Placeholder("0.5").
-								Width(140).
-								Shrink(0).
-								OnChange(func() { s.setMemoryEdit("importance", importance) })
-							ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
-							Button(c.Key("memory-edit-save-"+p.ID), ButtonOpts{
-								Text:     "保存修改",
-								Variant:  ButtonPrimary,
-								Disabled: busy,
-								OnClick:  func() { s.saveMemoryProposalEdits() },
-							}).Shrink(0)
-							Button(c.Key("memory-edit-collapse-"+p.ID), ButtonOpts{
-								Text:    "收起",
-								OnClick: func() { s.toggleMemoryProposalExpand(p.ID) },
-								Variant: ButtonSecondary,
-							}).Shrink(0)
+						ui.Column(c.Key("memory-edit-unit-" + p.ID)).FillWidth().Gap(Space2).Children(func() {
+							ui.Text(c, "类型").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+							ui.Row(c.Key("memory-edit-unit-options-" + p.ID)).
+								FillWidth().
+								Wrap().
+								Gap(Space2).
+								GapY(Space2).
+								AlignItems(ui.Center).
+								Children(func() {
+									for _, option := range memoryUnitTypeOptions {
+										unitOption := option
+										variant := ButtonSecondary
+										if unitOption == unit {
+											variant = ButtonPrimary
+										}
+										Button(c.Key("memory-edit-unit-"+p.ID+"-"+unitOption), ButtonOpts{
+											Text:     memoryUnitTypeLabel(unitOption),
+											Variant:  variant,
+											Size:     ControlXS,
+											Disabled: busy,
+											OnClick: func() {
+												s.setMemoryEdit("unit", unitOption)
+												s.invalidate()
+											},
+										}).Shrink(0)
+									}
+								})
 						})
+						if len(p.Labels) > 0 {
+							ui.Row(c.Key("memory-edit-labels-" + p.ID)).
+								FillWidth().
+								Wrap().
+								Gap(Space2).
+								GapY(Space1).
+								AlignItems(ui.Center).
+								Children(func() {
+									ui.Text(c, "标签").FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+									for _, label := range p.Labels {
+										memoryChip(c, label)
+									}
+								})
+						}
+						ui.Row(c.Key("memory-edit-actions-" + p.ID)).
+							FillWidth().
+							Wrap().
+							Gap(Space3).
+							GapY(Space2).
+							AlignItems(ui.Center).
+							Children(func() {
+								ui.TextInput(c.Key("memory-edit-importance-"+p.ID), &importance).
+									Label("重要度 (0~1)").
+									Placeholder("0.5").
+									Width(140).
+									Shrink(0).
+									OnChange(func() { s.setMemoryEdit("importance", importance) })
+								ui.Spacer(c).Grow(1).Shrink(1).MinWidth(0)
+								Button(c.Key("memory-edit-save-"+p.ID), ButtonOpts{
+									Text:     "保存修改",
+									Variant:  ButtonPrimary,
+									Disabled: busy,
+									OnClick:  func() { s.saveMemoryProposalEdits() },
+								}).Shrink(0)
+								Button(c.Key("memory-edit-collapse-"+p.ID), ButtonOpts{
+									Text:    "收起",
+									OnClick: func() { s.toggleMemoryProposalExpand(p.ID) },
+									Variant: ButtonSecondary,
+								}).Shrink(0)
+							})
+					})
+					// 相似记忆区块放在编辑区下方，供一键设为合并目标。
+					renderMemorySimilarBlock(c, s, snap, p, busy)
 				})
-				// 相似记忆区块放在编辑区下方，供一键设为合并目标。
-				renderMemorySimilarBlock(c, s, snap, p, busy)
-			} else {
+			})
+			if !expanded {
 				contextBaseButton(c, "memory-proposal-summary-"+p.ID, "展开编辑："+p.Title).
 					FillWidth().
 					AlignItems(ui.Start).

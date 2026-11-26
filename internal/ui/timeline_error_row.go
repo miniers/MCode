@@ -164,9 +164,9 @@ func renderErrorMessage(c *ui.Context, s *chatState, m Message) ui.Element {
 							})
 						}
 					})
-				if expanded {
+				motionUnfoldBody(c, "err-detail-fold-"+m.ID, expanded, func() {
 					renderErrorDetail(c, m, fontFam, codeSz)
-				}
+				})
 			})
 	})
 }

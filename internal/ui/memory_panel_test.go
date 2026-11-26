@@ -190,6 +190,7 @@ func TestMemoryPanelProposalEditToggle(t *testing.T) {
 	if err := tt.Click("查看 / 编辑"); err != nil {
 		t.Fatalf("click 查看 / 编辑 failed: %v", err)
 	}
+	tt.Advance(motionUnfold + time.Second)
 	waitFor(t, tt, func() bool {
 		return tt.HasText("保存修改") &&
 			tt.HasText("601 字") &&
@@ -301,6 +302,7 @@ func TestMemoryPanelSimilarMemoriesTarget(t *testing.T) {
 	if err := tt.Click("查看 / 编辑"); err != nil {
 		t.Fatalf("click 查看 / 编辑 failed: %v", err)
 	}
+	tt.Advance(motionUnfold + time.Second)
 
 	// 展开后异步按提议标题检索，回来后渲染相似记忆与「合并到这条」。
 	waitFor(t, tt, func() bool {
@@ -344,6 +346,7 @@ func TestMemoryPanelCondenseDraft(t *testing.T) {
 	if err := tt.Click("查看 / 编辑"); err != nil {
 		t.Fatalf("click 查看 / 编辑 failed: %v", err)
 	}
+	tt.Advance(motionUnfold + time.Second)
 	waitFor(t, tt, func() bool { return tt.HasText("AI 精简") })
 
 	fake.SetMemoryCondenseResult("精简后的标题", "发版前先跑 make test。", nil)
@@ -643,6 +646,7 @@ func TestMemoryPanelVirtualListP1(t *testing.T) {
 		if err := tt.Click("待审提议-001"); err != nil {
 			t.Fatalf("click 待审提议-001 failed: %v", err)
 		}
+		tt.Advance(motionUnfold + time.Second)
 		waitFor(t, tt, func() bool { return tt.HasText("保存修改") })
 
 		if err := tt.Click("标题"); err != nil {

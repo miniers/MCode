@@ -202,6 +202,7 @@ func TestFileTreeWatcherRefreshPreservesSelection(t *testing.T) {
 		t.Fatalf("click sub failed: %v", err)
 	}
 	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
+	tt.Advance(motionUnfold + time.Second)
 	if err := tt.Click("b.go"); err != nil {
 		t.Fatalf("click b.go failed: %v", err)
 	}

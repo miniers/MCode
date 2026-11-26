@@ -479,8 +479,11 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 								Children(func() {
 									renderToolChip(c, s, toolMsg, beatTools)
 								})
-							if !opened && s.toolMessageExpanded(toolMsg) {
+							open := !opened && s.toolMessageExpanded(toolMsg)
+							motionUnfoldBody(c, "tool-beat-detail-"+toolMsg.ID, open, func() {
 								renderToolDetail(c, s, toolMsg)
+							})
+							if open {
 								opened = true
 							}
 						}

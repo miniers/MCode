@@ -345,22 +345,25 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 				renderFileManagerNavigation(c, s, threadID, workDir)
 			case narrow:
 				renderFileManagerContent(c, s, snap, true, navOpen)
-			case navOpen:
+			default:
 				ui.Row(c.Key("file-manager-split-nav")).
 					FillWidth().
 					FillHeight().
 					Children(func() {
-						ui.Column(c.Key("file-manager-nav-column")).
-							Width(fileTreeNavWidth).
-							Shrink(0).
-							FillHeight().
-							Clip().
-							BorderWidth(0, 0, 0, Hairline).
-							BorderColor(ThemeBorder(c)).
-							Transition(motionCollapse(c)).
-							Children(func() {
-								renderFileManagerNavigation(c, s, threadID, workDir)
-							})
+						if navOpen {
+							ui.Column(c.Key("file-manager-nav-column")).
+								Label("文件导航").
+								Width(fileTreeNavWidth).
+								Shrink(0).
+								FillHeight().
+								Clip().
+								BorderWidth(0, 0, 0, Hairline).
+								BorderColor(ThemeBorder(c)).
+								Transition(motionCollapse(c)).
+								Children(func() {
+									renderFileManagerNavigation(c, s, threadID, workDir)
+								})
+						}
 						ui.Column(c.Key("file-manager-content-column")).
 							Grow(1).
 							MinWidth(0).
@@ -370,8 +373,6 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 								renderFileManagerContent(c, s, snap, false, navOpen)
 							})
 					})
-			default:
-				renderFileManagerContent(c, s, snap, false, navOpen)
 			}
 		})
 

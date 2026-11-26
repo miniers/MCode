@@ -305,166 +305,169 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 					ui.Text(c, "添加应用…").FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c))
 				})
 			})
-			return
 		}
 
-		ui.Column(c.Key("field-openin-name")).Gap(Space1).Children(func() {
-			ui.Text(c, "应用名称").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-			textFunc(
-				func(st *SettingsState) (string, bool) {
-					st.mu.Lock()
-					v := ps.draftName
-					st.mu.Unlock()
-					return v, false
-				},
-				func(st *SettingsState, v string) {
-					st.mu.Lock()
-					ps.draftName = v
-					st.mu.Unlock()
-				},
-				"例如 Cursor",
-			).render(c, st, setting{ID: "input-openin-name", Title: "应用名称"})
-		})
-		ui.Column(c.Key("field-openin-path")).Gap(Space1).Children(func() {
-			ui.Text(c, "应用路径").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-			ui.Row(c.Key("row-openin-path")).Gap(Space2).AlignItems(ui.Center).Children(func() {
-				textFunc(
-					func(st *SettingsState) (string, bool) {
-						st.mu.Lock()
-						v := ps.draftPath
-						st.mu.Unlock()
-						return v, false
-					},
-					func(st *SettingsState, v string) {
-						st.mu.Lock()
-						ps.draftPath = v
-						st.mu.Unlock()
-					},
-					openInAppPathPlaceholder(),
-				).render(c, st, setting{ID: "input-openin-path", Title: "应用路径"})
-
-				// 复用系统的 mygo.Dialog.Open 选择 .app；对话框阻塞，放到后台，选完再由 UI 更新草稿。
-				chooseBtn := ui.ButtonBase(c.Key("btn-openin-choose")).
-					Label("选择…").
-					Padding(Space2, settingsCompactPadX).
-					Radius(RadiusSM).
-					Border(Hairline, ThemeBorder(c)).
-					Cursor(ui.CursorPointer)
-				{
-					scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
-					chooseBtn.Scale(scale, scale)
-				}
-				if chooseBtn.Hovered() {
-					chooseBtn.Background(ThemeHover(c))
-				}
-				focusRing(c, chooseBtn)
-				if chooseBtn.Clicked() {
-					go func() {
-						path, ok, err := pickOpenInAppDialog()
-						if err != nil {
+		motionUnfoldBody(c, "openin-add-body", ps.adding, func() {
+			ui.Column(c.Key("openin-add-form")).FillWidth().Gap(Space3).Children(func() {
+				ui.Column(c.Key("field-openin-name")).Gap(Space1).Children(func() {
+					ui.Text(c, "应用名称").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+					textFunc(
+						func(st *SettingsState) (string, bool) {
 							st.mu.Lock()
-							ps.err = err.Error()
+							v := ps.draftName
+							st.mu.Unlock()
+							return v, false
+						},
+						func(st *SettingsState, v string) {
+							st.mu.Lock()
+							ps.draftName = v
+							st.mu.Unlock()
+						},
+						"例如 Cursor",
+					).render(c, st, setting{ID: "input-openin-name", Title: "应用名称"})
+				})
+				ui.Column(c.Key("field-openin-path")).Gap(Space1).Children(func() {
+					ui.Text(c, "应用路径").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+					ui.Row(c.Key("row-openin-path")).Gap(Space2).AlignItems(ui.Center).Children(func() {
+						textFunc(
+							func(st *SettingsState) (string, bool) {
+								st.mu.Lock()
+								v := ps.draftPath
+								st.mu.Unlock()
+								return v, false
+							},
+							func(st *SettingsState, v string) {
+								st.mu.Lock()
+								ps.draftPath = v
+								st.mu.Unlock()
+							},
+							openInAppPathPlaceholder(),
+						).render(c, st, setting{ID: "input-openin-path", Title: "应用路径"})
+
+						// 复用系统的 mygo.Dialog.Open 选择 .app；对话框阻塞，放到后台，选完再由 UI 更新草稿。
+						chooseBtn := ui.ButtonBase(c.Key("btn-openin-choose")).
+							Label("选择…").
+							Padding(Space2, settingsCompactPadX).
+							Radius(RadiusSM).
+							Border(Hairline, ThemeBorder(c)).
+							Cursor(ui.CursorPointer)
+						{
+							scale := motionPressScale(c, chooseBtn, "button-press-scale", chooseBtn.Pressed())
+							chooseBtn.Scale(scale, scale)
+						}
+						if chooseBtn.Hovered() {
+							chooseBtn.Background(ThemeHover(c))
+						}
+						focusRing(c, chooseBtn)
+						if chooseBtn.Clicked() {
+							go func() {
+								path, ok, err := pickOpenInAppDialog()
+								if err != nil {
+									st.mu.Lock()
+									ps.err = err.Error()
+									st.mu.Unlock()
+									st.invalidate()
+									return
+								}
+								if !ok || strings.TrimSpace(path) == "" {
+									return
+								}
+								st.mu.Lock()
+								ps.draftPath = path
+								if strings.TrimSpace(ps.draftName) == "" {
+									ps.draftName = openInAppNameFromPath(path)
+								}
+								ps.err = ""
+								st.mu.Unlock()
+								st.invalidate()
+							}()
+						}
+						chooseBtn.Children(func() {
+							ui.Text(c, "选择…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+						})
+					})
+				})
+
+				st.mu.Lock()
+				errMsg := ps.err
+				st.mu.Unlock()
+				if errMsg != "" {
+					ui.Text(c, errMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
+				}
+
+				ui.Row(c.Key("row-openin-add-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
+					add := ui.ButtonBase(c.Key("btn-openin-add-confirm")).
+						Label("添加").
+						Padding(Space2, Space4).
+						Radius(RadiusSM).
+						Background(ThemeAccent(c)).
+						Cursor(ui.CursorPointer)
+					{
+						scale := motionPressScale(c, add, "button-press-scale", add.Pressed())
+						add.Scale(scale, scale)
+					}
+					if add.Hovered() {
+						add.Background(ThemeAccent(c).Alpha(0.85))
+					}
+					focusRing(c, add)
+					if add.Clicked() {
+						st.mu.Lock()
+						name := strings.TrimSpace(ps.draftName)
+						path := strings.TrimSpace(ps.draftPath)
+						st.mu.Unlock()
+						if path == "" || !strings.HasSuffix(strings.ToLower(path), openInAppPathSuffix()) {
+							st.mu.Lock()
+							ps.err = "请填写 " + openInAppPathSuffix() + " 应用的完整路径"
+							st.mu.Unlock()
+						} else {
+							if name == "" {
+								name = openInAppNameFromPath(path)
+							}
+							app := config.OpenInAppConfig{
+								Name:     name,
+								BundleID: openInDefaultBundleID(name, path),
+								AppPath:  path,
+								Enabled:  true,
+							}
+							next := append(st.openInAppsDraft(), app)
+							st.saveOpenInApps(next)
+							st.mu.Lock()
+							ps.adding = false
+							ps.draftName = ""
+							ps.draftPath = ""
+							ps.err = ""
 							st.mu.Unlock()
 							st.invalidate()
-							return
 						}
-						if !ok || strings.TrimSpace(path) == "" {
-							return
-						}
+					}
+					add.Children(func() {
+						ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemeOnAccent(c))
+					})
+
+					cancel := ui.ButtonBase(c.Key("btn-openin-add-cancel")).
+						Label("取消").
+						Padding(Space2, Space4).
+						Radius(RadiusSM).
+						Cursor(ui.CursorPointer)
+					{
+						scale := motionPressScale(c, cancel, "button-press-scale", cancel.Pressed())
+						cancel.Scale(scale, scale)
+					}
+					if cancel.Hovered() {
+						cancel.Background(ThemeHover(c))
+					}
+					focusRing(c, cancel)
+					if cancel.Clicked() {
 						st.mu.Lock()
-						ps.draftPath = path
-						if strings.TrimSpace(ps.draftName) == "" {
-							ps.draftName = openInAppNameFromPath(path)
-						}
+						ps.adding = false
 						ps.err = ""
 						st.mu.Unlock()
 						st.invalidate()
-					}()
-				}
-				chooseBtn.Children(func() {
-					ui.Text(c, "选择…").FontSize(uiFont(TypeFootnote)).TextColor(ThemePrimaryText(c))
+					}
+					cancel.Children(func() {
+						ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
+					})
 				})
-			})
-		})
-
-		st.mu.Lock()
-		errMsg := ps.err
-		st.mu.Unlock()
-		if errMsg != "" {
-			ui.Text(c, errMsg).FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
-		}
-
-		ui.Row(c.Key("row-openin-add-actions")).Gap(Space3).AlignItems(ui.Center).Children(func() {
-			add := ui.ButtonBase(c.Key("btn-openin-add-confirm")).
-				Label("添加").
-				Padding(Space2, Space4).
-				Radius(RadiusSM).
-				Background(ThemeAccent(c)).
-				Cursor(ui.CursorPointer)
-			{
-				scale := motionPressScale(c, add, "button-press-scale", add.Pressed())
-				add.Scale(scale, scale)
-			}
-			if add.Hovered() {
-				add.Background(ThemeAccent(c).Alpha(0.85))
-			}
-			focusRing(c, add)
-			if add.Clicked() {
-				st.mu.Lock()
-				name := strings.TrimSpace(ps.draftName)
-				path := strings.TrimSpace(ps.draftPath)
-				st.mu.Unlock()
-				if path == "" || !strings.HasSuffix(strings.ToLower(path), openInAppPathSuffix()) {
-					st.mu.Lock()
-					ps.err = "请填写 " + openInAppPathSuffix() + " 应用的完整路径"
-					st.mu.Unlock()
-				} else {
-					if name == "" {
-						name = openInAppNameFromPath(path)
-					}
-					app := config.OpenInAppConfig{
-						Name:     name,
-						BundleID: openInDefaultBundleID(name, path),
-						AppPath:  path,
-						Enabled:  true,
-					}
-					next := append(st.openInAppsDraft(), app)
-					st.saveOpenInApps(next)
-					st.mu.Lock()
-					ps.adding = false
-					ps.draftName = ""
-					ps.draftPath = ""
-					ps.err = ""
-					st.mu.Unlock()
-					st.invalidate()
-				}
-			}
-			add.Children(func() {
-				ui.Text(c, "添加").FontSize(uiFont(TypeFootnote)).FontWeight(600).TextColor(ThemeOnAccent(c))
-			})
-
-			cancel := ui.ButtonBase(c.Key("btn-openin-add-cancel")).
-				Label("取消").
-				Padding(Space2, Space4).
-				Radius(RadiusSM).
-				Cursor(ui.CursorPointer)
-			{
-				scale := motionPressScale(c, cancel, "button-press-scale", cancel.Pressed())
-				cancel.Scale(scale, scale)
-			}
-			if cancel.Hovered() {
-				cancel.Background(ThemeHover(c))
-			}
-			focusRing(c, cancel)
-			if cancel.Clicked() {
-				st.mu.Lock()
-				ps.adding = false
-				ps.err = ""
-				st.mu.Unlock()
-				st.invalidate()
-			}
-			cancel.Children(func() {
-				ui.Text(c, "取消").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 			})
 		})
 	})

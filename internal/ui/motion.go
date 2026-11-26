@@ -74,7 +74,12 @@ func motionUnfoldBody(c *ui.Context, key string, open bool, fn func()) {
 		target = 1
 	}
 	clip := ui.Column(c.Key(key)).FillWidth().Shrink(0)
-	k := clip.AnimateTo(key+"/unfold", target, ui.Animation{Duration: animateDuration(c, motionUnfold), Ease: motionEaseStandard})
+	var k float32
+	if reduceMotion(c) {
+		k = clip.Jump(key+"/unfold", target)
+	} else {
+		k = clip.AnimateTo(key+"/unfold", target, ui.Animation{Duration: motionUnfold, Ease: motionEaseStandard})
+	}
 	clip.Children(func() {
 		// 完全收起时不再建内容子树：省掉布局与测量，也让已经收起的文字搜不到。
 		if !open && k == 0 {

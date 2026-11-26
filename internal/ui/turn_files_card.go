@@ -488,7 +488,7 @@ func renderTurnFilesCard(c *ui.Context, s *chatState, m Message) {
 	}
 	workDir := turnFilesWorkDir(s, threadID)
 	expanded := s.turnFilesExpanded(m.ID)
-	visible, hidden := turnFilesPlan(len(files), expanded)
+	_, hidden := turnFilesPlan(len(files), expanded)
 
 	// 回合级 diff 与时间线里的逐轮 diff 共用缓存：这里只是读它，未就绪时不占位。
 	entry := s.toolDiffEntryFor(threadID, m)
@@ -568,9 +568,26 @@ func renderTurnFilesCard(c *ui.Context, s *chatState, m Message) {
 				FillWidth().
 				Gap(Space0).
 				Children(func() {
-					for i := 0; i < visible; i++ {
+					head := len(files)
+					if head > turnFilesDisplayLimit {
+						head = turnFilesDisplayLimit
+					}
+					for i := 0; i < head; i++ {
 						renderTurnFileRow(c, s, threadID, workDir, m.TurnID, files[i],
 							fmt.Sprintf("%s-%d", m.ID, i), statusShown)
+					}
+					if len(files) > turnFilesDisplayLimit {
+						motionUnfoldBody(c, "turn-files-extra-"+m.ID, expanded, func() {
+							ui.Column(c.Key("turn-files-extra-rows-" + m.ID)).
+								FillWidth().
+								Gap(Space0).
+								Children(func() {
+									for i := turnFilesDisplayLimit; i < len(files); i++ {
+										renderTurnFileRow(c, s, threadID, workDir, m.TurnID, files[i],
+											fmt.Sprintf("%s-%d", m.ID, i), statusShown)
+									}
+								})
+						})
 					}
 				})
 			if hidden > 0 {

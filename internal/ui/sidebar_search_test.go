@@ -56,6 +56,8 @@ func TestSidebarSearchProjectsAndCollapsedState(t *testing.T) {
 	*getSearchQuery(state) = ""
 	state.invalidate()
 	tt.Frame()
+	tt.Advance(motionUnfold + time.Second)
+	tt.Frame()
 	_, alphaVisible := tt.Find("打开会话 Database Alpha")
 	_, otherExpanded = tt.Find("收起项目 其他项目")
 	_, otherCollapsed = tt.Find("展开项目 其他项目")

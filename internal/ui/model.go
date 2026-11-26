@@ -658,6 +658,8 @@ type chatState struct {
 	lastBulk             *lastBulkInfo   // 上一次批量操作记录，用于撤销条与右键菜单
 	expandedDormantProj  map[string]bool // 已休眠会话折叠组展开状态（按 projectID 记录，默认折叠）
 	visibleThreadsProj   map[string]int  // 当前展示的活跃会话条数（按 projectID 记录，缺省或 0 表示默认 5 条，受 s.mu 保护）
+	threadPageEnterProj  string          // 用户刚点「加载更多」的项目 ID，只用于给这一页新出现的行加入场动效（受 s.mu 保护）
+	threadPageEnterAt    time.Time       // 用户刚点「加载更多」的时间，只用于给这一页新出现的行加入场动效（受 s.mu 保护）
 	searchHighlightIndex int             // 搜索结果键盘高亮项索引
 	searchFocusInput     bool            // 回车选择后是否将焦点放回输入框
 

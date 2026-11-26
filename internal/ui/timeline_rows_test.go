@@ -474,12 +474,14 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 	}
 
 	clickText(t, tt, "$ git status")
+	tt.Advance(motionUnfold + time.Second)
 	if !tt.HasText("OUT-STATUS") {
 		t.Fatalf("点击胶囊后应展开详情: %q", tt.Texts())
 	}
 
 	// 同一节拍只展开一个：点开第二个胶囊时第一个自动收起
 	clickText(t, tt, "$ git diff")
+	tt.Advance(motionUnfold + time.Second)
 	if !tt.HasText("OUT-DIFF") || tt.HasText("OUT-STATUS") {
 		t.Fatalf("同一节拍应只展开一个胶囊详情: %q", tt.Texts())
 	}
@@ -498,6 +500,7 @@ func TestTimelineRows_ToolBeatChips(t *testing.T) {
 
 	// 再点一次收起
 	clickText(t, tt, "$ git diff")
+	tt.Advance(motionUnfold + time.Second)
 	if tt.HasText("OUT-DIFF") {
 		t.Fatalf("再次点击胶囊后应收起详情: %q", tt.Texts())
 	}
