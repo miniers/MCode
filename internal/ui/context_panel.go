@@ -9,15 +9,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"mcode/internal/projctx"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 )
 
 const (
 	// ContextPanelWidth/Height 为项目文档弹窗的默认尺寸。
-	ContextPanelWidth  float32 = 680
+	ContextPanelWidth  float32 = 760
 	ContextPanelHeight float32 = 600
 	// contextSavedBadgeDuration 是「已保存」徽标的显示时长。
 	contextSavedBadgeDuration = 2 * time.Second
@@ -71,6 +73,19 @@ type contextPanelState struct {
 	// pendingToggle 为挂起的开关请求，由根层渲染时经 applyPendingContextToggle 消费
 	// （项目同步与 watcher 注册需在渲染层执行）；打开状态 cp.open 在 toggle 时已同步改变。
 	pendingToggle bool
+	// 章节标题解析缓存（仅在 draft 变化时重算）与跳转定位状态。
+	headingsSource    string
+	headings          []contextDocHeading
+	jumpHeadingIdx    int
+	jumpSeq           uint64
+	pendingEditorJump bool
+	previewScroll     ui.ScrollState
+	previewMDOpts     *markdown.Options
+}
+
+type contextDocHeading struct {
+	title      string
+	runeOffset int
 }
 
 type contextDraft struct {
@@ -122,6 +137,7 @@ func (cp *contextPanelState) setProject(path string) {
 	cp.err, cp.conflictMsg, cp.newName = "", "", ""
 	cp.dirty, cp.conflict = false, false
 	cp.section, cp.creating, cp.leaveOpen, cp.leaveClos = "", false, false, false
+	cp.resetHeadingJumpLocked()
 }
 
 // activePath 返回当前层的存储根目录；调用方持有 contextPanelMu。
@@ -234,6 +250,7 @@ func (s *chatState) switchContextLayer(global bool) {
 	cp.dirty, cp.conflict = false, false
 	cp.err, cp.conflictMsg = "", ""
 	cp.creating, cp.leaveOpen = false, false
+	cp.resetHeadingJumpLocked()
 	contextPanelMu.Unlock()
 	s.syncContextProject(true)
 	s.invalidate()
@@ -253,7 +270,7 @@ func getContextPanelState(s *chatState) *contextPanelState {
 	defer contextPanelMu.Unlock()
 	st, ok := contextPanelStates[s]
 	if !ok {
-		st = &contextPanelState{editing: true, work: &sync.WaitGroup{}}
+		st = &contextPanelState{editing: true, jumpHeadingIdx: -1, work: &sync.WaitGroup{}}
 		contextPanelStates[s] = st
 	}
 	return st
@@ -473,11 +490,13 @@ func selectContextDocSync(s *chatState, name string, targets ...contextTarget) e
 	cp.conflict = false
 	cp.conflictMsg = ""
 	cp.err = ""
+	cp.resetHeadingJumpLocked()
 	if draft, ok := cp.drafts[filepath.Join(path, file)]; ok {
 		cp.draft, cp.savedContent, cp.baseHash = draft.content, draft.saved, draft.hash
 		cp.dirty = cp.draft != cp.savedContent
 		cp.conflict = doc.Hash != cp.baseHash
 	}
+	cp.ensureHeadingsLocked()
 	return nil
 }
 
@@ -774,6 +793,7 @@ func reloadContextDocSync(s *chatState, targets ...contextTarget) error {
 	cp.conflictMsg = ""
 	cp.err = ""
 	delete(cp.drafts, filepath.Join(path, selected))
+	cp.ensureHeadingsLocked()
 	return nil
 }
 
@@ -807,6 +827,7 @@ func (s *chatState) editContextDraft(content string, targets ...contextTarget) {
 	}
 	cp.draft = content
 	cp.dirty = content != cp.savedContent
+	cp.ensureHeadingsLocked()
 	s.scheduleContextSaveLocked(cp)
 }
 
@@ -1255,4 +1276,157 @@ func (s *chatState) closeContextPanel() {
 		stop()
 	}
 	s.invalidate()
+}
+
+// contextDocHeadings 从 Markdown 文本中提取行首为 ## 的标题文本。
+// 忽略 ### 及更深层级标题，并跳过围栏代码块（``` / ~~~）内的内容。
+func contextDocHeadings(content string) []string {
+	parsed := parseContextDocHeadings(content)
+	if len(parsed) == 0 {
+		return nil
+	}
+	out := make([]string, len(parsed))
+	for i, h := range parsed {
+		out[i] = h.title
+	}
+	return out
+}
+
+func parseContextDocHeadings(content string) []contextDocHeading {
+	if content == "" {
+		return nil
+	}
+	var out []contextDocHeading
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+
+	pos := 0
+	for pos <= len(content) {
+		relEnd := strings.IndexByte(content[pos:], '\n')
+		var rawLine string
+		var nextPos int
+		if relEnd < 0 {
+			rawLine = content[pos:]
+			nextPos = len(content) + 1
+		} else {
+			rawLine = content[pos : pos+relEnd]
+			nextPos = pos + relEnd + 1
+		}
+		line := strings.TrimSuffix(rawLine, "\r")
+
+		spaces := 0
+		for spaces < 3 && spaces < len(line) && line[spaces] == ' ' {
+			spaces++
+		}
+		trimmed := line[spaces:]
+		if inFence {
+			if len(trimmed) >= fenceLen && (trimmed[0] == fenceChar) {
+				count := 0
+				for count < len(trimmed) && trimmed[count] == fenceChar {
+					count++
+				}
+				if count >= fenceLen && strings.TrimSpace(trimmed[count:]) == "" {
+					inFence = false
+				}
+			}
+		} else if len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
+			ch := trimmed[0]
+			count := 0
+			for count < len(trimmed) && trimmed[count] == ch {
+				count++
+			}
+			rest := trimmed[count:]
+			if count >= 3 && (ch == '~' || !strings.ContainsRune(rest, '`')) {
+				inFence = true
+				fenceChar = ch
+				fenceLen = count
+			}
+		} else if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "##\t") {
+			title := strings.TrimSpace(line[2:])
+			if trimmedRight := strings.TrimRight(title, "#"); len(trimmedRight) < len(title) &&
+				(trimmedRight == "" || trimmedRight[len(trimmedRight)-1] == ' ' || trimmedRight[len(trimmedRight)-1] == '\t') {
+				title = strings.TrimSpace(trimmedRight)
+			}
+			if title != "" {
+				out = append(out, contextDocHeading{
+					title:      title,
+					runeOffset: utf8.RuneCountInString(content[:pos]),
+				})
+			}
+		}
+
+		if relEnd < 0 {
+			break
+		}
+		pos = nextPos
+	}
+	return out
+}
+
+func (cp *contextPanelState) resetHeadingJumpLocked() {
+	cp.jumpHeadingIdx = -1
+	cp.jumpSeq = 0
+	cp.pendingEditorJump = false
+	cp.previewScroll = ui.ScrollState{}
+}
+
+// ensureHeadingsLocked 仅在 draft 内容变化时重算章节标题缓存；调用方持有 contextPanelMu。
+func (cp *contextPanelState) ensureHeadingsLocked() {
+	if cp.headingsSource == cp.draft {
+		return
+	}
+	cp.headingsSource = cp.draft
+	cp.headings = parseContextDocHeadings(cp.draft)
+	if cp.jumpHeadingIdx >= len(cp.headings) {
+		cp.jumpHeadingIdx = -1
+	}
+}
+
+// jumpToContextHeading 跳转到第 idx 个 ## 章节标题（预览与编辑双模式）。
+func (s *chatState) jumpToContextHeading(idx int) {
+	cp := getContextPanelState(s)
+	if cp == nil || idx < 0 {
+		return
+	}
+	contextPanelMu.Lock()
+	if cp.closed {
+		contextPanelMu.Unlock()
+		return
+	}
+	cp.ensureHeadingsLocked()
+	if idx >= len(cp.headings) {
+		contextPanelMu.Unlock()
+		return
+	}
+	cp.jumpHeadingIdx = idx
+	cp.jumpSeq++
+	cp.pendingEditorJump = cp.editing
+	contextPanelMu.Unlock()
+	s.invalidate()
+}
+
+// consumeContextEditorJump 消费一次性的编辑区光标跳转，返回目标标题的 rune 偏移。
+func (s *chatState) consumeContextEditorJump(draft string) (int, bool) {
+	cp := getContextPanelState(s)
+	if cp == nil {
+		return 0, false
+	}
+	contextPanelMu.Lock()
+	defer contextPanelMu.Unlock()
+	if !cp.pendingEditorJump || cp.jumpHeadingIdx < 0 {
+		cp.pendingEditorJump = false
+		return 0, false
+	}
+	cp.pendingEditorJump = false
+	cp.ensureHeadingsLocked()
+	if cp.jumpHeadingIdx >= len(cp.headings) {
+		return 0, false
+	}
+	offset := cp.headings[cp.jumpHeadingIdx].runeOffset
+	maxRunes := utf8.RuneCountInString(draft)
+	if offset > maxRunes {
+		offset = maxRunes
+	}
+	return offset, true
 }

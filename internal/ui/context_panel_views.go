@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"mcode/internal/config"
@@ -8,17 +9,18 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/egoist/mygo/ui/markdown/parser"
 )
 
 const (
 	contextModalPadding float32 = Space5
-	contextChipGap      float32 = Space2
-	contextChipHeight   float32 = ControlMD
+	// contextNavWidth 取自设计稿（216px，参照 settingsNavWidth = 220）。
+	contextNavWidth float32 = settingsNavWidth
 	// contextDocRowHeight 是文档行在详情区顶部的高度。
 	contextDocRowHeight float32 = 40
 )
 
-// renderContextModal 在根层挂载项目文档弹窗（680×600，居中卡片）。
+// renderContextModal 在根层挂载项目文档弹窗（760×600，居中卡片）。
 func renderContextModal(c *ui.Context, s *chatState) {
 	cp := getContextPanelState(s)
 	if cp == nil {
@@ -41,10 +43,6 @@ func renderContextModal(c *ui.Context, s *chatState) {
 			s.toggleContextPanel()
 		}
 		renderContextHeader(c, s)
-		// 头部与 chip 行之间的竖向间距。
-		ui.Column(c.Key("context-chips-wrap")).FillWidth().Padding(Space3, 0, 0, 0).Children(func() {
-			renderContextChips(c, s)
-		})
 		contextPanelMu.Lock()
 		conflict := cp.conflict
 		errMsg := cp.err
@@ -54,7 +52,15 @@ func renderContextModal(c *ui.Context, s *chatState) {
 		if errMsg != "" && !conflict && !creating {
 			renderContextErrorBanner(c, s, errMsg)
 		}
-		renderContextDocView(c, s)
+		ui.Row(c.Key("context-body")).
+			FillWidth().
+			Grow(1).
+			MinHeight(0).
+			Background(ThemeSurfaceMain(c)).
+			Children(func() {
+				renderContextNav(c, s)
+				renderContextDocView(c, s)
+			})
 		modalResizeGrips(c, modalDragContextPanel, width, height)
 	}).Clip()
 	// 点击遮罩或按 Esc 关闭时同样要经过未保存修改确认。
@@ -116,55 +122,77 @@ func contextBaseButton(c *ui.Context, key any, label string) ui.Element {
 // contextPanelSnapshot 复制渲染需要的状态，避免渲染过程中长时间持锁。
 // layerSwitch 表示是否渲染「项目 / 全局」层切换：全局层只有本地记忆后端使用。
 type contextPanelSnapshot struct {
-	path        string
-	global      bool
-	layerSwitch bool
-	section     string
-	selected    string
-	manifest    projctx.Manifest
-	editing     bool
-	draft       string
-	dirty       bool
-	conflict    bool
-	conflictMsg string
-	err         string
-	showSaved   bool
-	saving      bool
-	leaveOpen   bool
-	leaveClos   bool
-	creating    bool
-	newName     string
-	loading     bool
+	path           string
+	global         bool
+	layerSwitch    bool
+	section        string
+	selected       string
+	manifest       projctx.Manifest
+	editing        bool
+	draft          string
+	dirty          bool
+	conflict       bool
+	conflictMsg    string
+	err            string
+	showSaved      bool
+	saving         bool
+	leaveOpen      bool
+	leaveClos      bool
+	creating       bool
+	newName        string
+	loading        bool
+	headings       []contextDocHeading
+	jumpHeadingIdx int
+	jumpSeq        uint64
+	draftRefs      map[string]bool
 }
 
 func snapshotContextPanel(s *chatState) contextPanelSnapshot {
 	cp := getContextPanelState(s)
-	snap := contextPanelSnapshot{}
+	snap := contextPanelSnapshot{jumpHeadingIdx: -1}
 	if cp == nil {
 		return snap
 	}
 	contextPanelMu.Lock()
 	defer contextPanelMu.Unlock()
+	cp.ensureHeadingsLocked()
+	activePath := cp.activePath()
+	var draftRefs map[string]bool
+	if len(cp.drafts) > 0 && activePath != "" {
+		for _, doc := range cp.manifest.Docs {
+			ref := contextDocRef(doc)
+			if _, ok := cp.drafts[filepath.Join(activePath, ref)]; ok {
+				if draftRefs == nil {
+					draftRefs = make(map[string]bool)
+				}
+				draftRefs[ref] = true
+			}
+		}
+	}
 	snap = contextPanelSnapshot{
-		path:        cp.activePath(),
-		global:      cp.global,
-		section:     cp.section,
-		selected:    cp.selected,
-		manifest:    cp.manifest,
-		editing:     cp.editing,
-		draft:       cp.draft,
-		dirty:       cp.dirty || cp.draft != cp.savedContent,
-		conflict:    cp.conflict,
-		conflictMsg: cp.conflictMsg,
-		err:         cp.err,
-		showSaved:   cp.showSaved,
-		saving:      cp.saving,
-		leaveOpen:   cp.leaveOpen,
-		leaveClos:   cp.leaveClos,
-		creating:    cp.creating,
-		newName:     cp.newName,
-		loading:     cp.loading,
-		layerSwitch: s.client != nil && s.client.MemoryBackend() == config.MemoryBackendLocal,
+		path:           activePath,
+		global:         cp.global,
+		section:        cp.section,
+		selected:       cp.selected,
+		manifest:       cp.manifest,
+		editing:        cp.editing,
+		draft:          cp.draft,
+		dirty:          cp.dirty || cp.draft != cp.savedContent,
+		conflict:       cp.conflict,
+		conflictMsg:    cp.conflictMsg,
+		err:            cp.err,
+		showSaved:      cp.showSaved,
+		saving:         cp.saving,
+		leaveOpen:      cp.leaveOpen,
+		leaveClos:      cp.leaveClos,
+		creating:       cp.creating,
+		newName:        cp.newName,
+		loading:        cp.loading,
+		headings:       cp.headings,
+		jumpHeadingIdx: cp.jumpHeadingIdx,
+		jumpSeq:        cp.jumpSeq,
+		draftRefs:      draftRefs,
+		layerSwitch:    s.client != nil && s.client.MemoryBackend() == config.MemoryBackendLocal,
 	}
 	return snap
 }
@@ -239,78 +267,224 @@ func renderContextHeader(c *ui.Context, s *chatState) {
 		}))
 }
 
-// renderContextChips 渲染 chip 行：四篇标准文档、自定义文档与新建入口。
-// 这一行只放 chip，横向滚动、不换行，「编辑 / 预览」分段控件挪到文档详情行。
-// 背景与头部一致（不加更亮的底色），下方留一条细分隔线。
-func renderContextChips(c *ui.Context, s *chatState) {
+// renderContextNav 渲染左侧竖排文档目录：四篇标准文档一组，自定义文档一组，新建入口固定在列表底部。
+func renderContextNav(c *ui.Context, s *chatState) {
 	snap := snapshotContextPanel(s)
 	standard := snap.manifest.Standard()
 	customs := snap.manifest.Custom()
 
-	ui.Column(c.Key("context-modal-chips")).
-		FillWidth().
-		Padding(Space3, contextModalPadding).
-		BorderWidth(0, 0, Hairline, 0).
-		BorderColor(ThemeBorder(c)).
+	ui.Column(c.Key("context-nav")).
+		Label("context-nav").
+		Width(contextNavWidth).
+		Shrink(0).
+		FillHeight().
+		Background(ThemeSidebarBg(c)).
+		BorderWidth(0, Hairline, 0, 0).
+		BorderColor(ThemeHairline(c)).
 		Children(func() {
-			// 横向滚动，chip 放不下时整行左右滑动，而不是被压扁换行。
-			ui.ScrollHorizontal(c.Key("context-chips-scroll")).FillWidth().Children(func() {
-				ui.Row(c.Key("context-chips-row")).
-					Height(contextChipHeight).
-					Gap(contextChipGap).
-					AlignItems(ui.Center).
-					Children(func() {
-						for _, doc := range standard {
-							renderContextDocChip(c, s, doc, snap.section == contextDocRef(doc))
+			ui.Scroll(c.Key("context-nav-scroll")).
+				Label("context-nav-scroll").
+				Grow(1).
+				MinHeight(0).
+				FillWidth().
+				Padding(Space3, Space2).
+				Children(func() {
+					ui.Column(c.Key("context-nav-groups")).
+						FillWidth().
+						Gap(Space4).
+						Children(func() {
+							renderContextNavGroup(c, s, snap, "standard", "标准文档", standard, "当前未关联项目")
+							emptyCustom := "暂无自定义文档"
+							if snap.path == "" {
+								emptyCustom = "—"
+							}
+							renderContextNavGroup(c, s, snap, "custom", "自定义文档", customs, emptyCustom)
+						})
+				})
+
+			ui.Column(c.Key("context-nav-footer")).
+				FillWidth().
+				Shrink(0).
+				Padding(Space2).
+				BorderWidth(Hairline, 0, 0, 0).
+				BorderColor(ThemeHairline(c)).
+				Children(func() {
+					newBtn := contextBaseButton(c, "context-nav-new-doc-btn", "新建自定义文档").
+						FillWidth().
+						Height(ControlLG).
+						Padding(0, Space2).
+						Tooltip("新建自定义文档")
+					hoverTarget := float32(0)
+					if snap.path != "" {
+						newBtn = newBtn.Cursor(ui.CursorPointer)
+						if newBtn.Hovered() {
+							hoverTarget = 1
 						}
-						contextChipDivider(c, "custom")
-						// 标签不收缩、不换行，否则会被挤成竖排。
-						ui.Text(c, "自定义").
-							FontSize(uiFont(TypeCaption)).
-							FontWeight(500).
-							Shrink(0).
-							MaxLines(1).
-							TextColor(ThemeSecondaryText(c))
-						for _, doc := range customs {
-							renderContextDocChip(c, s, doc, snap.section == contextDocRef(doc))
-						}
-						contextBaseButton(c, "context-new-doc-btn", "新建自定义文档").
-							Size(contextChipHeight, contextChipHeight).
-							Shrink(0).
-							Center().
-							Background(ThemeHover(c)).
-							Tooltip("新建自定义文档").
-							OnClick(func() { s.requestCreateContextDoc() }).
-							Children(func() {
-								ui.Icon(c, IconPlus()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
-							})
+					}
+					var hover float32
+					if reduceMotion(c) {
+						hover = newBtn.Jump("context-nav-new-hover", hoverTarget)
+					} else {
+						hover = newBtn.AnimateTo("context-nav-new-hover", hoverTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+					}
+					if hover > 0 {
+						bg := ThemeOverlayHover(c)
+						bg.A = uint8(float32(bg.A)*hover + 0.5)
+						newBtn.Background(bg)
+					}
+					if snap.path == "" {
+						newBtn = newBtn.Disabled(true)
+					} else {
+						newBtn = newBtn.OnClick(func() { s.requestCreateContextDoc() })
+					}
+					newBtn.Children(func() {
+						ui.Icon(c, IconPlus()).Size(IconSM, IconSM).Shrink(0).TextColor(ThemeAccent(c))
+						ui.Text(c, "新建自定义文档").
+							FontSize(uiFont(TypeBody)).
+							FontWeight(weightFor(c, 500)).
+							SingleLine().
+							TextColor(ThemeAccent(c))
 					})
-			})
+				})
 		})
 }
 
-func contextChipDivider(c *ui.Context, key string) {
-	ui.Row(c.Key("context-chip-divider-"+key)).
-		Size(Hairline, Space5).
-		Shrink(0).
-		Background(ThemeSecondaryText(c).Alpha(0.25))
+func renderContextNavGroup(c *ui.Context, s *chatState, snap contextPanelSnapshot, key, title string, docs []projctx.DocInfo, emptyText string) {
+	ui.Column(c.Key("context-nav-group-" + key)).
+		FillWidth().
+		Gap(Space0).
+		Children(func() {
+			ui.Row(c.Key("context-nav-head-"+key)).
+				FillWidth().
+				Padding(0, Space2, Space1, Space2).
+				AlignItems(ui.Center).
+				Children(func() {
+					ui.Text(c, title).
+						FontSize(uiFont(TypeCaption)).
+						FontWeight(weightFor(c, 600)).
+						TextColor(ThemeTertiaryText(c))
+				})
+			if len(docs) == 0 {
+				ui.Text(c, emptyText).
+					FontSize(uiFont(TypeCaption)).
+					TextColor(ThemeTertiaryText(c)).
+					Padding(Space2)
+				return
+			}
+			for _, doc := range docs {
+				renderContextNavRow(c, s, snap, doc)
+			}
+		})
 }
 
-func renderContextDocChip(c *ui.Context, s *chatState, doc projctx.DocInfo, selected bool) {
+func renderContextNavRow(c *ui.Context, s *chatState, snap contextPanelSnapshot, doc projctx.DocInfo) {
+	ref := contextDocRef(doc)
+	selected := snap.section == ref
+	hasDraft := (selected && snap.dirty) || snap.draftRefs[ref]
+	hasConflict := selected && snap.conflict
+
 	tooltip := doc.Subtitle
 	if !doc.Standard {
 		tooltip = doc.RelativePath()
 	}
-	Capsule(c, CapsuleProps{
-		Key:         "context-chip-doc-" + doc.File,
-		Text:        doc.Title,
-		Icon:        mapContextIcon(doc.Icon),
-		Tone:        ToneNeutral,
-		Size:        contextChipHeight,
-		Interactive: true,
-		Selected:    selected,
-		Tooltip:     tooltip,
-		OnClick:     func() { s.switchContextSection(contextDocRef(doc)) },
+
+	row := ui.Row(c.Key("context-nav-doc-"+doc.File)).
+		FillWidth().
+		MinHeight(ControlLG).
+		Padding(Space1, Space2).
+		Radius(RadiusSM).
+		Gap(Space2).
+		AlignItems(ui.Center).
+		Focusable().
+		KeepFocus().
+		Cursor(ui.CursorPointer).
+		Tooltip(tooltip).
+		Label(doc.Title)
+
+	hoverTarget, selTarget := float32(0), float32(0)
+	if selected {
+		selTarget = 1
+	} else if row.Hovered() {
+		hoverTarget = 1
+	}
+	var hover, sel float32
+	if reduceMotion(c) {
+		hover = row.Jump("context-nav-hover", hoverTarget)
+		sel = row.Jump("context-nav-sel", selTarget)
+	} else {
+		hover = row.AnimateTo("context-nav-hover", hoverTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+		sel = row.AnimateTo("context-nav-sel", selTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+	}
+	if selected {
+		hover = 0
+	}
+	if hover > 0 || sel > 0 {
+		bg := ThemeOverlayHover(c)
+		bg.A = uint8(float32(bg.A)*hover + 0.5)
+		bg = bg.Mix(ThemeOverlaySelected(c), sel)
+		row.Background(bg)
+	}
+	focusRing(c, row)
+
+	if row.Clicked() {
+		s.switchContextSection(ref)
+	}
+
+	row.Children(func() {
+		iconColor := ThemeSecondaryText(c)
+		if selected {
+			iconColor = ThemeAccent(c)
+		}
+		ui.Icon(c, mapContextIcon(doc.Icon)).Size(IconSM, IconSM).Shrink(0).TextColor(iconColor)
+
+		ui.Column(c.Key("context-nav-main-" + doc.File)).
+			Grow(1).
+			MinWidth(0).
+			Children(func() {
+				titleColor := ThemePrimaryText(c)
+				if !doc.Exists && !selected {
+					titleColor = ThemeSecondaryText(c)
+				}
+				title := ui.Text(c, doc.Title).
+					FontSize(uiFont(TypeBody)).
+					SingleLine().
+					TextColor(titleColor)
+				if selected {
+					title.FontWeight(weightFor(c, 600))
+				}
+				ui.Text(c, doc.File).
+					FontSize(uiFont(TypeMicro)).
+					SingleLine().
+					TextColor(ThemeTertiaryText(c))
+			})
+
+		switch {
+		case hasConflict:
+			ui.Box(c.Key("context-nav-conflict-"+doc.File)).
+				Size(Space2, Space2).
+				Radius(RadiusPill).
+				Background(ThemeDanger(c)).
+				Shrink(0)
+		case hasDraft:
+			ui.Box(c.Key("context-nav-dirty-"+doc.File)).
+				Size(Space2, Space2).
+				Radius(RadiusPill).
+				Background(ThemeWarning(c)).
+				Shrink(0)
+		case !doc.Exists:
+			ui.Row(c.Key("context-nav-tpl-"+doc.File)).
+				Height(Space5).
+				Padding(0, Space1).
+				Radius(RadiusPill).
+				Background(ThemeOverlayHover(c)).
+				Center().
+				Shrink(0).
+				Children(func() {
+					ui.Text(c, "模板").
+						FontSize(uiFont(TypeMicro)).
+						TextColor(ThemeTertiaryText(c))
+				})
+		}
 	})
 }
 
@@ -377,11 +551,11 @@ func renderContextErrorBanner(c *ui.Context, s *chatState, errMsg string) {
 	})
 }
 
-// renderContextDocView 渲染文档详情行与内容区（编辑 TextArea / 预览 markdown）。
+// renderContextDocView 渲染文档详情行、章节跳转条与内容区（编辑 TextArea / 预览 markdown）。
 func renderContextDocView(c *ui.Context, s *chatState) {
 	snap := snapshotContextPanel(s)
 	if snap.selected == "" {
-		ui.Column(c.Key("context-doc-empty")).Grow(1).FillWidth().Center().Children(func() {
+		ui.Column(c.Key("context-doc-empty")).Grow(1).MinWidth(0).FillHeight().Center().Children(func() {
 			ui.Text(c, "选择一篇文档").TextColor(ThemeSecondaryText(c))
 		})
 		if snap.creating {
@@ -401,16 +575,16 @@ func renderContextDocView(c *ui.Context, s *chatState) {
 	}
 	filePath := filepath.Join(snap.path, filepath.FromSlash(doc.RelativePath()))
 
-	ui.Column(c.Key("context-doc-view")).Grow(1).FillWidth().Children(func() {
-		// chip 行与详情行之间留出竖向间距。
-		ui.Column(c.Key("context-doc-details-wrap")).FillWidth().Padding(Space3, 0, 0, 0).Children(func() {
-			renderContextDocDetails(c, s, snap, doc, filePath)
-		})
+	ui.Column(c.Key("context-doc-view")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+		renderContextDocDetails(c, s, snap, doc, filePath)
+		if len(snap.headings) > 0 {
+			renderContextHeadingBar(c, s, snap)
+		}
 
 		draft := snap.draft
-		ui.Column(c.Key("context-doc-body")).Grow(1).FillWidth().Padding(contextModalPadding).Children(func() {
+		ui.Column(c.Key("context-doc-body")).Grow(1).MinHeight(0).FillWidth().Padding(contextModalPadding).Children(func() {
 			if snap.editing {
-				ui.TextArea(c.Key("context-editor-textarea-"+doc.File), &draft).
+				ta := ui.TextArea(c.Key("context-editor-textarea-"+doc.File), &draft).
 					Label("项目文档内容").
 					Grow(1).
 					FillWidth().
@@ -423,12 +597,16 @@ func renderContextDocView(c *ui.Context, s *chatState) {
 					Padding(0).
 					OnChange(func() { s.editContextDraft(draft) }).
 					AutoFocus()
-			} else {
-				mdOpts := &s.mdStaticOpts
-				if snap.path != "" && filepath.IsAbs(filePath) {
-					mdOpts = markdownDocOptions(c, s, TypeBody, filepath.Dir(filePath))
+				if offset, ok := s.consumeContextEditorJump(draft); ok {
+					ta.Focus().SetTextSelection(offset, offset)
 				}
-				ui.Scroll(c.Key("context-preview-scroll")).Grow(1).FillWidth().Children(func() {
+			} else {
+				mdOpts, scrollState := contextPreviewMarkdownOpts(c, s, filePath, snap)
+				scroll := ui.Scroll(c.Key("context-preview-scroll")).Grow(1).MinHeight(0).FillWidth()
+				if scrollState != nil {
+					scroll = scroll.TrackScroll(scrollState)
+				}
+				scroll.Children(func() {
 					markdown.View(c.Key("context-markdown-"+doc.File), draft, mdOpts)
 				})
 			}
@@ -438,6 +616,123 @@ func renderContextDocView(c *ui.Context, s *chatState) {
 			renderContextCreateDialog(c, s, snap.newName)
 		}
 	})
+}
+
+func renderContextHeadingBar(c *ui.Context, s *chatState, snap contextPanelSnapshot) {
+	ui.Row(c.Key("context-heading-bar")).
+		Label("context-heading-bar").
+		FillWidth().
+		Shrink(0).
+		Background(ThemeSidebarBg(c)).
+		BorderWidth(0, 0, Hairline, 0).
+		BorderColor(ThemeHairline(c)).
+		Children(func() {
+			ui.ScrollHorizontal(c.Key("context-heading-scroll")).
+				FillWidth().
+				Padding(Space2, contextModalPadding).
+				Children(func() {
+					ui.Row(c.Key("context-heading-row")).
+						Gap(Space1).
+						AlignItems(ui.Center).
+						Children(func() {
+							for i, h := range snap.headings {
+								idx := i
+								active := snap.jumpHeadingIdx == i
+								btn := contextBaseButton(c, fmt.Sprintf("context-heading-btn-%d", i), h.title).
+									Height(ControlXS).
+									Padding(0, Space2).
+									Radius(RadiusPill).
+									Shrink(0).
+									Cursor(ui.CursorPointer).
+									OnClick(func() { s.jumpToContextHeading(idx) })
+								hoverTarget, activeTarget := float32(0), float32(0)
+								if active {
+									activeTarget = 1
+								} else if btn.Hovered() {
+									hoverTarget = 1
+								}
+								var hover, act float32
+								if reduceMotion(c) {
+									hover = btn.Jump("context-heading-hover", hoverTarget)
+									act = btn.Jump("context-heading-active", activeTarget)
+								} else {
+									hover = btn.AnimateTo("context-heading-hover", hoverTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+									act = btn.AnimateTo("context-heading-active", activeTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+								}
+								if active {
+									hover = 0
+								}
+								if hover > 0 || act > 0 {
+									bg := ThemeOverlayHover(c)
+									bg.A = uint8(float32(bg.A)*hover + 0.5)
+									bg = bg.Mix(ThemeAccentSubtle(c), act)
+									btn.Background(bg)
+								}
+								textColor := ThemeSecondaryText(c)
+								if active {
+									textColor = ThemeAccent(c)
+								} else if btn.Hovered() {
+									textColor = ThemePrimaryText(c)
+								}
+								btn.Children(func() {
+									t := ui.Text(c, h.title).
+										FontSize(uiFont(TypeCaption)).
+										SingleLine().
+										TextColor(textColor)
+									if active {
+										t.FontWeight(weightFor(c, 600))
+									}
+								})
+							}
+						})
+				})
+		})
+}
+
+func contextPreviewMarkdownOpts(c *ui.Context, s *chatState, filePath string, snap contextPanelSnapshot) (*markdown.Options, *ui.ScrollState) {
+	cp := getContextPanelState(s)
+	if cp == nil {
+		return &s.mdStaticOpts, nil
+	}
+	baseDir := ""
+	if snap.path != "" && filepath.IsAbs(filePath) {
+		baseDir = filepath.Dir(filePath)
+	}
+	contextPanelMu.Lock()
+	if cp.previewMDOpts == nil {
+		cp.previewMDOpts = &markdown.Options{}
+	}
+	opts := cp.previewMDOpts
+	scrollState := &cp.previewScroll
+	contextPanelMu.Unlock()
+
+	applyDocMarkdownTheme(c, s, opts, TypeBody)
+	if s != nil {
+		installMarkdownHooksWithBaseDir(opts, s, baseDir)
+	}
+	if snap.jumpSeq > 0 && snap.jumpHeadingIdx >= 0 {
+		targetIdx := snap.jumpHeadingIdx
+		opts.Anchor = fmt.Sprintf("h2-%d", targetIdx)
+		opts.AnchorVersion = snap.jumpSeq
+		opts.AnchorBlock = func(d *parser.Document, _ string) int {
+			seen := 0
+			for b := 1; b < d.Len(); b++ {
+				blk := d.Block(b)
+				if blk.Kind == parser.Heading && blk.Level == 2 {
+					if seen == targetIdx {
+						return b
+					}
+					seen++
+				}
+			}
+			return -1
+		}
+	} else {
+		opts.Anchor = ""
+		opts.AnchorVersion = 0
+		opts.AnchorBlock = nil
+	}
+	return opts, scrollState
 }
 
 // renderContextDocDetails 渲染 40 高的文档详情行：文件名 • 副标题、已保存徽标、外部编辑、

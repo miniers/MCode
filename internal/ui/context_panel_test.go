@@ -817,3 +817,138 @@ func TestContextPanel_OpenDocInDefaultEditor(t *testing.T) {
 		t.Fatalf("openContextDocInEditor 调用参数 = (%p, %q), 期望 (%p, %q)", gotState, gotPath, s, wantPath)
 	}
 }
+
+func TestContextModalSidebarNav(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetContextDoc("instructions.md", "# Rules\n\n## A")
+	fake.SetContextDoc("notes.md", "# Notes\n\n## B")
+	fake.SetContextDoc("docs/api-spec.md", "# API\n\n## Endpoints")
+
+	s, view := buildRoot(fake)
+	t.Cleanup(s.close)
+	tt := ui.NewTester(view, 1200, 800)
+
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyK)
+	waitFor(t, tt, func() bool {
+		_, open := tt.Find("context-modal-card")
+		_, nav := tt.Find("context-nav")
+		_, navScroll := tt.Find("context-nav-scroll")
+		return open && nav && navScroll && tt.HasText("Notes") && tt.HasText("Api Spec")
+	})
+
+	if _, oldScroll := tt.Find("context-chips-scroll"); oldScroll {
+		t.Fatal("旧的横向 chip 滚动容器 context-chips-scroll 不应再存在")
+	}
+	if _, oldWrap := tt.Find("context-chips-wrap"); oldWrap {
+		t.Fatal("旧的 context-chips-wrap 不应再存在")
+	}
+
+	cp := getContextPanelState(s)
+	if err := tt.Click("Notes"); err != nil {
+		t.Fatalf("点击 Notes 导航行失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		st := lockedContextPanelCopy(cp)
+		return st.section == "notes.md" && st.selected == "notes.md"
+	})
+
+	if err := tt.Click("Api Spec"); err != nil {
+		t.Fatalf("点击 Api Spec 导航行失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		st := lockedContextPanelCopy(cp)
+		return st.section == "docs/api-spec.md" && st.selected == "docs/api-spec.md"
+	})
+}
+
+func TestContextModalHeadingJump(t *testing.T) {
+	// 纯函数解析：普通 ##、### 不算、代码块里的 ## 不算、没有标题时返回空。
+	cases := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			name:    "normal_h2",
+			content: "# Title\n\n## 第一章\n正文\n\n## Second Section\n更多内容\n",
+			want:    []string{"第一章", "Second Section"},
+		},
+		{
+			name:    "ignore_h3_and_other_levels",
+			content: "# H1\n## Keep One\n### Skip H3\n#### Skip H4\n## Keep Two ##\n",
+			want:    []string{"Keep One", "Keep Two"},
+		},
+		{
+			name:    "ignore_fenced_code_blocks",
+			content: "## Before\n```markdown\n## Inside Backticks\n```\n~~~\n## Inside Tildes\n~~~\n    ## Indented\n## After\n",
+			want:    []string{"Before", "After"},
+		},
+		{
+			name:    "empty_or_no_h2",
+			content: "# Only H1\n\n### Only H3\n\n普通正文\n",
+			want:    nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := contextDocHeadings(tc.content)
+			if len(got) != len(tc.want) {
+				t.Fatalf("contextDocHeadings(%q) = %#v, want %#v", tc.content, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("contextDocHeadings[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+
+	// headless 渲染：无 ## 时不渲染跳转条；有 ## 时显示跳转条并支持预览模式滚动定位。
+	t.Run("headless_jump_bar_and_scroll", func(t *testing.T) {
+		fake := NewFakeClient()
+		filler := strings.Repeat("这是一段用于撑开文档高度的占位正文。\n\n", 30)
+		fake.SetContextDoc("instructions.md", "# Rules\n\n"+filler+"## Target Section\n\n到达目标章节。\n")
+		fake.SetContextDoc("notes.md", "# Notes\n\n### Only Subheading\n\n没有二级标题。\n")
+
+		s := newChatState(fake)
+		t.Cleanup(s.close)
+		if err := loadContextDocsSync(s, fakeProjectPath); err != nil {
+			t.Fatal(err)
+		}
+		if err := selectContextDocSync(s, "notes.md"); err != nil {
+			t.Fatal(err)
+		}
+		cp := getContextPanelState(s)
+		contextPanelMu.Lock()
+		cp.open = true
+		cp.editing = false
+		contextPanelMu.Unlock()
+
+		tt := ui.NewTesterWith(func(c *ui.Context) {
+			applyAppTheme(c)
+			renderContextModal(c, s)
+		}, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
+		if _, ok := tt.Find("context-heading-bar"); ok {
+			t.Fatal("没有 ## 标题时不应渲染章节跳转条")
+		}
+
+		if err := selectContextDocSync(s, "instructions.md"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		if _, ok := tt.Find("context-heading-bar"); !ok {
+			t.Fatal("存在 ## 标题时应渲染章节跳转条")
+		}
+		if err := tt.Click("Target Section"); err != nil {
+			t.Fatalf("点击章节跳转按钮失败: %v", err)
+		}
+		waitFor(t, tt, func() bool {
+			contextPanelMu.Lock()
+			y := cp.previewScroll.Y
+			idx := cp.jumpHeadingIdx
+			contextPanelMu.Unlock()
+			return idx == 0 && y > 0
+		})
+	})
+}
