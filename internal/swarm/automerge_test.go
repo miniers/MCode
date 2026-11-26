@@ -219,8 +219,11 @@ func TestPipeline_AutoMergeOnlyCommitsLocally(t *testing.T) {
 	if cleanupCalls != 1 {
 		t.Errorf("本地落地后应清理 worktree，实际 %d 次", cleanupCalls)
 	}
-	if !anyContains(notified, "自动推送未开启") {
-		t.Errorf("应通知自动推送未开启，实际 %v", notified)
+	if !anyContains(notified, "已在本地提交") {
+		t.Errorf("应通知已在本地提交，实际 %v", notified)
+	}
+	if anyContains(notified, "自动推送") {
+		t.Errorf("自动推送关闭时不应提示自动推送，实际 %v", notified)
 	}
 }
 

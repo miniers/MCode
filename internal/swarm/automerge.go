@@ -249,7 +249,7 @@ func (p *Pipeline) RunBatch(ctx context.Context, b LandedBatch, manual bool) err
 			for i, sha := range unique {
 				shorts[i] = shortSHA(sha)
 			}
-			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %d 个提交（%s）%s；自动推送未开启，可在 Git 菜单手动推送", len(unique), strings.Join(shorts, "、"), extra)
+			p.notifyf(b.LeadThreadID, NoticePrefix+"已在本地提交 %d 个提交（%s）%s", len(unique), strings.Join(shorts, "、"), extra)
 		} else if hasChanges {
 			p.notifyf(b.LeadThreadID, NoticePrefix+"合并：没有需要提交的改动")
 		}
