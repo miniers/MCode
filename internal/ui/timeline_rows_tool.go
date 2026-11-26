@@ -719,7 +719,18 @@ func renderToolChip(c *ui.Context, s *chatState, m Message, beatTools []Message)
 	})
 }
 
-// renderToolDetail 渲染一个工具调用的详情区：左侧缩进 12pt 的圆角浅底卡片，
+// timelineGutter 给时间线展开容器左侧加上发丝宽（Hairline）的导引竖线，
+// 竖线与正文之间留 Space3 内边距，外侧按 marginLeft 与折叠头对齐。
+func timelineGutter(c *ui.Context, e ui.Element, marginLeft float32) ui.Element {
+	if marginLeft > 0 {
+		e.Margin(0, 0, 0, marginLeft)
+	}
+	return e.BorderStartWidth(Hairline).
+		BorderColor(ThemeBorder(c)).
+		Padding(0, 0, 0, Space3)
+}
+
+// renderToolDetail 渲染一个工具调用的详情区：左侧加发丝导引线的圆角浅底卡片，
 // 编辑类工具先在顶部给「收起改动」按钮与这次调用的行级 diff，下面是等宽小号字体的输出正文
 // （超过 300 字符时默认折叠，用户可就地展开全文）。
 // 工具组里的胶囊详情与未分组的单条工具共用这套渲染。
@@ -747,9 +758,7 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 		outputMax = toolOutputMaxHeightCompact
 	}
 
-	ui.Column(c.Key("tool-detail-wrap-"+m.ID)).
-		FillWidth().
-		Margin(0, 0, 0, toolBeatPadLeft).
+	timelineGutter(c, ui.Column(c.Key("tool-detail-wrap-"+m.ID)).FillWidth(), Space3).
 		Children(func() {
 			ui.Column(c.Key("tool-detail-"+m.ID)).
 				FillWidth().

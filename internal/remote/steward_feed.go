@@ -152,6 +152,17 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 		return wire.ThreadMessage{}, nil, err
 	}
 	b.mu.Lock()
+	td, ok = b.threads[threadID]
+	if !ok {
+		b.mu.Unlock()
+		return wire.ThreadMessage{}, nil, store.ErrNotFound
+	}
+	if err := b.ensureMessagesLocked(td, threadID); err != nil {
+		b.mu.Unlock()
+		return wire.ThreadMessage{}, nil, err
+	}
+	b.ensureMessagesLoadedLocked(td)
+	b.touchThreadLocked(td)
 	now := time.Now().UTC()
 	final := role == "assistant"
 	msg := wire.ThreadMessage{ID: newUUID(), Role: role, Text: text, CreatedAt: now.Format(time.RFC3339Nano), IsFinalResponse: &final, Media: media}
@@ -170,7 +181,26 @@ func (b *MemoryBackend) appendStewardMessage(ctx context.Context, threadID, role
 	seq := int(saved.Seq)
 	msg.Seq = &seq
 	b.mu.Lock()
-	td.messages = append(td.messages, msg)
+	td, ok = b.threads[threadID]
+	if !ok {
+		b.mu.Unlock()
+		return wire.ThreadMessage{}, nil, store.ErrNotFound
+	}
+	if err := b.ensureMessagesLocked(td, threadID); err != nil {
+		log.Printf("ensure messages for thread %s error: %v", threadID, err)
+	}
+	b.ensureMessagesLoadedLocked(td)
+	b.touchThreadLocked(td)
+	hasMsg := false
+	for _, m := range td.messages {
+		if m.ID == msg.ID {
+			hasMsg = true
+			break
+		}
+	}
+	if !hasMsg {
+		td.messages = append(td.messages, msg)
+	}
 	td.persisted[msg.ID] = true
 	td.summary.UpdatedAt = msg.CreatedAt
 	if role == "user" {

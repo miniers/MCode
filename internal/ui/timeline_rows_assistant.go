@@ -453,10 +453,10 @@ func renderReasoningMessage(c *ui.Context, s *chatState, m Message, liveID strin
 			ui.Icon(c, IconChevronRight()).Size(11, 11).TextColor(ThemeSecondaryText(c)).Rotate(chevronRotation)
 		})
 
-		// 展开后正文左侧缩进 24pt，与助手正文一样走 Markdown 渲染（字号 12、次要文本色）；
+		// 展开后正文左侧加发丝导引线并留出内边距，与助手正文一样走 Markdown 渲染（字号 12、次要文本色）；
 		// 展开/收起统一走 motionUnfoldBody：高度从 0 长到渲染后的完整高度，收起时反向收拢。
 		motionUnfoldBody(c, "think-body-"+m.ID, open, func() {
-			ui.Column(c.Key("think-body-"+m.ID)).Selectable().FillWidth().Padding(0, 0, 0, Space7).Children(func() {
+			timelineGutter(c, ui.Column(c.Key("think-body-"+m.ID)).Selectable().FillWidth(), Space2).Children(func() {
 				if isLive {
 					renderLiveMarkdown(c, s, m, reasoningMarkdownOptions(c, s))
 				} else {

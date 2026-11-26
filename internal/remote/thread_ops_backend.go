@@ -2927,6 +2927,11 @@ func (b *MemoryBackend) WorktreeMoveExecute(ctx context.Context, p wire.ThreadsW
 	td.summary.WorktreeRequested = true
 	td.sessionID = ""
 	td.sessionEpoch++
+	if err := b.ensureMessagesLocked(td, p.ThreadID); err != nil {
+		log.Printf("ensure messages for thread %s error: %v", p.ThreadID, err)
+	}
+	b.ensureMessagesLoadedLocked(td)
+	b.touchThreadLocked(td)
 	// 会话被替换，转发上下文需要在新会话里重新送达。
 	td.continuationSent = false
 	td.needsHandoff = len(td.messages) > 0

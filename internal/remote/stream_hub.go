@@ -264,6 +264,18 @@ func (h *StreamHub) IsSubscribed(c Conn) bool {
 	return false
 }
 
+// HasSubscribers 返回指定会话当前是否有订阅者。
+func (h *StreamHub) HasSubscribers(threadID string) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	st, ok := h.threads[threadID]
+	return ok && len(st.subscribers) > 0
+}
+
 // RemoveConn 从所有会话中移除该连接。
 func (h *StreamHub) RemoveConn(c Conn) {
 	h.mu.Lock()

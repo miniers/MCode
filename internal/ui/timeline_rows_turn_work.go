@@ -545,7 +545,7 @@ func renderToolBeatReasoning(c *ui.Context, s *chatState, m Message, liveID stri
 				return
 			}
 
-			ui.Column(c.Key("tool-beat-think-body-" + m.ID)).Selectable().FillWidth().Children(func() {
+			timelineGutter(c, ui.Column(c.Key("tool-beat-think-body-"+m.ID)).Selectable().FillWidth(), 0).Children(func() {
 				if isLive {
 					renderLiveMarkdown(c, s, m, toolBeatMarkdownOptions(c, s))
 				} else {

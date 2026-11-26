@@ -8,7 +8,7 @@ import (
 	"mcode/internal/store"
 )
 
-// warmCacheLimit 是内存中保留完整消息的已归档会话数量上限；超出的冷会话在 ListThreads 时淘汰。
+// warmCacheLimit 是内存中保留完整消息的冷会话数量上限；超出的空闲无订阅会话在 ListThreads 时淘汰。
 const warmCacheLimit = 32
 
 // touchThreadLocked 记录会话最近一次被访问的时间，供冷会话淘汰排序使用。调用方需持有 b.mu。
@@ -20,7 +20,7 @@ func (b *MemoryBackend) touchThreadLocked(td *memoryThread) {
 }
 
 // evictColdThreadsLocked 淘汰冷会话的消息：只在挂载 store 时生效。
-// 候选会话必须已归档、完全空闲（无运行中的轮次、无排队与待发送消息、无待处理审批），
+// 候选会话必须没有订阅者、完全空闲（无运行中的轮次、无排队与待发送消息、无待处理审批），
 // 且内存中的每条消息都已持久化；按 lastAccess 排序，保留最近访问的 warmCacheLimit 个，
 // 其余把 messages 置空并标记 messagesEvicted，下次访问由 ensureMessagesLocked 回载。
 // 调用方需持有 b.mu。
@@ -29,8 +29,8 @@ func (b *MemoryBackend) evictColdThreadsLocked() {
 		return
 	}
 	var candidates []*memoryThread
-	for _, td := range b.threads {
-		if td.messagesEvicted || !td.summary.IsArchived {
+	for id, td := range b.threads {
+		if td.messagesEvicted || (b.hub != nil && b.hub.HasSubscribers(id)) {
 			continue
 		}
 		// 运行中的轮次判断与 ArchiveBeeSession / SessionState 一致。
