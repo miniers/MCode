@@ -77,6 +77,16 @@ func (c *Client) AttentionUnresolvedCount(ctx context.Context) (int, error) {
 	return svc.UnresolvedCountByKinds(ctx, c.attentionKinds())
 }
 
+// AttentionActionCount 返回必须由用户亲手处理的未消解事件总数（不受总管开关影响），
+// 供桌面 Dock 角标使用。
+func (c *Client) AttentionActionCount(ctx context.Context) (int, error) {
+	svc := c.attentionService()
+	if svc == nil {
+		return 0, nil
+	}
+	return svc.UnresolvedCountByKinds(ctx, attention.OwnerActionKindNames())
+}
+
 // WatchAttention 订阅待处理事件变更。
 func (c *Client) WatchAttention(onChange func()) (stop func()) {
 	svc := c.attentionService()

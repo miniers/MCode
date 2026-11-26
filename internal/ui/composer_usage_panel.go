@@ -779,6 +779,21 @@ func formatTurnCostUSD(cost float64) string {
 	return fmt.Sprintf("本轮费用 $%.4f", cost)
 }
 
+// cacheHitRateText 计算缓存命中率文本（四舍五入到整数百分比，夹在 0–100 之间）；
+// input 或 cached 不大于 0 时返回空串。
+func cacheHitRateText(input, cached int64) string {
+	if input <= 0 || cached <= 0 {
+		return ""
+	}
+	pct := int(math.Round(float64(cached) * 100 / float64(input)))
+	if pct < 0 {
+		pct = 0
+	} else if pct > 100 {
+		pct = 100
+	}
+	return fmt.Sprintf("（%d%%）", pct)
+}
+
 // latestTurnCostLocked 计算最新一轮的费用（美元）；调用方需持有 s.mu。
 // 累计语义（claude、ACP、agy）上报的是会话累计花费，取最新轮 CostUSD 减去更早轮次里最近一个
 // CostUSD > 0 的值；差值为负（CLI 进程重开、累计从 0 重新开始）时直接取最新轮值。
@@ -912,8 +927,9 @@ func renderUsagePanel(c *ui.Context, s *chatState, th *Thread) {
 							TextColor(ThemeSecondaryText(c))
 					}
 					if total.Input > 0 || total.Output > 0 || total.Cached > 0 {
-						ui.Text(c, fmt.Sprintf("输入 %s · 输出 %s · 缓存命中 %s",
-							formatTokenCount(total.Input), formatTokenCount(total.Output), formatTokenCount(total.Cached))).
+						ui.Text(c, fmt.Sprintf("输入 %s · 输出 %s · 缓存命中 %s%s",
+							formatTokenCount(total.Input), formatTokenCount(total.Output), formatTokenCount(total.Cached),
+							cacheHitRateText(total.Input, total.Cached))).
 							FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 					}
 					if costLine := formatTurnCostUSD(costUSD); costLine != "" {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -162,7 +163,62 @@ func setupNative(hub *remote.StreamHub, client *app.Client, dataDir string, cfg 
 	})
 	startuptrace.Mark("session alerts watched")
 
+	var stopAttentionWatch func()
+	var stopDockLoop func()
+	if client != nil {
+		dockCtx, cancelDock := context.WithCancel(context.Background())
+		stopDockLoop = cancelDock
+		// WatchAttention 回调是同步调用的，用容量为 1 的 channel 合并通知，在单个后台 goroutine 里查库。
+		dockNotifyCh := make(chan struct{}, 1)
+		triggerDockBadge := func() {
+			select {
+			case dockNotifyCh <- struct{}{}:
+			default:
+			}
+		}
+		go func() {
+			initialized := false
+			prev := 0
+			for {
+				select {
+				case <-dockCtx.Done():
+					return
+				case <-dockNotifyCh:
+					if dockCtx.Err() != nil {
+						return
+					}
+					n, err := client.AttentionActionCount(dockCtx)
+					if err != nil {
+						if dockCtx.Err() != nil {
+							return
+						}
+						log.Printf("failed to count attention actions: %v", err)
+						continue
+					}
+					if mygo.App == nil || !mygo.App.IsReady() || mygo.App.Dock == nil {
+						continue
+					}
+					mygo.App.Dock.SetBadge(dockBadgeText(n))
+					if initialized && shouldBounceDock(prev, n, isForeground()) {
+						mygo.App.Dock.Bounce(false)
+					}
+					initialized = true
+					prev = n
+				}
+			}
+		}()
+		stopAttentionWatch = client.WatchAttention(triggerDockBadge)
+		// 启动时算一次初值，延后到首帧之后且不跳动。
+		mcodeui.AfterFirstFrame(triggerDockBadge)
+	}
+
 	return func() {
+		if stopAttentionWatch != nil {
+			stopAttentionWatch()
+		}
+		if stopDockLoop != nil {
+			stopDockLoop()
+		}
 		if stopWatch != nil {
 			stopWatch()
 		}
@@ -454,4 +510,20 @@ func toUITrayQuotaGroups(groups []app.TrayQuotaGroup) []mcodeui.TrayQuotaGroup {
 		}
 	}
 	return res
+}
+
+// dockBadgeText 把待处理数格式化为 Dock 角标文案；0 及以下清空，超过 99 显示 "99+"。
+func dockBadgeText(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if n > 99 {
+		return "99+"
+	}
+	return strconv.Itoa(n)
+}
+
+// shouldBounceDock 判断是否需要让 Dock 图标跳动一次：仅当数量增加且应用不在前台时返回 true。
+func shouldBounceDock(prev, next int, foreground bool) bool {
+	return next > prev && !foreground
 }

@@ -607,3 +607,43 @@ func TestDesktopAlertBackgroundLinger(t *testing.T) {
 		})
 	}
 }
+
+func TestDockBadgeText(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{0, ""},
+		{-1, ""},
+		{-42, ""},
+		{1, "1"},
+		{99, "99"},
+		{100, "99+"},
+	} {
+		if got := dockBadgeText(tc.n); got != tc.want {
+			t.Fatalf("dockBadgeText(%d) = %q, 期望 %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+func TestDockBadgeBounce(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		prev, next int
+		foreground bool
+		want       bool
+	}{
+		{"增加且后台", 0, 1, false, true},
+		{"继续增加且后台", 2, 5, false, true},
+		{"增加但前台", 0, 1, true, false},
+		{"减少且后台", 2, 1, false, false},
+		{"减少且前台", 2, 0, true, false},
+		{"不变且后台", 1, 1, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := shouldBounceDock(tc.prev, tc.next, tc.foreground); got != tc.want {
+				t.Fatalf("shouldBounceDock(%d, %d, %v) = %v, 期望 %v", tc.prev, tc.next, tc.foreground, got, tc.want)
+			}
+		})
+	}
+}

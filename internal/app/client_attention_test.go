@@ -129,3 +129,44 @@ func TestAttentionKindsFallsBackWhenConfigUnreadable(t *testing.T) {
 		t.Fatalf("配置读不到时应返回 nil（不过滤），实际为 %v", kinds)
 	}
 }
+
+// TestAttentionActionCount 覆盖仅统计 OwnerActionKinds 内未消解事件的行为。
+func TestAttentionActionCount(t *testing.T) {
+	ctx := context.Background()
+	if count, err := (&Client{}).AttentionActionCount(ctx); err != nil || count != 0 {
+		t.Fatalf("未注入服务时应返回 0, nil，实际为 %d, %v", count, err)
+	}
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "attention.db"))
+	if err != nil {
+		t.Fatalf("Open 失败: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	base := time.Now().UTC().Add(-time.Hour)
+	for i, kind := range []string{string(attention.KindThreadApproval), string(attention.KindThreadStalled)} {
+		if _, err := st.InsertAttentionEvent(ctx, store.AttentionEvent{
+			Kind:        kind,
+			SubjectType: "thread",
+			SubjectID:   "subject-" + kind,
+			ProjectID:   "/p1",
+			ThreadID:    "subject-" + kind,
+			Title:       kind,
+			EnteredAt:   base.Add(time.Duration(i) * time.Minute),
+			DedupeKey:   "dedupe-" + kind,
+		}); err != nil {
+			t.Fatalf("插入 %s 事件失败: %v", kind, err)
+		}
+	}
+
+	client := &Client{}
+	client.SetAttention(attention.New(st, attention.Options{}))
+
+	count, err := client.AttentionActionCount(ctx)
+	if err != nil {
+		t.Fatalf("AttentionActionCount 失败: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("期望仅统计 1 条需用户亲手处理的事件，实际为 %d", count)
+	}
+}
