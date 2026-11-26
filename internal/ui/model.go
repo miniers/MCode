@@ -569,18 +569,24 @@ type chatState struct {
 	completionLoaded          bool
 	completionSkillScope      string
 	completionSkillDraftScope string
-	commandsCache             map[string][]SlashCommand
-	mentionSeq                uint64
-	mentionTab                string
-	mentionDir                string
-	mentionErr                string
-	mentionFiles              []completionItem
-	mentionFilesLoaded        bool
-	mentionFilesLoading       bool
-	mentionDebounceTimer      *time.Timer
-	mentionDirAnim            string
-	mentionDirAnimRun         uint64
-	mentionPreviewCache       map[string]*mentionItemPreview
+	// completionArtifactGrid 表示斜杠补全浮层已切到二级「交付物类型网格」；
+	// artifactGridItems 在确认 /open-artifact 那一刻取自 OpenArtifactTypes()，渲染期不调接口。
+	completionArtifactGrid bool
+	artifactGridItems      []artifactGridItem
+	artifactGridSnap       []artifactGridItem
+	artifactGridSelected   int
+	commandsCache          map[string][]SlashCommand
+	mentionSeq             uint64
+	mentionTab             string
+	mentionDir             string
+	mentionErr             string
+	mentionFiles           []completionItem
+	mentionFilesLoaded     bool
+	mentionFilesLoading    bool
+	mentionDebounceTimer   *time.Timer
+	mentionDirAnim         string
+	mentionDirAnimRun      uint64
+	mentionPreviewCache    map[string]*mentionItemPreview
 	// draftThreadMentions 是草稿上方的会话引用胶囊，与正文分离；发送时按 ThreadID 展开为引用块。
 	// 由 s.mu 保护。
 	draftThreadMentions []ThreadMention

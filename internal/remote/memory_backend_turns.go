@@ -13,6 +13,8 @@ import (
 	"mcode/internal/swarm"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // AppendNotice 向会话时间线追加一条系统提示条目，并进行持久化与增量推送。
@@ -355,6 +357,28 @@ func (b *MemoryBackend) SendHostEvent(ctx context.Context, threadID, text string
 	return err
 }
 
+const openArtifactCommandPrefix = "/open-artifact"
+
+// rewriteOpenArtifactCommand 将 /open-artifact 斜杠命令改写为自然语言提示词，
+// 避免被 provider 当作未知斜杠命令拦截，并允许触发首轮说明注入。
+func rewriteOpenArtifactCommand(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == openArtifactCommandPrefix {
+		return "用 /open-artifact 制作交付物", true
+	}
+	if strings.HasPrefix(trimmed, openArtifactCommandPrefix) {
+		rest := trimmed[len(openArtifactCommandPrefix):]
+		if r, _ := utf8.DecodeRuneInString(rest); unicode.IsSpace(r) {
+			rest = strings.TrimSpace(rest)
+			if rest == "" {
+				return "用 /open-artifact 制作交付物", true
+			}
+			return "用 /open-artifact 制作：" + rest, true
+		}
+	}
+	return text, false
+}
+
 func (b *MemoryBackend) sendMessage(ctx context.Context, params wire.SendMessageParams, priority bool, userKind ...string) (wire.SendMessageResult, error) {
 	// userKind 指定落库的用户消息 Kind（如 host_event）；为空表示普通用户消息。
 	kind := ""
@@ -393,6 +417,12 @@ func (b *MemoryBackend) sendMessage(ctx context.Context, params wire.SendMessage
 			State:    wire.ActionStatePending,
 			ThreadID: &params.ThreadID,
 		})
+	}
+
+	if !priority && strings.TrimSpace(b.extraGuidance()) != "" {
+		if rewritten, ok := rewriteOpenArtifactCommand(params.Text); ok {
+			params.Text = rewritten
+		}
 	}
 
 	hasBees := b.hasWorkingSwarmBees(params.ThreadID)

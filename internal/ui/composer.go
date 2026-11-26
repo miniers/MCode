@@ -72,6 +72,8 @@ type composerViewState struct {
 	mentionTabIndicatorReady bool
 	// lastCompletionKind 记录上一次可见时的补全类型，供关闭动画维持相同面板形态。
 	lastCompletionKind completionKind
+	// lastArtifactGrid 记录上一次可见时是否处于交付物类型网格，供关闭动画继续渲染网格。
+	lastArtifactGrid bool
 }
 
 var (

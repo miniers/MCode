@@ -14,6 +14,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/richtext"
 	"mcode/internal/agentconf"
+	"mcode/internal/openartifact"
 )
 
 type completionKind int
@@ -37,6 +38,7 @@ type completionItem struct {
 	ThreadID    string // 会话提及项对应的会话 ID；非空表示这是 @ 会话引用
 	Icon        string // 可选的候选类型图标，目前仅 "thread"（会话气泡）
 	Source      string // 技能来源（project/global/external），用于右侧来源胶囊；非技能项为空
+	Tag         string // 非空时 confirmCompletion 为插入文本写入 Tag 属性，使胶囊高亮与退格整段删除生效
 	IsDir       bool   // 是否为目录项
 	Ignored     bool   // 是否被 .gitignore 忽略
 	// Header 表示分组标题行（「本地操作」/「会话与 Provider」/「会话」/「文件」），不可选中，上下键跳过。
@@ -52,16 +54,17 @@ type ThreadMention struct {
 // slashCommandAliases 斜杠命令别名表，key 为命令名（不带 '/'），value 为别名（同样不带 '/'）。
 // 别名只参与过滤与菜单展示，插入草稿时始终使用命令本名。
 var slashCommandAliases = map[string][]string{
-	"model":   {"m"},
-	"effort":  {"think", "reasoning"},
-	"fast":    {"speed"},
-	"mode":    {"build"},
-	"plan":    {"arc"},
-	"export":  {"save", "dump"},
-	"clear":   {"new", "reset"},
-	"compact": {"summarize"},
-	"forward": {"handoff", "fw"},
-	"pair":    {"swarm", "hydra"},
+	"model":         {"m"},
+	"effort":        {"think", "reasoning"},
+	"fast":          {"speed"},
+	"mode":          {"build"},
+	"plan":          {"arc"},
+	"export":        {"save", "dump"},
+	"clear":         {"new", "reset"},
+	"compact":       {"summarize"},
+	"forward":       {"handoff", "fw"},
+	"pair":          {"swarm", "hydra"},
+	"open-artifact": {"artifact", "交付物", "创建", "做", "生成"},
 }
 
 // slashCommandArgHints 斜杠命令的参数示例或说明，key 为命令名（不带 '/'）。
@@ -273,12 +276,17 @@ func slashCommandsToItems(cmds []SlashCommand, query string) []completionItem {
 				}
 			}
 		}
+		icon := ""
+		if strings.EqualFold(cmd.Name, "open-artifact") {
+			icon = "sparkles"
+		}
 		items[i] = completionItem{
 			Label:       "/" + cmd.Name,
 			Detail:      detail,
 			Description: cmd.Detail,
 			Insert:      "/" + cmd.Name,
 			Hint:        slashCommandArgHints[cmd.Name],
+			Icon:        icon,
 		}
 	}
 	return items
@@ -518,8 +526,10 @@ func (s *chatState) updateCompletion(threadID string) {
 	kind, start, query := detectCompletion(draft[:caretByte])
 	if s.isComposing || s.completionSuspended {
 		kind = completionNone
-	} else if kind == completionSlash && !atEnd {
-		kind = completionNone
+	} else if kind == completionSlash {
+		if !atEnd || s.draftRangeHasTagLocked(start, caretByte) {
+			kind = completionNone
+		}
 	} else if kind == completionMention || kind == completionSkill {
 		if !atEnd {
 			nextRune, _ := utf8.DecodeRuneInString(draft[caretByte:])
@@ -539,6 +549,7 @@ func (s *chatState) updateCompletion(threadID string) {
 		s.completionLoaded = false
 		s.completionSkillScope = ""
 		s.completionSkillDraftScope = ""
+		s.resetArtifactGridLocked()
 		s.resetMentionStateLocked()
 		s.mentionSeq++
 		if kind == completionNone && !s.isComposing {
@@ -555,6 +566,7 @@ func (s *chatState) updateCompletion(threadID string) {
 	if kind == completionMention {
 		s.completionSkillScope = ""
 		s.completionSkillDraftScope = ""
+		s.resetArtifactGridLocked()
 		changed := s.updateMentionCompletionLocked(threadID, query, start, prevKind)
 		s.mu.Unlock()
 		if changed {
@@ -571,8 +583,13 @@ func (s *chatState) updateCompletion(threadID string) {
 		s.completionScrollSelection = true
 		s.completionLoading = false
 		s.completionLoaded = false
+		s.resetArtifactGridLocked()
 		s.mentionSeq++
 		noteCompletionLevel(kind, query)
+	} else if kind == completionSlash && s.completionArtifactGrid {
+		// 停留在二级交付物类型网格时，保持当前网格状态与候选不变。
+		s.mu.Unlock()
+		return
 	}
 	effective := query
 	if kind == completionSkill {
@@ -730,6 +747,10 @@ func (s *chatState) mentionRanges(color ui.Color) []ui.TextRange {
 
 // confirmCompletion 把选中项写进草稿并关闭补全面板。
 func (s *chatState) confirmCompletion(item completionItem) string {
+	if item.Tag == "" && s.completionKind == completionSlash && !s.completionArtifactGrid && isOpenArtifactCommandItem(item) {
+		s.enterArtifactGridLocked()
+		return s.draft
+	}
 	s.syncDraftTags()
 	totalRunes := s.draftText.Len()
 	compStart := min(max(s.completionStart, 0), len(s.draft))
@@ -749,6 +770,7 @@ func (s *chatState) confirmCompletion(item completionItem) string {
 		s.completionKind = completionNone
 		s.completionItems = nil
 		s.completionDismissedFor = ""
+		s.resetArtifactGridLocked()
 		s.resetMentionStateLocked()
 		s.mentionSeq++
 		s.completionCaretTarget = start
@@ -759,8 +781,11 @@ func (s *chatState) confirmCompletion(item completionItem) string {
 		return s.draft
 	}
 	insert := richtext.NewText(item.Insert)
-	if s.completionKind == completionMention || s.completionKind == completionSkill {
-		tag := strings.TrimPrefix(strings.TrimPrefix(item.Insert, "@"), "$")
+	tag := item.Tag
+	if tag == "" && (s.completionKind == completionMention || s.completionKind == completionSkill) {
+		tag = strings.TrimPrefix(strings.TrimPrefix(item.Insert, "@"), "$")
+	}
+	if tag != "" {
 		insert = insert.Format(0, insert.Len(), func(a *richtext.Attributes) {
 			a.Tag = tag
 		})
@@ -786,6 +811,7 @@ func (s *chatState) confirmCompletion(item completionItem) string {
 	}
 	s.completionSkillScope = ""
 	s.completionSkillDraftScope = ""
+	s.resetArtifactGridLocked()
 	s.resetMentionStateLocked()
 	s.mentionSeq++
 	target := start + inserted.Len()
@@ -914,9 +940,34 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 		s.completionItems = nil
 		s.completionSkillScope = ""
 		s.completionSkillDraftScope = ""
+		s.resetArtifactGridLocked()
 		s.resetMentionStateLocked()
 		s.mentionSeq++
 		return "", true
+	}
+	if s.completionKind == completionSlash && s.completionArtifactGrid {
+		switch {
+		case key == ui.KeyLeft && mods == 0:
+			s.moveArtifactGridLocked(-1, 0)
+			return "", true
+		case key == ui.KeyRight && mods == 0:
+			s.moveArtifactGridLocked(1, 0)
+			return "", true
+		case key == ui.KeyUp && mods == 0:
+			s.moveArtifactGridLocked(0, -1)
+			return "", true
+		case key == ui.KeyDown && mods == 0:
+			s.moveArtifactGridLocked(0, 1)
+			return "", true
+		case key == ui.KeyBackspace && mods == 0:
+			s.exitArtifactGridLocked()
+			return "", true
+		case key == ui.KeyEnter && mods == 0:
+			return s.confirmArtifactGridLocked(), true
+		case key == ui.KeyTab && mods == 0:
+			return "", true
+		}
+		return "", false
 	}
 	if (s.completionKind == completionSkill || s.completionKind == completionMention) && mods == 0 && (key == ui.KeyLeft || key == ui.KeyRight) {
 		step := 1
@@ -961,6 +1012,10 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 			// 分组标题或失效的会话引用不插入，按键已消费。
 			return "", true
 		}
+		if s.completionKind == completionSlash && isOpenArtifactCommandItem(item) {
+			s.enterArtifactGridLocked()
+			return "", true
+		}
 		return s.confirmCompletion(item), true
 
 	case key == ui.KeyEnter && mods == 0:
@@ -971,6 +1026,10 @@ func (s *chatState) handleCompletionKey(key ui.Key, mods ui.Modifiers) (newText 
 		kind := s.completionKind
 		if kind == completionMention && item.IsDir {
 			return s.enterMentionDirLocked(item.Path, "enter"), true
+		}
+		if kind == completionSlash && isOpenArtifactCommandItem(item) {
+			s.enterArtifactGridLocked()
+			return "", true
 		}
 		tid := s.completionThreadID
 		newDraft := s.confirmCompletion(item)
@@ -1231,6 +1290,7 @@ func (s *chatState) clearDraftAndCompletion() {
 	s.completionCaretTarget = -1
 	s.completionSkillScope = ""
 	s.completionSkillDraftScope = ""
+	s.resetArtifactGridLocked()
 	s.resetMentionStateLocked()
 	s.mu.Unlock()
 	s.invalidate()
@@ -1274,6 +1334,8 @@ func completionEmptyLabel(kind completionKind, scope string) string {
 // completionItemIcon 返回叶子候选左侧的矢量图标：文件、会话、指令、技能各用一个。
 func completionItemIcon(kind completionKind, item completionItem) *ui.SVG {
 	switch {
+	case item.Icon == "sparkles":
+		return IconSparkles()
 	case kind == completionSkill:
 		return IconSparkles()
 	case kind == completionSlash:
@@ -1309,11 +1371,11 @@ func renderCompletionFooterHint(c *ui.Context, key, kbd, label string) {
 }
 
 // renderCompletionFooter 渲染面板底部键位页脚：24pt 高，顶部 1pt 分隔线。
-func renderCompletionFooter(c *ui.Context, kind completionKind) {
+func renderCompletionFooter(c *ui.Context, kind completionKind, artifactGrid bool) {
 	ui.Column(c.Key("composer-complete-footer")).FillWidth().Gap(0).Children(func() {
 		ui.Box(c.Key("composer-complete-footer-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
 		gap := Space4
-		if kind == completionMention {
+		if kind == completionMention || artifactGrid {
 			gap = Space3
 		}
 		ui.Row(c.Key("composer-complete-footer-row")).
@@ -1323,6 +1385,13 @@ func renderCompletionFooter(c *ui.Context, kind completionKind) {
 			AlignItems(ui.Center).
 			Gap(gap).
 			Children(func() {
+				if artifactGrid {
+					renderCompletionFooterHint(c, "composer-complete-footer-nav", "↑↓←→", "选择")
+					renderCompletionFooterHint(c, "composer-complete-footer-enter", "↵", "确认")
+					renderCompletionFooterHint(c, "composer-complete-footer-back", "⌫", "返回")
+					renderCompletionFooterHint(c, "composer-complete-footer-esc", "esc", "关闭")
+					return
+				}
 				renderCompletionFooterHint(c, "composer-complete-footer-nav", "↑↓", "选择")
 				switch kind {
 				case completionMention:
@@ -1354,12 +1423,24 @@ var completionLevel = struct {
 // noteCompletionLevel 在补全类型变化时递增序号，让面板做一次横向滑入；
 // 同类型内继续输入或切换页签不重播整板滑入。
 func noteCompletionLevel(kind completionKind, _ string) {
-	key := fmt.Sprintf("%d", kind)
+	noteCompletionSubLevel(kind, "")
+}
+
+// noteCompletionSubLevel 在补全主层级或子层级（如二级交付物网格）变化时递增序号。
+func noteCompletionSubLevel(kind completionKind, sub string) {
+	key := fmt.Sprintf("%d:%s", kind, sub)
 	completionLevel.Lock()
 	if completionLevel.key != key {
 		completionLevel.key = key
 		completionLevel.run++
 	}
+	completionLevel.Unlock()
+}
+
+// resetCompletionLevelKey 在面板完全关闭后重置层级记录，不递增序号以避免关闭期间重播滑入。
+func resetCompletionLevelKey() {
+	completionLevel.Lock()
+	completionLevel.key = ""
 	completionLevel.Unlock()
 }
 
@@ -1612,10 +1693,17 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	mentionRootName := s.projectNameForThreadLocked(threadID)
 	// 补全中：有触发字符（kind 非 none），且没有被组合输入（IME）或 esc 挂起。
 	completing := kind != completionNone && !s.isComposing && !s.completionSuspended
+	artifactGrid := completing && kind == completionSlash && s.completionArtifactGrid
 	// 加载完成后即使没有候选也要保留面板：空态本身就是一次搜索结果（技能扫描未就绪时仍显示 loading 行）。
-	visible := completing && !(len(s.completionItems) == 0 && !loading && !loaded)
+	visible := completing && (artifactGrid || !(len(s.completionItems) == 0 && !loading && !loaded))
 	if visible {
 		s.composerView.lastCompletionKind = kind
+		s.composerView.lastArtifactGrid = artifactGrid
+		if artifactGrid {
+			s.artifactGridSnap = append(s.artifactGridSnap[:0], s.artifactGridItems...)
+		} else {
+			s.artifactGridSnap = s.artifactGridSnap[:0]
+		}
 		if len(s.completionItems) > 0 {
 			s.completionSnap = append(s.completionSnap[:0], s.completionItems...)
 		} else {
@@ -1624,15 +1712,17 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		}
 	}
 	activeKind := kind
+	isArtifactGrid := artifactGrid
 	if !visible && s.composerView.lastCompletionKind != completionNone {
 		activeKind = s.composerView.lastCompletionKind
+		isArtifactGrid = s.composerView.lastArtifactGrid
 	}
 	// 失效原因与会话快照在同一把锁内生成，保证和插入时看到的会话列一致。
 	reasons := make([]string, len(s.completionSnap))
 	for i := range s.completionSnap {
 		reasons[i] = s.completionUnusableReasonLocked(s.completionSnap[i])
 	}
-	if visible && len(reasons) > 0 && (s.completionSelected < 0 || s.completionSelected >= len(reasons) || reasons[s.completionSelected] != "") {
+	if visible && !isArtifactGrid && len(reasons) > 0 && (s.completionSelected < 0 || s.completionSelected >= len(reasons) || reasons[s.completionSelected] != "") {
 		// 选中项落在分组标题或已失效项上时移到最近的可用项；全部不可用则置为 -1。
 		if next := nextUsableCompletionIndex(reasons, s.completionSelected); next >= 0 {
 			s.completionSelected = next
@@ -1646,6 +1736,8 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	}
 	items := append([]completionItem(nil), s.completionSnap...)
 	selected := s.completionSelected
+	gridItems := append([]artifactGridItem(nil), s.artifactGridSnap...)
+	gridSelected := s.artifactGridSelected
 	scrollSelection := s.completionScrollSelection
 	prevPointerOn := s.completionPointerOn
 	prevPointerX := s.completionPointerX
@@ -1659,7 +1751,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 	}
 	// 没在补全、也没有上一帧的候选可收起时，整块浮层都不建：分屏时每个输入框都会往
 	// overlay 根上挂一个面板，同 key 会让 mygo 立刻 panic；空态也因此只在补全中显示。
-	if !visible && len(items) == 0 {
+	if !visible && len(items) == 0 && !isArtifactGrid {
 		s.mu.Lock()
 		s.completionScrollSelection = false
 		s.completionPointerOn = false
@@ -1667,6 +1759,8 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		s.composerView.skillScopeIndicatorReady = false
 		s.composerView.mentionTabIndicatorReady = false
 		s.composerView.lastCompletionKind = completionNone
+		s.composerView.lastArtifactGrid = false
+		resetCompletionLevelKey()
 		return
 	}
 
@@ -1689,6 +1783,16 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 			width = availW
 		}
 		fullH = composerCompleteHeadH + ControlMD + Hairline + mentionMenuBodyHeight + composerCompleteFooterH + 3*Hairline
+	} else if isArtifactGrid {
+		gridRows := (len(gridItems) + 2) / 3
+		headH := ControlSM + 2*Space1 + Hairline
+		gridBodyH := Space2
+		if gridRows > 0 {
+			gridBodyH = 2*Space2 + float32(gridRows)*ControlLG + float32(gridRows-1)*Space1
+		}
+		skipH := RowHeight + Space2
+		footerH := composerCompleteFooterH + Hairline
+		fullH = headH + gridBodyH + skipH + footerH + 2*Hairline + 4
 	} else {
 		// 行高约 27pt、行距 2pt、内边距 4pt×2、边框 1pt×2，略高估即可；行数封顶后由 Scroll 内部滚动。
 		rows = len(items)
@@ -1752,12 +1856,15 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 		if !visible && p <= 0.01 {
 			s.mu.Lock()
 			s.completionSnap = nil
+			s.artifactGridSnap = nil
 			s.completionScrollSelection = false
 			s.completionPointerOn = false
 			s.mu.Unlock()
 			s.composerView.skillScopeIndicatorReady = false
 			s.composerView.mentionTabIndicatorReady = false
 			s.composerView.lastCompletionKind = completionNone
+			s.composerView.lastArtifactGrid = false
+			resetCompletionLevelKey()
 			return
 		}
 		slide := float32(0)
@@ -1788,7 +1895,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 			Border(Hairline, ThemeBorder(c)).
 			Radius(RadiusLG).
 			Background(ThemeSurfacePopover(c))
-		if isMention {
+		if isMention || isArtifactGrid {
 			col.Padding(0).Gap(0)
 		} else {
 			col.Padding(Space1).Gap(Space0)
@@ -1816,7 +1923,10 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 				})
 				renderMentionBreadcrumbs(c, s, mentionTab, mentionDir, mentionRootName)
 				renderMentionBody(c, s, threadID, width, items, reasons, selected, scrollSelection, mentionTab, mentionQuery, mentionErr, loading, mentionDirAnim, mentionDirAnimRun, draft, &hoveredIdx)
-				renderCompletionFooter(c, completionMention)
+				renderCompletionFooter(c, completionMention, false)
+			} else if isArtifactGrid {
+				renderArtifactGrid(c, s, width, gridItems, gridSelected, draft, &hoveredIdx)
+				renderCompletionFooter(c, completionSlash, true)
 			} else {
 				if showHeader {
 					renderSkillScopeTabs(c, s, skillScope, len(items))
@@ -1855,11 +1965,15 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 								if s.draft == draft && s.completionKind != completionNone && !s.isComposing && !s.completionSuspended {
 									kind := s.completionKind
 									tid := s.completionThreadID
-									s.confirmCompletion(it)
-									if kind == completionSlash && isNoArgLocalSlashCommand(it.Insert) {
-										s.mu.Unlock()
-										s.runLocalSlashCommand(tid, it.Insert)
-										s.mu.Lock()
+									if kind == completionSlash && isOpenArtifactCommandItem(it) {
+										s.enterArtifactGridLocked()
+									} else {
+										s.confirmCompletion(it)
+										if kind == completionSlash && isNoArgLocalSlashCommand(it.Insert) {
+											s.mu.Unlock()
+											s.runLocalSlashCommand(tid, it.Insert)
+											s.mu.Lock()
+										}
 									}
 								}
 								s.mu.Unlock()
@@ -2003,7 +2117,7 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 					})
 				}
 				if showFooter {
-					renderCompletionFooter(c, activeKind)
+					renderCompletionFooter(c, activeKind, false)
 				}
 			}
 			if pointerOver != prevPointerOn || pointerMoved || scrollSelection {
@@ -2013,13 +2127,20 @@ func renderCompletionMenu(c *ui.Context, s *chatState, card ui.Element) {
 				s.completionPointerX = px
 				s.completionPointerY = py
 				// 仅在指针实际进入或移动时按悬停切换选中，防止静止悬停在滚动或键盘导航时抢回选中。
-				if visible && pointerMoved && hoveredIdx >= 0 && hoveredIdx != s.completionSelected {
-					s.completionSelected = hoveredIdx
-					s.completionScrollSelection = false
-					if isMention {
-						s.ensureMentionSelectionPreviewLocked()
+				if visible && pointerMoved && hoveredIdx >= 0 {
+					if isArtifactGrid {
+						if hoveredIdx != s.artifactGridSelected {
+							s.artifactGridSelected = hoveredIdx
+							needInvalidate = true
+						}
+					} else if hoveredIdx != s.completionSelected {
+						s.completionSelected = hoveredIdx
+						s.completionScrollSelection = false
+						if isMention {
+							s.ensureMentionSelectionPreviewLocked()
+						}
+						needInvalidate = true
 					}
-					needInvalidate = true
 				} else if scrollSelection && s.completionSelected == selected {
 					s.completionScrollSelection = false
 				}
@@ -2145,4 +2266,323 @@ func btoi(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+type artifactGridItem struct {
+	ID    string
+	Label string
+	Icon  *ui.SVG
+}
+
+var artifactTypeLabels = map[string]string{
+	"data":          "看板",
+	"design":        "设计",
+	"design-system": "设计系统",
+	"docs":          "文档",
+	"motion":        "动画",
+	"page":          "网页",
+	"sheets":        "表格",
+	"slides":        "幻灯片",
+	"whiteboard":    "白板",
+}
+
+func artifactTypeIcon(id string) *ui.SVG {
+	switch id {
+	case "data":
+		return iconChartColumn
+	case "design":
+		return IconLayoutDashboard()
+	case "design-system":
+		return IconPalette()
+	case "docs":
+		return IconBookOpenText()
+	case "motion":
+		return iconArtifactMotion
+	case "page":
+		return IconGlobe()
+	case "sheets":
+		return iconArtifactSheets
+	case "slides":
+		return iconArtifactSlides
+	case "whiteboard":
+		return iconArtifactWhiteboard
+	default:
+		return IconPackage()
+	}
+}
+
+func buildArtifactGridItems(types []openartifact.ArtifactType) []artifactGridItem {
+	items := make([]artifactGridItem, 0, len(types))
+	for _, t := range types {
+		id := strings.TrimSpace(t.ID)
+		if id == "" {
+			continue
+		}
+		key := strings.ToLower(id)
+		label := artifactTypeLabels[key]
+		if label == "" {
+			label = strings.TrimSpace(t.Name)
+		}
+		if label == "" {
+			label = id
+		}
+		items = append(items, artifactGridItem{
+			ID:    id,
+			Label: label,
+			Icon:  artifactTypeIcon(key),
+		})
+	}
+	return items
+}
+
+func isOpenArtifactCommandItem(item completionItem) bool {
+	return strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(item.Insert), "/"), "open-artifact")
+}
+
+func (s *chatState) resetArtifactGridLocked() {
+	s.completionArtifactGrid = false
+	s.artifactGridItems = nil
+	s.artifactGridSelected = 0
+}
+
+func (s *chatState) enterArtifactGridLocked() {
+	var types []openartifact.ArtifactType
+	if oa, ok := s.client.(OpenArtifactClient); ok {
+		types = oa.OpenArtifactTypes()
+	}
+	s.completionArtifactGrid = true
+	s.artifactGridItems = buildArtifactGridItems(types)
+	s.artifactGridSelected = 0
+	s.completionPointerOn = false
+	noteCompletionSubLevel(completionSlash, "artifact-grid")
+}
+
+func (s *chatState) exitArtifactGridLocked() {
+	s.resetArtifactGridLocked()
+	s.completionPointerOn = false
+	if cmds, ok := s.commandsCache[s.completionThreadID]; ok {
+		s.completionItems = slashCompletionItems(cmds, s.completionQuery)
+		s.completionLoaded = true
+		s.ensureSelectableCompletionLocked()
+	}
+	noteCompletionSubLevel(completionSlash, "")
+}
+
+func (s *chatState) confirmArtifactGridLocked() string {
+	idx := s.artifactGridSelected
+	insert := "/open-artifact"
+	if idx >= 0 && idx < len(s.artifactGridItems) {
+		insert = "/open-artifact " + s.artifactGridItems[idx].ID
+	}
+	s.resetArtifactGridLocked()
+	return s.confirmCompletion(completionItem{
+		Insert: insert,
+		Tag:    strings.TrimPrefix(insert, "/"),
+	})
+}
+
+func (s *chatState) moveArtifactGridLocked(dx, dy int) {
+	total := len(s.artifactGridItems)
+	if total == 0 {
+		s.artifactGridSelected = 0
+		return
+	}
+	if s.artifactGridSelected < 0 || s.artifactGridSelected > total {
+		s.artifactGridSelected = 0
+	}
+	if s.artifactGridSelected == total {
+		if dy < 0 {
+			s.artifactGridSelected = ((total - 1) / 3) * 3
+		}
+		return
+	}
+	col := s.artifactGridSelected % 3
+	row := s.artifactGridSelected / 3
+	lastRow := (total - 1) / 3
+	if dx != 0 {
+		for step := 0; step < 3; step++ {
+			col = (col + dx + 3) % 3
+			if cand := row*3 + col; cand < total {
+				s.artifactGridSelected = cand
+				break
+			}
+		}
+	}
+	if dy > 0 {
+		if row == lastRow {
+			s.artifactGridSelected = total
+		} else {
+			cand := (row+1)*3 + col
+			if cand >= total {
+				cand = total - 1
+			}
+			s.artifactGridSelected = cand
+		}
+	} else if dy < 0 && row > 0 {
+		s.artifactGridSelected = (row-1)*3 + col
+	}
+}
+
+func renderArtifactGrid(c *ui.Context, s *chatState, width float32, items []artifactGridItem, selected int, draft string, hoveredIdx *int) {
+	ui.Column(c.Key("composer-artifact-grid")).FillWidth().Gap(0).Children(func() {
+		ui.Row(c.Key("composer-artifact-grid-head")).
+			FillWidth().
+			Padding(Space1, Space2).
+			AlignItems(ui.Center).
+			Gap(Space2).
+			Children(func() {
+				backBtn := ui.ButtonBase(c.Key("composer-artifact-grid-back")).
+					Label("返回斜杠菜单").
+					Size(ControlSM, ControlSM).
+					Radius(RadiusSM).
+					Cursor(ui.CursorPointer).
+					Transition(motionFeedback(c)).
+					OnClick(func() {
+						s.mu.Lock()
+						if s.draft == draft && s.completionKind == completionSlash && s.completionArtifactGrid {
+							s.exitArtifactGridLocked()
+						}
+						s.mu.Unlock()
+						s.invalidate()
+					})
+				backColor := ThemeSecondaryText(c)
+				if backBtn.Hovered() {
+					backBtn.Background(ThemeHover(c))
+					backColor = ThemePrimaryText(c)
+				}
+				backBtn.Children(func() {
+					ui.Icon(c, IconArrowLeft()).Size(IconSM, IconSM).TextColor(backColor)
+				})
+				ui.Text(c, "创建交付物").
+					FontSize(uiFont(TypeFootnote)).
+					FontWeight(weightFor(c, 600)).
+					TextColor(ThemePrimaryText(c))
+			})
+		ui.Box(c.Key("composer-artifact-grid-divider")).FillWidth().Height(Hairline).Background(ThemeBorder(c))
+
+		tileW := (width - 2*Hairline - 2*Space2 - 2*Space1) / 3
+		if len(items) > 0 {
+			ui.Column(c.Key("composer-artifact-grid-body")).
+				FillWidth().
+				Padding(Space2).
+				Gap(Space1).
+				Children(func() {
+					rows := (len(items) + 2) / 3
+					for r := 0; r < rows; r++ {
+						ui.Row(c.Key(fmt.Sprintf("composer-artifact-grid-row-%d", r))).
+							FillWidth().
+							Gap(Space1).
+							Children(func() {
+								for colIdx := 0; colIdx < 3; colIdx++ {
+									idx := r*3 + colIdx
+									if idx >= len(items) {
+										ui.Box(c.Key(fmt.Sprintf("composer-artifact-grid-pad-%d", idx))).
+											Width(tileW).
+											Height(ControlLG)
+										continue
+									}
+									it := items[idx]
+									active := idx == selected
+									tile := ui.Row(c.Key("composer-artifact-tile-"+it.ID)).
+										Label(it.Label).
+										Width(tileW).
+										Height(ControlLG).
+										Padding(0, Space2).
+										Radius(RadiusSM).
+										AlignItems(ui.Center).
+										Gap(Space2).
+										Cursor(ui.CursorPointer).
+										Transition(motionFeedback(c)).
+										OnClick(func() {
+											s.mu.Lock()
+											if s.draft == draft && s.completionKind == completionSlash && s.completionArtifactGrid {
+												s.artifactGridSelected = idx
+												s.confirmArtifactGridLocked()
+											}
+											s.mu.Unlock()
+											s.invalidate()
+										})
+									if tile.Hovered() {
+										*hoveredIdx = idx
+									}
+									if active {
+										tile.Background(ThemeOverlaySelected(c))
+									} else if tile.Hovered() {
+										tile.Background(ThemeHover(c))
+									}
+									iconColor := ThemeSecondaryText(c)
+									if active {
+										iconColor = ThemeAccent(c)
+									}
+									tile.Children(func() {
+										ui.Icon(c, it.Icon).Size(IconMD, IconMD).TextColor(iconColor).Shrink(0)
+										ui.Text(c, it.Label).
+											FontSize(uiFont(TypeBody)).
+											FontWeight(weightFor(c, 500)).
+											TextColor(ThemePrimaryText(c)).
+											SingleLine().
+											Ellipsis("…").
+											Shrink(1).
+											MinWidth(0)
+									})
+								}
+							})
+					}
+				})
+		}
+
+		skipIdx := len(items)
+		skipActive := selected == skipIdx
+		skipPadTop := float32(0)
+		if len(items) == 0 {
+			skipPadTop = Space2
+		}
+		ui.Row(c.Key("composer-artifact-skip-wrap")).
+			FillWidth().
+			Padding(skipPadTop, Space2, Space2, Space2).
+			Children(func() {
+				skipBtn := ui.Row(c.Key("composer-artifact-skip")).
+					Label("不指定类型，直接写需求").
+					FillWidth().
+					Height(RowHeight).
+					Padding(0, Space2).
+					Radius(RadiusSM).
+					AlignItems(ui.Center).
+					Gap(Space2).
+					Cursor(ui.CursorPointer).
+					Transition(motionFeedback(c)).
+					OnClick(func() {
+						s.mu.Lock()
+						if s.draft == draft && s.completionKind == completionSlash && s.completionArtifactGrid {
+							s.artifactGridSelected = skipIdx
+							s.confirmArtifactGridLocked()
+						}
+						s.mu.Unlock()
+						s.invalidate()
+					})
+				if skipBtn.Hovered() {
+					*hoveredIdx = skipIdx
+				}
+				if skipActive {
+					skipBtn.Background(ThemeOverlaySelected(c))
+				} else if skipBtn.Hovered() {
+					skipBtn.Background(ThemeHover(c))
+				}
+				iconColor := ThemeSecondaryText(c)
+				textColor := ThemeSecondaryText(c)
+				if skipActive {
+					iconColor = ThemeAccent(c)
+					textColor = ThemePrimaryText(c)
+				} else if skipBtn.Hovered() {
+					textColor = ThemePrimaryText(c)
+				}
+				skipBtn.Children(func() {
+					ui.Icon(c, IconSparkles()).Size(IconSM, IconSM).TextColor(iconColor).Shrink(0)
+					ui.Text(c, "不指定类型，直接写需求").
+						FontSize(uiFont(TypeFootnote)).
+						TextColor(textColor).
+						SingleLine()
+				})
+			})
+	})
 }

@@ -16,6 +16,7 @@ type openArtifactProvider interface {
 	SetOpenArtifactEnabled(enabled bool) error
 	OpenArtifactState() (ready bool, err error)
 	OpenArtifactHomeURL(ctx context.Context) (string, error)
+	OpenArtifactTypes() []openartifact.ArtifactType
 }
 
 var _ mcodeui.OpenArtifactClient = (*Client)(nil)
@@ -92,4 +93,13 @@ func (c *Client) OpenArtifactHomeURL(ctx context.Context) (string, error) {
 		return "", openartifact.ErrNotReady
 	}
 	return provider.OpenArtifactHomeURL(ctx)
+}
+
+// OpenArtifactTypes 返回当前已安装的 open-artifact 交付物类型列表。
+func (c *Client) OpenArtifactTypes() []openartifact.ArtifactType {
+	provider := c.openArtifactService()
+	if provider == nil {
+		return nil
+	}
+	return provider.OpenArtifactTypes()
 }

@@ -137,6 +137,14 @@ func (a *App) OpenArtifactSkill() string {
 	return a.oa.skill
 }
 
+// OpenArtifactTypes 解析并返回当前已安装的 open-artifact 交付物类型列表；未就绪时返回空切片。
+func (a *App) OpenArtifactTypes() []openartifact.ArtifactType {
+	if a == nil {
+		return nil
+	}
+	return openartifact.ParseInstalledTypes(a.OpenArtifactSkill())
+}
+
 func (a *App) startOpenArtifact() {
 	a.oa.mu.Lock()
 	if a.oa.closed {

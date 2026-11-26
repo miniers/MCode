@@ -290,12 +290,40 @@ func (d *Dispatcher) handleThreadsCommands(ctx context.Context, params json.RawM
 	if err != nil {
 		return replyWithBackendErr(err)
 	}
+	if eg, ok := ops.(interface{ extraGuidance() string }); ok {
+		res.Commands = appendOpenArtifactCommand(res.Commands, eg.extraGuidance())
+	}
 	return replySuccess(res)
+}
+
+// appendOpenArtifactCommand 在 extraGuidance 非空且命令列表中尚未存在 open-artifact 时，
+// 追加 /open-artifact 命令；extraGuidance 当前只承载 open-artifact。
+func appendOpenArtifactCommand(cmds []wire.RemoteCommand, guidance string) []wire.RemoteCommand {
+	if strings.TrimSpace(guidance) == "" {
+		return cmds
+	}
+	for _, cmd := range cmds {
+		if cmd.Name == "open-artifact" {
+			return cmds
+		}
+	}
+	return append(cmds, wire.RemoteCommand{
+		Name:      "open-artifact",
+		Detail:    "创建交付物",
+		IsBuiltIn: false,
+		Kind:      "command",
+	})
 }
 
 // ThreadCommands 查询指定会话或项目的可用命令列表（内置命令与技能）。
 func (b *MemoryBackend) ThreadCommands(ctx context.Context, p wire.ThreadsCommandsParams) (wire.ThreadsCommandsResult, error) {
-	return ThreadCommandsFromOps(ctx, b, p)
+	res, err := ThreadCommandsFromOps(ctx, b, p)
+	if err != nil {
+		return res, err
+	}
+	// extraGuidance 当前只承载 open-artifact；桥接就绪时将其追加到命令列表末尾。
+	res.Commands = appendOpenArtifactCommand(res.Commands, b.extraGuidance())
+	return res, nil
 }
 
 // slashCatalogEntry 定义内置斜杠命令目录项。

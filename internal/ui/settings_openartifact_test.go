@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/config"
+	"mcode/internal/openartifact"
 	"mcode/internal/openartifact/noderuntime"
 )
 
@@ -30,6 +31,7 @@ type fakeOpenArtifactClient struct {
 	homeURL       string
 	homeErr       error
 	homeURLCalls  atomic.Int32
+	artifactTypes []openartifact.ArtifactType
 }
 
 func (f *fakeOpenArtifactClient) OpenArtifactNodeStatus(context.Context) noderuntime.Status {
@@ -74,6 +76,12 @@ func (f *fakeOpenArtifactClient) OpenArtifactHomeURL(context.Context) (string, e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.homeURL, f.homeErr
+}
+
+func (f *fakeOpenArtifactClient) OpenArtifactTypes() []openartifact.ArtifactType {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]openartifact.ArtifactType(nil), f.artifactTypes...)
 }
 
 func (f *fakeOpenArtifactClient) recordedEnabledCalls() []bool {

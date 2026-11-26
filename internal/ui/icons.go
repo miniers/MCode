@@ -529,6 +529,10 @@ const (
 	svgPathChartColumn           = `<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>`
 	svgPathBookOpenText          = `<path d="M12 5v16"/><path d="M16 13h2"/><path d="M16 9h2"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/><path d="M6 13h2"/><path d="M6 9h2"/>`
 	svgPathSend                  = `<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>`
+	svgPathArtifactSlides        = `<rect width="18" height="14" x="3" y="4" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><path d="M8 10h8"/>`
+	svgPathArtifactWhiteboard    = `<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>`
+	svgPathArtifactSheets        = `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/>`
+	svgPathArtifactMotion        = `<polygon points="6 3 20 12 6 21 6 3"/>`
 )
 
 var (
@@ -675,6 +679,10 @@ var (
 	iconChartColumn           = parseLucideSVG(svgPathChartColumn)
 	iconBookOpenText          = parseLucideSVG(svgPathBookOpenText)
 	iconSend                  = parseLucideSVG(svgPathSend)
+	iconArtifactSlides        = parseLucideSVG(svgPathArtifactSlides)
+	iconArtifactWhiteboard    = parseLucideSVG(svgPathArtifactWhiteboard)
+	iconArtifactSheets        = parseLucideSVG(svgPathArtifactSheets)
+	iconArtifactMotion        = parseLucideSVG(svgPathArtifactMotion)
 )
 
 // 追加各图标快捷导出函数

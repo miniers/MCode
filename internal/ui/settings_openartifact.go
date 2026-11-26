@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/openartifact"
 	"mcode/internal/openartifact/noderuntime"
 )
 
@@ -22,6 +23,7 @@ type OpenArtifactClient interface {
 	SetOpenArtifactEnabled(enabled bool) error
 	OpenArtifactState() (ready bool, err error)
 	OpenArtifactHomeURL(ctx context.Context) (string, error)
+	OpenArtifactTypes() []openartifact.ArtifactType
 }
 
 var (
