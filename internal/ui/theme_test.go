@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +10,13 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 	"mcode/internal/config"
 )
+
+func builtinPalette(id string) themePalette {
+	colors, _ := config.BuiltinThemeColors(id)
+	p := paletteFromColors(colors)
+	derivePalette(&p)
+	return p
+}
 
 func TestSurfaceAndAccentTokens(t *testing.T) {
 	setAppReduceMotion(t, true)
@@ -190,6 +198,68 @@ func TestThemeRuntimeDefaultPalette(t *testing.T) {
 	}
 }
 
+func TestColorfulBuiltinThemePalette(t *testing.T) {
+	light := resolvePalette(config.AppearanceConfig{}, config.ThemeColorfulLight)
+	if light.Text != ui.Hex("#4D5666D8") {
+		t.Fatalf("多彩浅色主文字 = %v，期望 #4D5666D8", light.Text)
+	}
+	if light.Accent != ui.Hex("#0062CC") {
+		t.Fatalf("多彩浅色强调色 = %v，期望 #0062CC", light.Accent)
+	}
+	dark := resolvePalette(config.AppearanceConfig{}, config.ThemeColorfulDark)
+	if dark.Accent != ui.Hex("#e9c1ff") {
+		t.Fatalf("多彩深色强调色 = %v，期望 #e9c1ff", dark.Accent)
+	}
+	cfg := config.AppearanceConfig{Themes: []config.ThemeDef{{ID: config.ThemeColorfulLight, Base: config.ThemeLight, Colors: map[string]string{"accent": "#123456"}}}}
+	overridden := resolvePalette(cfg, config.ThemeColorfulLight)
+	if overridden.Accent != ui.Hex("#123456") {
+		t.Fatalf("用户覆盖多彩浅色强调色未生效: %v", overridden.Accent)
+	}
+}
+
+func TestBuiltinThemePalettes(t *testing.T) {
+	ids := []string{config.ThemeLight, config.ThemeDark, config.ThemeColorfulLight, config.ThemeColorfulDark}
+	palettes := make([]themePalette, len(ids))
+	for i, id := range ids {
+		palettes[i] = resolvePalette(config.AppearanceConfig{}, id)
+	}
+	// 多彩主题继承同族 base 的表面色，因此只比较各自独特的主体色；浅色族与深色族之间才比表面色。
+	for i := range palettes {
+		if palettes[i].Canvas.A == 0 || palettes[i].Main.A == 0 || palettes[i].Card.A == 0 || palettes[i].Popover.A == 0 {
+			t.Fatalf("内置主题 %s 表面色不透明: canvas=%v main=%v card=%v popover=%v", ids[i], palettes[i].Canvas, palettes[i].Main, palettes[i].Card, palettes[i].Popover)
+		}
+	}
+	if palettes[2].Canvas != palettes[0].Canvas {
+		t.Fatalf("多彩浅色 Canvas 未继承浅色: colorful=%v light=%v", palettes[2].Canvas, palettes[0].Canvas)
+	}
+	if palettes[3].Text != palettes[1].Text {
+		t.Fatalf("多彩深色 Text 未继承深色: colorful=%v dark=%v", palettes[3].Text, palettes[1].Text)
+	}
+	luminance := func(c ui.Color) float64 {
+		return 0.299*float64(c.R) + 0.587*float64(c.G) + 0.114*float64(c.B)
+	}
+	if luminance(palettes[0].Canvas) <= luminance(palettes[1].Canvas) {
+		t.Fatalf("浅色 Canvas 应比深色更亮: light=%v dark=%v", palettes[0].Canvas, palettes[1].Canvas)
+	}
+}
+
+func TestBuiltinThemeSwitchingIsFixed(t *testing.T) {
+	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
+	setActiveTheme(config.AppearanceConfig{Theme: config.ThemeColorfulDark})
+	want := resolvePalette(config.AppearanceConfig{}, config.ThemeColorfulDark)
+	var got themePalette
+	tt := ui.NewTester(func(c *ui.Context) { got = paletteOf(c) }, 100, 100)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	for _, dark := range []bool{false, true} {
+		tt.SetDark(dark)
+		tt.Frame()
+		if got != want {
+			t.Fatalf("多彩深色固定主题受系统外观影响，dark=%v", dark)
+		}
+	}
+}
+
 func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 	resetRuntimeTheme(t)
 	setAppReduceMotion(t, true)
@@ -210,7 +280,7 @@ func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 	}
 	tt.SetDark(true)
 	tt.Frame()
-	if accent != builtinPalettes[config.ThemeDark].Accent {
+	if accent != builtinPalette(config.ThemeDark).Accent {
 		t.Fatalf("浅色覆盖影响了深色: %v", accent)
 	}
 	cfg.Theme = "custom"
@@ -219,7 +289,7 @@ func TestThemeRuntimeOverridesAndFixed(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		tt.SetDark(dark)
 		tt.Frame()
-		if text != ui.Hex("#345678AA") || canvas != builtinPalettes[config.ThemeLight].Canvas || accent != builtinPalettes[config.ThemeLight].Accent {
+		if text != ui.Hex("#345678AA") || canvas != builtinPalette(config.ThemeLight).Canvas || accent != builtinPalette(config.ThemeLight).Accent {
 			t.Fatalf("固定主题应只叠加基底默认值，dark=%v text=%v canvas=%v accent=%v", dark, text, canvas, accent)
 		}
 		themeDark.Store(dark)
@@ -241,7 +311,7 @@ func TestThemeRuntimeSystemAccentAndInvalidColors(t *testing.T) {
 	setAppReduceMotion(t, true)
 	for _, base := range []string{config.ThemeLight, config.ThemeDark} {
 		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: base, Colors: map[string]string{
-			"accent": config.ThemeAccentSystem, "canvas": "#oops", "text": "#12345", "border": "#GGGGGG",
+			"accent": config.ThemeAccentSystem, "canvas": "#oops", "text": "#12345", "divider": "#GGGGGG",
 		}}}})
 		var accent, canvas, text, border ui.Color
 		tt := ui.NewTester(func(c *ui.Context) {
@@ -257,7 +327,7 @@ func TestThemeRuntimeSystemAccentAndInvalidColors(t *testing.T) {
 		appReduceMotion.Store(true)
 		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 		tt.Frame()
-		p := builtinPalettes[base]
+		p := builtinPalette(base)
 		if accent != p.Accent || canvas != p.Canvas || text != p.Text || border != p.Border {
 			t.Fatalf("非法颜色或空系统强调色未回退 %s", base)
 		}
@@ -306,7 +376,7 @@ func TestThemeRuntimeMarkdownRefresh(t *testing.T) {
 	appReduceMotion.Store(true)
 	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
 	tt.Frame()
-	for _, key := range []string{"accent", "card", "border", "text_secondary"} {
+	for _, key := range []string{"accent", "card", "divider", "text_secondary"} {
 		oldChat := chat.mdOpts.Theme
 		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
 		appReduceMotion.Store(true)
@@ -428,9 +498,9 @@ func TestThemeRuntimeCodeColors(t *testing.T) {
 	setAppReduceMotion(t, true)
 	for _, dark := range []bool{false, true} {
 		setActiveTheme(config.AppearanceConfig{})
-		base := builtinPalettes[config.ThemeLight]
+		base := builtinPalette(config.ThemeLight)
 		if dark {
-			base = builtinPalettes[config.ThemeDark]
+			base = builtinPalette(config.ThemeDark)
 		}
 		mdTheme := (*markdown.Theme)(nil)
 		tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
@@ -454,7 +524,7 @@ func TestThemeRuntimeCodeColors(t *testing.T) {
 	if mdTheme.Code != ui.Hex("#123456") || mdTheme.CodeBackground != ui.Hex("#ABCDEF80") {
 		t.Fatalf("代码覆盖色未生效: code=%v bg=%v", mdTheme.Code, mdTheme.CodeBackground)
 	}
-	if mdTheme.Text != builtinPalettes[config.ThemeLight].Text {
+	if mdTheme.Text != builtinPalette(config.ThemeLight).Text {
 		t.Fatalf("代码覆盖不应改动主文字: %v", mdTheme.Text)
 	}
 
@@ -485,7 +555,7 @@ func TestThemeRuntimeCodeColors(t *testing.T) {
 			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
 		}
 		// 只覆盖其中一个键时，另一项仍取默认（跟随主文字），不应跟着变成覆盖值。
-		defaultText := builtinPalettes[config.ThemeDark].Text
+		defaultText := builtinPalette(config.ThemeDark).Text
 		wantCode, wantBG := defaultText, defaultText.Alpha(0.07)
 		if key == "code_text" {
 			wantCode = ui.Hex("#123456")
@@ -557,4 +627,210 @@ func TestThemeScrollbarStyleHoverActive(t *testing.T) {
 			t.Errorf("dark=%v: ScrollbarStyle 其余字段应保持零值: %+v", base.Dark, s)
 		}
 	}
+}
+
+// 默认配置下 Markdown 各角色跟随基色：标题与粗体取主文字，次要标记取次要文字，链接取 accent。
+func TestMarkdownRoleColors(t *testing.T) {
+	resetRuntimeTheme(t)
+	setActiveTheme(config.AppearanceConfig{})
+	for _, dark := range []bool{false, true} {
+		base := builtinPalette(config.ThemeLight)
+		if dark {
+			base = builtinPalette(config.ThemeDark)
+		}
+		appReduceMotion.Store(true)
+		mdTheme := (*markdown.Theme)(nil)
+		tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.SetDark(dark)
+		tt.Frame()
+		if mdTheme.Text != base.Text || mdTheme.Strong != base.Text || mdTheme.Muted != base.TextSecondary || mdTheme.Link != base.Accent {
+			t.Fatalf("dark=%v 角色默认色不对: text=%v strong=%v muted=%v link=%v", dark, mdTheme.Text, mdTheme.Strong, mdTheme.Muted, mdTheme.Link)
+		}
+		for i, h := range mdTheme.Headings {
+			if h.Color != base.Text {
+				t.Fatalf("dark=%v H%d 标题色应为 %v，实际 %v", dark, i+1, base.Text, h.Color)
+			}
+		}
+	}
+}
+
+// 只覆盖 text 时标题与粗体跟随，次要标记与链接保持各自的默认来源。
+func TestMarkdownRoleColorOverridesFollowBase(t *testing.T) {
+	resetRuntimeTheme(t)
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"text": "#654321",
+	}}}})
+	appReduceMotion.Store(true)
+	mdTheme := (*markdown.Theme)(nil)
+	tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	light := builtinPalette(config.ThemeLight)
+	if mdTheme.Text != ui.Hex("#654321") || mdTheme.Strong != ui.Hex("#654321") {
+		t.Fatalf("只覆盖 text 时标题与粗体应跟随: text=%v strong=%v", mdTheme.Text, mdTheme.Strong)
+	}
+	for i, h := range mdTheme.Headings {
+		if h.Color != ui.Hex("#654321") {
+			t.Fatalf("H%d 标题色应跟随 text: %v", i+1, h.Color)
+		}
+	}
+	if mdTheme.Muted != light.TextSecondary || mdTheme.Link != light.Accent {
+		t.Fatalf("次要标记与链接不应跟随 text: muted=%v link=%v", mdTheme.Muted, mdTheme.Link)
+	}
+
+	// 角色覆盖各自生效且互不影响。
+	chat := newChatState(nil)
+	setActiveTheme(config.AppearanceConfig{})
+	appReduceMotion.Store(true)
+	chatTT := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat) }, 600, 400)
+	chatTT.SetPreferences(ui.Preferences{ReduceMotion: true})
+	chatTT.Frame()
+	for _, key := range []string{"code_heading", "code_muted", "code_link", "code_strong"} {
+		prev := chat.mdOpts.Theme
+		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
+		appReduceMotion.Store(true)
+		chatTT.Frame()
+		cur := chat.mdOpts.Theme
+		if cur == prev {
+			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
+		}
+		base := builtinPalette(config.ThemeDark)
+		wantHeading, wantMuted, wantLink, wantStrong := base.Text, base.TextSecondary, base.Accent, base.Text
+		switch key {
+		case "code_heading":
+			wantHeading = ui.Hex("#123456")
+		case "code_muted":
+			wantMuted = ui.Hex("#123456")
+		case "code_link":
+			wantLink = ui.Hex("#123456")
+		case "code_strong":
+			wantStrong = ui.Hex("#123456")
+		}
+		for i, h := range cur.Headings {
+			if h.Color != wantHeading {
+				t.Fatalf("%s: H%d 应为 %v，实际 %v", key, i+1, wantHeading, h.Color)
+			}
+		}
+		if cur.Muted != wantMuted || cur.Link != wantLink || cur.Strong != wantStrong {
+			t.Fatalf("%s 角色覆盖互串: muted=%v link=%v strong=%v", key, cur.Muted, cur.Link, cur.Strong)
+		}
+		if cur.Text != base.Text {
+			t.Fatalf("%s 不应改动主文字: %v", key, cur.Text)
+		}
+	}
+}
+
+func TestThemeBorderDividerRestored(t *testing.T) {
+	got := resolvePalette(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"border": "#FF0000", "divider": "#00FF00",
+	}}}}, "custom")
+	if got.Border != ui.Hex("#FF0000") || got.Divider != ui.Hex("#00FF00") {
+		t.Fatalf("border/divider 覆盖未生效：border=%v divider=%v", got.Border, got.Divider)
+	}
+}
+
+// 引用块文字与左侧竖线各自可覆盖；未设时分别派生为次要文字与默认边框色。
+func TestMarkdownQuoteRoleColors(t *testing.T) {
+	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
+	for _, dark := range []bool{false, true} {
+		base := builtinPalette(config.ThemeLight)
+		if dark {
+			base = builtinPalette(config.ThemeDark)
+		}
+		mdTheme := (*markdown.Theme)(nil)
+		tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+		tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+		tt.SetDark(dark)
+		tt.Frame()
+		if mdTheme.QuoteText != base.TextSecondary || mdTheme.QuoteBar != base.Border {
+			t.Fatalf("dark=%v 引用块默认色应派生为次要文字与默认边框: text=%v bar=%v", dark, mdTheme.QuoteText, mdTheme.QuoteBar)
+		}
+	}
+
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{
+		"quote_text": "#123456", "quote_bar": "#654321",
+	}}}})
+	appReduceMotion.Store(true)
+	mdTheme := (*markdown.Theme)(nil)
+	tt := ui.NewTester(func(c *ui.Context) { mdTheme = buildMarkdownTheme(c, 13, "", 12) }, 100, 100)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	if mdTheme.QuoteText != ui.Hex("#123456") || mdTheme.QuoteBar != ui.Hex("#654321") {
+		t.Fatalf("引用块覆盖色未生效: text=%v bar=%v", mdTheme.QuoteText, mdTheme.QuoteBar)
+	}
+	if mdTheme.Text != builtinPalette(config.ThemeLight).Text {
+		t.Fatalf("引用块覆盖不应改动主文字: %v", mdTheme.Text)
+	}
+
+	// 只设其一另一项仍取默认；两项变化都必须触发 Markdown 缓存重建。
+	chat := newChatState(nil)
+	setActiveTheme(config.AppearanceConfig{})
+	appReduceMotion.Store(true)
+	chatTT := ui.NewTester(func(c *ui.Context) { ensureChatMarkdown(c, chat) }, 600, 400)
+	chatTT.SetPreferences(ui.Preferences{ReduceMotion: true})
+	chatTT.Frame()
+	base := builtinPalette(config.ThemeDark)
+	for _, key := range []string{"quote_text", "quote_bar"} {
+		prev := chat.mdOpts.Theme
+		setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{ID: "custom", Base: config.ThemeDark, Colors: map[string]string{key: "#123456"}}}})
+		appReduceMotion.Store(true)
+		chatTT.Frame()
+		cur := chat.mdOpts.Theme
+		if cur == prev {
+			t.Fatalf("%s 变化后 Markdown 缓存未重建", key)
+		}
+		wantText, wantBar := base.TextSecondary, base.Border
+		if key == "quote_text" {
+			wantText = ui.Hex("#123456")
+		} else {
+			wantBar = ui.Hex("#123456")
+		}
+		if cur.QuoteText != wantText || cur.QuoteBar != wantBar {
+			t.Fatalf("%s 覆盖未进入 Markdown 主题: text=%v bar=%v", key, cur.QuoteText, cur.QuoteBar)
+		}
+	}
+}
+
+// 用户消息气泡底色：未设置时等于改动前的默认值（卡片色 ThemeSurfaceCard 的终值），
+// 设置 user_message_background 后取该色，且不经主题过渡。
+func TestUserMessageBackgroundColor(t *testing.T) {
+	const key = "user_message_background"
+	if !slices.Contains(config.ThemeColorKeys, key) {
+		t.Fatalf("%s 未登记到 ThemeColorKeys", key)
+	}
+	defaultLight := ui.Hex("#FFFFFF")
+	defaultDark := ui.Hex("#1F1F1F")
+	for _, want := range []ui.Color{defaultLight, defaultDark} {
+		id := config.ThemeLight
+		if want == defaultDark {
+			id = config.ThemeDark
+		}
+		if got := resolvePalette(config.AppearanceConfig{}, id).UserMessageBackground; got != want {
+			t.Fatalf("%s 未设置时气泡底色 = %v，期望默认值 %v", id, got, want)
+		}
+	}
+
+	resetRuntimeTheme(t)
+	cfg := config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{
+		{ID: "custom", Base: config.ThemeLight, Colors: map[string]string{key: "#123456"}},
+	}}
+	if _, ok := cfg.ThemeByID("custom"); !ok {
+		t.Fatal("主题缺失")
+	}
+	want := ui.Color{R: 0x12, G: 0x34, B: 0x56, A: 255}
+	if got := resolvePalette(cfg, "custom").UserMessageBackground; got != want {
+		t.Fatalf("设置 %s 后气泡底色 = %v，期望 %v", key, got, want)
+	}
+
+	// getter 走调色板终值：关掉减少动效时也立即返回目标色，不返回过渡中间色。
+	setActiveTheme(cfg)
+	setAppReduceMotion(t, false)
+	tt := ui.NewTester(func(c *ui.Context) {
+		if got := ThemeUserMessageBackground(c); got != want {
+			t.Fatalf("关闭减少动效时气泡底色 = %v，期望 %v（不应走过渡）", got, want)
+		}
+	}, 100, 100)
+	tt.Frame()
 }

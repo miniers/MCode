@@ -34,6 +34,30 @@ func newThemesTester(t *testing.T) (*SettingsState, *ui.Tester) {
 	}, 1000, 4000)
 }
 
+func TestThemeControl_ColorfulBuiltinSelection(t *testing.T) {
+	st := NewSettingsState(settingsTestDir(t), nil, nil)
+	st.cfg.Appearance.Theme = config.ThemeColorfulLight
+	restoreActiveTheme(t)
+	setAppReduceMotion(t, true)
+	t.Cleanup(st.Close)
+	tt := ui.NewTester(func(c *ui.Context) {
+		themeControl{}.render(c, st, appearanceThemeSection.Rows[0])
+	}, 1000, 600)
+
+	if !tt.HasText("多彩浅色") || !tt.HasText("多彩深色") {
+		t.Fatalf("外观页缺少内置彩色主题：%v", tt.Texts())
+	}
+	for _, name := range []string{"跟随系统", "浅色", "深色"} {
+		info, ok := tt.AccessByRole(ui.RoleRadio, name)
+		if !ok || info.Checked || info.Selected {
+			t.Errorf("彩色主题生效时分段 %s 应无选中态：%+v, found=%v", name, info, ok)
+		}
+	}
+	if st.cfg.Appearance.Theme != config.ThemeColorfulLight {
+		t.Fatalf("渲染不应修改当前主题：%q", st.cfg.Appearance.Theme)
+	}
+}
+
 func TestThemeControl_CustomSelectionAndReset(t *testing.T) {
 	st := NewSettingsState(settingsTestDir(t), nil, nil)
 	st.cfg.Appearance.Themes = []config.ThemeDef{{ID: "custom", Name: "测试主题", Base: config.ThemeLight,
@@ -101,7 +125,7 @@ func TestThemesSheet_AccentEditAndReset(t *testing.T) {
 
 func TestThemesSheet_BuiltinAndAdd(t *testing.T) {
 	st, tt := newThemesTester(t)
-	for _, name := range []string{"浅色", "深色"} {
+	for _, name := range []string{"浅色", "深色", "多彩浅色", "多彩深色"} {
 		if err := tt.Click(name); err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +271,7 @@ func TestThemesSheet_StateLifecycle(t *testing.T) {
 
 func TestThemesSheet_LayoutAndValues(t *testing.T) {
 	st, tt := newThemesTester(t)
-	for _, name := range []string{"浅色", "深色"} {
+	for _, name := range []string{"浅色", "深色", "多彩浅色", "多彩深色"} {
 		info, ok := tt.AccessByRole(ui.RoleButton, name)
 		if !ok || info.Checked != (name == "浅色") {
 			t.Fatalf("主题选择状态 %s: %+v, %v", name, info, ok)
@@ -316,25 +340,38 @@ func TestThemesSheet_LayoutAndValues(t *testing.T) {
 	if !ok {
 		t.Fatal("缺少普通行")
 	}
-	for _, test := range []struct {
-		key   string
-		count int
-	}{{"设置卡片 theme-section-canvas", 6}, {"设置卡片 theme-fonts", 6}} {
-		rect, ok := tt.Find(test.key)
-		if !ok {
-			t.Fatalf("缺少卡片 %s", test.key)
+	// 字号卡片全是普通行，平摊后的行高与普通行一致。
+	fontsRect, ok := tt.Find("设置卡片 theme-fonts")
+	if !ok {
+		t.Fatal("缺少卡片 设置卡片 theme-fonts")
+	}
+	fontRows := len(config.ThemeFontKeys)
+	fontHeight := (fontsRect.H - 2*Hairline - float32(fontRows-1)*Hairline) / float32(fontRows)
+	if math.Abs(float64(fontHeight-normal.H)) > 1 {
+		t.Errorf("卡片 设置卡片 theme-fonts 的行高=%v，普通行=%v", fontHeight, normal.H)
+	}
+	// 色块回到 Space6 后颜色行与普通行同高：行高由 SettingRowKeyedTall 的右侧控件决定。
+	backgroundRows := float32(0)
+	for _, section := range colorSections {
+		if section.title == "背景" {
+			backgroundRows = float32(len(section.keys))
 		}
-		height := (rect.H - 2*Hairline - float32(test.count-1)*Hairline) / float32(test.count)
-		if math.Abs(float64(height-normal.H)) > 1 {
-			t.Errorf("卡片 %s 的行高=%v，普通行=%v", test.key, height, normal.H)
-		}
+	}
+	colorRect, ok := tt.Find("设置卡片 theme-section-背景")
+	if !ok {
+		t.Fatal("缺少卡片 设置卡片 theme-section-背景")
+	}
+	colorHeight := (colorRect.H - 2*Hairline - (backgroundRows-1)*Hairline) / backgroundRows
+	if math.Abs(float64(colorHeight-normal.H)) > 1 {
+		t.Errorf("颜色行高=%v，普通行=%v，色块不应撑高颜色行", colorHeight, normal.H)
 	}
 }
 
 func TestUIReview14_ThemeSheetA11yAndResetPlaceholder(t *testing.T) {
 	st, tt := newThemesTester(t)
 
-	colorTitles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "代码底色", "主文字", "次要文字", "辅助文字", "代码文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
+	// 顺序须与设置页颜色行一致（colorSections 拼接顺序），逐键校验标签。
+	colorTitles := map[string]string{"canvas": "窗口", "main": "主区域", "card": "卡片", "raised": "浮起", "popover": "浮层", "code_background": "代码底色", "composer_background": "输入框", "table_header": "表头", "text": "主文字", "text_secondary": "次要文字", "text_tertiary": "辅助文字", "code_text": "代码文字", "accent": "强调色", "danger": "危险", "warning": "警告", "success": "成功", "caution": "提醒", "plan": "Plan", "code_heading": "标题", "code_muted": "次要标记", "code_link": "链接", "code_strong": "粗体", "quote_text": "引用文字", "quote_bar": "引用竖线", "user_message_background": "用户消息", "border": "边框", "divider": "分隔线"}
 	fontTitles := []string{"侧栏", "对话", "界面", "代码", "终端", "编辑器"}
 
 	beforeColorRect, ok := tt.Find("编辑强调色")
@@ -357,12 +394,16 @@ func TestUIReview14_ThemeSheetA11yAndResetPlaceholder(t *testing.T) {
 	})
 	tt.Frame()
 
-	for i, key := range config.ThemeColorKeys {
-		editLabel := "编辑" + colorTitles[i]
+	for _, key := range config.ThemeColorKeys {
+		colorTitles, ok := colorTitles[key]
+		if !ok {
+			t.Fatalf("缺少 %s 的显示名，请在 colorTitles 里补齐", key)
+		}
+		editLabel := "编辑" + colorTitles
 		if _, ok := tt.Access(editLabel); !ok {
 			t.Errorf("缺少颜色按钮无障碍标签 %q", editLabel)
 		}
-		resetLabel := "还原" + colorTitles[i]
+		resetLabel := "还原" + colorTitles
 		if _, ok := tt.Access(resetLabel); !ok {
 			t.Errorf("缺少颜色还原按钮无障碍标签 %q", resetLabel)
 		}
@@ -431,5 +472,44 @@ func TestUIReview14_ThemeSheetA11yAndResetPlaceholder(t *testing.T) {
 	}
 	if afterSliderRect.X != beforeSliderRect.X {
 		t.Errorf("出现还原按钮后字号滑块横向跳动: before=%v after=%v", beforeSliderRect.X, afterSliderRect.X)
+	}
+	if afterColorRect.W != Space6 || afterColorRect.H != Space6 {
+		t.Errorf("色块按钮应回到 Space6（%v），实际 %vx%v", Space6, afterColorRect.W, afterColorRect.H)
+	}
+	quotingRow, ok := tt.Find("row-theme-color-quote_text")
+	if !ok {
+		t.Fatal("缺少颜色行 row-theme-color-quote_text")
+	}
+	accentRow, ok := tt.Find("row-theme-color-accent")
+	if !ok {
+		t.Fatal("缺少颜色行 row-theme-color-accent")
+	}
+	if quotingRow.Y <= accentRow.Y {
+		t.Errorf("引用文字应排到强调分栏之后（文字组），实际 Y=%v，强调行 Y=%v", quotingRow.Y, accentRow.Y)
+	}
+}
+
+// 分组键表是设置页的布局事实：四组合起来恰好覆盖 ThemeColorKeys 且互不重复，
+// 每个键都能被 config.ValidThemeColor 接受。改分组时这里必须同步。
+func TestThemesSheet_ColorKeysAreValid(t *testing.T) {
+	seen := make(map[string]bool, len(config.ThemeColorKeys))
+	for _, section := range colorSections {
+		for _, key := range section.keys {
+			if seen[key] {
+				t.Fatalf("颜色分组重复包含 %s", key)
+			}
+			seen[key] = true
+		}
+	}
+	if len(seen) != len(config.ThemeColorKeys) {
+		t.Fatalf("颜色分组应有 %d 项，实际 %d", len(config.ThemeColorKeys), len(seen))
+	}
+	for _, key := range config.ThemeColorKeys {
+		if !seen[key] {
+			t.Fatalf("颜色分组漏掉 %s", key)
+		}
+		if !config.ValidThemeColor(key, "#123456") {
+			t.Errorf("ThemeColorKeys 的 %s 未被 config 接受", key)
+		}
 	}
 }

@@ -3,11 +3,74 @@ package config
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 )
+
+func TestBuiltinThemes(t *testing.T) {
+	for _, id := range []string{ThemeLight, ThemeDark, ThemeColorfulLight, ThemeColorfulDark} {
+		if !IsBuiltinTheme(id) {
+			t.Errorf("%s 应为内置主题", id)
+		}
+	}
+	for id, base := range map[string]string{ThemeColorfulLight: ThemeLight, ThemeColorfulDark: ThemeDark} {
+		theme, ok := (AppearanceConfig{}).ThemeByID(id)
+		if !ok || theme.Base != base {
+			t.Errorf("主题 %s 的 base = %q，期望 %q", id, theme.Base, base)
+		}
+	}
+	for id, name := range map[string]string{ThemeLight: "浅色", ThemeDark: "深色", ThemeColorfulLight: "多彩浅色", ThemeColorfulDark: "多彩深色"} {
+		if got := (AppearanceConfig{}).ThemeDisplayName(id); got != name {
+			t.Errorf("主题 %s 名称 = %q，期望 %q", id, got, name)
+		}
+	}
+}
+
+func TestColorfulBuiltinTheme(t *testing.T) {
+	colors, ok := BuiltinThemeColors(ThemeColorfulLight)
+	if !ok || len(colors) < 15 || colors["text"] != "#4D5666D8" {
+		t.Fatalf("多彩浅色默认颜色不符：%v, %v", colors, ok)
+	}
+	if colorsAgain, ok := BuiltinThemeColors("custom"); ok || colorsAgain != nil {
+		t.Fatalf("非内置主题应返回 nil、false：%v, %v", colorsAgain, ok)
+	}
+}
+
+func TestBuiltinThemeColorsComplete(t *testing.T) {
+	baseKeys := []string{"canvas", "main", "card", "raised", "popover", "text", "text_secondary", "text_tertiary", "accent", "danger", "warning", "success", "caution", "plan", "border", "divider"}
+	for _, id := range []string{ThemeLight, ThemeDark, ThemeColorfulLight, ThemeColorfulDark} {
+		colors, ok := BuiltinThemeColors(id)
+		if !ok || len(colors) == 0 {
+			t.Fatalf("主题 %s 默认颜色为空：%v, %v", id, colors, ok)
+		}
+		for _, key := range baseKeys {
+			if _, ok := colors[key]; !ok {
+				t.Fatalf("主题 %s 缺少基础颜色 %s", id, key)
+			}
+		}
+		for key, value := range colors {
+			if !ValidThemeColor(key, value) {
+				t.Fatalf("主题 %s 颜色 %s=%s 非法", id, key, value)
+			}
+		}
+	}
+	light, _ := BuiltinThemeColors(ThemeLight)
+	dark, _ := BuiltinThemeColors(ThemeDark)
+	colorfulLight, _ := BuiltinThemeColors(ThemeColorfulLight)
+	colorfulDark, _ := BuiltinThemeColors(ThemeColorfulDark)
+	if light["text"] == dark["text"] {
+		t.Fatal("浅色与深色 text 不应相同")
+	}
+	if colorfulLight["canvas"] != light["canvas"] {
+		t.Fatalf("多彩浅色 canvas 未继承浅色：%s", colorfulLight["canvas"])
+	}
+	if colorfulDark["text"] != dark["text"] {
+		t.Fatalf("多彩深色 text 未继承深色：%s", colorfulDark["text"])
+	}
+}
 
 func TestThemeAddRenameRemove(t *testing.T) {
 	a := AppearanceConfig{Theme: ThemeSystem}
@@ -97,6 +160,7 @@ func TestThemeSetResetSparseOverrides(t *testing.T) {
 	}
 	for _, err := range []error{
 		a.SetThemeColor(ThemeDark, "text", "red"), a.SetThemeColor("missing", "text", "#123456"),
+		a.SetThemeColor(ThemeDark, "future", "#FF0000"),
 		a.SetThemeFont(ThemeDark, "missing", 1), a.SetThemeFont("missing", "code", 12),
 	} {
 		if err == nil {
@@ -188,6 +252,24 @@ func TestValidThemeColor(t *testing.T) {
 	}
 }
 
+func TestParseThemeTransfer(t *testing.T) {
+	a := AppearanceConfig{}
+	before := len(a.Themes)
+	parsed, err := ParseThemeTransfer([]byte(`{"name":"parsed","base":"light","colors":{"accent":"#123456"}}`))
+	if err != nil || parsed.Base != ThemeLight || parsed.Colors["accent"] != "#123456" {
+		t.Fatalf("解析主题错误：%+v, %v", parsed, err)
+	}
+	if len(a.Themes) != before {
+		t.Fatalf("解析不应改动主题列表：%d -> %d", before, len(a.Themes))
+	}
+	if _, err := ParseThemeTransfer([]byte(`{"name":"bad","base":"system"}`)); err == nil {
+		t.Fatal("非法 base 应返回错误")
+	}
+	if _, err := ParseThemeTransfer([]byte(`{"name":"pi","appearance":"dark","colors":{"accent":"#123456"}}`)); err == nil {
+		t.Fatal("pi 主题不应由 mcode 主题解析器解析")
+	}
+}
+
 func TestThemeExportImport(t *testing.T) {
 	a := AppearanceConfig{}
 	theme, _ := a.AddTheme(ThemeDark)
@@ -231,6 +313,94 @@ func TestThemeExportImport(t *testing.T) {
 	}
 }
 
+var themeNewColorKeys = []string{"code_heading", "code_muted", "code_link", "code_strong"}
+
+func TestThemeNewColorKeys(t *testing.T) {
+	cfg := Defaults()
+	theme, _ := cfg.Appearance.AddTheme(ThemeDark)
+	cfg.Appearance.Theme = theme.ID
+	for _, key := range themeNewColorKeys {
+		if !slices.Contains(ThemeColorKeys, key) {
+			t.Fatalf("缺少颜色键 %s", key)
+		}
+		if err := cfg.Appearance.SetThemeColor(theme.ID, key, "#13579b"); err != nil {
+			t.Fatalf("%s 写入失败：%v", key, err)
+		}
+		if ValidThemeColor(key, ThemeAccentSystem) {
+			t.Fatalf("%s 不应接受 system", key)
+		}
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := cfg.Appearance.ThemeByID(theme.ID)
+	for _, key := range themeNewColorKeys {
+		if stored.Colors[key] != "#13579b" {
+			t.Fatalf("%s 未保存：%v", key, stored.Colors)
+		}
+	}
+}
+
+func TestSetTableHeaderColor(t *testing.T) {
+	cfg := Defaults()
+	theme, _ := cfg.Appearance.AddTheme(ThemeDark)
+	for _, key := range []string{"table_header", "composer_background"} {
+		if err := cfg.Appearance.SetThemeColor(theme.ID, key, "#123456"); err != nil {
+			t.Fatalf("%s 写入失败：%v", key, err)
+		}
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := cfg.Appearance.ThemeByID(theme.ID)
+	for _, key := range []string{"table_header", "composer_background"} {
+		if stored.Colors[key] != "#123456" {
+			t.Fatalf("%s 未保存：%v", key, stored.Colors)
+		}
+	}
+}
+
+func TestImportThemeRejectsInvalidHeadingColor(t *testing.T) {
+	var a AppearanceConfig
+	imported, err := a.ImportTheme([]byte(`{"base":"dark","colors":{"code_heading":"#0a0b0c"}}`))
+	if err != nil || imported.Colors["code_heading"] != "#0a0b0c" {
+		t.Fatalf("合法标题色导入失败：%+v, %v", imported, err)
+	}
+	for _, key := range themeNewColorKeys {
+		data := `{"base":"dark","colors":{"` + key + `":"red"}}`
+		count := len(a.Themes)
+		if _, err := a.ImportTheme([]byte(data)); err == nil || len(a.Themes) != count {
+			t.Fatalf("%s 非法值未被拒绝，err=%v", key, err)
+		}
+	}
+}
+
+func TestThemeExportImportRoundTripNewKeys(t *testing.T) {
+	var a AppearanceConfig
+	theme, _ := a.AddTheme(ThemeLight)
+	want := map[string]string{
+		"code_heading": "#111112", "code_muted": "#22222380", "code_link": "#333334", "code_strong": "#444445",
+	}
+	for key, value := range want {
+		if err := a.SetThemeColor(theme.ID, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := a.ExportTheme(theme.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, err := a.ImportTheme(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range want {
+		if imported.Colors[key] != value {
+			t.Fatalf("%s 往返丢失：%v", key, imported.Colors)
+		}
+	}
+}
+
 func TestThemeImportInvalid(t *testing.T) {
 	var a AppearanceConfig
 	for _, data := range []string{
@@ -271,6 +441,23 @@ func TestValidateThemes(t *testing.T) {
 	}
 }
 
+func TestBorderDividerColorKeysLoad(t *testing.T) {
+	cfg := Defaults()
+	cfg.Appearance.Themes = []ThemeDef{{ID: "custom", Base: ThemeLight, Name: "自定义主题", Colors: map[string]string{"border": "#3d8eb3", "divider": "#123456"}}}
+	cfg.Appearance.Theme = "custom"
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("border 与 divider 应通过校验：%v", err)
+	}
+	warnings := repairInvalidFields(&cfg)
+	colors := cfg.Appearance.Themes[0].Colors
+	if colors["border"] != "#3d8eb3" || colors["divider"] != "#123456" {
+		t.Fatalf("修复后颜色丢失：border=%q divider=%q", colors["border"], colors["divider"])
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("合法颜色键产生警告：%v", warnings)
+	}
+}
+
 func TestRepairThemes(t *testing.T) {
 	cfg := Defaults()
 	cfg.Appearance.Theme = "missing"
@@ -300,5 +487,21 @@ func TestRepairThemes(t *testing.T) {
 	cfg.Appearance.Theme = "custom"
 	if warnings := repairInvalidFields(&cfg); len(warnings) != 0 || cfg.Appearance.Theme != "custom" {
 		t.Fatalf("有效用户主题被修复：%v", warnings)
+	}
+}
+
+func TestSetUserMessageBackgroundColor(t *testing.T) {
+	cfg := Defaults()
+	theme, _ := cfg.Appearance.AddTheme(ThemeDark)
+	const key = "user_message_background"
+	if err := cfg.Appearance.SetThemeColor(theme.ID, key, "#123456"); err != nil {
+		t.Fatalf("%s 写入失败：%v", key, err)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := cfg.Appearance.ThemeByID(theme.ID)
+	if stored.Colors[key] != "#123456" {
+		t.Fatalf("%s 未保存：%v", key, stored.Colors)
 	}
 }

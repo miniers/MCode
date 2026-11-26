@@ -66,7 +66,7 @@ func TestSettingsRedesignSheets_ThemesHeaderAndAccentFirst(t *testing.T) {
 	}
 
 	prevY := tile.Y
-	for _, heading := range []string{"强调", "背景", "文字", "状态与线条"} {
+	for _, heading := range []string{"强调", "背景", "文字", "状态", "线条"} {
 		r, ok := tt.Find(heading)
 		if !ok {
 			t.Fatalf("themes 缺少颜色分节 %q：%v", heading, tt.Texts())
@@ -77,8 +77,8 @@ func TestSettingsRedesignSheets_ThemesHeaderAndAccentFirst(t *testing.T) {
 		prevY = r.Y
 	}
 	for _, txt := range tt.Texts() {
-		if txt == "状态" || txt == "线条" {
-			t.Fatalf("状态与线条应合并为「状态与线条」：%v", tt.Texts())
+		if txt == "状态与线条" {
+			t.Fatalf("状态与线条应分为「状态」与「线条」两节：%v", tt.Texts())
 		}
 	}
 }

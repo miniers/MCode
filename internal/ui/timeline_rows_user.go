@@ -69,7 +69,7 @@ func userHiddenLineCount(text, preview string) int {
 
 // userBubbleColor 保证气泡和渐隐终点使用相同底色。
 func userBubbleColor(c *ui.Context) ui.Color {
-	return ThemeSurfaceCard(c)
+	return ThemeUserMessageBackground(c)
 }
 
 func isUserMessageExpanded(msgID string) bool {

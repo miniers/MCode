@@ -287,6 +287,8 @@ func TestSettingsGuard_RenderPurity(t *testing.T) {
 		"settings_page_skills.go":           5,
 		"settings_page_mcp_catalog.go":      2,
 		"settings_page_open_in.go":          1,
+		// 原生文件对话框必须异步：go 语句与 os.Stat、os.ReadFile 都在后台 goroutine 里，渲染帧只消费失败标记。
+		"settings_sheet_themes.go": 3,
 	}
 	checkSettingsGuardBaseline(t, "RenderPurity", settingsGuardCounts(t, countSettingsRenderPurity), allowed)
 }

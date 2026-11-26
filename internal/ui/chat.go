@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 	"mcode/internal/assets"
 	"mcode/internal/config"
@@ -1055,9 +1056,29 @@ func ensureChatMarkdown(c *ui.Context, s *chatState) {
 }
 
 func markdownThemeChanged(c *ui.Context, theme *markdown.Theme) bool {
-	return theme == nil || theme.Text != ThemePrimaryText(c) || theme.Link != ThemeAccent(c) ||
-		theme.CodeBlockBackground != ThemeSurface(c) || theme.CodeBlockBorder != ThemeBorder(c) || theme.Muted != ThemeSecondaryText(c) ||
-		theme.Code != ThemeCodeText(c) || theme.CodeBackground != ThemeCodeBackground(c)
+	if theme == nil || theme.Text != ThemePrimaryText(c) || theme.Link != ThemeCodeLink(c) ||
+		theme.CodeBlockBackground != ThemeSurface(c) || theme.CodeBlockBorder != ThemeBorder(c) || theme.Muted != ThemeCodeMuted(c) ||
+		theme.Code != ThemeCodeText(c) || theme.CodeBackground != ThemeCodeBackground(c) || theme.Strong != ThemeCodeStrong(c) ||
+		theme.Rule != ThemeBorder(c) || theme.TableBorder != ThemeBorder(c) || theme.TableHeader != ThemeTableHeader(c) ||
+		theme.QuoteBar != ThemeQuoteBar(c) || theme.QuoteText != ThemeQuoteText(c) {
+		return true
+	}
+	// 代码块语法色与主题同源；比较源调色板色而不是 *editor.Theme，
+	// 既避免每帧深比较，也不会被主题过渡的中间色误判。
+	if cc := theme.CodeColors; cc == nil || cc.Text != ThemeCodeText(c) ||
+		cc.Tokens[editor.TokenKeyword].Color != paletteOf(c).Accent ||
+		cc.Tokens[editor.TokenString].Color != paletteOf(c).Success ||
+		cc.Tokens[editor.TokenType].Color != paletteOf(c).Plan ||
+		cc.Tokens[editor.TokenComment].Color != paletteOf(c).TextSecondary {
+		return true
+	}
+	heading := ThemeCodeHeading(c)
+	for i := range theme.Headings {
+		if theme.Headings[i].Color != heading {
+			return true
+		}
+	}
+	return false
 }
 
 func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSize float32) *markdown.Theme {
@@ -1067,23 +1088,30 @@ func buildMarkdownTheme(c *ui.Context, textSize float32, codeFont string, codeSi
 	mdTheme.Text = ThemePrimaryText(c)
 	mdTheme.Code = ThemeCodeText(c)
 	mdTheme.CodeBackground = ThemeCodeBackground(c)
-	mdTheme.Muted = ThemeSecondaryText(c)
-	mdTheme.Link = ThemeAccent(c)
+	mdTheme.Muted = ThemeCodeMuted(c)
+	mdTheme.Link = ThemeCodeLink(c)
+	mdTheme.Strong = ThemeCodeStrong(c)
 	mdTheme.CodeFont = codeFont
 	mdTheme.CodeSize = codeSize
 	mdTheme.CodeBlockRadius = 12
 	mdTheme.CodeBlockBackground = ThemeSurface(c)
 	mdTheme.CodeBlockBorder = ThemeBorder(c)
+	mdTheme.CodeColors = newCodeEditorTheme(c)
 	mdTheme.QuoteBarWidth = 3
-	mdTheme.QuoteBar = ThemeBorder(c)
-	mdTheme.QuoteText = ThemeSecondaryText(c)
+	mdTheme.QuoteBar = ThemeQuoteBar(c)
+	mdTheme.QuoteText = ThemeQuoteText(c)
+	// 表头底色走专用槽；分隔线与表格网格跟随 border，border 恒为界面默认色。
+	mdTheme.Rule = ThemeBorder(c)
+	mdTheme.TableBorder = ThemeBorder(c)
+	mdTheme.TableHeader = ThemeTableHeader(c)
+	headingColor := ThemeCodeHeading(c)
 	mdTheme.Headings = [6]markdown.HeadingStyle{
-		{Size: 1.30, Weight: 600, Top: 0.46, Bottom: 0.30}, // H1 17pt
-		{Size: 1.15, Weight: 600, Top: 0.46, Bottom: 0.30}, // H2 15pt
-		{Size: 1.00, Weight: 600, Top: 0.20, Bottom: 0.20}, // H3 13pt
-		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15}, // H4 11pt
-		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15}, // H5 11pt
-		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15}, // H6 11pt
+		{Size: 1.30, Weight: 600, Top: 0.46, Bottom: 0.30, Color: headingColor}, // H1 17pt
+		{Size: 1.15, Weight: 600, Top: 0.46, Bottom: 0.30, Color: headingColor}, // H2 15pt
+		{Size: 1.00, Weight: 600, Top: 0.20, Bottom: 0.20, Color: headingColor}, // H3 13pt
+		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15, Color: headingColor}, // H4 11pt
+		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15, Color: headingColor}, // H5 11pt
+		{Size: 0.85, Weight: 600, Top: 0.15, Bottom: 0.15, Color: headingColor}, // H6 11pt
 	}
 	return mdTheme
 }

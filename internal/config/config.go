@@ -61,6 +61,9 @@ const (
 	ThemeSystem = "system"
 	ThemeLight  = "light"
 	ThemeDark   = "dark"
+	// 内置多彩主题变体。
+	ThemeColorfulLight = "colorful-light"
+	ThemeColorfulDark  = "colorful-dark"
 
 	// 工作区模式常量。
 	WorkspaceModeLocal    = "local"

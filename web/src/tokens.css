@@ -8,6 +8,7 @@
   --mc-surface-card: #FFFFFF;
   --mc-surface-raised: #FFFFFF;
   --mc-surface-popover: #FFFFFF;
+  --mc-surface-user-message: #FFFFFF;
 
   /* 文字 */
   --mc-text-primary: rgba(0, 0, 0, 0.851);
@@ -37,6 +38,8 @@
   --mc-success: #167936;
   --mc-caution: #8A6700;
   --mc-plan: #8A2BB8;
+  --mc-quote-text: rgba(0, 0, 0, 0.6);
+  --mc-quote-bar: rgba(0, 0, 0, 0.141);
 
   /* 阴影 */
   --mc-elev-popover: 0 2px 6px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
@@ -96,6 +99,7 @@
   --mc-surface-card: #1F1F1F;
   --mc-surface-raised: #242424;
   --mc-surface-popover: #2B2B2B;
+  --mc-surface-user-message: #1F1F1F;
 
   /* 文字 */
   --mc-text-primary: rgba(255, 255, 255, 0.851);
@@ -125,6 +129,8 @@
   --mc-success: #30D158;
   --mc-caution: #E8C15A;
   --mc-plan: #BF5AF2;
+  --mc-quote-text: rgba(255, 255, 255, 0.6);
+  --mc-quote-bar: rgba(255, 255, 255, 0.141);
 
   /* 阴影 */
   --mc-elev-popover: 0 2px 6px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.32);

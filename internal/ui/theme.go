@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"mcode/internal/config"
 )
 
@@ -208,46 +209,79 @@ func ThemeIdentity(key string) ui.Color {
 type themePalette struct {
 	Canvas, Main, Card, Raised, Popover, Text, TextSecondary, TextTertiary, Accent, Danger, Warning, Success, Caution, Plan, Border, Divider ui.Color
 	CodeText, CodeBackground                                                                                                                 ui.Color
-	AccentSystem                                                                                                                             bool
+	CodeHeading, CodeMuted, CodeLink, CodeStrong                                                                                             ui.Color
+	QuoteText, QuoteBar                                                                                                                      ui.Color
+	TableHeader                                                                                                                              ui.Color
+	// ComposerBackground 是输入卡片底色；未设置时为 Card。
+	ComposerBackground ui.Color
+	// UserMessageBackground 是用户消息气泡底色；未设置时为 Card。
+	UserMessageBackground ui.Color
+	AccentSystem          bool
 }
 
-var builtinPalettes = map[string]themePalette{
-	config.ThemeLight: {
-		Canvas:        ColorSurfaceCanvasLight,
-		Main:          ColorSurfaceMainLight,
-		Card:          ColorSurfaceCardLight,
-		Raised:        ColorSurfaceRaisedLight,
-		Popover:       ColorSurfacePopoverLight,
-		Text:          ColorTextPrimaryLight,
-		TextSecondary: ColorTextSecondaryLight,
-		TextTertiary:  ColorTextTertiaryLight,
-		Accent:        ColorAccentLight,
-		Danger:        ColorDangerLight,
-		Warning:       ColorWarningLight,
-		Success:       ColorSuccessLight,
-		Caution:       ColorCautionLight,
-		Plan:          ColorPlanLight,
-		Border:        ColorBorderLight,
-		Divider:       ColorDividerLight,
-	},
-	config.ThemeDark: {
-		Canvas:        ColorSurfaceCanvasDark,
-		Main:          ColorSurfaceMainDark,
-		Card:          ColorSurfaceCardDark,
-		Raised:        ColorSurfaceRaisedDark,
-		Popover:       ColorSurfacePopoverDark,
-		Text:          ColorTextPrimaryDark,
-		TextSecondary: ColorTextSecondaryDark,
-		TextTertiary:  ColorTextTertiaryDark,
-		Accent:        ColorAccentDark,
-		Danger:        ColorDangerDark,
-		Warning:       ColorWarningDark,
-		Success:       ColorSuccessDark,
-		Caution:       ColorCautionDark,
-		Plan:          ColorPlanDark,
-		Border:        ColorBorderDark,
-		Divider:       ColorDividerDark,
-	},
+func paletteFields(p *themePalette) map[string]*ui.Color {
+	return map[string]*ui.Color{
+		"canvas": &p.Canvas, "main": &p.Main, "card": &p.Card, "raised": &p.Raised, "popover": &p.Popover,
+		"text": &p.Text, "text_secondary": &p.TextSecondary, "text_tertiary": &p.TextTertiary,
+		"code_text": &p.CodeText, "code_background": &p.CodeBackground, "code_heading": &p.CodeHeading,
+		"code_muted": &p.CodeMuted, "code_link": &p.CodeLink, "code_strong": &p.CodeStrong,
+		"quote_text": &p.QuoteText, "quote_bar": &p.QuoteBar, "composer_background": &p.ComposerBackground,
+		"user_message_background": &p.UserMessageBackground, "table_header": &p.TableHeader,
+		"accent": &p.Accent, "danger": &p.Danger, "warning": &p.Warning, "success": &p.Success,
+		"caution": &p.Caution, "plan": &p.Plan, "border": &p.Border, "divider": &p.Divider,
+	}
+}
+
+func paletteFromColors(colors map[string]string) themePalette {
+	var p themePalette
+	for key, value := range colors {
+		if key == "accent" && value == config.ThemeAccentSystem {
+			p.AccentSystem = true
+			continue
+		}
+		if field := paletteFields(&p)[key]; field != nil {
+			if color, ok := parseThemeColor(value); ok {
+				*field = color
+			}
+		}
+	}
+	return p
+}
+
+func derivePalette(p *themePalette) {
+	if p.CodeText == (ui.Color{}) {
+		p.CodeText = p.Text
+	}
+	if p.CodeBackground == (ui.Color{}) {
+		p.CodeBackground = p.Text.Alpha(0.07)
+	}
+	if p.CodeHeading == (ui.Color{}) {
+		p.CodeHeading = p.Text
+	}
+	if p.CodeMuted == (ui.Color{}) {
+		p.CodeMuted = p.TextSecondary
+	}
+	if p.CodeLink == (ui.Color{}) {
+		p.CodeLink = p.Accent
+	}
+	if p.CodeStrong == (ui.Color{}) {
+		p.CodeStrong = p.Text
+	}
+	if p.QuoteText == (ui.Color{}) {
+		p.QuoteText = p.TextSecondary
+	}
+	if p.QuoteBar == (ui.Color{}) {
+		p.QuoteBar = p.Border
+	}
+	if p.ComposerBackground == (ui.Color{}) {
+		p.ComposerBackground = p.Card
+	}
+	if p.UserMessageBackground == (ui.Color{}) {
+		p.UserMessageBackground = p.Card
+	}
+	if p.TableHeader == (ui.Color{}) {
+		p.TableHeader = p.Text.Alpha(0.04)
+	}
 }
 
 type resolvedTheme struct {
@@ -262,6 +296,10 @@ var activeTheme atomic.Pointer[resolvedTheme]
 var themeDark atomic.Bool
 
 func init() { setActiveTheme(config.AppearanceConfig{}) }
+
+func builtinThemeOrder() []string {
+	return []string{config.ThemeLight, config.ThemeDark, config.ThemeColorfulLight, config.ThemeColorfulDark}
+}
 
 func parseThemeColor(value string) (ui.Color, bool) {
 	if (len(value) != 7 && len(value) != 9) || value[0] != '#' {
@@ -283,46 +321,24 @@ func resolvePalette(cfg config.AppearanceConfig, id string) themePalette {
 	if !config.IsBuiltinTheme(base) {
 		base = config.ThemeDark
 	}
-	p := builtinPalettes[base]
-	fields := map[string]*ui.Color{
-		"canvas":          &p.Canvas,
-		"main":            &p.Main,
-		"card":            &p.Card,
-		"raised":          &p.Raised,
-		"popover":         &p.Popover,
-		"text":            &p.Text,
-		"text_secondary":  &p.TextSecondary,
-		"text_tertiary":   &p.TextTertiary,
-		"code_text":       &p.CodeText,
-		"code_background": &p.CodeBackground,
-		"accent":          &p.Accent,
-		"danger":          &p.Danger,
-		"warning":         &p.Warning,
-		"success":         &p.Success,
-		"caution":         &p.Caution,
-		"plan":            &p.Plan,
-		"border":          &p.Border,
-		"divider":         &p.Divider,
+	paletteID := base
+	if config.IsBuiltinTheme(id) {
+		paletteID = id
 	}
+	colors, _ := config.BuiltinThemeColors(paletteID)
+	p := paletteFromColors(colors)
 	for key, value := range def.Colors {
 		if key == "accent" && value == config.ThemeAccentSystem {
 			p.AccentSystem = true
 			continue
 		}
-		if field := fields[key]; field != nil {
+		if field := paletteFields(&p)[key]; field != nil {
 			if color, ok := parseThemeColor(value); ok {
 				*field = color
 			}
 		}
 	}
-	// 行内代码色默认跟随最终生效的主文字，必须在用户覆盖之后派生：
-	// 早派生会把内置主题的黑字写进 CodeText，覆盖 text 后代码仍停在黑色。
-	if p.CodeText == (ui.Color{}) {
-		p.CodeText = p.Text
-	}
-	if p.CodeBackground == (ui.Color{}) {
-		p.CodeBackground = p.Text.Alpha(0.07)
-	}
+	derivePalette(&p)
 	return p
 }
 
@@ -332,7 +348,7 @@ func setActiveTheme(cfg config.AppearanceConfig) {
 		light: resolvePalette(cfg, config.ThemeLight), dark: resolvePalette(cfg, config.ThemeDark),
 		lightFonts: resolveThemeFonts(cfg, config.ThemeLight), darkFonts: resolveThemeFonts(cfg, config.ThemeDark),
 	}
-	if cfg.Theme != config.ThemeSystem && !config.IsBuiltinTheme(cfg.Theme) {
+	if cfg.Theme != config.ThemeSystem && cfg.Theme != "" {
 		if _, ok := cfg.ThemeByID(cfg.Theme); ok {
 			palette, fonts := resolvePalette(cfg, cfg.Theme), resolveThemeFonts(cfg, cfg.Theme)
 			next.fixed, next.fixedFonts = &palette, &fonts
@@ -468,6 +484,83 @@ func ThemeCodeText(c *ui.Context) ui.Color { return paletteOf(c).CodeText }
 // ThemeCodeBackground 返回 Markdown 行内代码的底色。
 // 不走主题过渡，原因同 ThemeCodeText。
 func ThemeCodeBackground(c *ui.Context) ui.Color { return paletteOf(c).CodeBackground }
+
+// ThemeCodeHeading 返回 Markdown 标题色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeCodeHeading(c *ui.Context) ui.Color { return paletteOf(c).CodeHeading }
+
+// ThemeCodeMuted 返回 Markdown 次要标记色（列表圆点、序号、引用、语言标签、脚注）。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeCodeMuted(c *ui.Context) ui.Color { return paletteOf(c).CodeMuted }
+
+// ThemeCodeLink 返回 Markdown 链接色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeCodeLink(c *ui.Context) ui.Color { return paletteOf(c).CodeLink }
+
+// ThemeCodeStrong 返回 Markdown 粗体色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeCodeStrong(c *ui.Context) ui.Color { return paletteOf(c).CodeStrong }
+
+// ThemeQuoteText 返回 Markdown 引用块的文字色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeQuoteText(c *ui.Context) ui.Color { return paletteOf(c).QuoteText }
+
+// ThemeQuoteBar 返回 Markdown 引用块左侧竖线色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeQuoteBar(c *ui.Context) ui.Color { return paletteOf(c).QuoteBar }
+
+// ThemeComposerBackground 返回输入卡片底色。
+// 不走主题过渡，原因同 ThemeCodeText：它被输入卡片元素逐帧比较。
+func ThemeComposerBackground(c *ui.Context) ui.Color { return paletteOf(c).ComposerBackground }
+
+// ThemeUserMessageBackground 返回用户消息气泡底色。
+// 不走主题过渡，原因同 ThemeCodeText：气泡与渐隐终点逐帧比较该色。
+func ThemeUserMessageBackground(c *ui.Context) ui.Color { return paletteOf(c).UserMessageBackground }
+
+// ThemeTableHeader 返回 Markdown 表格表头底色。
+// 不走主题过渡，原因同 ThemeCodeText。
+func ThemeTableHeader(c *ui.Context) ui.Color { return paletteOf(c).TableHeader }
+
+// newCodeEditorTheme 返回代码块的语法高亮配色：以 mygo 的 DefaultTheme 为底，
+// 把 mcode 的语义色映射进各类 token，换主题时代码块随之变色。
+// mcode 没有独立的语法色槽，token 色一律由语义色派生；取调色板终值而不是
+// 过渡中的当前色，保证 Markdown 主题缓存逐帧比较不会因过渡中间值每帧重建。
+// 可变色的 token 都落在 text_secondary/success/accent/plan 四个覆盖项上，
+// markdownThemeChanged 按同样的源色判断是否重建。
+func newCodeEditorTheme(c *ui.Context) *editor.Theme {
+	ct := editor.DefaultTheme(c.Theme())
+	p := paletteOf(c)
+	ct.Background = ThemeCodeBackground(c)
+	ct.Text = ThemeCodeText(c)
+	secondary := p.TextSecondary // 声明、注释、标点等低饱和结构色
+	set := func(k editor.TokenKind, color ui.Color) {
+		style := ct.Tokens[k]
+		style.Color = color
+		ct.Tokens[k] = style
+	}
+	// 关键字、运算符与 mcode 的强调色同源，控制流因此与界面主色一致。
+	set(editor.TokenKeyword, p.Accent)
+	set(editor.TokenOperator, p.Accent)
+	// 字符串与正则/标签用成功色，表示“可读的字面量”。
+	set(editor.TokenString, p.Success)
+	set(editor.TokenEscape, p.Success)
+	set(editor.TokenRegexp, p.Success)
+	set(editor.TokenTag, p.Success)
+	// 类型、函数、常量与数字用 Plan 紫，把它们和关键字区分开。
+	set(editor.TokenType, p.Plan)
+	set(editor.TokenFunction, p.Plan)
+	set(editor.TokenConstant, p.Plan)
+	set(editor.TokenNumber, p.Plan)
+	// 注释弱化到次要文本色，保持与正文同色系。
+	set(editor.TokenComment, p.TextSecondary)
+	// 变量、属性与特性名用次要文本色，避免整块代码只剩两三种颜色。
+	set(editor.TokenVariable, secondary)
+	set(editor.TokenProperty, secondary)
+	set(editor.TokenAttribute, secondary)
+	set(editor.TokenMeta, secondary)
+	set(editor.TokenPunctuation, secondary)
+	return ct
+}
 
 // ThemeSecondaryText 返回当前模式的次要文本色。
 func ThemeSecondaryText(c *ui.Context) ui.Color {

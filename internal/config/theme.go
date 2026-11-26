@@ -22,8 +22,13 @@ type ThemeDef struct {
 
 // ThemeColorKeys 按界面顺序列出颜色覆盖项。
 var ThemeColorKeys = []string{
-	"canvas", "main", "card", "raised", "popover", "code_background", "text", "text_secondary", "text_tertiary", "code_text",
+	// 用户消息气泡底色，未设置时沿用气泡当前底色（卡片色）。
+	"canvas", "main", "card", "raised", "popover", "code_background", "table_header", "composer_background", "user_message_background", "text", "text_secondary", "text_tertiary", "code_text",
 	"accent", "danger", "warning", "success", "caution", "plan", "border", "divider",
+	// Markdown 渲染角色：标题、次要标记（列表圆点/序号/引用/代码块语言标签）、链接、粗体。
+	"code_heading", "code_muted", "code_link", "code_strong",
+	// 引用块专用色：引用文字与左侧竖线。
+	"quote_text", "quote_bar",
 }
 
 const ThemeAccentSystem = "system"
@@ -67,7 +72,51 @@ func ValidThemeColor(key, value string) bool {
 		((key == "accent" && value == ThemeAccentSystem) || themeColorPattern.MatchString(value))
 }
 
-func IsBuiltinTheme(id string) bool { return id == ThemeLight || id == ThemeDark }
+type builtinTheme struct {
+	Base   string
+	Name   string
+	Colors map[string]string
+}
+
+func mergeThemeColors(base, overrides map[string]string) map[string]string {
+	colors := maps.Clone(base)
+	for key, value := range overrides {
+		colors[key] = value
+	}
+	return colors
+}
+
+var builtinThemes = func() map[string]builtinTheme {
+	lightColors := map[string]string{
+		"canvas": "#F5F5F3", "main": "#FAFAF9", "card": "#FFFFFF", "raised": "#FFFFFF", "popover": "#FFFFFF",
+		"text": "#000000D9", "text_secondary": "#00000099", "text_tertiary": "#00000094",
+		"accent": "#0062CC", "danger": "#C82333", "warning": "#A85500", "success": "#167936", "caution": "#8A6700", "plan": "#8A2BB8",
+		"border": "#00000024", "divider": "#00000038",
+	}
+	darkColors := map[string]string{
+		"canvas": "#141414", "main": "#1C1C1C", "card": "#1F1F1F", "raised": "#242424", "popover": "#2B2B2B",
+		"text": "#FFFFFFD9", "text_secondary": "#FFFFFF99", "text_tertiary": "#FFFFFF61",
+		"accent": "#0A84FF", "danger": "#FF453A", "warning": "#FF9F0A", "success": "#30D158", "caution": "#E8C15A", "plan": "#BF5AF2",
+		"border": "#FFFFFF24", "divider": "#FFFFFF38",
+	}
+	colorfulLightOverrides := map[string]string{
+		"accent": "#0062CC", "code_background": "#CAF8DC00", "code_heading": "#5B8FE6E6", "code_link": "#0062CC", "code_muted": "#EC4899", "code_strong": "#B27551", "code_text": "#D4922B", "composer_background": "#EAF2F1", "danger": "#C8253D", "quote_bar": "#8F6802", "success": "#337E58", "table_header": "#E4EEFF", "text": "#4D5666D8", "text_secondary": "#677176", "text_tertiary": "#879095", "user_message_background": "#DDF0EEDC", "warning": "#8F6802",
+	}
+	colorfulDarkOverrides := map[string]string{
+		"accent": "#e9c1ff", "code_background": "#0a1b00", "code_heading": "#D3B147", "code_link": "#82aaff", "code_muted": "#e9c1ff", "code_strong": "#F4D69F", "code_text": "#e9c1ff", "danger": "#ff8288", "quote_bar": "#F4D69F", "quote_text": "#81b1be", "success": "#b4e88d", "table_header": "#2D4985", "text_secondary": "#81b1be", "text_tertiary": "#5b8c98", "user_message_background": "#043844", "warning": "#f4d69f",
+	}
+	return map[string]builtinTheme{
+		ThemeLight:         {Base: ThemeLight, Name: "浅色", Colors: lightColors},
+		ThemeDark:          {Base: ThemeDark, Name: "深色", Colors: darkColors},
+		ThemeColorfulLight: {Base: ThemeLight, Name: "多彩浅色", Colors: mergeThemeColors(lightColors, colorfulLightOverrides)},
+		ThemeColorfulDark:  {Base: ThemeDark, Name: "多彩深色", Colors: mergeThemeColors(darkColors, colorfulDarkOverrides)},
+	}
+}()
+
+func IsBuiltinTheme(id string) bool {
+	_, ok := builtinThemes[id]
+	return ok
+}
 
 func (a AppearanceConfig) ThemeByID(id string) (ThemeDef, bool) {
 	for _, theme := range a.Themes {
@@ -75,8 +124,8 @@ func (a AppearanceConfig) ThemeByID(id string) (ThemeDef, bool) {
 			return theme, true
 		}
 	}
-	if IsBuiltinTheme(id) {
-		return ThemeDef{ID: id, Base: id}, true
+	if theme, ok := builtinThemes[id]; ok {
+		return ThemeDef{ID: id, Base: theme.Base}, true
 	}
 	return ThemeDef{}, false
 }
@@ -106,15 +155,20 @@ func (a AppearanceConfig) ThemeFonts(id string) map[string]int {
 }
 
 func (a AppearanceConfig) ThemeDisplayName(id string) string {
-	switch id {
-	case ThemeLight:
-		return "浅色"
-	case ThemeDark:
-		return "深色"
-	default:
-		theme, _ := a.ThemeByID(id)
+	if theme, ok := builtinThemes[id]; ok {
 		return theme.Name
 	}
+	theme, _ := a.ThemeByID(id)
+	return theme.Name
+}
+
+// BuiltinThemeColors 返回内置主题的默认颜色表副本。
+func BuiltinThemeColors(id string) (map[string]string, bool) {
+	theme, ok := builtinThemes[id]
+	if !ok {
+		return nil, false
+	}
+	return maps.Clone(theme.Colors), true
 }
 
 func (a AppearanceConfig) uniqueThemeName(name string) string {
@@ -271,7 +325,12 @@ func (a AppearanceConfig) ExportTheme(id string) ([]byte, error) {
 	return json.MarshalIndent(themeTransfer{a.ThemeDisplayName(id), theme.Base, theme.Colors, theme.Fonts}, "", "  ")
 }
 
-func (a *AppearanceConfig) ImportTheme(data []byte) (ThemeDef, error) {
+// ParseThemeTransfer 只解析 mcode 自有主题格式。pi 主题走 parsePiThemeTransfer。
+func ParseThemeTransfer(data []byte) (ThemeDef, error) {
+	return parseMcodeThemeTransfer(data)
+}
+
+func parseMcodeThemeTransfer(data []byte) (ThemeDef, error) {
 	var imported themeTransfer
 	if err := json.Unmarshal(data, &imported); err != nil {
 		return ThemeDef{}, fmt.Errorf("解析主题失败：%w", err)
@@ -295,6 +354,24 @@ func (a *AppearanceConfig) ImportTheme(data []byte) (ThemeDef, error) {
 			imported.Fonts[key] = value
 		}
 	}
+	return ThemeDef{Name: imported.Name, Base: imported.Base, Colors: imported.Colors, Fonts: imported.Fonts}, nil
+}
+
+func (a *AppearanceConfig) ImportTheme(data []byte) (ThemeDef, error) {
+	parsed, err := parseMcodeThemeTransfer(data)
+	if err != nil {
+		return ThemeDef{}, err
+	}
+	return a.addTransfer(themeTransfer{Name: parsed.Name, Base: parsed.Base, Colors: parsed.Colors, Fonts: parsed.Fonts}), nil
+}
+
+// AddThemeTransfer 把已解析的导入项加入主题列表。
+func (a *AppearanceConfig) AddThemeTransfer(imported ThemeDef) ThemeDef {
+	return a.addTransfer(themeTransfer{Name: imported.Name, Base: imported.Base, Colors: imported.Colors, Fonts: imported.Fonts})
+}
+
+// addTransfer 把已校验的导入项加入主题列表，所有导入入口共用这一条路径。
+func (a *AppearanceConfig) addTransfer(imported themeTransfer) ThemeDef {
 	name := strings.TrimSpace(imported.Name)
 	if name == "" {
 		name = "导入的主题"
@@ -307,7 +384,7 @@ func (a *AppearanceConfig) ImportTheme(data []byte) (ThemeDef, error) {
 		theme.Fonts = nil
 	}
 	a.Themes = append(a.Themes, theme)
-	return theme, nil
+	return theme
 }
 
 func (a AppearanceConfig) validateThemes() error {
@@ -317,7 +394,7 @@ func (a AppearanceConfig) validateThemes() error {
 			return fmt.Errorf("appearance.themes 含非法或重复的 ID %q", theme.ID)
 		}
 		seen[theme.ID] = true
-		if !IsBuiltinTheme(theme.Base) || (IsBuiltinTheme(theme.ID) && theme.Base != theme.ID) {
+		if !IsBuiltinTheme(theme.Base) || (IsBuiltinTheme(theme.ID) && theme.Base != builtinThemes[theme.ID].Base) {
 			return fmt.Errorf("appearance.themes[%q].base %q 非法", theme.ID, theme.Base)
 		}
 		if !IsBuiltinTheme(theme.ID) && strings.TrimSpace(theme.Name) == "" {
@@ -354,7 +431,7 @@ func (a *AppearanceConfig) repairThemes() []string {
 		seen[theme.ID] = true
 		base := theme.Base
 		if IsBuiltinTheme(theme.ID) {
-			theme.Base = theme.ID
+			theme.Base = builtinThemes[theme.ID].Base
 		} else if !IsBuiltinTheme(theme.Base) {
 			theme.Base = ThemeDark
 		}

@@ -1,9 +1,13 @@
 package mcodeui
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"os"
+
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -21,15 +25,22 @@ func init() { settingsTreeSheetDefs = append(settingsTreeSheetDefs, sheetThemes)
 type themesSheetState struct {
 	editingID    string
 	menuOpen     bool
-	colorOpen    map[string]*bool
+	piMenuOpen   bool
+	piThemes     []piThemeFile
 	confirm      string
 	confirmID    string
 	message      string
 	messageUntil time.Time
 	copiedUntil  time.Time
-	names        map[string]*themeNameDraft
-	colors       map[string]*ui.Color
-	fonts        map[string]*float64
+	// fileImportFailed 由后台 goroutine 置位，渲染时消费并显示失败提示。
+	fileImportFailed int32
+	// pendingFileTheme 只跨线程传递已解析的主题。
+	pendingFileTheme atomic.Value
+	names            map[string]*themeNameDraft
+	colors           map[string]*ui.Color
+	fonts            map[string]*float64
+	// colorOpen 以「主题/颜色行序号」为地址：同一标题跨两组出现时各自有独立开关，面板 key 也随之唯一。
+	colorOpen map[string]*bool
 }
 
 type themeNameDraft struct {
@@ -66,6 +77,61 @@ func formatThemeColor(color ui.Color) string {
 	return fmt.Sprintf("#%02X%02X%02X%02X", color.R, color.G, color.B, color.A)
 }
 
+// themeFileSizeLimit 是“从文件导入”允许的最大文件大小，避免误选二进制或超大文件。
+const themeFileSizeLimit = 1 << 20
+
+// pickThemeFileDialog 唤起系统文件选择器并返回所选主题文件路径；取消时 ok 为 false。测试可替换。
+var pickThemeFileDialog = func() (string, bool, error) {
+	paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "选择主题文件"})
+	if err != nil {
+		return "", false, err
+	}
+	if len(paths) == 0 {
+		return "", false, nil
+	}
+	return paths[0], true, nil
+}
+
+// importSheetThemeFromFile 在后台 goroutine 里选文件、读取并解析；不写 Appearance，主题只在主线程写入。取消不提示。
+func importSheetThemeFromFile(st *SettingsState, page *themesSheetState) {
+	picker := pickThemeFileDialog
+	if picker == nil {
+		picker = func() (string, bool, error) { return "", false, errors.New("文件选择器不可用") }
+	}
+	go func() {
+		fail := func() {
+			atomic.StoreInt32(&page.fileImportFailed, 1)
+			st.invalidate()
+		}
+		path, ok, err := picker()
+		if !ok && err == nil {
+			return
+		}
+		if err != nil {
+			fail()
+			return
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.Size() > themeFileSizeLimit {
+			fail()
+			return
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fail()
+			return
+		}
+
+		theme, err := config.ParseThemeTransfer(data)
+		if err != nil {
+			fail()
+			return
+		}
+		page.pendingFileTheme.Store(&theme)
+		st.invalidate()
+	}()
+}
+
 func addSheetTheme(st *SettingsState, page *themesSheetState) {
 	mutateTheme(st, func(a *config.AppearanceConfig) {
 		if theme, ok := a.AddTheme(page.editingID); ok {
@@ -75,18 +141,39 @@ func addSheetTheme(st *SettingsState, page *themesSheetState) {
 }
 
 func importSheetTheme(st *SettingsState, page *themesSheetState, data string) bool {
-	ok := false
+	var id string
 	mutateTheme(st, func(a *config.AppearanceConfig) {
-		if theme, err := a.ImportTheme([]byte(data)); err == nil {
-			page.editingID = theme.ID
-			ok = true
-		}
+		id, _ = applyImportedTheme(a, data)
 	})
+	ok := id != ""
+	if ok {
+		page.editingID = id
+	}
 	return ok
+}
+
+func applyImportedTheme(a *config.AppearanceConfig, data string) (string, bool) {
+	theme, err := a.ImportTheme([]byte(data))
+	if err != nil {
+		return "", false
+	}
+	return theme.ID, true
 }
 
 func themesPage(st *SettingsState, c *ui.Context) *themesSheetState {
 	page := getThemesSheetState(st)
+	// 文件导入的 atomic 标记与待应用主题在主线程消费。
+	if atomic.CompareAndSwapInt32(&page.fileImportFailed, 1, 0) {
+		page.message = "无法导入"
+		page.messageUntil = c.Now().Add(2 * time.Second)
+	}
+	if pending, _ := page.pendingFileTheme.Load().(*config.ThemeDef); pending != nil {
+		page.pendingFileTheme.Store((*config.ThemeDef)(nil))
+		mutateTheme(st, func(a *config.AppearanceConfig) {
+			theme := a.AddThemeTransfer(*pending)
+			page.editingID = theme.ID
+		})
+	}
 	if _, ok := st.cfg.Appearance.ThemeByID(page.editingID); !ok {
 		page.editingID = st.cfg.Appearance.ActiveThemeID(isDark(c))
 	}
@@ -95,7 +182,7 @@ func themesPage(st *SettingsState, c *ui.Context) *themesSheetState {
 
 func renderThemeTiles(c *ui.Context, st *SettingsState, page *themesSheetState) {
 	ui.Row(c.Key("theme-list")).FillWidth().Gap(Space3).Wrap().AlignItems(ui.Start).Children(func() {
-		ids := []string{config.ThemeLight, config.ThemeDark}
+		ids := builtinThemeOrder()
 		for _, theme := range st.cfg.Appearance.Themes {
 			if !config.IsBuiltinTheme(theme.ID) {
 				ids = append(ids, theme.ID)
@@ -125,6 +212,33 @@ func renderThemeTiles(c *ui.Context, st *SettingsState, page *themesSheetState) 
 					page.message = ""
 				}
 			}})
+			Button(c, ButtonOpts{Key: "theme-import-file", Text: "从文件导入", Variant: ButtonGhost, OnClick: func() {
+				page.menuOpen = false
+				importSheetThemeFromFile(st, page)
+			}})
+			Button(c, ButtonOpts{Key: "theme-import-pi", Text: "导入pi主题", Variant: ButtonGhost, OnClick: func() {
+				page.menuOpen = false
+				page.piThemes = listPiThemeFiles()
+				page.piMenuOpen = true
+			}})
+		})
+		PopoverCard(c, trigger, PopoverProps{Key: "theme-import-pi-popover", Open: &page.piMenuOpen}, func() {
+			if len(page.piThemes) == 0 {
+				Button(c, ButtonOpts{Key: "theme-pi-empty", Text: "没有主题", Variant: ButtonGhost, Disabled: true})
+				return
+			}
+			for _, item := range page.piThemes {
+				item := item
+				Button(c, ButtonOpts{Key: "theme-pi-file-" + item.path, Text: item.name, Variant: ButtonGhost, OnClick: func() {
+					page.piMenuOpen = false
+					if !importPiThemeFile(st, page, item.path) {
+						page.message = "无法导入"
+						page.messageUntil = c.Now().Add(2 * time.Second)
+					} else {
+						page.message = ""
+					}
+				}})
+			}
 		})
 	})
 }
@@ -132,27 +246,15 @@ func renderThemeTiles(c *ui.Context, st *SettingsState, page *themesSheetState) 
 func renderThemesSheet(c *ui.Context, st *SettingsState) {
 	page := themesPage(st, c)
 	id := page.editingID
-	palette := resolvePalette(st.cfg.Appearance, id)
-	colors := []ui.Color{palette.Canvas, palette.Main, palette.Card, palette.Raised, palette.Popover, palette.CodeBackground, palette.Text, palette.TextSecondary, palette.TextTertiary, palette.CodeText, palette.Accent, palette.Danger, palette.Warning, palette.Success, palette.Caution, palette.Plan, palette.Border, palette.Divider}
-	titles := []string{"窗口", "主区域", "卡片", "浮起", "浮层", "代码底色", "主文字", "次要文字", "辅助文字", "代码文字", "强调色", "危险", "警告", "成功", "提醒", "Plan", "边框", "分隔线"}
+
 	ui.Column(c.Key("themes-editor")).FillWidth().Gap(settingsSectionGap).Children(func() {
 		renderThemeTiles(c, st, page)
 		if !config.IsBuiltinTheme(id) {
 			renderSettingsSection(c, "theme-name-section", "", func() { renderSettingRow(c, "row-theme-name", "名称", func() { renderThemeName(c, st, page, id) }) })
 		}
-		sections := []struct {
-			title      string
-			start, end int
-		}{{"强调", 10, 11}, {"背景", 0, 6}, {"文字", 6, 10}, {"状态与线条", 11, 18}}
-		for _, section := range sections {
-			renderSettingsSection(c, "theme-section-"+config.ThemeColorKeys[section.start], section.title, func() {
-				for i := section.start; i < section.end; i++ {
-					key := config.ThemeColorKeys[i]
-					if i > section.start {
-						renderSettingsDivider(c, "theme-divider-"+key)
-					}
-					renderSettingRow(c, "row-theme-color-"+key, titles[i], func() { renderThemeColor(c, st, page, id, key, titles[i], colors[i]) })
-				}
+		for _, section := range colorSections {
+			renderSettingsSection(c, "theme-section-"+section.title, section.title, func() {
+				renderColorSectionRows(c, st, page, id, section)
 				if section.title == "强调" {
 					renderSettingsDivider(c, "theme-divider-system")
 					renderSettingRow(c, "row-theme-accent-system", "跟随系统", func() {
@@ -246,53 +348,13 @@ func renderThemeName(c *ui.Context, st *SettingsState, page *themesSheetState, i
 	}})
 }
 
-func renderThemeColor(c *ui.Context, st *SettingsState, page *themesSheetState, id, key, title string, color ui.Color) {
-	theme, _ := st.cfg.Appearance.ThemeByID(id)
-	follows := theme.Colors[key] == config.ThemeAccentSystem
-	_, changed := theme.Colors[key]
-	renderThemeReset(c, "theme-reset-color-"+key, title, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeColor(id, key) }) })
-	label := formatThemeColor(color)
-	if follows {
-		label = "系统"
-	}
-	ui.Text(c, label).FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
-	// 颜色地址必须跨帧保留，供拾色面板持续写入。
-	valueKey := id + "/" + key
-	value := page.colors[valueKey]
-	if value == nil {
-		value = new(ui.Color)
-		page.colors[valueKey] = value
-	}
-	*value = color
-	open := page.colorOpen[valueKey]
-	if open == nil {
-		open = new(bool)
-		page.colorOpen[valueKey] = open
-	}
-	trigger := ui.ButtonBase(c.Key("theme-color-" + id + "-" + key)).Label("编辑" + title).Disabled(follows).Radius(RadiusXS).Cursor(ui.CursorPointer).OnClick(func() { *open = true })
-	if !follows && trigger.Hovered() {
-		trigger.Background(ThemeHover(c))
-	}
-	focusRing(c, trigger)
-	scale := motionPressScale(c, trigger, "button-press-scale", !follows && trigger.Pressed())
-	trigger.Scale(scale, scale)
-	trigger.Children(func() {
-		ui.Box(c).Size(Space6, Space6).Radius(RadiusXS).Background(color).Border(Hairline, ThemeBorder(c))
-	})
-	PopoverCard(c, trigger, PopoverProps{Key: "theme-color-picker-" + valueKey, Open: open}, func() {
-		if ui.ColorPicker(c.Key("picker"), value).Changed() && !follows {
-			next := formatThemeColor(*value)
-			mutateTheme(st, func(a *config.AppearanceConfig) { _ = a.SetThemeColor(id, key, next) })
-		}
-	})
-}
-
 func renderThemeFont(c *ui.Context, st *SettingsState, page *themesSheetState, id, key, title string) {
 	value := st.cfg.Appearance.ThemeFonts(id)[key]
 	lower, upper, _, _ := config.ThemeFontRange(key)
 	theme, _ := st.cfg.Appearance.ThemeByID(id)
 	_, changed := theme.Fonts[key]
 	renderThemeReset(c, "theme-reset-font-"+key, title, changed, func() { mutateTheme(st, func(a *config.AppearanceConfig) { a.ResetThemeFont(id, key) }) })
+
 	valueKey := id + "/" + key
 	input := page.fonts[valueKey]
 	if input == nil {
