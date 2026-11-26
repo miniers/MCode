@@ -538,8 +538,9 @@ func (s *chatState) declinePlan(a Approval, text string) {
 	s.respondAnswers(a, findApprovalOption(a, "decline"), planDeclineAnswers(text), false)
 }
 
-// sendDraft 发送草稿前优先拦截并本地执行斜杠命令。
+// sendDraft 发送草稿前优先展开交付物胶囊，并拦截本地斜杠命令。
 func (s *chatState) sendDraft(threadID, text string) bool {
+	text = s.expandArtifactTags(text)
 	if s.sendPlanFeedback(threadID, text) {
 		return true
 	}
@@ -643,7 +644,8 @@ const composerSendIconFadeKey = "composer-send-icon-fade"
 func renderComposer(c *ui.Context, s *chatState) {
 	s.mu.Lock()
 	if s.sentDraft != nil {
-		if strings.TrimSpace(s.draft) == *s.sentDraft {
+		trimmedDraft := strings.TrimSpace(s.draft)
+		if trimmedDraft == *s.sentDraft || s.expandArtifactTagsLocked(trimmedDraft) == *s.sentDraft {
 			s.draft = ""
 			// 引用胶囊随草稿一起清空（发送/入队后才会走到这里）。
 			s.draftThreadMentions = nil

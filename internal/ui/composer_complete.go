@@ -2370,15 +2370,65 @@ func (s *chatState) exitArtifactGridLocked() {
 
 func (s *chatState) confirmArtifactGridLocked() string {
 	idx := s.artifactGridSelected
-	insert := "/open-artifact"
+	insert := "交付物"
+	tag := "open-artifact"
 	if idx >= 0 && idx < len(s.artifactGridItems) {
-		insert = "/open-artifact " + s.artifactGridItems[idx].ID
+		item := s.artifactGridItems[idx]
+		if item.Label != "" {
+			insert = item.Label
+		} else {
+			insert = item.ID
+		}
+		tag = "open-artifact " + item.ID
 	}
 	s.resetArtifactGridLocked()
 	return s.confirmCompletion(completionItem{
 		Insert: insert,
-		Tag:    strings.TrimPrefix(insert, "/"),
+		Tag:    tag,
 	})
+}
+
+func isOpenArtifactTag(tag string) bool {
+	return tag == "open-artifact" || strings.HasPrefix(tag, "open-artifact ")
+}
+
+// expandArtifactTags 把草稿中已确认的交付物胶囊展开为 "/open-artifact..." 命令文本。
+// 仅当 s.draftText（或其去除首尾空白后的文本）与 text 一致时按 runs 重建，否则原样返回。
+func (s *chatState) expandArtifactTags(text string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.expandArtifactTagsLocked(text)
+}
+
+// expandArtifactTagsLocked 在已持有 s.mu 时把交付物胶囊展开为 "/open-artifact..." 命令文本。
+func (s *chatState) expandArtifactTagsLocked(text string) string {
+	raw := s.draftText.String()
+	trimmed := false
+	if raw != text {
+		if strings.TrimSpace(raw) != text {
+			return text
+		}
+		trimmed = true
+	}
+	var b strings.Builder
+	expanded := false
+	for _, run := range s.draftText.Runs(0, s.draftText.Len()) {
+		if isOpenArtifactTag(run.Attributes.Tag) {
+			b.WriteByte('/')
+			b.WriteString(run.Attributes.Tag)
+			expanded = true
+		} else {
+			b.WriteString(run.Text)
+		}
+	}
+	if !expanded {
+		return text
+	}
+	out := b.String()
+	if trimmed {
+		return strings.TrimSpace(out)
+	}
+	return out
 }
 
 func (s *chatState) moveArtifactGridLocked(dx, dy int) {

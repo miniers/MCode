@@ -106,6 +106,7 @@ func (s *chatState) pasteLongText(text string) bool {
 
 // outgoingTextLocked 返回要发出去的全文与参与其中的卡片 ID。调用方需持有 s.mu。
 func (s *chatState) outgoingTextLocked(text string) (string, []int) {
+	text = s.expandArtifactTagsLocked(text)
 	return composeWithSnippets(text, s.snippets), snippetIDs(s.snippets)
 }
 
