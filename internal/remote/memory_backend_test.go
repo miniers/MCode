@@ -1822,7 +1822,7 @@ func TestDeleteThreadRemovesThreadFiles(t *testing.T) {
 		t.Fatalf("CreateThread store-only-bee: %v", err)
 	}
 	soTool, soMedia, soJSONL := seedThreadFilesForTest(t, dataDir, "store-only-bee", "sess-store-only")
-	if err := backend.DeleteArchivedThread(ctx, "store-only-bee"); err != nil {
+	if err := backend.DeleteArchivedThread(ctx, "store-only-bee", now.Add(time.Second)); err != nil {
 		t.Fatalf("DeleteArchivedThread store-only-bee: %v", err)
 	}
 	if _, err := st.GetThread(ctx, "store-only-bee"); !errors.Is(err, store.ErrNotFound) {
@@ -2552,5 +2552,135 @@ func TestSubscribeReplay(t *testing.T) {
 	}
 	if okResp.Result.Snapshot != nil || len(okResp.Result.Replay) != 1 || okResp.Result.Replay[0].Sequence != 2 {
 		t.Fatalf("unexpected rpc replay result: %+v", okResp.Result)
+	}
+}
+
+func TestDeleteArchivedThreadSkipsUnarchived(t *testing.T) {
+	ctx := context.Background()
+	hub := NewStreamHub(StreamHubOptions{})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "delete_archived_check.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer st.Close()
+	if err := backend.AttachStore(ctx, st); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+
+	backend.AddProject(wire.ProjectSummary{ID: "p1", Name: "P1"})
+
+	parent, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread parent: %v", err)
+	}
+
+	now := time.Now().UTC()
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	oldAt := now.Add(-40 * 24 * time.Hour)
+	archived := true
+	unarchived := false
+
+	// 1. 内存中会话：先归档且足够旧，随后取消归档，DeleteArchivedThread 必须跳过并返回 ErrNotFound
+	memUnarchived, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread memUnarchived: %v", err)
+	}
+	backend.SetThreadRelation(memUnarchived.ThreadID, parent.ThreadID, true)
+	if _, err := backend.UpdateThread(ctx, wire.ThreadUpdateParams{
+		ThreadID: memUnarchived.ThreadID,
+		Archived: &archived,
+	}); err != nil {
+		t.Fatalf("UpdateThread archive memUnarchived: %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[memUnarchived.ThreadID].summary.UpdatedAt = formatTime(oldAt)
+	backend.mu.Unlock()
+
+	if _, err := backend.UpdateThread(ctx, wire.ThreadUpdateParams{
+		ThreadID: memUnarchived.ThreadID,
+		Archived: &unarchived,
+	}); err != nil {
+		t.Fatalf("UpdateThread unarchive memUnarchived: %v", err)
+	}
+	if err := backend.DeleteArchivedThread(ctx, memUnarchived.ThreadID, cutoff); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unarchived in-memory thread, got %v", err)
+	}
+	if got, err := backend.GetThread(ctx, memUnarchived.ThreadID); err != nil || got.IsArchived {
+		t.Fatalf("expected unarchived in-memory thread to remain, got=%+v err=%v", got, err)
+	}
+	if got, err := st.GetThread(ctx, memUnarchived.ThreadID); err != nil || got.Archived {
+		t.Fatalf("expected unarchived store row to remain, got=%+v err=%v", got, err)
+	}
+
+	// 2. 仅存在于 store 的会话：先归档且足够旧，随后取消归档，DeleteArchivedThread 必须跳过并返回 ErrNotFound
+	if err := st.CreateThread(ctx, store.Thread{
+		ID:        "store-unarchived-bee",
+		ProjectID: "p1",
+		Title:     "bee",
+		Provider:  "openai",
+		IsHelper:  true,
+		Archived:  true,
+		CreatedAt: oldAt,
+		UpdatedAt: oldAt,
+	}); err != nil {
+		t.Fatalf("CreateThread store-unarchived-bee: %v", err)
+	}
+	if err := st.SetThreadArchived(ctx, "store-unarchived-bee", false); err != nil {
+		t.Fatalf("SetThreadArchived false: %v", err)
+	}
+	if err := backend.DeleteArchivedThread(ctx, "store-unarchived-bee", cutoff); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unarchived store-only thread, got %v", err)
+	}
+	if got, err := st.GetThread(ctx, "store-unarchived-bee"); err != nil || got.Archived {
+		t.Fatalf("expected unarchived store-only thread to remain, got=%+v err=%v", got, err)
+	}
+
+	// 3. 仍归档且满足期限的子代理会话：内存与 store 两条路径均能被正常删除
+	memArchived, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: "p1"})
+	if err != nil {
+		t.Fatalf("CreateThread memArchived: %v", err)
+	}
+	backend.SetThreadRelation(memArchived.ThreadID, parent.ThreadID, true)
+	if _, err := backend.UpdateThread(ctx, wire.ThreadUpdateParams{
+		ThreadID: memArchived.ThreadID,
+		Archived: &archived,
+	}); err != nil {
+		t.Fatalf("UpdateThread archive memArchived: %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[memArchived.ThreadID].summary.UpdatedAt = formatTime(oldAt)
+	backend.mu.Unlock()
+
+	if err := backend.DeleteArchivedThread(ctx, memArchived.ThreadID, cutoff); err != nil {
+		t.Fatalf("DeleteArchivedThread memArchived: %v", err)
+	}
+	if _, err := st.GetThread(ctx, memArchived.ThreadID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected memArchived deleted from store, got %v", err)
+	}
+	if _, err := backend.GetThread(ctx, memArchived.ThreadID); err == nil {
+		t.Fatalf("expected memArchived deleted from memory")
+	}
+
+	if err := st.CreateThread(ctx, store.Thread{
+		ID:        "store-archived-bee",
+		ProjectID: "p1",
+		Title:     "bee",
+		Provider:  "openai",
+		IsHelper:  true,
+		Archived:  true,
+		CreatedAt: oldAt,
+		UpdatedAt: oldAt,
+	}); err != nil {
+		t.Fatalf("CreateThread store-archived-bee: %v", err)
+	}
+	if err := backend.DeleteArchivedThread(ctx, "store-archived-bee", cutoff); err != nil {
+		t.Fatalf("DeleteArchivedThread store-archived-bee: %v", err)
+	}
+	if _, err := st.GetThread(ctx, "store-archived-bee"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store-archived-bee deleted from store, got %v", err)
 	}
 }

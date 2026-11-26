@@ -137,15 +137,17 @@ func TestCheckpointStore_DiffAndRevertWorkAcrossStore(t *testing.T) {
 }
 
 // TestCheckpointStore_MigratesLegacyRefsPreservesSwarm 验证场景 (c)：
-// 用户仓库预先存在旧 checkpoints ref 和 swarm-base ref 时，首次建 store 会删掉旧 checkpoints 并保留 swarm-base。
+// 用户仓库预先存在旧 checkpoints ref 和 swarm-base ref 时，首次建 store 会把旧 checkpoints 迁移至新 store、从用户仓库删除并保留 swarm-base。
 func TestCheckpointStore_MigratesLegacyRefsPreservesSwarm(t *testing.T) {
 	t.Parallel()
 	runner, dir := newRevertTestRepo(t)
 	ctx := context.Background()
 
 	head := runTestGit(t, dir, "rev-parse", "HEAD")
-	runTestGit(t, dir, "update-ref", "refs/mcode/checkpoints/old-thread/t1/start", head)
-	runTestGit(t, dir, "update-ref", "refs/mcode/checkpoints/old-thread/t1/end", head)
+	oldStart := "refs/mcode/checkpoints/old-thread/t1/start"
+	oldEnd := "refs/mcode/checkpoints/old-thread/t1/end"
+	runTestGit(t, dir, "update-ref", oldStart, head)
+	runTestGit(t, dir, "update-ref", oldEnd, head)
 	runTestGit(t, dir, "update-ref", "refs/mcode/swarm-base/x", head)
 
 	if _, err := runner.Checkpoint(ctx, dir, CheckpointRef("new-thread", "t1")+"/start", "new"); err != nil {
@@ -153,10 +155,67 @@ func TestCheckpointStore_MigratesLegacyRefsPreservesSwarm(t *testing.T) {
 	}
 
 	if oldRefs := runTestGit(t, dir, "for-each-ref", "refs/mcode/checkpoints/"); oldRefs != "" {
-		t.Fatalf("expected legacy checkpoint refs to be deleted, got %q", oldRefs)
+		t.Fatalf("expected legacy checkpoint refs to be deleted from user repo, got %q", oldRefs)
 	}
 	if swarmRefs := runTestGit(t, dir, "for-each-ref", "--format=%(refname)", "refs/mcode/swarm-base/"); swarmRefs != "refs/mcode/swarm-base/x" {
 		t.Fatalf("expected swarm-base ref to be preserved, got %q", swarmRefs)
+	}
+	for _, ref := range []string{oldStart, oldEnd} {
+		got, err := runner.RevParse(ctx, dir, ref)
+		if err != nil {
+			t.Fatalf("RevParse(%s) in store: %v", ref, err)
+		}
+		if got != head {
+			t.Fatalf("RevParse(%s) = %s, want %s", ref, got, head)
+		}
+	}
+}
+
+// TestCheckpointStore_MigratesLegacyRefsKeepsObjects 验证旧检查点引用迁移后对象已独立打包进 store，
+// 即使在用户仓库执行 reflog expire 与 gc --prune=now 清理不可达对象，store 中仍可解析且对象可读。
+func TestCheckpointStore_MigratesLegacyRefsKeepsObjects(t *testing.T) {
+	t.Parallel()
+	runner, dir := newRevertTestRepo(t)
+	ctx := context.Background()
+
+	writeTestFile(t, dir, "legacy-only.txt", "legacy orphan content\n")
+	blobSHA := runTestGit(t, dir, "hash-object", "-w", "legacy-only.txt")
+	if err := os.Remove(filepath.Join(dir, "legacy-only.txt")); err != nil {
+		t.Fatalf("remove legacy-only.txt: %v", err)
+	}
+	treeOut, err := runner.runWithStdin(ctx, dir, nil, []byte(fmt.Sprintf("100644 blob %s\tlegacy-only.txt\n", blobSHA)), "mktree")
+	if err != nil {
+		t.Fatalf("mktree: %v", err)
+	}
+	treeSHA := strings.TrimSpace(string(treeOut))
+	legacyCommit := runTestGit(t, dir, "commit-tree", treeSHA, "-m", "legacy checkpoint")
+	legacyRef := "refs/mcode/checkpoints/legacy-thread/turn-1/start"
+	runTestGit(t, dir, "update-ref", legacyRef, legacyCommit)
+
+	storeDir, err := runner.checkpointStore(ctx, dir)
+	if err != nil {
+		t.Fatalf("checkpointStore: %v", err)
+	}
+	if userRefs := runTestGit(t, dir, "for-each-ref", "refs/mcode/checkpoints/"); userRefs != "" {
+		t.Fatalf("expected legacy checkpoint refs to be deleted from user repo, got %q", userRefs)
+	}
+
+	runTestGit(t, dir, "reflog", "expire", "--expire=now", "--all")
+	runTestGit(t, dir, "gc", "--prune=now")
+
+	got, err := runner.RevParse(ctx, dir, legacyRef)
+	if err != nil {
+		t.Fatalf("RevParse(%s) after user gc: %v", legacyRef, err)
+	}
+	if got != legacyCommit {
+		t.Fatalf("RevParse(%s) = %s, want %s", legacyRef, got, legacyCommit)
+	}
+	storeEnv := checkpointEnv(storeDir, dir)
+	if _, err := runner.run(ctx, dir, storeEnv, "cat-file", "-e", legacyCommit); err != nil {
+		t.Fatalf("cat-file -e %s in store after user gc: %v", legacyCommit, err)
+	}
+	if _, err := runner.run(ctx, dir, storeEnv, "cat-file", "-e", blobSHA); err != nil {
+		t.Fatalf("cat-file -e %s in store after user gc: %v", blobSHA, err)
 	}
 }
 

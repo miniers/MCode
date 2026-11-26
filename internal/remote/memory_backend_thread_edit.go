@@ -1044,17 +1044,23 @@ func (b *MemoryBackend) cleanupThreadFiles(ctx context.Context, dataDir, threadI
 
 // DeleteThread 删除指定会话及其整个家族子会话：从叶子到根递归删除、触发删除钩子、清理临时定时器、中断运行轮次，并发出 threads.changed 通知。
 func (b *MemoryBackend) DeleteThread(ctx context.Context, threadID string) error {
-	return b.deleteThread(ctx, threadID, true, false)
+	return b.deleteThread(ctx, threadID, true, false, time.Time{})
 }
 
 // DeleteArchivedThread 删除已归档/后台清理的会话：跳过 Nowledge 同步，且在会话不在内存缓存时仍回退删除 store 行与磁盘文件。
-func (b *MemoryBackend) DeleteArchivedThread(ctx context.Context, threadID string) error {
-	return b.deleteThread(ctx, threadID, false, true)
+// 当 idleBefore 非零时，会复查会话是否仍为已归档的子代理会话且更新时间早于 idleBefore，不满足则返回 store.ErrNotFound。
+func (b *MemoryBackend) DeleteArchivedThread(ctx context.Context, threadID string, idleBefore time.Time) error {
+	return b.deleteThread(ctx, threadID, false, true, idleBefore)
 }
 
-func (b *MemoryBackend) deleteThread(ctx context.Context, threadID string, syncNowledge, fallbackToStore bool) error {
+func archivedHelperEligible(isHelper, isArchived bool, updatedAt, idleBefore time.Time) bool {
+	return isHelper && isArchived && !updatedAt.IsZero() && updatedAt.Before(idleBefore)
+}
+
+func (b *MemoryBackend) deleteThread(ctx context.Context, threadID string, syncNowledge, fallbackToStore bool, idleBefore time.Time) error {
 	b.mu.Lock()
-	if _, ok := b.threads[threadID]; !ok {
+	td, ok := b.threads[threadID]
+	if !ok {
 		if !fallbackToStore {
 			b.mu.Unlock()
 			return store.ErrNotFound
@@ -1072,6 +1078,9 @@ func (b *MemoryBackend) deleteThread(ctx context.Context, threadID string, syncN
 		th, err := s.GetThread(ctx, threadID)
 		if err != nil {
 			return err
+		}
+		if !idleBefore.IsZero() && !archivedHelperEligible(th.IsHelper, th.Archived, th.UpdatedAt, idleBefore) {
+			return store.ErrNotFound
 		}
 		if delHook != nil {
 			delHook(ctx, threadID)
@@ -1097,6 +1106,14 @@ func (b *MemoryBackend) deleteThread(ctx context.Context, threadID string, syncN
 			hook(payload)
 		}
 		return nil
+	}
+	if !idleBefore.IsZero() {
+		updatedAt, err := parseTime(td.summary.UpdatedAt)
+		isHelper := td.isHelper || td.summary.IsHelper
+		if err != nil || !archivedHelperEligible(isHelper, td.summary.IsArchived, updatedAt, idleBefore) {
+			b.mu.Unlock()
+			return store.ErrNotFound
+		}
 	}
 	familyIDs := b.familyThreadIDsLocked(threadID)
 	b.mu.Unlock()

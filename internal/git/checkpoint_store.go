@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,7 +114,9 @@ func (r *Runner) checkpointReadEnv(ctx context.Context, root string) []string {
 }
 
 // checkpointStore 确保真实仓库拥有可用的独立检查点仓库并返回其路径。
-// 影子仓库返回 ("", nil)，保持原有行为。首次创建时会批量清理用户仓库中遗留的 refs/mcode/checkpoints/*。
+// 影子仓库返回 ("", nil)，保持原有行为。首次创建时，会在临时目录阶段将用户仓库中遗留的
+// refs/mcode/checkpoints/* 引用与可达对象迁移并打包至检查点仓库，校验一致后再 rename 就位，
+// 随后批量删除用户仓库中的旧引用（删除失败仅记录日志）。
 func (r *Runner) checkpointStore(ctx context.Context, root string) (gitDir string, err error) {
 	storeDir, isShadow, err := r.resolveCheckpointStorePath(ctx, root)
 	if err != nil {
@@ -159,6 +162,11 @@ func (r *Runner) checkpointStore(ctx context.Context, root string) (gitDir strin
 		return "", fmt.Errorf("write checkpoint store alternates: %w", err)
 	}
 
+	legacyRefs, err := r.migrateUserRepoCheckpointsToStore(ctx, root, tmpDir)
+	if err != nil {
+		return "", err
+	}
+
 	if err := os.Rename(tmpDir, storeDir); err != nil {
 		if isBareCheckpointStore(storeDir) {
 			return storeDir, nil
@@ -167,33 +175,76 @@ func (r *Runner) checkpointStore(ctx context.Context, root string) (gitDir strin
 	}
 	renamed = true
 
-	if err := r.migrateUserRepoCheckpoints(ctx, root); err != nil {
-		return "", err
-	}
+	r.deleteLegacyUserRepoCheckpoints(ctx, root, legacyRefs)
 	return storeDir, nil
 }
 
-// migrateUserRepoCheckpoints 使用一次 update-ref --stdin 批量删除用户仓库中遗留的 refs/mcode/checkpoints/*。
-func (r *Runner) migrateUserRepoCheckpoints(ctx context.Context, root string) error {
-	out, err := r.run(ctx, root, nil, "for-each-ref", "--format=%(refname)", checkpointRefRootPrefix)
+type legacyCheckpointRef struct {
+	ref string
+	sha string
+}
+
+// migrateUserRepoCheckpointsToStore 迁移第一步（rename 前在 tmpDir 上执行）：
+// 列出用户仓库遗留的 refs/mcode/checkpoints/* 引用，写入 tmpDir 并通过 repack -a -d 复制可达对象，
+// 最后在 tmpDir 上逐条校验提交哈希一致。任一步失败直接返回错误，由调用方清理 tmpDir。
+func (r *Runner) migrateUserRepoCheckpointsToStore(ctx context.Context, root, tmpDir string) ([]legacyCheckpointRef, error) {
+	out, err := r.run(ctx, root, nil, "for-each-ref", "--format=%(objectname) %(refname)", checkpointRefRootPrefix)
 	if err != nil {
-		return fmt.Errorf("list legacy checkpoints: %w", err)
+		return nil, fmt.Errorf("list legacy checkpoints: %w", err)
 	}
-	var stdin bytes.Buffer
+	var refs []legacyCheckpointRef
 	for _, line := range strings.Split(string(out), "\n") {
-		ref := strings.TrimSpace(line)
-		if ref == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		fmt.Fprintf(&stdin, "delete %s\n", ref)
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			return nil, fmt.Errorf("parse legacy checkpoint ref %q", line)
+		}
+		refs = append(refs, legacyCheckpointRef{sha: fields[0], ref: fields[1]})
 	}
-	if stdin.Len() == 0 {
-		return nil
+	if len(refs) == 0 {
+		return nil, nil
+	}
+
+	tmpEnv := checkpointEnv(tmpDir, root)
+	var stdin bytes.Buffer
+	for _, item := range refs {
+		fmt.Fprintf(&stdin, "create %s %s\n", item.ref, item.sha)
+	}
+	if _, err := r.runWithStdinLockRetry(ctx, root, tmpEnv, stdin.Bytes(), "update-ref", "--stdin"); err != nil {
+		return nil, fmt.Errorf("write legacy checkpoints to store: %w", err)
+	}
+	// 不加 -l：强制将通过 alternates 借用的对象打包进检查点仓库自身的 pack，防止用户仓库 gc 后丢失对象。
+	if _, err := r.run(ctx, root, tmpEnv, "repack", "-a", "-d"); err != nil {
+		return nil, fmt.Errorf("repack legacy checkpoints: %w", err)
+	}
+	for _, item := range refs {
+		revOut, err := r.run(ctx, root, tmpEnv, "rev-parse", "--verify", item.ref+"^{commit}")
+		if err != nil {
+			return nil, fmt.Errorf("verify migrated checkpoint %s: %w", item.ref, err)
+		}
+		if gotSHA := strings.TrimSpace(string(revOut)); gotSHA != item.sha {
+			return nil, fmt.Errorf("verify migrated checkpoint %s: got %s, want %s", item.ref, gotSHA, item.sha)
+		}
+	}
+	return refs, nil
+}
+
+// deleteLegacyUserRepoCheckpoints 迁移第二步（rename 后在用户仓库执行）：
+// 批量删除已迁移的旧引用；新仓库已持有完整副本，删除失败仅记录日志。
+func (r *Runner) deleteLegacyUserRepoCheckpoints(ctx context.Context, root string, refs []legacyCheckpointRef) {
+	if len(refs) == 0 {
+		return
+	}
+	var stdin bytes.Buffer
+	for _, item := range refs {
+		fmt.Fprintf(&stdin, "delete %s %s\n", item.ref, item.sha)
 	}
 	if _, err := r.runWithStdinLockRetry(ctx, root, nil, stdin.Bytes(), "update-ref", "--stdin"); err != nil {
-		return fmt.Errorf("delete legacy checkpoints: %w", err)
+		log.Printf("git: 删除用户仓库旧检查点引用失败: %v", err)
 	}
-	return nil
 }
 
 // runWithStdinLockRetry 在遇到锁文件冲突时带退避重试 runWithStdin。

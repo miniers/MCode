@@ -1636,7 +1636,8 @@ func Open(opts Options) (*App, error) {
 				}
 
 				if ctx.Err() == nil && cfg.Retention.ArchivedBeesEnabled() {
-					ids, err := dbStore.ArchivedHelperThreadIDs(ctx, time.Now().UTC().Add(-30*24*time.Hour), 200)
+					idleBefore := time.Now().UTC().Add(-30 * 24 * time.Hour)
+					ids, err := dbStore.ArchivedHelperThreadIDs(ctx, idleBefore, 200)
 					if err != nil {
 						if ctx.Err() != nil {
 							return err
@@ -1651,7 +1652,7 @@ func Open(opts Options) (*App, error) {
 							if ctx.Err() != nil {
 								return ctx.Err()
 							}
-							if err := backend.DeleteArchivedThread(ctx, id); err != nil {
+							if err := backend.DeleteArchivedThread(ctx, id, idleBefore); err != nil {
 								if errors.Is(err, store.ErrNotFound) {
 									continue
 								}
