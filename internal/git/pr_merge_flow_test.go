@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -263,6 +264,103 @@ func TestFastForwardLocalBranch(t *testing.T) {
 
 		if err := runner.FastForwardLocalBranch(ctx, dir, "main"); err != nil {
 			t.Fatalf("FastForwardLocalBranch 失败: %v", err)
+		}
+		if gotSHA := runTestGit(t, dir, "rev-parse", "refs/heads/main"); gotSHA != wantSHA {
+			t.Fatalf("refs/heads/main = %s，期望 %s", gotSHA, wantSHA)
+		}
+	})
+
+	t.Run("base 已检出且有未推送提交", func(t *testing.T) {
+		t.Parallel()
+		runner, dir, bare := initSyncRemote(t)
+		other := initSecondaryCheckout(t, bare)
+		writeTestFile(t, other, "next.txt", "next\n")
+		runTestGit(t, other, "add", "next.txt")
+		runTestGit(t, other, "commit", "-qm", "advance main")
+		runTestGit(t, other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+		writeTestFile(t, dir, "local.txt", "local\n")
+		runTestGit(t, dir, "add", "local.txt")
+		runTestGit(t, dir, "commit", "-qm", "local commit")
+
+		if err := runner.FastForwardLocalBranch(ctx, dir, "main"); err != nil {
+			t.Fatalf("FastForwardLocalBranch 失败: %v", err)
+		}
+		merged, err := runner.IsBranchMerged(ctx, dir, "origin/main", "HEAD")
+		if err != nil || !merged {
+			t.Fatalf("期望 origin/main 是 HEAD 祖先，merged=%v, err=%v", merged, err)
+		}
+		if gotMsg := runTestGit(t, dir, "log", "-n", "1", "--format=%s", "HEAD"); gotMsg != "local commit" {
+			t.Fatalf("HEAD 提交说明 = %q，期望 %q", gotMsg, "local commit")
+		}
+		if status := runTestGit(t, dir, "status", "--porcelain"); status != "" {
+			t.Fatalf("工作区不干净: %q", status)
+		}
+	})
+
+	t.Run("base 已检出且变基冲突", func(t *testing.T) {
+		t.Parallel()
+		runner, dir, bare := initSyncRemote(t)
+		other := initSecondaryCheckout(t, bare)
+		writeTestFile(t, other, "conflict.txt", "remote line\n")
+		runTestGit(t, other, "add", "conflict.txt")
+		runTestGit(t, other, "commit", "-qm", "remote conflict")
+		runTestGit(t, other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+		writeTestFile(t, dir, "conflict.txt", "local line\n")
+		runTestGit(t, dir, "add", "conflict.txt")
+		runTestGit(t, dir, "commit", "-qm", "local conflict")
+		origHead := runTestGit(t, dir, "rev-parse", "HEAD")
+
+		err := runner.FastForwardLocalBranch(ctx, dir, "main")
+		if err == nil || !strings.Contains(err.Error(), "冲突") {
+			t.Fatalf("err = %v，期望包含“冲突”", err)
+		}
+		for _, stateDir := range []string{"rebase-merge", "rebase-apply"} {
+			if _, statErr := os.Stat(filepath.Join(dir, ".git", stateDir)); !os.IsNotExist(statErr) {
+				t.Fatalf("期望 %s 不存在，statErr = %v", stateDir, statErr)
+			}
+		}
+		if curHead := runTestGit(t, dir, "rev-parse", "HEAD"); curHead != origHead {
+			t.Fatalf("HEAD = %s，期望回滚到 %s", curHead, origHead)
+		}
+	})
+
+	t.Run("base 未检出且本地已包含远端", func(t *testing.T) {
+		t.Parallel()
+		runner, dir, _ := initSyncRemote(t)
+		writeTestFile(t, dir, "local.txt", "local\n")
+		runTestGit(t, dir, "add", "local.txt")
+		runTestGit(t, dir, "commit", "-qm", "local ahead")
+		wantSHA := runTestGit(t, dir, "rev-parse", "refs/heads/main")
+		runTestGit(t, dir, "switch", "-q", "-c", "other")
+
+		if err := runner.FastForwardLocalBranch(ctx, dir, "main"); err != nil {
+			t.Fatalf("FastForwardLocalBranch 失败: %v", err)
+		}
+		if gotSHA := runTestGit(t, dir, "rev-parse", "refs/heads/main"); gotSHA != wantSHA {
+			t.Fatalf("refs/heads/main = %s，期望 %s", gotSHA, wantSHA)
+		}
+	})
+
+	t.Run("base 未检出且分叉", func(t *testing.T) {
+		t.Parallel()
+		runner, dir, bare := initSyncRemote(t)
+		writeTestFile(t, dir, "local.txt", "local\n")
+		runTestGit(t, dir, "add", "local.txt")
+		runTestGit(t, dir, "commit", "-qm", "local commit")
+		wantSHA := runTestGit(t, dir, "rev-parse", "refs/heads/main")
+		runTestGit(t, dir, "switch", "-q", "-c", "other")
+
+		other := initSecondaryCheckout(t, bare)
+		writeTestFile(t, other, "next.txt", "next\n")
+		runTestGit(t, other, "add", "next.txt")
+		runTestGit(t, other, "commit", "-qm", "advance main")
+		runTestGit(t, other, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+		err := runner.FastForwardLocalBranch(ctx, dir, "main")
+		if err == nil || !strings.Contains(err.Error(), "分叉") {
+			t.Fatalf("err = %v，期望包含“分叉”", err)
 		}
 		if gotSHA := runTestGit(t, dir, "rev-parse", "refs/heads/main"); gotSHA != wantSHA {
 			t.Fatalf("refs/heads/main = %s，期望 %s", gotSHA, wantSHA)

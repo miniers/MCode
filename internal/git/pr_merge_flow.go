@@ -97,9 +97,11 @@ func (r *Runner) PRRebaseOntoBase(ctx context.Context, root string, number int, 
 	return r.PushRef(ctx, root, "origin", "HEAD", base)
 }
 
-// FastForwardLocalBranch 将主仓库的本地 base 分支快进到 origin/<base>。
-// base 检出在主仓库时要求工作区干净；检出在其他 worktree 时返回含路径的错误；
-// 未被检出时直接通过 fetch 只快进引用。
+// FastForwardLocalBranch 将主仓库的本地 base 分支同步到 origin/<base>。
+// base 检出在主仓库时要求工作区干净：HEAD 是 origin/<base> 祖先时直接快进，
+// 否则将本地提交变基到 origin/<base>（冲突时中止变基并返回错误）；
+// 检出在其他 worktree 时返回含路径的错误；
+// 未被检出时：若本地已包含 origin/<base> 则直接返回，若本地是 origin/<base> 祖先则通过 fetch 快进引用，分叉时返回错误。
 func (r *Runner) FastForwardLocalBranch(ctx context.Context, mainRoot, base string) error {
 	base = strings.TrimSpace(base)
 	if err := r.validatePRBranch(ctx, mainRoot, base); err != nil {
@@ -126,6 +128,7 @@ func (r *Runner) FastForwardLocalBranch(ctx context.Context, mainRoot, base stri
 		return fmt.Errorf("分支 %s 正检出在 worktree %s，无法快进", base, wt.Path)
 	}
 
+	remoteRef := "origin/" + base
 	if checkedOutInMain {
 		out, err := r.run(ctx, mainRoot, nil, "status", "--porcelain")
 		if err != nil {
@@ -134,9 +137,37 @@ func (r *Runner) FastForwardLocalBranch(ctx context.Context, mainRoot, base stri
 		if len(strings.TrimSpace(string(out))) > 0 {
 			return fmt.Errorf("主仓库工作区有未提交改动，无法快进分支 %s", base)
 		}
-		return r.FastForwardInto(ctx, mainRoot, "origin/"+base)
+		isAncestor, err := r.IsBranchMerged(ctx, mainRoot, "HEAD", remoteRef)
+		if err != nil {
+			return err
+		}
+		if isAncestor {
+			return r.FastForwardInto(ctx, mainRoot, remoteRef)
+		}
+		if _, err := r.run(ctx, mainRoot, opEnv, "rebase", remoteRef); err != nil {
+			abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancel()
+			_, _ = r.run(abortCtx, mainRoot, opEnv, "rebase", "--abort")
+			return fmt.Errorf("本地 %s 有未推送的提交，变基到 origin/%s 冲突: %w", base, base, err)
+		}
+		return nil
 	}
 
-	_, err = r.run(ctx, mainRoot, nil, "fetch", "origin", "refs/heads/"+base+":refs/heads/"+base)
-	return err
+	localRef := "refs/heads/" + base
+	remoteInLocal, err := r.IsBranchMerged(ctx, mainRoot, remoteRef, localRef)
+	if err != nil {
+		return err
+	}
+	if remoteInLocal {
+		return nil
+	}
+	localInRemote, err := r.IsBranchMerged(ctx, mainRoot, localRef, remoteRef)
+	if err != nil {
+		return err
+	}
+	if localInRemote {
+		_, err = r.run(ctx, mainRoot, nil, "fetch", "origin", localRef+":"+localRef)
+		return err
+	}
+	return fmt.Errorf("本地分支 %s 有未推送的提交且与 origin/%s 分叉，请检出后变基", base, base)
 }
