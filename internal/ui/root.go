@@ -79,9 +79,8 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		consumeStewardPendingThread(state)
 
 		// 侧边栏显隐过渡。root-shell 是根容器，动画值挂在它上面：
-		// 0 为完全展开、1 为完全折叠，按 ease-out 约 220ms 插值；动画期间侧边栏与主区
-		// 同层布局、侧边栏按插值宽度裁切（内容始终按目标宽度排版，不随每帧重新换行），
-		// 动画结束后回到既有的 Split / 无 Split 布局。
+		// 0 为完全展开、1 为完全折叠，按 ease-out 约 220ms 插值；
+		// 展开、动画、折叠三种状态共用同一棵根布局树（mygo 节点身份按祖先链哈希，换父节点会重挂载导致整棵子树闪烁与状态丢失）。
 		shell := ui.Column(c.Key("root-shell")).Fill()
 		collapseTarget := float32(0)
 		if state.sidebarCollapsed {
@@ -95,44 +94,51 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		slideSettled := shell.Settled("sidebar-collapse")
 		setSidebarVisibleProgress(state, slide)
 
-		// renderShell 渲染外壳布局：动画期间侧边栏按插值宽度裁切并与主区同层，
-		// 动画结束后折叠时只渲染主区，展开时回到可拖拽的 Split 分栏（拖拽结束持久化宽度）。
+		// renderShell 渲染外壳布局：主区始终挂在 root-shell → root-row → root-main 同一路径下，
+		// 外层 Row 必须设 AlignItems(ui.Stretch)（Row 默认 Center 会让子项按内容算高、使主区与调宽手柄高度塌缩）。
 		renderShell := func(renderSidebarPane, renderMainPane func()) {
-			if !slideSettled {
+			var width float32
+			switch {
+			case !slideSettled:
 				progress := slide
 				if state.sidebarCollapsed {
 					progress = 1 - slide
 				}
-				width := sidebarAnimatedWidth(state.sidebarWidth, progress, state.sidebarCollapsed)
-				ui.Row(c.Key("root-slide")).Fill().Children(func() {
-					if width > 0.5 {
-						// 侧边栏内容按目标宽度排版，只有外层裁切宽度随动画变化；
-						// 右对齐让内容随宽度收缩向左滑出，而不是被逐帧重新换行。
-						ui.Row(c.Key("root-slide-sidebar")).
-							Width(width).
-							MinWidth(0).
-							Clip().
-							Justify(ui.End).
-							Children(func() {
-								ui.Column(c.Key("root-slide-sidebar-inner")).
-									Width(state.sidebarWidth).
-									FillHeight().
-									Children(renderSidebarPane)
-							})
-					}
-					ui.Column(c.Key("root-slide-main")).Grow(1).MinWidth(0).Children(renderMainPane)
-				})
-				return
+				width = sidebarAnimatedWidth(state.sidebarWidth, progress, state.sidebarCollapsed)
+			case state.sidebarCollapsed:
+				width = 0
+			default:
+				width = state.sidebarWidth
 			}
-			if state.sidebarCollapsed {
-				renderMainPane()
-				// 折叠态下把窗口左缘的展开热区叠加在主面板之上
-				// （绝对定位，不参与布局，不影响展开态）。
-				renderSidebarEdgeHandle(c, state)
-				return
-			}
-			ui.Split(c.Key("root-split"), &state.sidebarWidth, renderSidebarPane, renderMainPane).Fill().OnChange(func() {
-				persistUIState(state)
+			ui.Row(c.Key("root-row")).Fill().AlignItems(ui.Stretch).Children(func() {
+				if width > 0.5 {
+					// 侧边栏内容按目标宽度排版，只有外层裁切宽度随动画变化；
+					// 右对齐让内容随宽度收缩向左滑出，而不是被逐帧重新换行。
+					ui.Row(c.Key("root-sidebar")).
+						Width(width).
+						MinWidth(0).
+						Shrink(0).
+						Clip().
+						Justify(ui.End).
+						Children(func() {
+							ui.Column(c.Key("root-sidebar-inner")).
+								Width(state.sidebarWidth).
+								FillHeight().
+								Children(renderSidebarPane)
+						})
+					renderSidebarResizeHandle(c, state)
+				}
+				ui.Column(c.Key("root-main")).
+					Grow(1).
+					MinWidth(0).
+					Role(ui.RoleMain).
+					Label("主工作区").
+					Children(renderMainPane)
+				if slideSettled && state.sidebarCollapsed {
+					// 折叠态下把窗口左缘的展开热区叠加在主面板之上
+					// （绝对定位，不参与布局，不影响展开态）。
+					renderSidebarEdgeHandle(c, state)
+				}
 			})
 		}
 

@@ -13,6 +13,10 @@ const (
 	sidebarEdgeHandleWidth = 5
 	// sidebarEdgeExpandThreshold 是向右拖拽多少 pt 后展开侧边栏。
 	sidebarEdgeExpandThreshold = 24
+	// sidebarResizeHandleKey 是侧边栏右缘调宽手柄的节点键。
+	sidebarResizeHandleKey = "sidebar-resize-handle"
+	// sidebarResizeHandleLabel 是侧边栏右缘调宽手柄的无障碍标签。
+	sidebarResizeHandleLabel = "调整侧边栏宽度"
 )
 
 // edgeDragShouldExpand 判断向右的累计拖拽位移是否达到展开侧边栏的阈值。
@@ -74,4 +78,81 @@ func renderSidebarEdgeHandle(c *ui.Context, s *chatState) ui.Element {
 	}
 
 	return handle
+}
+
+// renderSidebarResizeHandle 渲染展开态侧边栏右缘的分栏调宽手柄：
+// 7 DIP 命中区内含 1 DIP 常驻分割线，悬停或拖动时叠加 2 DIP 高亮竖线；
+// 支持指针拖拽与焦点状态下的左右方向键调宽，并在拖动结束及按键调宽时持久化宽度。
+func renderSidebarResizeHandle(c *ui.Context, s *chatState) {
+	handle := ui.Box(c.Key(sidebarResizeHandleKey)).
+		Width(sidePaneHandleWidth).
+		Shrink(0).
+		Focusable().
+		Role(ui.RoleSplitter).
+		Label(sidebarResizeHandleLabel).
+		Cursor(ui.CursorResizeEW)
+
+	hovered := handle.Hovered()
+	elapsed, wait := sidePaneHandles.observe(c, sidebarResizeHandleKey, c.Now(), hovered)
+	if wait > 0 {
+		// 悬停未满 motionHoverDelay 时预约到点那一帧，以触发高亮淡入。
+		c.After(wait)
+	}
+
+	winW, _ := c.Size()
+	dx, _, held := handle.Dragged()
+	_, _, released := handle.DragEnded()
+	switch {
+	case held:
+		sidePaneHandles.setDragging(c, sidebarResizeHandleKey, true)
+		if dx != 0 {
+			s.mu.Lock()
+			s.sidebarWidth = clampSidebarWidthForWindow(winW, s.sidebarWidth+dx)
+			s.mu.Unlock()
+		}
+	case released:
+		sidePaneHandles.setDragging(c, sidebarResizeHandleKey, false)
+		persistUIState(s)
+	default:
+		sidePaneHandles.setDragging(c, sidebarResizeHandleKey, false)
+	}
+
+	// 侧边栏位于窗口左侧：右箭头加宽、左箭头变窄。
+	handle.OnShortcut(0, ui.KeyRight, func() {
+		s.mu.Lock()
+		s.sidebarWidth = clampSidebarWidthForWindow(winW, s.sidebarWidth+sidePaneHandleStep)
+		s.mu.Unlock()
+		persistUIState(s)
+	})
+	handle.OnShortcut(0, ui.KeyLeft, func() {
+		s.mu.Lock()
+		s.sidebarWidth = clampSidebarWidthForWindow(winW, s.sidebarWidth-sidePaneHandleStep)
+		s.mu.Unlock()
+		persistUIState(s)
+	})
+
+	ink := handle.AnimateTo("ink", sidePaneHandleInkTarget(hovered, held, elapsed), ui.Animation{
+		Duration: animateDuration(c, motionFast),
+		Ease:     motionEaseStandard,
+	})
+	handle.Children(func() {
+		// 常驻 1 DIP 分割线，垂直居中。
+		ui.Box(c.Key(sidebarResizeHandleKey + "/line")).
+			Absolute().
+			Top(0).
+			Bottom(0).
+			Left((sidePaneHandleWidth - 1) / 2).
+			Width(1).
+			Background(ThemeBorder(c))
+		// 高亮竖线：2 DIP，透明度由动画值驱动，淡到 0 后不再建节点。
+		if ink > 0 {
+			ui.Box(c.Key(sidebarResizeHandleKey + "/ink")).
+				Absolute().
+				Top(0).
+				Bottom(0).
+				Left((sidePaneHandleWidth - motionHandleLine) / 2).
+				Width(motionHandleLine).
+				Background(ThemeAccent(c).Alpha(ink))
+		}
+	})
 }

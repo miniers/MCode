@@ -636,14 +636,17 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 		t.Fatalf("动画期间侧边栏内容仍应按目标宽度布局")
 	}
 
-	// 推进到动画结束：回到无 Sidebar 的静态布局
+	// 推进到动画结束：不再渲染侧边栏且不再请求下一帧
 	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("折叠动画结束后不应继续请求下一帧")
+	}
 	if p := sidebarVisibleProgress(state); p > 0.02 {
 		t.Fatalf("折叠动画结束后显示进度应为 0, got %v", p)
 	}
-	if _, ok := tt.Find("root-split"); ok {
-		t.Fatalf("折叠结束后应回到只渲染主区的静态布局（无侧边栏分栏）")
+	if _, ok := tt.Find("在此项目中新建会话"); ok {
+		t.Fatalf("折叠结束后不应再渲染侧边栏内容")
 	}
 	// 侧栏收起后头部出现会话列表入口与新建会话按钮，作为侧栏内容被移除的正面校验。
 	if _, ok := tt.Find("会话列表"); !ok {
@@ -657,6 +660,9 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyB)
 	tt.Advance(400 * time.Millisecond)
 	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("展开动画结束后不应继续请求下一帧")
+	}
 	if p := sidebarVisibleProgress(state); p < 0.98 {
 		t.Fatalf("展开动画结束后显示进度应为 1, got %v", p)
 	}
@@ -665,6 +671,171 @@ func TestRootSidebarSlideAnimation(t *testing.T) {
 	}
 	if _, ok := tt.Find("在此项目中新建会话"); !ok {
 		t.Fatalf("展开结束后应恢复侧边栏")
+	}
+}
+
+// TestRootSidebarSlideKeepsMainFullHeight 验证侧边栏折叠与展开动画中途主区高度始终等于窗口高度。
+func TestRootSidebarSlideKeepsMainFullHeight(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	fake := NewFakeClient()
+	fake.messages["t1"] = []Message{
+		{ID: "m1", Role: "user", Kind: "text", Text: "第一条", IsFinal: true, TurnIndex: 1},
+	}
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	assertMainFullHeight := func(phase string) {
+		t.Helper()
+		r, ok := tt.Find("主工作区")
+		if !ok {
+			t.Fatalf("%s 找不到主工作区节点", phase)
+		}
+		if r.H != 700 {
+			t.Fatalf("%s 主区高度 = %v, want 700", phase, r.H)
+		}
+		composerRect, ok := tt.Find("消息输入框")
+		if !ok {
+			t.Fatalf("%s 找不到消息输入框", phase)
+		}
+		if composerRect.Y+composerRect.H < 600 {
+			t.Fatalf("%s 主区疑似垂直塌缩，输入框底缘 = %v (< 600)", phase, composerRect.Y+composerRect.H)
+		}
+	}
+
+	// 折叠动画中途
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Frame()
+	tt.Advance(110 * time.Millisecond)
+	assertMainFullHeight("折叠动画中途")
+
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("折叠动画结束后不应继续请求下一帧")
+	}
+
+	// 展开动画中途
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Frame()
+	tt.Advance(110 * time.Millisecond)
+	assertMainFullHeight("展开动画中途")
+
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("展开动画结束后不应继续请求下一帧")
+	}
+}
+
+// TestRootSidebarToggleKeepsMainState 验证侧边栏折叠再展开全过程中主区节点身份、输入框焦点与光标位置不变。
+func TestRootSidebarToggleKeepsMainState(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	fake := NewFakeClient()
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool {
+		if !tt.HasText("测试会话1") {
+			return false
+		}
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		return state.composerFocused
+	})
+
+	// 输入 3 个字符并将光标左移 1 位（位于 index 2），重挂载会丢失该光标位置。
+	tt.Type("abc")
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+
+	// ⌘B 折叠并推进到动画结束
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("折叠动画结束后不应继续请求下一帧")
+	}
+
+	// 再 ⌘B 展开并推进到动画结束
+	tt.Key(ui.Cmd, ui.KeyB)
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("展开动画结束后不应继续请求下一帧")
+	}
+
+	state.mu.Lock()
+	focused := state.composerFocused
+	state.mu.Unlock()
+	if !focused {
+		t.Fatalf("侧边栏折叠再展开后输入框应保持焦点")
+	}
+
+	// 继续输入字符应插在原光标位置，证明主区输入框节点未重挂载。
+	tt.Type("X")
+	tt.Frame()
+	if got := state.draft; got != "abXc" {
+		t.Fatalf("侧边栏开合后草稿 = %q, want %q（输入框光标位置应保留）", got, "abXc")
+	}
+}
+
+// TestRootSidebarResizeHandle 验证侧边栏调宽手柄支持向右拖拽增宽（受上限夹取）与键盘右箭头调宽。
+func TestRootSidebarResizeHandle(t *testing.T) {
+	withShortcutGOOS(t, "darwin")
+	t.Setenv("MCODE_DATA", t.TempDir())
+	t.Cleanup(waitUIStateWrites)
+	fake := NewFakeClient()
+	state, view := buildRoot(fake)
+	t.Cleanup(state.close)
+	tt := ui.NewTester(view, 1000, 700)
+
+	waitFor(t, tt, func() bool { return tt.HasText("测试会话1") })
+
+	info, ok := tt.AccessByRole(ui.RoleSplitter, sidebarResizeHandleLabel)
+	if !ok {
+		t.Fatalf("找不到侧边栏调宽手柄: %v", tt.AccessAll())
+	}
+	if info.Bounds.H != 700 {
+		t.Fatalf("侧边栏调宽手柄高度 = %v, want 700", info.Bounds.H)
+	}
+
+	before := state.sidebarWidth
+	hx, hy := info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2
+	tt.Press(hx, hy)
+	tt.Move(hx+40, hy)
+	tt.Release(hx+40, hy)
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("拖拽结束后不应继续请求下一帧")
+	}
+
+	maxAllowed := clampSidebarWidthForWindow(1000, SidebarMaxWidth)
+	afterDrag := state.sidebarWidth
+	if afterDrag <= before || afterDrag > maxAllowed {
+		t.Fatalf("向右拖拽 40 DIP 后宽度 = %v, 应在 (%v, %v] 内", afterDrag, before, maxAllowed)
+	}
+
+	if !tt.Focused(sidebarResizeHandleLabel) {
+		t.Fatalf("按下并拖拽手柄后焦点应在手柄上")
+	}
+	tt.Key(0, ui.KeyRight)
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	if tt.FramePending() {
+		t.Fatalf("键盘调宽后不应继续请求下一帧")
+	}
+	wantAfterKey := clampSidebarWidthForWindow(1000, afterDrag+sidePaneHandleStep)
+	if state.sidebarWidth != wantAfterKey {
+		t.Fatalf("按 KeyRight 后宽度 = %v, want %v", state.sidebarWidth, wantAfterKey)
 	}
 }
 
