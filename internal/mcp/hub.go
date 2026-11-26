@@ -160,7 +160,22 @@ type upstreamClient interface {
 	listTools(ctx context.Context) ([]Tool, error)
 	callTool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
 	forward(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error)
+	toolsEpoch() uint64
 	close() error
+}
+
+// authGenerationSource 为可选的登录身份世代号提供方，用于感知 OAuth 登出或重登引起的缓存失效。
+type authGenerationSource interface {
+	AuthGeneration() uint64
+}
+
+// toolsCacheEntry 记录 Hub 缓存的 tools/list 结果与失效判定元数据。
+type toolsCacheEntry struct {
+	client  upstreamClient
+	epoch   uint64
+	authGen uint64
+	result  json.RawMessage
+	version uint64
 }
 
 // Hub 管理外部上游 MCP 服务的生命周期与路由分发。
@@ -169,6 +184,10 @@ type Hub struct {
 	mu        sync.RWMutex
 	upstreams map[string]UpstreamSpec
 	clients   map[string]upstreamClient
+	// tools 缓存各上游无游标 tools/list 响应，随客户端替换或 toolsEpoch 变化失效。
+	tools map[string]toolsCacheEntry
+	// toolsVersion 为全局递增的 tools 缓存版本号，每次写入缓存加一。
+	toolsVersion uint64
 	// lastUsed 记录每个上游最近一次被使用的时间，供空闲回收判定。
 	lastUsed map[string]time.Time
 	// inflight 记录每个上游正在进行的请求数，非零时不允许回收。
@@ -189,6 +208,7 @@ func NewHub(tokens TokenSource) *Hub {
 		tokens:    tokens,
 		upstreams: make(map[string]UpstreamSpec),
 		clients:   make(map[string]upstreamClient),
+		tools:     make(map[string]toolsCacheEntry),
 		lastUsed:  make(map[string]time.Time),
 		inflight:  make(map[string]int),
 		done:      make(chan struct{}),
@@ -259,6 +279,7 @@ func (h *Hub) reapIdle(now time.Time) {
 		delete(h.clients, id)
 		delete(h.lastUsed, id)
 		delete(h.inflight, id)
+		delete(h.tools, id)
 	}
 	h.mu.Unlock()
 
@@ -308,6 +329,7 @@ func (h *Hub) SetUpstreams(specs []UpstreamSpec) {
 			// 客户端已销毁，使用统计一并清理，避免这些条目长期残留。
 			delete(h.lastUsed, id)
 			delete(h.inflight, id)
+			delete(h.tools, id)
 		}
 	}
 	h.upstreams = newSpecs
@@ -377,6 +399,58 @@ func (h *Hub) CallTool(ctx context.Context, id, name string, args json.RawMessag
 	return client.callTool(ctx, name, args)
 }
 
+// isCacheableToolsList 判断请求是否为无游标的 tools/list 调用（允许缓存结果）。
+func isCacheableToolsList(method string, params json.RawMessage) bool {
+	if method != "tools/list" {
+		return false
+	}
+	trimmed := bytes.TrimSpace(params)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("{}")) || bytes.Equal(trimmed, []byte("null")) {
+		return true
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return false
+	}
+	_, hasCursor := obj["cursor"]
+	return !hasCursor
+}
+
+// cancelledNotificationParams 构造 MCP notifications/cancelled 的参数载荷。
+func cancelledNotificationParams(requestID int64) json.RawMessage {
+	raw, _ := json.Marshal(map[string]any{
+		"requestId": requestID,
+		"reason":    "request cancelled",
+	})
+	return raw
+}
+
+func (h *Hub) authGeneration() uint64 {
+	if src, ok := h.tokens.(authGenerationSource); ok {
+		return src.AuthGeneration()
+	}
+	return 0
+}
+
+// toolsListVersion 返回指定上游当前有效的 tools/list 缓存版本号；缓存不存在或已失效时返回 0。
+func (h *Hub) toolsListVersion(id string) uint64 {
+	h.mu.RLock()
+	if h.closed {
+		h.mu.RUnlock()
+		return 0
+	}
+	entry, ok := h.tools[id]
+	client, hasClient := h.clients[id]
+	h.mu.RUnlock()
+	if !ok || !hasClient || entry.client == nil || entry.client != client {
+		return 0
+	}
+	if entry.epoch != client.toolsEpoch() || entry.authGen != h.authGeneration() {
+		return 0
+	}
+	return entry.version
+}
+
 // Forward 将 JSON-RPC 请求直接转发给指定上游服务。
 func (h *Hub) Forward(ctx context.Context, id, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error) {
 	client, release, err := h.acquireClient(id)
@@ -384,9 +458,41 @@ func (h *Hub) Forward(ctx context.Context, id, method string, params json.RawMes
 		return nil, nil, err
 	}
 	defer release()
+
+	cacheable := isCacheableToolsList(method, params)
+	var epochBefore, authGenBefore uint64
+	if cacheable {
+		epochBefore = client.toolsEpoch()
+		authGenBefore = h.authGeneration()
+		h.mu.RLock()
+		entry, ok := h.tools[id]
+		h.mu.RUnlock()
+		if ok && entry.client == client && entry.epoch == epochBefore && entry.authGen == authGenBefore {
+			return bytes.Clone(entry.result), nil, nil
+		}
+	}
+
 	ctx, cancel := withMethodTimeout(ctx, method)
 	defer cancel()
-	return client.forward(ctx, method, params)
+	res, rpcErr, err := client.forward(ctx, method, params)
+	if cacheable && err == nil && rpcErr == nil {
+		h.mu.Lock()
+		if !h.closed && h.clients[id] == client {
+			if h.tools == nil {
+				h.tools = make(map[string]toolsCacheEntry)
+			}
+			h.toolsVersion++
+			h.tools[id] = toolsCacheEntry{
+				client:  client,
+				epoch:   epochBefore,
+				authGen: authGenBefore,
+				result:  bytes.Clone(res),
+				version: h.toolsVersion,
+			}
+		}
+		h.mu.Unlock()
+	}
+	return res, rpcErr, err
 }
 
 // Close 关闭 Hub 并释放所有上游客户端资源。
@@ -402,6 +508,7 @@ func (h *Hub) Close() error {
 		clients = append(clients, c)
 	}
 	h.clients = make(map[string]upstreamClient)
+	h.tools = make(map[string]toolsCacheEntry)
 	h.lastUsed = make(map[string]time.Time)
 	h.inflight = make(map[string]int)
 	h.mu.Unlock()
@@ -558,6 +665,7 @@ type stdioClient struct {
 	closed    bool
 	sName     string
 	sVer      string
+	epoch     atomic.Uint64
 	// sCaps 保存 initialize 结果中的 capabilities 原始 JSON，供代理层透传能力。
 	sCaps json.RawMessage
 }
@@ -574,6 +682,10 @@ func (c *stdioClient) serverInfo() (string, string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.sName, c.sVer
+}
+
+func (c *stdioClient) toolsEpoch() uint64 {
+	return c.epoch.Load()
 }
 
 // capabilities 返回上游 initialize 结果里的 capabilities 原始 JSON。
@@ -856,6 +968,9 @@ func (c *stdioClient) sendRPC(ctx context.Context, method string, params json.Ra
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
+		if method != "initialize" {
+			_ = c.sendNotification("notifications/cancelled", cancelledNotificationParams(id))
+		}
 		return nil, nil, reqCtx.Err()
 	case resp := <-ch:
 		if resp.err != nil {
@@ -921,6 +1036,7 @@ func (c *stdioClient) readLoop(stdout io.ReadCloser, cmd *exec.Cmd) {
 	c.pending = make(map[int64]chan rpcResponseMsg)
 	tail := c.stderrBuf.String()
 	c.mu.Unlock()
+	c.epoch.Add(1)
 
 	firstLine := firstNonEmptyLine(tail)
 	var exitErr error
@@ -941,6 +1057,9 @@ func (c *stdioClient) readLoop(stdout io.ReadCloser, cmd *exec.Cmd) {
 // replyToServer 回应上游主动发来的请求：ping 回空 result，其余方法回 -32601。
 // 没有 id 的通知无需回应；id 原样回显，上游可能用字符串 id。
 func (c *stdioClient) replyToServer(raw rawIncomingRPC) {
+	if raw.Method == "notifications/tools/list_changed" {
+		c.epoch.Add(1)
+	}
 	if raw.ID == nil {
 		return
 	}
@@ -1013,6 +1132,7 @@ type httpClient struct {
 	nextID    int64
 	sName     string
 	sVer      string
+	epoch     atomic.Uint64
 	// sCaps 保存 initialize 结果中的 capabilities 原始 JSON，供代理层透传能力。
 	sCaps json.RawMessage
 }
@@ -1029,6 +1149,10 @@ func (c *httpClient) serverInfo() (string, string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.sName, c.sVer
+}
+
+func (c *httpClient) toolsEpoch() uint64 {
+	return c.epoch.Load()
 }
 
 // capabilities 返回上游 initialize 结果里的 capabilities 原始 JSON。
@@ -1215,6 +1339,9 @@ func (c *httpClient) postRPC(ctx context.Context, id *int64, method string, para
 			}
 			// 只接受响应；带 method 的是服务端请求，不能当成本次调用的结果。
 			if raw.Method != "" {
+				if raw.Method == "notifications/tools/list_changed" {
+					c.epoch.Add(1)
+				}
 				continue
 			}
 			if msgID, ok := parseRPCID(raw.ID); ok && msgID == targetID {
@@ -1258,14 +1385,14 @@ func (c *httpClient) dropSession() {
 	c.sVer = ""
 	c.sCaps = nil
 	c.mu.Unlock()
+	c.epoch.Add(1)
 }
 
 func (c *httpClient) forward(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error) {
 	if err := c.ensureInitialized(ctx); err != nil {
 		return nil, nil, err
 	}
-	id := atomic.AddInt64(&c.nextID, 1)
-	res, rpcErr, err := c.postRPC(ctx, &id, method, params)
+	res, rpcErr, err := c.postRPCWithCancel(ctx, method, params)
 	if err == nil || !errors.Is(err, errSessionExpired) {
 		return res, rpcErr, err
 	}
@@ -1275,8 +1402,21 @@ func (c *httpClient) forward(ctx context.Context, method string, params json.Raw
 	if initErr := c.ensureInitialized(ctx); initErr != nil {
 		return nil, nil, initErr
 	}
-	id = atomic.AddInt64(&c.nextID, 1)
-	return c.postRPC(ctx, &id, method, params)
+	return c.postRPCWithCancel(ctx, method, params)
+}
+
+func (c *httpClient) postRPCWithCancel(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error) {
+	id := atomic.AddInt64(&c.nextID, 1)
+	res, rpcErr, err := c.postRPC(ctx, &id, method, params)
+	if err != nil && ctx.Err() != nil && method != "initialize" {
+		cancelParams := cancelledNotificationParams(id)
+		go func() {
+			notifyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _, _ = c.postRPC(notifyCtx, nil, "notifications/cancelled", cancelParams)
+		}()
+	}
+	return res, rpcErr, err
 }
 
 func (c *httpClient) listTools(ctx context.Context) ([]Tool, error) {

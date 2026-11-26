@@ -112,9 +112,10 @@ const foldQueryMaxResults = 10
 // list 是按策略过滤后、折叠前的 tools/list 结果；names 是其中的工具名，
 // 供调用时校验内部工具名与提示可用工具。
 type foldState struct {
-	folded bool
-	list   json.RawMessage
-	names  []string
+	folded  bool
+	list    json.RawMessage
+	names   []string
+	version uint64
 }
 
 // parseToolsList 取出 tools/list 结果里的工具数组与工具名；结构不符时 ok 为 false。
@@ -209,11 +210,18 @@ func (p *Proxy) setFoldState(serverID string, state foldState) {
 }
 
 // foldStateOf 读取某个服务已记录的折叠状态。
+// 当 Hub 的 tools/list 缓存已失效或版本号变化时返回 known=false，迫使调用方刷新。
 func (p *Proxy) foldStateOf(serverID string) (foldState, bool) {
 	p.foldMu.RLock()
 	state, ok := p.fold[serverID]
 	p.foldMu.RUnlock()
-	return state, ok
+	if !ok {
+		return foldState{}, false
+	}
+	if p.hub != nil && (state.version == 0 || state.version != p.hub.toolsListVersion(serverID)) {
+		return foldState{}, false
+	}
+	return state, true
 }
 
 // foldToolSchema 从折叠前工具清单中取出指定工具的 inputSchema 原始 JSON；取不到时返回 false。
@@ -289,7 +297,11 @@ func appendFoldErrorSchema(result json.RawMessage, tool string, schema json.RawM
 // 返回最终要回给客户端的结果与记录下来的状态。
 func (p *Proxy) applyFold(serverID, serverName string, filtered json.RawMessage, policy agentconf.MCPToolPolicy) (json.RawMessage, foldState) {
 	_, names, _ := parseToolsList(filtered)
-	state := foldState{list: filtered, names: names}
+	var version uint64
+	if p.hub != nil {
+		version = p.hub.toolsListVersion(serverID)
+	}
+	state := foldState{list: filtered, names: names, version: version}
 	threshold := policy.EffectiveFoldThreshold()
 	// 免审批开关由 mcode 按 mcp__<server>__<tool> 工具名匹配（见 internal/remote/approvals.go），
 	// 折叠后工具名统一变成 call_tool，免审批必然失效，因此配置了任意免审批工具的服务不折叠。

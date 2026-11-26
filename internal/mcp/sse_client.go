@@ -52,6 +52,7 @@ type sseClient struct {
 	nextID       int64
 	sName        string
 	sVer         string
+	epoch        atomic.Uint64
 	fallback     *httpClient // 上游其实是 streamable HTTP 时的委托对象
 }
 
@@ -79,6 +80,16 @@ func (c *sseClient) serverInfo() (string, string) {
 		return c.fallback.serverInfo()
 	}
 	return c.sName, c.sVer
+}
+
+func (c *sseClient) toolsEpoch() uint64 {
+	c.mu.Lock()
+	fb := c.fallback
+	c.mu.Unlock()
+	if fb != nil {
+		return c.epoch.Load() + fb.toolsEpoch()
+	}
+	return c.epoch.Load()
 }
 
 func (c *sseClient) initialize(ctx context.Context) error {
@@ -182,6 +193,7 @@ func (c *sseClient) connect(ctx context.Context) (string, error) {
 	c.initDone = false
 	c.mu.Unlock()
 	if old != nil {
+		c.epoch.Add(1)
 		_ = old.Close()
 	}
 
@@ -227,6 +239,7 @@ func (c *sseClient) useFallback(ctx context.Context) error {
 		oldCancel()
 	}
 	if old != nil {
+		c.epoch.Add(1)
 		_ = old.Close()
 	}
 	return fb.ensureInitialized(ctx)
@@ -283,6 +296,7 @@ func (c *sseClient) readStream(ctx context.Context, cancel context.CancelFunc, b
 		c.initDone = false
 		pending = c.pendings
 		c.pendings = make(map[int64]chan rpcResponseMsg)
+		c.epoch.Add(1)
 	}
 	c.mu.Unlock()
 
@@ -380,6 +394,9 @@ func (c *sseClient) deliver(payload string) {
 	}
 	// 带 method 的是上游主动发来的请求/通知，不能当作响应。
 	if raw.Method != "" {
+		if raw.Method == "notifications/tools/list_changed" {
+			c.epoch.Add(1)
+		}
 		return
 	}
 	id, ok := parseRPCID(raw.ID)
@@ -491,9 +508,21 @@ func (c *sseClient) post(ctx context.Context, target string, body []byte) error 
 	return nil
 }
 
+func (c *sseClient) notifyCancelled(target string, requestID int64) {
+	params := cancelledNotificationParams(requestID)
+	go func() {
+		notifyCtx, notifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer notifyCancel()
+		_ = c.sendNotification(notifyCtx, target, "notifications/cancelled", params)
+	}()
+}
+
 func (c *sseClient) sendRPC(ctx context.Context, target, method string, params json.RawMessage) (json.RawMessage, *jsonRPCError, error) {
 	if atomic.LoadInt32(&c.closed) != 0 {
 		return nil, nil, errors.New("client closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
 	}
 
 	id := atomic.AddInt64(&c.nextID, 1)
@@ -518,6 +547,9 @@ func (c *sseClient) sendRPC(ctx context.Context, target, method string, params j
 	}
 	if err := c.post(ctx, target, data); err != nil {
 		c.dropPending(id)
+		if ctx.Err() != nil && method != "initialize" {
+			c.notifyCancelled(target, id)
+		}
 		return nil, nil, err
 	}
 
@@ -527,6 +559,9 @@ func (c *sseClient) sendRPC(ctx context.Context, target, method string, params j
 	select {
 	case <-reqCtx.Done():
 		c.dropPending(id)
+		if method != "initialize" {
+			c.notifyCancelled(target, id)
+		}
 		return nil, nil, reqCtx.Err()
 	case resp := <-ch:
 		if resp.err != nil {

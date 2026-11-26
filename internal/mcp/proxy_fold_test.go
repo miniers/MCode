@@ -831,3 +831,35 @@ func TestFoldErrorSchema(t *testing.T) {
 		}
 	})
 }
+
+// TestProxyFoldStateStale 验证缓存失效（如 SetUpstreams 变更配置）后，foldStateOf 返回 known=false。
+func TestProxyFoldStateStale(t *testing.T) {
+	upstream := newFoldFakeUpstream(t, 45, nil, nil)
+	proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+
+	code, resp := postProxy(t, proxy.Handler(), "/mcp/demo", proxy.Token(), map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	})
+	if code != http.StatusOK || resp["error"] != nil {
+		t.Fatalf("tools/list 失败: code=%d resp=%v", code, resp)
+	}
+
+	state, known := proxy.foldStateOf("demo")
+	if !known || !state.folded || state.version == 0 {
+		t.Fatalf("tools/list 后应记录有效折叠状态, known=%v folded=%v version=%d", known, state.folded, state.version)
+	}
+
+	proxy.hub.SetUpstreams([]UpstreamSpec{{
+		ID:        "demo",
+		Name:      "demo-srv",
+		Transport: "http",
+		URL:       upstream.URL,
+		Headers:   map[string]string{"X-Spec-Version": "2"},
+	}})
+
+	if _, known := proxy.foldStateOf("demo"); known {
+		t.Fatal("SetUpstreams 变更上游配置后，foldStateOf 应返回 known=false")
+	}
+}

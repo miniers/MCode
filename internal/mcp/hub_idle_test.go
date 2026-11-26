@@ -29,6 +29,8 @@ func (f *fakeUpstreamClient) forward(ctx context.Context, method string, params 
 	return nil, nil, nil
 }
 
+func (f *fakeUpstreamClient) toolsEpoch() uint64 { return 0 }
+
 func (f *fakeUpstreamClient) close() error {
 	f.closed++
 	return nil

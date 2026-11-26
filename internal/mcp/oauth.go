@@ -141,11 +141,17 @@ func (g *singleflightGroup) Do(key string, fn func() (string, error)) (string, e
 type OAuthManager struct {
 	opts         OAuthOptions
 	refreshGroup singleflightGroup
+	authGen      atomic.Uint64
 
 	// signInMu 保护 signIns：登录会话表，键为 serverID。
 	// 浏览器没有自动打开时界面要靠它拿出授权链接给用户手动打开，也能取消进行中的登录。
 	signInMu sync.Mutex
 	signIns  map[string]*signInSession
+}
+
+// AuthGeneration 返回 OAuth 登录身份变更世代号，用于上层缓存失效判定。
+func (m *OAuthManager) AuthGeneration() uint64 {
+	return m.authGen.Load()
 }
 
 // signInSession 记录一次进行中的登录会话。
@@ -416,6 +422,7 @@ func (m *OAuthManager) SignOut(serverID string) error {
 	}
 	errToken := m.opts.Secrets.Delete(tokenAccount(serverID))
 	errClient := m.opts.Secrets.Delete(clientAccount(serverID))
+	m.authGen.Add(1)
 	if errToken != nil {
 		return errToken
 	}
@@ -666,6 +673,7 @@ func (m *OAuthManager) refreshToken(ctx context.Context, serverID string, tok st
 			if delErr := m.opts.Secrets.Delete(clientAccount(serverID)); delErr != nil {
 				log.Printf("%s删除客户端记录失败: %v", signInLogPrefix(serverID), delErr)
 			}
+			m.authGen.Add(1)
 			return "", fmt.Errorf("%w: %w: %w", ErrOAuthReauthRequired, ErrOAuthTokenFailed, &oauthClientRejectedError{
 				Stage: "refresh",
 				Code:  errResp.Error,
@@ -1405,6 +1413,7 @@ func (m *OAuthManager) storeTokenResponse(serverID string, meta *authServerMetad
 	if err := m.opts.Secrets.Set(tokenAccount(serverID), string(raw)); err != nil {
 		return fmt.Errorf("save token: %w", err)
 	}
+	m.authGen.Add(1)
 
 	return nil
 }
