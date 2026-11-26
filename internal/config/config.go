@@ -562,6 +562,12 @@ type Config struct {
 	Archive         ArchiveConfig       `json:"archive"`
 	Retention       RetentionConfig     `json:"retention,omitempty"` // 数据保留任务开关，默认全开
 	Automation      AutomationConfig    `json:"automation,omitempty"`
+	OpenArtifact    OpenArtifactConfig  `json:"open_artifact"`
+}
+
+// OpenArtifactConfig 控制 open-artifact 桥接集成设置。
+type OpenArtifactConfig struct {
+	Enabled bool `json:"enabled"` // 是否启用 open-artifact 桥接，默认关闭
 }
 
 // AutoCheckUpdateEnabled 返回是否自动检查应用更新，nil 视为开启。
@@ -2430,6 +2436,9 @@ func Defaults() Config {
 			InjectMemoryToolsNote:      boolPtr(true),
 			WorkingMemoryMaxCharacters: DefaultWorkingMemoryMaxCharacters,
 			SyncThreads:                boolPtr(true),
+		},
+		OpenArtifact: OpenArtifactConfig{
+			Enabled: false,
 		},
 	}
 }

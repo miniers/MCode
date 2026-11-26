@@ -131,6 +131,11 @@ type App struct {
 	retention *messageRetentionScheduler
 	// automationSleep 是自动化防休眠守卫：有自动化运行中或即将到期时阻止电脑休眠。
 	automationSleep *remote.SleepGuard
+	// OpenPreviewNewTab 在指定会话所在桌面窗口的右侧浏览器新标签页打开 URL；由装配层接入。
+	OpenPreviewNewTab func(threadID, url string) error
+	// openArtifactDeliverWake 供测试替身拦截 wake.deliver 到 SendHostEvent 的调用。
+	openArtifactDeliverWake func(ctx context.Context, threadID, text string) error
+	oa                      openArtifactState
 }
 
 // Client 获取界面层 Client 适配器实例。
@@ -157,7 +162,7 @@ func (a *App) RecoveredStoreBackupPath() string {
 	return a.store.RecoveredBackupPath()
 }
 
-// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> kanbanLeader.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close -> 日志文件关闭。
+// Close 关闭应用资源，关闭顺序为 bee 消息保留 -> 旧收件箱迁移 -> 待处理事件接线 -> mcpProxy.Close -> mcpHub.Close -> openArtifact 关闭 -> mcp.Close -> automationSleep.Stop -> automation.Stop -> scheduler.Stop -> kanban.Close -> kanbanLeader.Close -> swarmPipeline.Stop -> swarm.Stop -> remote.Stop -> hub.Close -> backend.Close -> store.Close -> 日志文件关闭。
 func (a *App) Close() error {
 	if a.quotaCancel != nil {
 		a.quotaCancel()
@@ -193,6 +198,7 @@ func (a *App) Close() error {
 	if a.mcpHub != nil {
 		_ = a.mcpHub.Close()
 	}
+	a.closeOpenArtifact()
 	if a.mcp != nil {
 		_ = a.mcp.Close()
 	}
@@ -1565,11 +1571,20 @@ func Open(opts Options) (*App, error) {
 		inboxMigrateCancel: migrateCancel,
 		inboxMigrateDone:   migrateDone,
 		// automationSleep 与 autoSvc 同时创建，这里只做保存，清理时统一 Stop。
-		automationSleep: autoSleep,
+		automationSleep:   autoSleep,
+		OpenPreviewNewTab: mcodeui.OpenPreviewURLInNewTabForThread,
 	}
 	appInstanceMu.Unlock()
 	migrateOwned = false
 	modelsOwned = false
+	backend.SetExtraGuidance(appInstance.OpenArtifactSkill)
+	appInstance.oa.mu.Lock()
+	appInstance.oa.removeListener = backend.AddThreadsChangedListener(appInstance.handleOpenArtifactThreadsChanged)
+	appInstance.oa.mu.Unlock()
+	client.SetOpenArtifact(appInstance)
+	if cfg.OpenArtifact.Enabled {
+		appInstance.startOpenArtifact()
+	}
 	if agyAccountsMgr != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		appInstance.quotaCancel = cancel

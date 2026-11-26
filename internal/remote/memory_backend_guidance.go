@@ -104,6 +104,22 @@ func (b *MemoryBackend) SetFirstTurnExtra(fn func(threadID string) string) {
 	b.firstTurnExtra = fn
 }
 
+// SetExtraGuidance 设置追加到技能目录之后的额外指引获取函数。
+func (b *MemoryBackend) SetExtraGuidance(fn func() string) {
+	if fn == nil {
+		b.extraGuidanceFunc.Store(nil)
+		return
+	}
+	b.extraGuidanceFunc.Store(&fn)
+}
+
+func (b *MemoryBackend) extraGuidance() string {
+	if p := b.extraGuidanceFunc.Load(); p != nil && *p != nil {
+		return (*p)()
+	}
+	return ""
+}
+
 // defaultGuidanceBuilder 组装首轮注入的内容：项目 Context 指导词加技能精简目录（描述放宽到
 // projctx.LeadSkillIndexDescriptionMaxRunes 个字符），空的部分省略。
 func (b *MemoryBackend) defaultGuidanceBuilder(workDir string) string {
@@ -154,6 +170,9 @@ func (b *MemoryBackend) buildGuidance(workDir string, maxSkillRunes int, forBee 
 				parts = append(parts, skills)
 			}
 		}
+	}
+	if extra := strings.TrimSpace(b.extraGuidance()); extra != "" {
+		parts = append(parts, extra)
 	}
 	// Nowledge 已接入且非 bee 会话时，若配置开启则说明记忆工具的用法：用户要求记住的内容走 memory_propose，不写 agent 自己的记忆文件。
 	if b.nowledgeClient() != nil && !forBee && b.nowledgeSettings().MemoryToolsNoteEnabled() {

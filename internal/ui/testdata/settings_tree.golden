@@ -220,6 +220,10 @@ row row-terminal-shell 默认终端
 row row-command-shell 命令 shell
 row row-browser-console-capture 捕获控制台输出
 row row-workbench-open-in 打开方式
+section workbench.artifact Artifact
+row row-artifact-enabled 启用
+row row-artifact-node Node
+row row-artifact-home 主页
 section advanced.workbench 高级
 row row-context-inject-budget 注入字符上限
 row row-terminal-scrollback-lines 回滚行数

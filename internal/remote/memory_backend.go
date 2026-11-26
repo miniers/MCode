@@ -344,7 +344,9 @@ type MemoryBackend struct {
 	draftDefaultsFunc atomic.Pointer[func() wire.ComposerDraftDefaults]
 	// rememberSelectionFunc 把用户主动确认的模型与编排选择写回宿主记忆（providers.rememberSelection）。
 	rememberSelectionFunc atomic.Pointer[func(params wire.ProvidersRememberSelectionParams)]
-	autoContinueWaits     map[string]*autoContinueWait
+	// extraGuidanceFunc 返回追加到技能目录之后的额外指引文本（如 open-artifact skill）。
+	extraGuidanceFunc atomic.Pointer[func() string]
+	autoContinueWaits map[string]*autoContinueWait
 
 	interruptWatchdogTimeout time.Duration
 	approvalDeliveryTimeout  time.Duration

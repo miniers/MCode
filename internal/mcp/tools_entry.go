@@ -89,13 +89,14 @@ func entryFamilyByTool(toolName string) *toolFamily {
 // entryActions 按注册顺序返回本族的操作名；allowed 非 nil 时再过滤一次。
 // 只有已注册的工具才算操作，exclude 与未注册的总管专属工具都不会出现在 enum 里。
 func (r *Registry) entryActions(f *toolFamily, allowed func(toolName string) bool) []string {
-	names := make([]string, 0, len(r.order))
-	for _, name := range r.order {
-		action, ok := f.actionOf(name)
+	tools := r.ListTools()
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		action, ok := f.actionOf(tool.Name)
 		if !ok {
 			continue
 		}
-		if allowed != nil && !allowed(name) {
+		if allowed != nil && !allowed(tool.Name) {
 			continue
 		}
 		names = append(names, action)
@@ -217,16 +218,13 @@ func (f *toolFamily) handleHelp(tc ToolContext, args map[string]any) ToolResult 
 
 // overviewText 返回每个操作一行“操作名：description 第一句”的清单。
 func (f *toolFamily) overviewText(r *Registry) string {
+	tools := r.ListTools()
 	var b strings.Builder
 	b.WriteString(f.overview)
 	b.WriteString("\n\n")
-	for _, name := range r.order {
-		action, isAction := f.actionOf(name)
+	for _, tool := range tools {
+		action, isAction := f.actionOf(tool.Name)
 		if !isAction {
-			continue
-		}
-		tool, ok := r.Get(name)
-		if !ok {
 			continue
 		}
 		fmt.Fprintf(&b, "%s：%s\n", action, firstSentence(tool.Description))
@@ -286,8 +284,8 @@ func (f *toolFamily) detail(tool ToolDefinition) string {
 
 // firstActionOf 返回族内第一个操作名，供 help 示例使用；族为空时返回 help 本身。
 func firstActionOf(f *toolFamily, r *Registry) string {
-	for _, name := range r.order {
-		if action, ok := f.actionOf(name); ok {
+	for _, tool := range r.ListTools() {
+		if action, ok := f.actionOf(tool.Name); ok {
 			return action
 		}
 	}

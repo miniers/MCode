@@ -48,7 +48,7 @@ var pageWorkbench = settingsPage{
 		"font", "size", "工作台", "看板", "任务",
 		"open in", "editors", "apps", "applications", "finder", "vscode",
 		"cursor", "zed", "xcode", "iterm", "terminal", "shell", "qspace", "打开方式", "编辑器", "应用",
-		"文件树",
+		"文件树", "artifact", "open-artifact", "白板", "幻灯片", "交付物",
 	},
 	Sections: []settingsSection{
 		{
@@ -187,6 +187,34 @@ var pageWorkbench = settingsPage{
 					Control: link(func(st *SettingsState) string {
 						return fmt.Sprintf("%d 个应用", len(st.openInAppsDraft()))
 					}, "open-in"),
+				},
+			},
+		},
+		{
+			ID:    "workbench.artifact",
+			Title: "Artifact",
+			Visible: func(st *SettingsState) bool {
+				_, ok := openArtifactClient(st)
+				return ok
+			},
+			Rows: []setting{
+				{
+					ID:      "row-artifact-enabled",
+					Title:   "启用",
+					Aliases: []string{"artifact", "open-artifact", "白板", "幻灯片", "交付物"},
+					Control: openArtifactEnabledControl{},
+				},
+				{
+					ID:      "row-artifact-node",
+					Title:   "Node",
+					Aliases: []string{"artifact", "open-artifact", "node", "白板", "幻灯片", "交付物"},
+					Control: openArtifactNodeControl{},
+				},
+				{
+					ID:      "row-artifact-home",
+					Title:   "主页",
+					Aliases: []string{"artifact", "open-artifact", "打开主页", "白板", "幻灯片", "交付物"},
+					Control: openArtifactHomeControl{},
 				},
 			},
 		},

@@ -2,12 +2,70 @@ package mcodeui
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo"
 )
+
+// OpenPreviewURLInNewTabForThread 在当前正在显示指定会话的桌面窗口右侧浏览器新标签页打开本机回环 URL。
+// 会话未在任何桌面窗口显示时直接返回错误，不暂存。
+func OpenPreviewURLInNewTabForThread(threadID, rawURL string) error {
+	threadID = strings.TrimSpace(threadID)
+	rawURL = strings.TrimSpace(rawURL)
+	if threadID == "" || rawURL == "" {
+		return errors.New("会话或预览 URL 不能为空")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User != nil || u.Host == "" {
+		return errors.New("无效的预览 URL")
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return errors.New("仅支持 http 或 https 本机回环地址")
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+	default:
+		return errors.New("仅允许打开本机回环地址（localhost、127.0.0.1、::1）")
+	}
+	if !HasChatWindow() {
+		return errors.New("桌面窗口未打开")
+	}
+
+	chatWindowsMu.RLock()
+	entries := make([]previewWindowEntry, 0, len(chatWindows))
+	for win, state := range chatWindows {
+		if state != nil {
+			entries = append(entries, previewWindowEntry{win: win, state: state})
+		}
+	}
+	chatWindowsMu.RUnlock()
+
+	var focused *mygo.Window
+	if len(entries) > 1 {
+		focused = mygo.FocusedWindow()
+	}
+	s := previewWindowViewing(entries, focused, threadID)
+	if s == nil {
+		if leadID, _ := swarmLeadForPreviewBee(entries, focused, threadID); leadID != "" {
+			s = previewWindowViewing(entries, focused, leadID)
+		}
+	}
+	if s == nil || s.isClosed() || s.window == nil {
+		return errors.New("会话当前未在桌面窗口显示")
+	}
+	targetURL := u.String()
+	mygo.RunOnMain(func() {
+		if s.isClosed() {
+			return
+		}
+		openPreviewURLInNewTab(s, targetURL)
+	})
+	return nil
+}
 
 // OpenPreviewForThread 在拥有指定会话的桌面窗口中打开右侧浏览器预览。
 // 目标会话正在显示时立即在主线程消费，否则暂存到会话槽中，切回该会话时再打开。

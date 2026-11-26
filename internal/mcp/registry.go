@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"sync"
 
 	"mcode/internal/store"
 )
@@ -47,6 +48,7 @@ type ToolDefinition struct {
 
 // Registry 管理所有已注册的 MCP 工具。
 type Registry struct {
+	mu    sync.RWMutex
 	tools map[string]ToolDefinition
 	order []string
 }
@@ -72,14 +74,34 @@ func newRegistry(s *Server) *Registry {
 
 // Register 注册一个工具。
 func (r *Registry) Register(tool ToolDefinition) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, exists := r.tools[tool.Name]; !exists {
 		r.order = append(r.order, tool.Name)
 	}
 	r.tools[tool.Name] = tool
 }
 
+// Unregister 注销指定名称的工具。
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.tools[name]; !exists {
+		return
+	}
+	delete(r.tools, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // Get 查询工具定义。
 func (r *Registry) Get(name string) (ToolDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
 	return t, ok
 }
@@ -91,14 +113,24 @@ func (r *Registry) ListTools() []ToolDefinition {
 
 // ListToolsFor 按调用方能力过滤工具；allowed 为 nil 或工具 Capability 为空时一律放行。
 func (r *Registry) ListToolsFor(allowed func(capability string) bool) []ToolDefinition {
-	list := make([]ToolDefinition, 0, len(r.order))
+	r.mu.RLock()
+	snapshot := make([]ToolDefinition, 0, len(r.order))
 	for _, name := range r.order {
 		if t, ok := r.tools[name]; ok {
-			if allowed != nil && t.Capability != "" && !allowed(t.Capability) {
-				continue
-			}
-			list = append(list, t)
+			snapshot = append(snapshot, t)
 		}
+	}
+	r.mu.RUnlock()
+
+	if allowed == nil {
+		return snapshot
+	}
+	list := make([]ToolDefinition, 0, len(snapshot))
+	for _, t := range snapshot {
+		if t.Capability != "" && !allowed(t.Capability) {
+			continue
+		}
+		list = append(list, t)
 	}
 	return list
 }
