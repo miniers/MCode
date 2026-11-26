@@ -843,16 +843,19 @@ func TestRenderSwarmReportRow_SplitsPerBee(t *testing.T) {
 	}
 }
 
-// TestSwarmReportPillText 验证汇报胶囊文案：已完成带 "工作" 后缀，失败/已停止直出状态。
+// TestSwarmReportPillText 验证汇报胶囊文案：已完成且有结论时取结论首行，无结论带 "工作" 后缀，失败/已停止直出状态。
 func TestSwarmReportPillText(t *testing.T) {
+	structured := "## 结论\n第一行总结\n\n## 详情\n详细说明"
 	cases := []struct {
 		name string
 		in   swarmReportEntry
 		want string
 	}{
 		{name: "completed", in: swarmReportEntry{Name: "Cove", Status: "已完成"}, want: "Cove 已完成工作"},
+		{name: "completed with conclusion", in: swarmReportEntry{Name: "Cove", Status: "已完成", Summary: structured}, want: "第一行总结"},
 		{name: "empty status", in: swarmReportEntry{Name: "Cove", Status: ""}, want: "Cove 已完成工作"},
 		{name: "failed", in: swarmReportEntry{Name: "Larch", Status: "失败"}, want: "Larch 失败"},
+		{name: "failed with conclusion", in: swarmReportEntry{Name: "Larch", Status: "失败", Summary: structured}, want: "Larch 失败"},
 		{name: "stopped", in: swarmReportEntry{Name: "Moss", Status: "已停止"}, want: "Moss 已停止"},
 		{name: "empty name", in: swarmReportEntry{Name: "", Status: "失败"}, want: "子代理 失败"},
 	}

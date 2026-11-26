@@ -3081,7 +3081,8 @@ func swarmReportStatusColor(c *ui.Context, status string) ui.Color {
 	}
 }
 
-// swarmReportPillText 生成汇报胶囊的文字：名字加结果后缀，名字为空时用“子代理”。
+// swarmReportPillText 生成汇报胶囊的文字：已完成且带「## 结论」时返回结论首行，
+// 其余情况显示名字加结果后缀，名字为空时用“子代理”。
 func swarmReportPillText(e swarmReportEntry) string {
 	name := strings.TrimSpace(e.Name)
 	if name == "" {
@@ -3093,6 +3094,9 @@ func swarmReportPillText(e swarmReportEntry) string {
 	case "已停止":
 		return name + " 已停止"
 	default:
+		if headline := swarmReportHeadline(e.Summary); headline != "" {
+			return headline
+		}
 		return name + " 已完成工作"
 	}
 }
@@ -3867,16 +3871,19 @@ func renderSwarmReportEntryCard(c *ui.Context, s *chatState, hp *swarmPanelState
 				if hasSummary {
 					ui.Column(c.Key(cardKey + "-summary")).
 						FillWidth().
+						Gap(Space2).
 						Selectable().
 						Children(func() {
-							if s != nil {
-								markdown.View(c, summary, &s.mdStaticOpts)
-							} else {
-								ui.Text(c, summary).
-									Selectable().
-									FontSize(uiFont(TypeFootnote)).
-									TextColor(ThemePrimaryText(c))
-							}
+							renderSwarmReportSplitMarkdown(c, cardKey, summary, func(text string) {
+								if s != nil {
+									markdown.View(c, text, &s.mdStaticOpts)
+								} else {
+									ui.Text(c, text).
+										Selectable().
+										FontSize(uiFont(TypeFootnote)).
+										TextColor(ThemePrimaryText(c))
+								}
+							})
 						})
 				} else {
 					ui.Text(c, "还没有汇报。").

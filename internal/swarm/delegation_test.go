@@ -480,11 +480,10 @@ func TestBeePrompt_RulesByTier(t *testing.T) {
 			t.Errorf("只读类不应包含 %q:\n%s", bad, readOnly)
 		}
 	}
-	if !strings.Contains(readOnly, "开头先用不超过 1000 字按任务说明的问题编号写出各条结论") {
-		t.Errorf("只读类汇报应先写结论:\n%s", readOnly)
-	}
-	if !strings.Contains(readOnly, "阻塞与环境差异") {
-		t.Errorf("只读类汇报应包含阻塞与环境差异:\n%s", readOnly)
+	for _, want := range []string{"## 结论", "## 详情", "不超过 1000 字", "按任务说明的问题编号写出结论展开", "阻塞与环境差异"} {
+		if !strings.Contains(readOnly, want) {
+			t.Errorf("只读类汇报应包含 %q:\n%s", want, readOnly)
+		}
 	}
 
 	for _, want := range []string{"docs/plans/**、notes/*.md", "不改代码", "先写根因"} {
@@ -510,6 +509,61 @@ func TestBeePrompt_RulesByTier(t *testing.T) {
 		if strings.Contains(got, "如果长时间在几种设计之间犹豫") || strings.Contains(got, "只读任务必须使用只读工具") {
 			t.Errorf("%s类不应保留已删除的旧规则:\n%s", name, got)
 		}
+	}
+}
+
+func TestBeeReportRulesConclusionFirst(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		cfg           BeeConfig
+		hasAcceptance bool
+		wants         []string
+	}{
+		{
+			name:  "只读档",
+			cfg:   BeeConfig{ReadOnly: true},
+			wants: []string{"不超过 5 行", "不超过 40 字", "结论展开", "阻塞与环境差异"},
+		},
+		{
+			name:  "方案档",
+			cfg:   BeeConfig{WritePaths: []string{"docs/plans/*.md"}},
+			wants: []string{"不超过 5 行", "不超过 40 字", "先写根因", "允许写入的路径"},
+		},
+		{
+			name:          "改代码档无验收",
+			cfg:           BeeConfig{},
+			hasAcceptance: false,
+			wants:         []string{"不超过 5 行", "不超过 40 字", "跑了哪些自测命令及结果", "未决事项"},
+		},
+		{
+			name:          "改代码档带验收",
+			cfg:           BeeConfig{},
+			hasAcceptance: true,
+			wants:         []string{"不超过 5 行", "不超过 40 字", "构建或 vet 命令及结果", "测试结果由 mcode 验收给出"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := beeReportRulesFor(tc.cfg, tc.hasAcceptance)
+			idxConclusion := strings.Index(got, "## 结论")
+			idxDetail := strings.Index(got, "## 详情")
+			if idxConclusion < 0 {
+				t.Fatalf("%s 缺少 `## 结论`:\n%s", tc.name, got)
+			}
+			if idxDetail < 0 {
+				t.Fatalf("%s 缺少 `## 详情`:\n%s", tc.name, got)
+			}
+			if idxConclusion >= idxDetail {
+				t.Fatalf("%s 中 `## 结论`(%d) 应出现在 `## 详情`(%d) 之前:\n%s", tc.name, idxConclusion, idxDetail, got)
+			}
+			for _, want := range tc.wants {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s 缺少 %q:\n%s", tc.name, want, got)
+				}
+			}
+		})
 	}
 }
 

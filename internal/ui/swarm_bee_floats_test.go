@@ -748,11 +748,19 @@ func TestTurnWorkHeaderAccessibleLabel(t *testing.T) {
 	}
 }
 
-// TestSwarmCapsuleText 验证胶囊文案：名字加状态标签，汇报正文按摘要、活动、任务的顺序退回。
+// TestSwarmCapsuleText 验证胶囊文案：名字加状态标签，已完成且带结论时返回结论首行，汇报正文按摘要、活动、任务的顺序退回。
 func TestSwarmCapsuleText(t *testing.T) {
 	h := SwarmBee{Name: "Aspen", Status: "completed", Task: "实现胶囊", Activity: "编写代码中", Summary: "胶囊已接好"}
 	if got := swarmCapsuleTitle(h); got != "Aspen 已完成" {
 		t.Fatalf("swarmCapsuleTitle() = %q, want %q", got, "Aspen 已完成")
+	}
+	structured := SwarmBee{Name: "Aspen", Status: "completed", Summary: "## 结论\n第一行总结\n\n## 详情\n详细说明"}
+	if got := swarmCapsuleTitle(structured); got != "第一行总结" {
+		t.Fatalf("已完成且有结论时应返回结论首行：%q", got)
+	}
+	failedStructured := SwarmBee{Name: "Aspen", Status: "failed", Summary: structured.Summary}
+	if got := swarmCapsuleTitle(failedStructured); got != "Aspen 失败" {
+		t.Fatalf("失败状态有结论时仍应返回名字加失败：%q", got)
 	}
 	if got := swarmCapsuleTitle(SwarmBee{Status: "running"}); got != "子线程 运行中" {
 		t.Fatalf("缺少名字时应用「子线程」：%q", got)

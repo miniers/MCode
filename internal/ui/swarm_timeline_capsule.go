@@ -374,9 +374,16 @@ func swarmCapsuleName(h SwarmBee) string {
 	return "子线程"
 }
 
-// swarmCapsuleTitle 返回胶囊的主文案，如「Aspen 已完成」；名字缺失时用「子线程」。
+// swarmCapsuleTitle 返回胶囊的主文案：已完成且带「## 结论」时返回结论首行，
+// 其余状态或无结论时返回「名字 状态」；名字缺失时用「子线程」。
 func swarmCapsuleTitle(h SwarmBee) string {
-	return swarmCapsuleName(h) + " " + swarmStatusLabel(MapSwarmBeeStatus(h))
+	status := MapSwarmBeeStatus(h)
+	if status == swarmStatusCompleted {
+		if headline := swarmReportHeadline(h.Summary); headline != "" {
+			return headline
+		}
+	}
+	return swarmCapsuleName(h) + " " + swarmStatusLabel(status)
 }
 
 // swarmCapsuleElapsed 返回胶囊上的耗时文案：终态子线程取开始到结束，
@@ -478,30 +485,41 @@ func renderSwarmCapsuleButton(c *ui.Context, key string, view swarmCapsuleView, 
 
 	btn.Children(func() {
 		ui.Row(c.Key("swarm-capsule-content-" + key)).
+			MaxWidthPercent(100).
+			MinWidth(0).
 			AlignItems(ui.Center).
 			Gap(Space2).
 			Children(func() {
-				renderSwarmPersonaIcon(c, "swarm-capsule-avatar-"+key, view.Name, swarmMentionIconSize())
+				ui.Box(c.Key("swarm-capsule-avatar-wrap-" + key)).Shrink(0).Children(func() {
+					renderSwarmPersonaIcon(c, "swarm-capsule-avatar-"+key, view.Name, swarmMentionIconSize())
+				})
 				ui.Box(c.Key("swarm-capsule-dot-"+key)).
 					Size(Space2, Space2).
 					Radius(RadiusPill).
-					Background(view.StatusColor)
+					Background(view.StatusColor).
+					Shrink(0)
 				ui.Text(c, view.Text).
 					FontSize(scaledFont(TypeFootnote)).
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c)).
-					SingleLine()
+					SingleLine().
+					Ellipsis("…").
+					Shrink(1).
+					MinWidth(0)
 				// 档位徽章紧跟主文案，和 web 端子代理胶囊的信息顺序一致。
 				if view.TierName != "" {
-					renderSwarmTierChipColored(c, "swarm-capsule-tier-"+key, view.TierName, view.TierColor, view.TierReadOnly)
+					ui.Box(c.Key("swarm-capsule-tier-wrap-" + key)).Shrink(0).Children(func() {
+						renderSwarmTierChipColored(c, "swarm-capsule-tier-"+key, view.TierName, view.TierColor, view.TierReadOnly)
+					})
 				}
 				if view.Elapsed != "" {
 					ui.Text(c, view.Elapsed).
 						FontSize(scaledFont(TypeCaption)).
 						TextColor(ThemeSecondaryText(c)).
-						SingleLine()
+						SingleLine().
+						Shrink(0)
 				}
-				ui.Icon(c, IconChevronRight()).Size(9, 9).TextColor(ThemeSecondaryText(c))
+				ui.Icon(c, IconChevronRight()).Size(9, 9).TextColor(ThemeSecondaryText(c)).Shrink(0)
 			})
 	})
 
@@ -594,10 +612,13 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 					} else {
 						ui.Column(fc.Key("swarm-capsule-report-" + key)).
 							FillWidth().
+							Gap(Space2).
 							Children(func() {
 								// 汇报正文按 Markdown 渲染（粗体、列表、表格、行内代码都还原）：
 								// 静态整段呈现，字号与原来的正文一致，Markdown 视图自带选区复制。
-								markdown.View(fc, report, swarmReportMarkdownOptions(fc, s, TypeFootnote))
+								renderSwarmReportSplitMarkdown(fc, "capsule|"+key, report, func(text string) {
+									markdown.View(fc, text, swarmReportMarkdownOptions(fc, s, TypeFootnote))
+								})
 							})
 					}
 					if strings.TrimSpace(h.MergeError) != "" {

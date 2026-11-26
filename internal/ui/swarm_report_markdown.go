@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -149,4 +150,137 @@ func markdownDocOptions(c *ui.Context, s *chatState, baseSize float32, baseDir s
 		installMarkdownHooksWithBaseDir(opts, s, baseDir)
 	}
 	return opts
+}
+
+// swarmReportDetailOpen 记录胶囊浮窗与汇报卡片内「详情」折叠块的展开状态，由 swarmFloatMu 保护。
+var swarmReportDetailOpen = make(map[string]bool)
+
+// splitSwarmReport 把子代理汇报按独占一行的「## 结论」和「## 详情」拆成两段；
+// 找不到「## 结论」时 conclusion 返回空串，detail 返回原文 TrimSpace。
+func splitSwarmReport(summary string) (conclusion, detail string) {
+	normalized := strings.ReplaceAll(summary, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	conclusionIdx := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "## 结论" {
+			conclusionIdx = i
+			break
+		}
+	}
+	if conclusionIdx < 0 {
+		return "", strings.TrimSpace(summary)
+	}
+	detailIdx := -1
+	for i := conclusionIdx + 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "## 详情" {
+			detailIdx = i
+			break
+		}
+	}
+	if detailIdx < 0 {
+		return strings.TrimSpace(strings.Join(lines[conclusionIdx+1:], "\n")), ""
+	}
+	conclusion = strings.TrimSpace(strings.Join(lines[conclusionIdx+1:detailIdx], "\n"))
+	detail = strings.TrimSpace(strings.Join(lines[detailIdx+1:], "\n"))
+	return conclusion, detail
+}
+
+// trimOrderedListPrefix 去掉行首的数字序号前缀（如 "1. "、"12. "）。
+func trimOrderedListPrefix(s string) (string, bool) {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i+1 >= len(s) || s[i] != '.' || s[i+1] != ' ' {
+		return "", false
+	}
+	return s[i+2:], true
+}
+
+// swarmReportHeadline 提取汇报结论的第一个非空行，去掉常见 Markdown 标记后返回纯文本；
+// 没有「## 结论」或结论为空时返回空串。
+func swarmReportHeadline(summary string) string {
+	conclusion, _ := splitSwarmReport(summary)
+	if conclusion == "" {
+		return ""
+	}
+	for _, raw := range strings.Split(conclusion, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		for {
+			prev := line
+			if strings.HasPrefix(line, "#") {
+				line = strings.TrimSpace(strings.TrimLeft(line, "#"))
+			}
+			if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+				line = strings.TrimSpace(line[2:])
+			} else if rest, ok := trimOrderedListPrefix(line); ok {
+				line = strings.TrimSpace(rest)
+			}
+			if line == prev {
+				break
+			}
+		}
+		line = strings.ReplaceAll(line, "**", "")
+		line = strings.ReplaceAll(line, "`", "")
+		return strings.TrimSpace(line)
+	}
+	return ""
+}
+
+// renderSwarmReportSplitMarkdown 渲染拆分后的汇报正文：有结论时先渲染结论，
+// 有详情时在下方渲染默认收起的「详情」开关与 motionUnfoldBody 折叠区；
+// 没有「## 结论」时保持整段原样渲染。
+func renderSwarmReportSplitMarkdown(c *ui.Context, detailKey, text string, renderMD func(string)) {
+	conclusion, detail := splitSwarmReport(text)
+	if conclusion == "" {
+		renderMD(text)
+		return
+	}
+	renderMD(conclusion)
+	if detail == "" {
+		return
+	}
+
+	swarmFloatMu.Lock()
+	detailOpen := swarmReportDetailOpen[detailKey]
+	swarmFloatMu.Unlock()
+
+	ui.Row(c.Key(detailKey + "-detail-toggle-row")).
+		Children(func() {
+			btn := ui.ButtonBase(c.Key(detailKey+"-detail-toggle")).
+				Label("详情").
+				Padding(Space0, Space3, Space0, Space3).
+				Radius(RadiusLG).
+				Border(Hairline, ThemeBorder(c)).
+				AlignItems(ui.Center).
+				Gap(Space1).
+				Cursor(ui.CursorPointer)
+			focusRing(c, btn)
+			if btn.Hovered() {
+				btn.Background(ThemeHover(c))
+			}
+			if btn.Clicked() {
+				detailOpen = !detailOpen
+				swarmFloatMu.Lock()
+				swarmReportDetailOpen[detailKey] = detailOpen
+				swarmFloatMu.Unlock()
+			}
+			btn.Children(func() {
+				chevron := IconChevronRight()
+				if detailOpen {
+					chevron = IconChevronDown()
+				}
+				ui.Icon(c, chevron).Size(10, 10).TextColor(ThemeSecondaryText(c))
+				ui.Text(c, "详情").
+					FontSize(scaledFont(TypeCaption)).
+					TextColor(ThemeSecondaryText(c))
+			})
+		})
+
+	motionUnfoldBody(c, detailKey+"-detail-unfold", detailOpen, func() {
+		renderMD(detail)
+	})
 }
