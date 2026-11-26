@@ -299,7 +299,7 @@ func setupPendingQuestion(t *testing.T) (*MemoryBackend, *pendingQuestionHarness
 		}
 		return nil
 	}
-	if _, err := b.Subscribe(context.Background(), conn, id); err != nil {
+	if _, err := b.Subscribe(context.Background(), conn, wire.SubscribeParams{ThreadID: id}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.SendMessage(context.Background(), wire.SendMessageParams{ThreadID: id, Text: "开始"}); err != nil {

@@ -458,31 +458,39 @@ func (b *MemoryBackend) threadHistoryLocked(params wire.HistoryParams) (wire.His
 	}, nil
 }
 
-// Subscribe 登记会话订阅并返回包含当前水位的快照。
-func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error) {
-	runID, seq := b.hub.Subscribe(c, threadID)
+// Subscribe 登记会话订阅；满足条件时按序号补发事件，否则返回包含当前水位的快照。
+func (b *MemoryBackend) Subscribe(ctx context.Context, c Conn, p wire.SubscribeParams) (wire.SubscribeResult, error) {
+	runID, seq, replay, replayOK := b.hub.SubscribeFrom(c, p.ThreadID, p.RunID, p.AfterSequence)
 	b.mu.Lock()
-	td, ok := b.threads[threadID]
+	td, ok := b.threads[p.ThreadID]
 	if !ok {
 		b.mu.Unlock()
-		b.hub.Unsubscribe(c, threadID)
+		b.hub.Unsubscribe(c, p.ThreadID)
 		return wire.SubscribeResult{}, &wire.RPCError{
 			Code:    wire.ErrCodeResourceNotFound,
-			Message: fmt.Sprintf("thread %s not found", threadID),
+			Message: fmt.Sprintf("thread %s not found", p.ThreadID),
 		}
 	}
+	if replayOK {
+		b.mu.Unlock()
+		return wire.SubscribeResult{
+			ThreadID:   p.ThreadID,
+			Subscribed: true,
+			Replay:     replay,
+		}, nil
+	}
 	summary := b.summaryForPublishLocked(td)
-	history, _ := b.threadHistoryLocked(wire.HistoryParams{ThreadID: threadID})
+	history, _ := b.threadHistoryLocked(wire.HistoryParams{ThreadID: p.ThreadID})
 	b.mu.Unlock()
 	if runID == "" {
-		runID = b.hub.BeginRun(threadID)
+		runID = b.hub.BeginRun(p.ThreadID)
 	}
 
 	return wire.SubscribeResult{
-		ThreadID:   threadID,
+		ThreadID:   p.ThreadID,
 		Subscribed: true,
 		Snapshot: &wire.ThreadStreamSnapshot{
-			ThreadID: threadID,
+			ThreadID: p.ThreadID,
 			History:  history,
 			Thread:   summary,
 			RunID:    runID,

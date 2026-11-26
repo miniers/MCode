@@ -260,7 +260,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     setErrorMessage, historyInitialDone, setHistoryInitialDone, streamError,
     setStreamError, streamState, setStreamState, messagesRef, frameCoalescer,
     pendingHistoryScrollRef, lastFailedRequestRef, requestIdRef, streamStateRef,
-    streamRunIDRef, streamedMessageSequenceRef, removedStreamMessageIDsRef
+    streamThreadIDRef, streamRunIDRef, streamSequenceRef,
+    streamedMessageSequenceRef, removedStreamMessageIDsRef
   } = stream;
   const confirmForwardRef = useRef<(() => Promise<void>) | null>(null);
   const [latestSummary, setLatestSummary] = useState<RemoteThreadSummary>(thread);
@@ -1007,7 +1008,9 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     setStreamError(null);
     streamStateRef.current = 'disabled';
     setStreamState('disabled');
+    streamThreadIDRef.current = null;
     streamRunIDRef.current = null;
+    streamSequenceRef.current = -1;
     streamedMessageSequenceRef.current.clear();
     removedStreamMessageIDsRef.current.clear();
     frameCoalescer.cancel();

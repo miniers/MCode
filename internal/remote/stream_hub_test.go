@@ -2,6 +2,7 @@ package remote
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -378,5 +379,88 @@ func TestStreamHub_NotifyAndCurrentRunID(t *testing.T) {
 	hub.Notify(threadID, "test.after", nil)
 	if errConnReceived {
 		t.Errorf("expected failed connection to be removed from subscribers")
+	}
+}
+
+func TestStreamHubReplay(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+
+	threadID := "00000000-0000-0000-0000-000000000101"
+	summary := wire.ThreadSummary{ID: threadID, Title: "Replay"}
+	runID1 := hub.BeginRun(threadID)
+
+	for i := 1; i <= 3; i++ {
+		hub.Publish(threadID, []wire.ThreadMessage{{ID: fmt.Sprintf("m%d", i), Text: fmt.Sprintf("t%d", i)}}, nil, summary)
+		hub.Flush(threadID)
+	}
+
+	// 1. 同一 run 内补发 after 之后的事件，且不影响已有事件副本
+	conn1 := newMockStreamConn()
+	curRunID, seq, replay, ok := hub.SubscribeFrom(conn1, threadID, runID1, 1)
+	if !ok || curRunID != runID1 || seq != 3 {
+		t.Fatalf("expected ok=true runID=%s seq=3, got ok=%v runID=%s seq=%d", runID1, ok, curRunID, seq)
+	}
+	if len(replay) != 2 || replay[0].Sequence != 2 || replay[1].Sequence != 3 {
+		t.Fatalf("expected replay sequences [2, 3], got %+v", replay)
+	}
+	replay[0].Payload.Messages[0].Text = "mutated"
+
+	connCheck := newMockStreamConn()
+	_, _, replayCheck, ok := hub.SubscribeFrom(connCheck, threadID, runID1, 1)
+	if !ok || replayCheck[0].Payload.Messages[0].Text != "t2" {
+		t.Fatalf("expected journal not mutated by caller, got %+v", replayCheck)
+	}
+
+	// 2. after == 当前 sequence 时 ok=true 且 replay 为空
+	conn2 := newMockStreamConn()
+	curRunID, seq, replay, ok = hub.SubscribeFrom(conn2, threadID, runID1, 3)
+	if !ok || curRunID != runID1 || seq != 3 || len(replay) != 0 {
+		t.Fatalf("expected ok=true and empty replay at head, got ok=%v runID=%s seq=%d len=%d", ok, curRunID, seq, len(replay))
+	}
+
+	// 3. runID 不匹配、为空或 after 越界时 ok=false
+	for _, tc := range []struct {
+		name  string
+		runID string
+		after int
+	}{
+		{name: "empty runID", runID: "", after: 0},
+		{name: "different runID", runID: "other-run", after: 1},
+		{name: "negative after", runID: runID1, after: -1},
+		{name: "after ahead of sequence", runID: runID1, after: 4},
+	} {
+		_, _, gotReplay, gotOK := hub.SubscribeFrom(newMockStreamConn(), threadID, tc.runID, tc.after)
+		if gotOK || len(gotReplay) != 0 {
+			t.Fatalf("%s: expected ok=false, got ok=%v replay=%+v", tc.name, gotOK, gotReplay)
+		}
+	}
+
+	// 4. journal 超过 512 条时仅保留最近 512 条，出现缺口返回 ok=false，边界内返回 ok=true
+	for i := 4; i <= 513; i++ {
+		hub.Publish(threadID, []wire.ThreadMessage{{ID: fmt.Sprintf("m%d", i), Text: fmt.Sprintf("t%d", i)}}, nil, summary)
+		hub.Flush(threadID)
+	}
+	_, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID1, 0)
+	if ok || seq != 513 || len(replay) != 0 {
+		t.Fatalf("expected ok=false when seq 1 is evicted, got ok=%v seq=%d len=%d", ok, seq, len(replay))
+	}
+	_, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID1, 1)
+	if !ok || seq != 513 || len(replay) != 512 || replay[0].Sequence != 2 || replay[511].Sequence != 513 {
+		t.Fatalf("expected 512 events [2..513], got ok=%v seq=%d len=%d", ok, seq, len(replay))
+	}
+
+	// 5. run 重开后清空 journal，旧 runID 返回 ok=false；新 run 刚开时 after=0 返回 ok=true 且 replay 为空
+	runID2 := hub.BeginRun(threadID)
+	if runID2 == runID1 {
+		t.Fatalf("expected new runID")
+	}
+	_, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID1, 513)
+	if ok || seq != 0 || len(replay) != 0 {
+		t.Fatalf("expected ok=false for old run after BeginRun, got ok=%v seq=%d len=%d", ok, seq, len(replay))
+	}
+	curRunID, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID2, 0)
+	if !ok || curRunID != runID2 || seq != 0 || len(replay) != 0 {
+		t.Fatalf("expected ok=true at fresh run head, got ok=%v runID=%s seq=%d len=%d", ok, curRunID, seq, len(replay))
 	}
 }

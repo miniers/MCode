@@ -84,7 +84,7 @@ type fakeBackend struct {
 	listThreadsFunc         func(ctx context.Context, params wire.ThreadListParams) (wire.ThreadList, error)
 	getThreadFunc           func(ctx context.Context, threadID string) (wire.ThreadSummary, error)
 	threadHistoryFunc       func(ctx context.Context, params wire.HistoryParams) (wire.HistoryPage, error)
-	subscribeFunc           func(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error)
+	subscribeFunc           func(ctx context.Context, c Conn, p wire.SubscribeParams) (wire.SubscribeResult, error)
 	unsubscribeFunc         func(ctx context.Context, c Conn, threadID string) error
 	sendMessageFunc         func(ctx context.Context, params wire.SendMessageParams) (wire.SendMessageResult, error)
 	interruptFunc           func(ctx context.Context, params wire.InterruptParams) (wire.InterruptResult, error)
@@ -140,9 +140,9 @@ func (b *fakeBackend) ThreadHistory(ctx context.Context, params wire.HistoryPara
 	return wire.HistoryPage{}, nil
 }
 
-func (b *fakeBackend) Subscribe(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error) {
+func (b *fakeBackend) Subscribe(ctx context.Context, c Conn, p wire.SubscribeParams) (wire.SubscribeResult, error) {
 	if b.subscribeFunc != nil {
-		return b.subscribeFunc(ctx, c, threadID)
+		return b.subscribeFunc(ctx, c, p)
 	}
 	return wire.SubscribeResult{}, nil
 }

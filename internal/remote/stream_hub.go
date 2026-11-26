@@ -14,6 +14,9 @@ import (
 // maxThreadEventFrameBytes 是单帧上限，单帧超过 512KB 时改发 resync。
 const maxThreadEventFrameBytes = 512 * 1024
 
+// maxThreadEventJournal 是每个会话保留的近期事件上限，供断线重连按序号补发。
+const maxThreadEventJournal = 512
+
 // StreamHubOptions 配置事件发布中心的聚合参数。
 type StreamHubOptions struct {
 	Interval time.Duration
@@ -23,6 +26,7 @@ type threadState struct {
 	runID       string
 	sequence    int
 	subscribers map[Conn]struct{}
+	journal     []wire.ThreadEvent
 
 	// 待发缓冲状态
 	hasPending    bool
@@ -177,15 +181,64 @@ func (h *StreamHub) getOrCreateThreadLocked(threadID string) *threadState {
 	return st
 }
 
-// Subscribe 登记连接对指定会话的订阅，并在同一把锁内返回当前水位。
-// 若会话从没开始过 run，返回空 runID 与 0。
-func (h *StreamHub) Subscribe(c Conn, threadID string) (runID string, sequence int) {
+// SubscribeFrom 登记连接对指定会话的订阅，并在同一把锁内判断是否可按序号补发。
+// 当 runID 非空且匹配当前 run、after 合法且 journal 能覆盖 (after, st.sequence] 时返回 ok=true 与按序号升序的事件副本；
+// 否则 ok=false，replay 为 nil。
+func (h *StreamHub) SubscribeFrom(c Conn, threadID, runID string, after int) (curRunID string, seq int, replay []wire.ThreadEvent, ok bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	st := h.getOrCreateThreadLocked(threadID)
 	st.subscribers[c] = struct{}{}
-	return st.runID, st.sequence
+	curRunID = st.runID
+	seq = st.sequence
+
+	if runID == "" || runID != st.runID || after < 0 || after > st.sequence {
+		return curRunID, seq, nil, false
+	}
+	if after == st.sequence {
+		return curRunID, seq, nil, true
+	}
+	if len(st.journal) == 0 {
+		return curRunID, seq, nil, false
+	}
+	firstSeq := st.journal[0].Sequence
+	lastSeq := st.journal[len(st.journal)-1].Sequence
+	if firstSeq > after+1 || lastSeq != st.sequence {
+		return curRunID, seq, nil, false
+	}
+
+	startIdx := (after + 1) - firstSeq
+	if startIdx < 0 || startIdx >= len(st.journal) || st.journal[startIdx].Sequence != after+1 {
+		return curRunID, seq, nil, false
+	}
+
+	replay = make([]wire.ThreadEvent, len(st.journal)-startIdx)
+	for i, ev := range st.journal[startIdx:] {
+		replay[i] = cloneThreadEvent(ev)
+	}
+	return curRunID, seq, replay, true
+}
+
+func cloneThreadEvent(ev wire.ThreadEvent) wire.ThreadEvent {
+	if ev.Payload.Messages != nil {
+		msgs := make([]wire.ThreadMessage, len(ev.Payload.Messages))
+		copy(msgs, ev.Payload.Messages)
+		ev.Payload.Messages = msgs
+	}
+	if ev.Payload.RemovedMessageIDs != nil {
+		removed := make([]string, len(ev.Payload.RemovedMessageIDs))
+		copy(removed, ev.Payload.RemovedMessageIDs)
+		ev.Payload.RemovedMessageIDs = removed
+	}
+	return ev
+}
+
+// Subscribe 登记连接对指定会话的订阅，并在同一把锁内返回当前水位。
+// 若会话从没开始过 run，返回空 runID 与 0。
+func (h *StreamHub) Subscribe(c Conn, threadID string) (runID string, sequence int) {
+	runID, sequence, _, _ = h.SubscribeFrom(c, threadID, "", 0)
+	return runID, sequence
 }
 
 // Unsubscribe 取消连接对指定会话的订阅。
@@ -234,6 +287,7 @@ func (h *StreamHub) beginRunLocked(threadID string) string {
 	st.clearBuffer()
 	st.runID = newUUID()
 	st.sequence = 0
+	st.journal = nil
 	return st.runID
 }
 
@@ -319,6 +373,14 @@ func (h *StreamHub) Flush(threadID string) {
 				RemovedMessageIDs: removed,
 				Thread:            st.pendingThread,
 			},
+		}
+
+		st.journal = append(st.journal, ev)
+		if len(st.journal) > maxThreadEventJournal {
+			excess := len(st.journal) - maxThreadEventJournal
+			copy(st.journal, st.journal[excess:])
+			clear(st.journal[maxThreadEventJournal:])
+			st.journal = st.journal[:maxThreadEventJournal]
 		}
 
 		// 清空待发缓冲

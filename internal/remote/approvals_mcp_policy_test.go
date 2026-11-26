@@ -48,7 +48,7 @@ func TestApprovals_MCPToolAutoApproveSkipsPrompt(t *testing.T) {
 	backend.SetHarness(mock, "/workspace", harness.ModeAgent)
 
 	conn := newMockStreamConn()
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{

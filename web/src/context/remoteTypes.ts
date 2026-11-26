@@ -243,7 +243,8 @@ export interface RemoteContextType {
   refreshThread: (threadID: string) => Promise<RemoteThreadSummary | null>;
   subscribeThread: (
     threadID: string,
-    handlers: RemoteThreadSubscriptionHandlers
+    handlers: RemoteThreadSubscriptionHandlers,
+    resume?: { runID: string; afterSequence: number }
   ) => RemoteThreadSubscriptionHandle;
   retryThreadSubscription: () => Promise<void>;
   unsubscribeThread: (threadID: string, subscriptionID?: number) => void;

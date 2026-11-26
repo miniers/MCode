@@ -38,7 +38,9 @@ export function useThreadStream() {
   const requestIdRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const streamStateRef = useRef(streamState);
+  const streamThreadIDRef = useRef<string | null>(null);
   const streamRunIDRef = useRef<string | null>(null);
+  const streamSequenceRef = useRef<number>(-1);
   const streamedMessageSequenceRef = useRef(new Map<string, number>());
   const removedStreamMessageIDsRef = useRef(new Set<string>());
   const subscriptionHandleRef = useRef<RemoteThreadSubscriptionHandle | null>(null);
@@ -50,8 +52,8 @@ export function useThreadStream() {
     errorMessage, setErrorMessage, historyInitialDone, setHistoryInitialDone,
     streamError, setStreamError, streamState, setStreamState, messagesRef, frameCoalescer,
     pendingHistoryScrollRef, historySyncFrameRef, lastFailedRequestRef, requestIdRef,
-    loadingMoreRef, streamStateRef, streamRunIDRef, streamedMessageSequenceRef,
-    removedStreamMessageIDsRef, subscriptionHandleRef
+    loadingMoreRef, streamStateRef, streamThreadIDRef, streamRunIDRef, streamSequenceRef,
+    streamedMessageSequenceRef, removedStreamMessageIDsRef, subscriptionHandleRef
   };
 }
 
@@ -88,9 +90,10 @@ interface HistoryOptions {
 export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistory, scrollRef, mountedRef, setPollError, setLatestSummary }: HistoryOptions) {
   const {
     messages, messagesRef, frameCoalescer, pendingHistoryScrollRef, historySyncFrameRef,
-    lastFailedRequestRef, requestIdRef, loadingMoreRef, streamRunIDRef,
-    streamedMessageSequenceRef, removedStreamMessageIDsRef, setMessages, setNextCursor,
-    setHasMore, setTruncated, setForwardedContext, setErrorMessage, setHistoryInitialDone, setIsLoading, setIsLoadingMore
+    lastFailedRequestRef, requestIdRef, loadingMoreRef, streamThreadIDRef, streamRunIDRef,
+    streamSequenceRef, streamedMessageSequenceRef, removedStreamMessageIDsRef, setMessages,
+    setNextCursor, setHasMore, setTruncated, setForwardedContext, setErrorMessage,
+    setHistoryInitialDone, setIsLoading, setIsLoadingMore
   } = stream;
   const loadPage = useCallback(
     async (cursor: string | null, append: boolean) => {
@@ -244,10 +247,14 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
   const applyStreamSnapshot = useCallback(
     (snapshot: RemoteThreadStreamSnapshot): void => {
       if (!mountedRef.current || snapshot.threadID !== thread.id) return;
+      streamThreadIDRef.current = snapshot.threadID;
       if (streamRunIDRef.current !== snapshot.runID) {
         streamRunIDRef.current = snapshot.runID;
+        streamSequenceRef.current = snapshot.sequence;
         streamedMessageSequenceRef.current.clear();
         removedStreamMessageIDsRef.current.clear();
+      } else {
+        streamSequenceRef.current = Math.max(streamSequenceRef.current, snapshot.sequence);
       }
 
       const protectedMessageIDs = new Set(
@@ -298,6 +305,8 @@ export function useThreadStreamHistory({ stream, thread, endPin, getThreadHistor
   const applyStreamProjection = useCallback(
     (payload: RemoteThreadProjectionPayload, sequence: number, runID: string): void => {
       if (!mountedRef.current || streamRunIDRef.current !== runID) return;
+      streamThreadIDRef.current = thread.id;
+      streamSequenceRef.current = Math.max(streamSequenceRef.current, sequence);
       const removedIDs = new Set(payload.removedMessageIDs);
       for (const id of removedIDs) {
         streamedMessageSequenceRef.current.delete(id);
@@ -556,7 +565,15 @@ export function useThreadStreamSubscription({
   pausePolling, applyStreamSnapshot, applyStreamProjection, subscribeThread,
   unsubscribeThread, retryThreadSubscription
 }: SubscriptionOptions) {
-  const { streamStateRef, setStreamState, setStreamError, subscriptionHandleRef } = stream;
+  const {
+    streamStateRef,
+    streamThreadIDRef,
+    streamRunIDRef,
+    streamSequenceRef,
+    setStreamState,
+    setStreamError,
+    subscriptionHandleRef
+  } = stream;
   useEffect(() => {
     let active = true;
     if (!eventsSupported) {
@@ -607,7 +624,13 @@ export function useThreadStreamSubscription({
       }
     };
 
-    const handle = subscribeThread(thread.id, handlers);
+    const resume =
+      streamThreadIDRef.current === thread.id &&
+      streamRunIDRef.current &&
+      streamSequenceRef.current >= 0
+        ? { runID: streamRunIDRef.current, afterSequence: streamSequenceRef.current }
+        : undefined;
+    const handle = subscribeThread(thread.id, handlers, resume);
     subscriptionHandleRef.current = handle;
     void handle.ready.catch((err) => {
       if (!active) return;

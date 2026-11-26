@@ -1,8 +1,9 @@
 import { useCallback, useRef } from 'react';
-import type { McodeRpcClient } from '../services/rpc';
+import { parseThreadEvent, type McodeRpcClient } from '../services/rpc';
 import type {
   RemoteThreadSummary,
-  ThreadsEventParams
+  ThreadsEventParams,
+  ThreadsSubscribeParams
 } from '../types/contract';
 import {
   isRecord,
@@ -21,6 +22,8 @@ interface ActiveThreadSubscription {
   handlers: RemoteThreadSubscriptionHandlers;
   runID: string | null;
   sequence: number;
+  lastRunID: string | null;
+  lastSequence: number;
   buffer: ThreadsEventParams[];
   bufferOverflowed: boolean;
   needsResubscribe: boolean;
@@ -63,6 +66,8 @@ export function useRemoteThreadSubscriptions({
       subscription.operationID++;
       subscription.runID = null;
       subscription.sequence = -1;
+      subscription.lastRunID = null;
+      subscription.lastSequence = -1;
       subscription.buffer = [];
       subscription.bufferOverflowed = false;
       subscription.needsResubscribe = false;
@@ -100,7 +105,15 @@ export function useRemoteThreadSubscriptions({
             return;
           }
 
-          const result = await client.subscribeThread({ threadID: subscription.threadID });
+          const subscribeParams: ThreadsSubscribeParams = {
+            threadID: subscription.threadID
+          };
+          if (subscription.lastRunID && subscription.lastSequence >= 0) {
+            subscribeParams.runID = subscription.lastRunID;
+            subscribeParams.afterSequence = subscription.lastSequence;
+          }
+
+          const result = await client.subscribeThread(subscribeParams);
           if (
             activeSubscriptionRef.current !== subscription ||
             subscription.operationID !== operationID ||
@@ -109,25 +122,78 @@ export function useRemoteThreadSubscriptions({
           ) {
             return;
           }
-          if (
-            !isRecord(result) ||
-            result.threadID !== subscription.threadID ||
-            result.subscribed !== true ||
-            !isValidStreamSnapshot(result.snapshot)
-          ) {
+          if (!isRecord(result) || result.threadID !== subscription.threadID || result.subscribed !== true) {
             throw new Error('Mac 端未返回有效的会话实时快照，请重试');
           }
 
-          const snapshot = result.snapshot;
-          if (snapshot.threadID !== subscription.threadID) {
-            throw new Error('Mac 端返回了其他会话的快照，请重试');
+          if (result.snapshot !== undefined) {
+            if (!isValidStreamSnapshot(result.snapshot)) {
+              throw new Error('Mac 端未返回有效的会话实时快照，请重试');
+            }
+            const snapshot = result.snapshot;
+            if (snapshot.threadID !== subscription.threadID) {
+              throw new Error('Mac 端返回了其他会话的快照，请重试');
+            }
+            subscription.runID = snapshot.runID;
+            subscription.sequence = snapshot.sequence;
+            subscription.lastRunID = snapshot.runID;
+            subscription.lastSequence = snapshot.sequence;
+            subscription.state = 'subscribed';
+            publishThreadSummary(snapshot.thread);
+            subscription.handlers.onSnapshot(snapshot);
+            subscription.handlers.onState('subscribed');
+          } else if (subscribeParams.runID) {
+            const rawReplay = result.replay;
+            if (rawReplay !== undefined && !Array.isArray(rawReplay)) {
+              throw new Error('Mac 端未返回有效的会话事件补发列表，请重试');
+            }
+            const parsedReplay: ThreadsEventParams[] = [];
+            for (const item of rawReplay ?? []) {
+              const ev = parseThreadEvent(item);
+              if (!ev || ev.threadID !== subscription.threadID) {
+                throw new Error('Mac 端未返回有效的会话事件补发列表，请重试');
+              }
+              parsedReplay.push(ev);
+            }
+            parsedReplay.sort((left, right) => left.sequence - right.sequence);
+
+            subscription.runID = subscribeParams.runID;
+            subscription.sequence = subscribeParams.afterSequence ?? 0;
+            subscription.lastRunID = subscribeParams.runID;
+            subscription.lastSequence = subscription.sequence;
+            subscription.state = 'subscribed';
+
+            for (const event of parsedReplay) {
+              if (event.runID !== subscription.runID) {
+                subscription.lastRunID = null;
+                subscription.lastSequence = -1;
+                subscription.needsResubscribe = true;
+                break;
+              }
+              if (event.sequence <= subscription.sequence) continue;
+              if (event.kind === 'resync') {
+                publishThreadSummary(event.payload.thread);
+                subscription.lastRunID = null;
+                subscription.lastSequence = -1;
+                subscription.needsResubscribe = true;
+                break;
+              }
+              if (event.sequence > subscription.sequence + 1) {
+                subscription.lastRunID = null;
+                subscription.lastSequence = -1;
+                subscription.needsResubscribe = true;
+                break;
+              }
+              subscription.sequence = event.sequence;
+              subscription.lastRunID = event.runID;
+              subscription.lastSequence = event.sequence;
+              publishThreadSummary(event.payload.thread);
+              subscription.handlers.onEvent(event);
+            }
+            subscription.handlers.onState('subscribed');
+          } else {
+            throw new Error('Mac 端未返回有效的会话实时快照，请重试');
           }
-          subscription.runID = snapshot.runID;
-          subscription.sequence = snapshot.sequence;
-          subscription.state = 'subscribed';
-          publishThreadSummary(snapshot.thread);
-          subscription.handlers.onSnapshot(snapshot);
-          subscription.handlers.onState('subscribed');
 
           const buffered = subscription.buffer
             .splice(0, subscription.buffer.length)
@@ -135,13 +201,17 @@ export function useRemoteThreadSubscriptions({
           const overflowed = subscription.bufferOverflowed;
           subscription.bufferOverflowed = false;
           for (const event of buffered) {
-            if (event.runID !== snapshot.runID) {
+            if (event.runID !== subscription.runID) {
               subscription.needsResubscribe = true;
               continue;
             }
             handleThreadEventRef.current(client, event);
           }
-          if (overflowed) subscription.needsResubscribe = true;
+          if (overflowed) {
+            subscription.lastRunID = null;
+            subscription.lastSequence = -1;
+            subscription.needsResubscribe = true;
+          }
         });
       } catch (err) {
         if (activeSubscriptionRef.current === subscription) {
@@ -220,6 +290,8 @@ export function useRemoteThreadSubscriptions({
       if (event.sequence <= subscription.sequence) return;
       if (event.kind === 'resync') {
         publishThreadSummary(event.payload.thread);
+        subscription.lastRunID = null;
+        subscription.lastSequence = -1;
         requestResubscribe(subscription);
         return;
       }
@@ -230,6 +302,8 @@ export function useRemoteThreadSubscriptions({
       }
 
       subscription.sequence = event.sequence;
+      subscription.lastRunID = event.runID;
+      subscription.lastSequence = event.sequence;
       publishThreadSummary(event.payload.thread);
       subscription.handlers.onEvent(event);
     },
@@ -255,7 +329,11 @@ export function useRemoteThreadSubscriptions({
   }, []);
 
   const subscribeThread = useCallback(
-    (threadID: string, handlers: RemoteThreadSubscriptionHandlers): RemoteThreadSubscriptionHandle => {
+    (
+      threadID: string,
+      handlers: RemoteThreadSubscriptionHandlers,
+      resume?: { runID: string; afterSequence: number }
+    ): RemoteThreadSubscriptionHandle => {
       const subscriptionID = ++subscriptionGenerationRef.current;
       const previous = activeSubscriptionRef.current;
       const previousStop = previous ? stopSubscription(previous) : Promise.resolve();
@@ -279,6 +357,8 @@ export function useRemoteThreadSubscriptions({
           handlers,
           runID: null,
           sequence: -1,
+          lastRunID: resume?.runID ? resume.runID : null,
+          lastSequence: resume && resume.afterSequence >= 0 ? resume.afterSequence : -1,
           buffer: [],
           bufferOverflowed: false,
           needsResubscribe: false,

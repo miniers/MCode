@@ -979,12 +979,15 @@ export type RemoteThreadsHistoryResponse = {
 
 export type RemoteThreadsSubscribeParams = {
   threadID: UUID;
+  runID?: string;
+  afterSequence?: number;
 };
 
 export type RemoteThreadsSubscribeResult = {
   threadID: UUID;
   subscribed: boolean;
   snapshot?: RemoteThreadStreamSnapshot;
+  replay?: Array<RemoteThreadsEventParams>;
 };
 
 export type RemoteThreadsSubscribeRequest = {

@@ -153,11 +153,19 @@ func TestFoldToolsList(t *testing.T) {
 			if !strings.Contains(entry.Description, "41") {
 				t.Errorf("描述应写明工具总数, got %q", entry.Description)
 			}
+			if !strings.Contains(entry.Description, "query") || !strings.Contains(entry.Description, "一行简介") {
+				t.Errorf("描述应说明 query 与省略用法, got %q", entry.Description)
+			}
 			if !strings.Contains(entry.Description, "tool_0") || !strings.Contains(entry.Description, "tool_40") {
 				t.Errorf("描述末尾应附全部工具名, got %q", entry.Description)
 			}
 			if entry.InputSchema["type"] != "object" {
 				t.Errorf("inputSchema 类型应为 object, got %v", entry.InputSchema["type"])
+			}
+			props, _ := entry.InputSchema["properties"].(map[string]any)
+			queryProp, _ := props["query"].(map[string]any)
+			if queryProp["type"] != "string" {
+				t.Errorf("inputSchema.properties.query 应为 string 类型, got %v", queryProp)
 			}
 		})
 	}
@@ -192,7 +200,7 @@ func TestFoldToolsListDescriptionTruncated(t *testing.T) {
 }
 
 // TestProxy_FoldsManyTools 覆盖：45 个工具的上游只暴露 call_tool，
-// 省略 tool 返回完整清单，带 tool 时改写成内部工具调用。
+// 省略 tool 与 query 返回精简清单，带 tool 时改写成内部工具调用。
 func TestProxy_FoldsManyTools(t *testing.T) {
 	var calls atomic.Int64
 	var lastTool atomic.Value
@@ -231,7 +239,7 @@ func TestProxy_FoldsManyTools(t *testing.T) {
 		t.Fatalf("45 个工具应折叠成单一入口, got %v", names)
 	}
 
-	// 3. 省略 tool 返回完整工具清单
+	// 3. 省略 tool 与 query 返回只含名字与一行简介的精简清单
 	code, resp = postProxy(t, handler, "/mcp/demo", token, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      3,
@@ -241,20 +249,13 @@ func TestProxy_FoldsManyTools(t *testing.T) {
 	if code != http.StatusOK || resp["error"] != nil {
 		t.Fatalf("省略 tool 应成功返回清单, code=%d resp=%v", code, resp)
 	}
-	var listed struct {
-		Tools []struct {
-			Name        string         `json:"name"`
-			InputSchema map[string]any `json:"inputSchema"`
-		} `json:"tools"`
+	summary := firstContentText(t, resp)
+	if strings.Contains(summary, "inputSchema") {
+		t.Fatalf("省略 query 时不应返回 inputSchema, got %q", summary)
 	}
-	if err := json.Unmarshal([]byte(firstContentText(t, resp)), &listed); err != nil {
-		t.Fatalf("省略 tool 时 content 应是 JSON 工具清单: %v", err)
-	}
-	if len(listed.Tools) != 45 || listed.Tools[0].Name != "tool_0" || listed.Tools[44].Name != "tool_44" {
-		t.Fatalf("应返回全部 45 个工具, got %d 个", len(listed.Tools))
-	}
-	if listed.Tools[0].InputSchema == nil {
-		t.Fatal("返回的清单应包含 inputSchema")
+	lines := strings.Split(summary, "\n")
+	if len(lines) != 45 || lines[0] != "tool_0: 模拟工具 tool_0" || lines[44] != "tool_44: 模拟工具 tool_44" {
+		t.Fatalf("应返回 45 行精简工具清单, got %d 行 first=%q", len(lines), lines[0])
 	}
 
 	// 4. 带 tool 时改写成内部工具调用
@@ -413,5 +414,195 @@ func TestProxy_FoldSkippedForAutoApprove(t *testing.T) {
 	}
 	if names := toolNamesFromResponse(t, resp); len(names) != 45 {
 		t.Fatalf("有免审批工具的服务不应折叠, got %d 个工具", len(names))
+	}
+}
+
+// newFoldQueryProxy 构造一个已缓存自定义工具列表的折叠代理，供 TestFoldQuery* 使用。
+func newFoldQueryProxy(t *testing.T, tools []map[string]any) *Proxy {
+	t.Helper()
+	raw := foldListResult(t, tools)
+	_, names, ok := parseToolsList(raw)
+	if !ok {
+		t.Fatal("自定义测试工具列表解析失败")
+	}
+	p := NewProxy(nil)
+	p.setFoldState("srv", foldState{folded: true, list: raw, names: names})
+	return p
+}
+
+// foldQueryCustomTools 生成超过阈值（42 个）的自定义工具集，覆盖多行描述、空描述、同名优先与 10 条截断。
+func foldQueryCustomTools() []map[string]any {
+	tools := []map[string]any{
+		{
+			"name":        "alpha",
+			"description": "第一行简介\n第二行详细说明",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"secret_field": map[string]any{"type": "string"}},
+			},
+		},
+		{
+			"name":        "beta",
+			"description": "",
+			"inputSchema": map[string]any{"type": "object"},
+		},
+		{
+			"name":        "gamma",
+			"description": "   \n  ",
+			"inputSchema": map[string]any{"type": "object"},
+		},
+	}
+	for i := 0; i < 12; i++ {
+		tools = append(tools, map[string]any{
+			"name":        "file_read_" + strconv.Itoa(i),
+			"description": "读取文件片段 " + strconv.Itoa(i),
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"path": map[string]any{"type": "string"}},
+			},
+		})
+	}
+	tools = append(tools,
+		map[string]any{
+			"name":        "read",
+			"description": "读取指定路径",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"target": map[string]any{"type": "string"}},
+			},
+		},
+		map[string]any{
+			"name":        "write_cfg",
+			"description": "Update CONFIG entry",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"key": map[string]any{"type": "string"}},
+			},
+		},
+	)
+	for len(tools) < 42 {
+		idx := len(tools)
+		tools = append(tools, map[string]any{
+			"name":        "extra_" + strconv.Itoa(idx),
+			"description": "辅助工具 " + strconv.Itoa(idx),
+			"inputSchema": map[string]any{"type": "object"},
+		})
+	}
+	return tools
+}
+
+// foldPlanText 从 foldCallPlan 的直接返回结果中取出第一段 text 并返回是否报错。
+func foldPlanText(t *testing.T, plan foldCallPlan) (string, bool) {
+	t.Helper()
+	if plan.result == nil {
+		t.Fatal("预期直接返回 result，但 plan.result 为 nil")
+	}
+	content, _ := plan.result["content"].([]map[string]any)
+	if len(content) == 0 {
+		t.Fatalf("plan.result 缺少 content: %v", plan.result)
+	}
+	text, _ := content[0]["text"].(string)
+	isErr, _ := plan.result["isError"].(bool)
+	return text, isErr
+}
+
+// TestFoldQuery_EmptyReturnsSummary 覆盖：query 为空或仅空白时只返回工具名与第一行简介，不含 inputSchema。
+func TestFoldQuery_EmptyReturnsSummary(t *testing.T) {
+	t.Parallel()
+	p := newFoldQueryProxy(t, foldQueryCustomTools())
+
+	for _, args := range []string{`{}`, `{"query": "   "}`} {
+		plan := p.dispatchFoldCall(t.Context(), "srv", "demo", json.RawMessage(args))
+		text, isErr := foldPlanText(t, plan)
+		if isErr {
+			t.Fatalf("args=%s 不应返回错误: %s", args, text)
+		}
+		if strings.Contains(text, "inputSchema") || strings.Contains(text, "secret_field") {
+			t.Fatalf("args=%s 不应包含 inputSchema，got %q", args, text)
+		}
+		if strings.Contains(text, "第二行详细说明") {
+			t.Fatalf("args=%s 只应包含描述的第一行，got %q", args, text)
+		}
+		lines := strings.Split(text, "\n")
+		if len(lines) < 3 {
+			t.Fatalf("行数不足: %v", lines)
+		}
+		if lines[0] != "alpha: 第一行简介" {
+			t.Errorf("多行描述首行不符, got %q", lines[0])
+		}
+		if lines[1] != "beta" {
+			t.Errorf("空描述应只写名字, got %q", lines[1])
+		}
+		if lines[2] != "gamma" {
+			t.Errorf("空白描述应只写名字, got %q", lines[2])
+		}
+	}
+}
+
+// TestFoldQuery_MatchesAndLimits 覆盖：关键词命中返回完整 inputSchema、完全同名排第一、多关键词大小写无关、最多 10 个。
+func TestFoldQuery_MatchesAndLimits(t *testing.T) {
+	t.Parallel()
+	p := newFoldQueryProxy(t, foldQueryCustomTools())
+
+	// 1. read 完全同名排最前，总计 13 个命中时截断到 10 个且保留原有相对顺序。
+	plan := p.dispatchFoldCall(t.Context(), "srv", "demo", json.RawMessage(`{"query":"read"}`))
+	text, isErr := foldPlanText(t, plan)
+	if isErr {
+		t.Fatalf("query=read 不应返回错误: %s", text)
+	}
+	var matched []struct {
+		Name        string         `json:"name"`
+		Description string         `json:"description"`
+		InputSchema map[string]any `json:"inputSchema"`
+	}
+	if err := json.Unmarshal([]byte(text), &matched); err != nil {
+		t.Fatalf("query 命中结果应为 JSON 数组: %v, raw=%s", err, text)
+	}
+	if len(matched) != 10 {
+		t.Fatalf("query 最多返回 10 个工具, got %d", len(matched))
+	}
+	if matched[0].Name != "read" {
+		t.Fatalf("完全同名工具应排第一, got %q", matched[0].Name)
+	}
+	if matched[0].InputSchema["properties"] == nil {
+		t.Fatalf("匹配结果应保留完整 inputSchema, got %v", matched[0].InputSchema)
+	}
+	for i := 1; i < 10; i++ {
+		want := "file_read_" + strconv.Itoa(i-1)
+		if matched[i].Name != want {
+			t.Fatalf("第 %d 项顺序不符: got %q, want %q", i, matched[i].Name, want)
+		}
+	}
+
+	// 2. 多关键词且大小写不同，同时匹配工具名与描述。
+	plan = p.dispatchFoldCall(t.Context(), "srv", "demo", json.RawMessage(`{"query":"  config   ALPHA "}`))
+	text, isErr = foldPlanText(t, plan)
+	if isErr {
+		t.Fatalf("多关键词 query 不应返回错误: %s", text)
+	}
+	matched = nil
+	if err := json.Unmarshal([]byte(text), &matched); err != nil {
+		t.Fatalf("多关键词结果应为 JSON 数组: %v", err)
+	}
+	if len(matched) != 2 || matched[0].Name != "alpha" || matched[1].Name != "write_cfg" {
+		t.Fatalf("多关键词匹配结果不符, got %+v", matched)
+	}
+}
+
+// TestFoldQuery_NoMatch 覆盖：无匹配时返回提示文本与全部可用工具名，不标 isError。
+func TestFoldQuery_NoMatch(t *testing.T) {
+	t.Parallel()
+	p := newFoldQueryProxy(t, foldQueryCustomTools())
+
+	plan := p.dispatchFoldCall(t.Context(), "srv", "demo", json.RawMessage(`{"query":"no_such_keyword"}`))
+	text, isErr := foldPlanText(t, plan)
+	if isErr {
+		t.Fatalf("无匹配时不应标记 isError, got text=%q", text)
+	}
+	if !strings.HasPrefix(text, "没有匹配的工具。可用工具：") {
+		t.Fatalf("无匹配提示前缀不符, got %q", text)
+	}
+	if !strings.Contains(text, "alpha") || !strings.Contains(text, "read") {
+		t.Fatalf("无匹配提示应列出可用工具名, got %q", text)
 	}
 }

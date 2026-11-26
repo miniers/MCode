@@ -59,7 +59,7 @@ func TestApprovals_AllowAndChangedNotification(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestApprovals_Deny(t *testing.T) {
 		}
 		return nil
 	}
-	backend.Subscribe(ctx, conn, threadID)
+	backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 
 	backend.SendMessage(ctx, wire.SendMessageParams{
 		ThreadID: threadID,
@@ -291,7 +291,7 @@ func TestApprovals_AllowAlways(t *testing.T) {
 		}
 		return nil
 	}
-	backend.Subscribe(ctx, conn, threadID)
+	backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 
 	backend.SendMessage(ctx, wire.SendMessageParams{
 		ThreadID: threadID,
@@ -373,7 +373,7 @@ func TestApprovals_DuplicateRespond(t *testing.T) {
 		}
 		return nil
 	}
-	backend.Subscribe(ctx, conn, threadID)
+	backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 
 	backend.SendMessage(ctx, wire.SendMessageParams{
 		ThreadID: threadID,
@@ -460,7 +460,7 @@ func TestApprovals_ContextCanceled(t *testing.T) {
 	backend.SetHarness(mock, "/workspace", harness.ModeAgent)
 
 	conn := newMockStreamConn()
-	backend.Subscribe(ctx, conn, threadID)
+	backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 
 	backend.SendMessage(ctx, wire.SendMessageParams{
 		ThreadID: threadID,
@@ -515,7 +515,7 @@ func TestApprovals_QuestionContextCanceledTrace(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "提问", ActionID: newUUID()}); err != nil {
@@ -624,7 +624,7 @@ func startInteract(t *testing.T, threadID, actionID string, req harness.Approval
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{ThreadID: threadID, Text: "交互", ActionID: actionID}); err != nil {
@@ -1572,7 +1572,7 @@ func TestApprovals_ReadOnlyHelperThreadAutoDeny(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -1680,7 +1680,7 @@ func TestApprovals_ReadOnlyHelperAllowsSafeReadOnlyCommand(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -1804,7 +1804,7 @@ func TestApprovals_ReadOnlyHelperAllowsScopedGoChecks(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -1897,7 +1897,7 @@ func TestReadOnlyHelperAllowsAgyRunCommand(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -1995,7 +1995,7 @@ func TestThreadApproverReadOnlyHelperAllowsReadRequest(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -2153,7 +2153,7 @@ func TestApprovals_HelperThreadAutoApprovesUnattended(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
@@ -2258,7 +2258,7 @@ func TestApprovals_ChildThreadSensitiveFallback(t *testing.T) {
 	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
 
 	conn := newMockStreamConn()
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
@@ -2356,7 +2356,7 @@ func TestApprovals_ChildQuestionAutoForwarded(t *testing.T) {
 	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
 
 	conn := newMockStreamConn()
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
@@ -2715,7 +2715,7 @@ func startAlwaysAllowTurn(t *testing.T, backend *MemoryBackend, threadID, action
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
@@ -3230,7 +3230,7 @@ func TestApprovals_ReadOnlyHelperAllowsBuiltinReadOnlyMCP(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -3402,7 +3402,7 @@ func TestAutoDeniedFlag(t *testing.T) {
 			}
 			return nil
 		}
-		if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+		if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 			t.Fatalf("Subscribe failed: %v", err)
 		}
 		if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
@@ -3572,7 +3572,7 @@ func TestInteractiveBeeQuestionNotAutoAnswered(t *testing.T) {
 	backend.SetHarness(mock, t.TempDir(), harness.ModeAuto)
 
 	conn := newMockStreamConn()
-	if _, err := backend.Subscribe(ctx, conn, interactiveBeeID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: interactiveBeeID}); err != nil {
 		t.Fatalf("Subscribe interactive failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{

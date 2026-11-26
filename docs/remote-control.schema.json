@@ -4517,6 +4517,13 @@
       "properties": {
         "threadID": {
           "$ref": "#/$defs/UUID"
+        },
+        "runID": {
+          "type": "string"
+        },
+        "afterSequence": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -4535,6 +4542,12 @@
         },
         "snapshot": {
           "$ref": "#/$defs/RemoteThreadStreamSnapshot"
+        },
+        "replay": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteThreadsEventParams"
+          }
         }
       },
       "required": [

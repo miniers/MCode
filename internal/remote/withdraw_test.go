@@ -87,7 +87,7 @@ func startWithdrawThread(t *testing.T, backend *MemoryBackend, threadID, actionI
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 	if _, err := backend.SendMessage(ctx, wire.SendMessageParams{

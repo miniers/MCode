@@ -15,7 +15,7 @@ type Backend interface {
 	ListThreads(ctx context.Context, params wire.ThreadListParams) (wire.ThreadList, error)
 	GetThread(ctx context.Context, threadID string) (wire.ThreadSummary, error)
 	ThreadHistory(ctx context.Context, params wire.HistoryParams) (wire.HistoryPage, error)
-	Subscribe(ctx context.Context, c Conn, threadID string) (wire.SubscribeResult, error)
+	Subscribe(ctx context.Context, c Conn, p wire.SubscribeParams) (wire.SubscribeResult, error)
 	Unsubscribe(ctx context.Context, c Conn, threadID string) error
 	SendMessage(ctx context.Context, params wire.SendMessageParams) (wire.SendMessageResult, error)
 	Interrupt(ctx context.Context, params wire.InterruptParams) (wire.InterruptResult, error)

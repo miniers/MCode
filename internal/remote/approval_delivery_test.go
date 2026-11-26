@@ -83,7 +83,7 @@ func TestApprovalDelivery_Success(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -186,7 +186,7 @@ func TestApprovalDelivery_Failure_CardRetained(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -280,7 +280,7 @@ func TestApprovalDelivery_Timeout_CardRetained(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -389,7 +389,7 @@ func TestApprovalDelivery_Retry_Success(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
@@ -502,7 +502,7 @@ func TestApprovalDelivery_NoConfirmation_Fallback(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := backend.Subscribe(ctx, conn, threadID); err != nil {
+	if _, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID}); err != nil {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 

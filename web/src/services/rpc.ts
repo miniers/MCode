@@ -337,7 +337,7 @@ function isThreadMessage(value: unknown): boolean {
   );
 }
 
-function parseThreadEvent(value: unknown): ThreadsEventParams | null {
+export function parseThreadEvent(value: unknown): ThreadsEventParams | null {
   if (
     !isRecord(value) ||
     typeof value.threadID !== 'string' ||
@@ -1355,12 +1355,19 @@ export class McodeRpcClient {
   }
 
   /**
-   * threads.subscribe { threadID } -> { threadID, subscribed, snapshot }
+   * threads.subscribe { threadID, runID?, afterSequence? } -> { threadID, subscribed, snapshot?, replay? }
    */
   public async subscribeThread(params: ThreadsSubscribeParams): Promise<ThreadsSubscribeResult> {
-    return this.sendRpc<ThreadsSubscribeResult>('threads.subscribe', {
+    const rpcParams: Record<string, unknown> = {
       threadID: params.threadID
-    }, 30000);
+    };
+    if (params.runID) {
+      rpcParams.runID = params.runID;
+      if (params.afterSequence !== undefined) {
+        rpcParams.afterSequence = params.afterSequence;
+      }
+    }
+    return this.sendRpc<ThreadsSubscribeResult>('threads.subscribe', rpcParams, 30000);
   }
 
   /**

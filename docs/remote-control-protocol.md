@@ -2,6 +2,13 @@
 
 本文档描述 mcode 远程控制的 JSON-RPC 2.0 协议，机器可读契约见 `remote-control.schema.json`。
 
+## 会话实时订阅与断线补发（`threads.subscribe`）
+
+- 首次订阅时客户端调用 `threads.subscribe`，参数为 `{ "threadID" }`；服务端返回 `{ "threadID", "subscribed": true, "snapshot" }`，客户端用 `snapshot` 整体替换本地流状态并记录 `snapshot.runID` 与 `snapshot.sequence`。
+- 断线重连或从后台恢复时，客户端在 `threads.subscribe` 参数中带上最后收到的 `runID` 与 `sequence`（作为 `afterSequence`）：`{ "threadID", "runID", "afterSequence" }`（`afterSequence >= 0`，负数返回 `InvalidParams` `-32602`）。
+- 服务端在同一 `runID` 内且事件缓冲（单会话最近 512 条）能覆盖 `(afterSequence, sequence]` 全部序号（`afterSequence == sequence` 时也视为命中）时，不再重新加载历史，返回 `{ "threadID", "subscribed": true, "replay" }`（无遗漏事件时 `replay` 省略或为空数组），不返回 `snapshot`。客户端收到后按顺序将 `replay` 中的事件当作实时 `projection` 事件应用并推进水位。
+- 若 `runID` 为空或已变更、`afterSequence` 越界或超过服务端缓冲窗口导致存在缺口，服务端按原有逻辑返回 `{ "threadID", "subscribed": true, "snapshot" }`，客户端收到 `snapshot` 时整体替换本地状态。
+
 ## Web Push 离线推送
 
 宿主在会话事件触发提醒时，经 RFC 8291（aes128gcm）加密、用 VAPID（ES256）签名发送到手机浏览器登记的推送端点。

@@ -559,7 +559,7 @@ func (c *Client) Watch(threadID string, onUpdate func(mcodeui.ThreadUpdate), onA
 	}
 
 	ctx := context.Background()
-	res, err := c.backend.Subscribe(ctx, conn, threadID)
+	res, err := c.backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 	if err != nil {
 		_ = conn.Close()
 		log.Printf("Watch: failed to subscribe thread %s: %v", threadID, err)

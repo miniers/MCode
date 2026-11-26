@@ -105,6 +105,9 @@ const foldEntryToolName = "call_tool"
 // foldEntryDescriptionLimit 是入口工具描述的长度上限（字符数），超出后直接截断。
 const foldEntryDescriptionLimit = 2000
 
+// foldQueryMaxResults 是按 query 搜索工具时最多返回的匹配工具数量。
+const foldQueryMaxResults = 10
+
 // foldState 记录某个上游服务的折叠状态与折叠前的完整工具清单。
 // list 是按策略过滤后、折叠前的 tools/list 结果；names 是其中的工具名，
 // 供调用时校验内部工具名与提示可用工具。
@@ -144,7 +147,7 @@ func parseToolsList(result json.RawMessage) (tools []json.RawMessage, names []st
 // 超过长度上限时按字符截断，避免单个工具描述过大。
 func foldEntryDescription(count int, names []string) string {
 	head := fmt.Sprintf("本服务共有 %d 个工具。参数 tool 填内部工具名，arguments 填该工具的参数对象；"+
-		"省略 tool 时返回全部工具的名字、描述和 inputSchema。可用工具：", count)
+		"不知道参数时先用 query 搜索；三者都省略时只返回工具名与一行简介。可用工具：", count)
 	desc := head + strings.Join(names, ", ")
 	if runes := []rune(desc); len(runes) > foldEntryDescriptionLimit {
 		desc = string(runes[:foldEntryDescriptionLimit])
@@ -176,6 +179,7 @@ func foldToolsList(result json.RawMessage, threshold int) (json.RawMessage, bool
 			"properties": map[string]any{
 				"tool":      map[string]any{"type": "string", "description": "内部工具名"},
 				"arguments": map[string]any{"type": "object", "description": "该工具的参数对象，可省略"},
+				"query":     map[string]any{"type": "string", "description": "按关键词搜索工具，返回匹配工具的完整 inputSchema"},
 			},
 		},
 	})
@@ -267,7 +271,82 @@ func foldTextResult(text string, isError bool) map[string]any {
 	return res
 }
 
-// dispatchFoldCall 处理折叠入口 call_tool：省略 tool 时直接返回缓存的完整工具清单，
+// foldToolSummary 是从工具原始 JSON 中按需提取的名称与描述。
+type foldToolSummary struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// foldToolFirstLine 返回工具描述第一行（去除首尾空白）；描述为空时返回空串。
+func foldToolFirstLine(desc string) string {
+	desc = strings.TrimSpace(desc)
+	if i := strings.IndexByte(desc, '\n'); i >= 0 {
+		desc = strings.TrimSpace(desc[:i])
+	}
+	return desc
+}
+
+// foldListSummaries 把工具数组整理为「名字: 描述的第一行」的精简清单，不含 inputSchema。
+func foldListSummaries(tools []json.RawMessage, names []string) string {
+	lines := make([]string, 0, len(tools))
+	for i, raw := range tools {
+		var meta foldToolSummary
+		_ = json.Unmarshal(raw, &meta)
+		name := meta.Name
+		if name == "" {
+			name = names[i]
+		}
+		if first := foldToolFirstLine(meta.Description); first != "" {
+			lines = append(lines, name+": "+first)
+		} else {
+			lines = append(lines, name)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// foldQueryTools 按空白切分关键词（转小写）匹配工具名或描述，
+// 完全同名的工具排最前，其余保持原顺序，最多返回 foldQueryMaxResults 个。
+func foldQueryTools(tools []json.RawMessage, names []string, query string) map[string]any {
+	keywords := strings.Fields(strings.ToLower(query))
+	var exact, rest []json.RawMessage
+	for i, raw := range tools {
+		var meta foldToolSummary
+		_ = json.Unmarshal(raw, &meta)
+		name := meta.Name
+		if name == "" {
+			name = names[i]
+		}
+		if name == query {
+			exact = append(exact, raw)
+			continue
+		}
+		nameLower := strings.ToLower(name)
+		descLower := strings.ToLower(meta.Description)
+		for _, kw := range keywords {
+			if strings.Contains(nameLower, kw) || strings.Contains(descLower, kw) {
+				rest = append(rest, raw)
+				break
+			}
+		}
+	}
+	matched := make([]json.RawMessage, 0, len(exact)+len(rest))
+	matched = append(matched, exact...)
+	matched = append(matched, rest...)
+	if len(matched) == 0 {
+		return foldTextResult("没有匹配的工具。可用工具："+strings.Join(names, ", "), false)
+	}
+	if len(matched) > foldQueryMaxResults {
+		matched = matched[:foldQueryMaxResults]
+	}
+	encoded, err := json.Marshal(matched)
+	if err != nil {
+		return foldTextResult("编码匹配工具失败："+err.Error(), true)
+	}
+	return foldTextResult(string(encoded), false)
+}
+
+// dispatchFoldCall 处理折叠入口 call_tool：省略 tool 时按 query 返回精简清单或匹配工具 schema，
 // 带 tool 时改写成内部工具调用。服务未折叠时返回空 plan，交由原有流程原样转发。
 func (p *Proxy) dispatchFoldCall(ctx context.Context, serverID, serverName string, args json.RawMessage) foldCallPlan {
 	state, known := p.foldStateOf(serverID)
@@ -280,6 +359,7 @@ func (p *Proxy) dispatchFoldCall(ctx context.Context, serverID, serverName strin
 	var call struct {
 		Tool      string          `json:"tool"`
 		Arguments json.RawMessage `json:"arguments"`
+		Query     string          `json:"query"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &call); err != nil {
@@ -288,7 +368,14 @@ func (p *Proxy) dispatchFoldCall(ctx context.Context, serverID, serverName strin
 	}
 	tool := strings.TrimSpace(call.Tool)
 	if tool == "" {
-		return foldCallPlan{result: foldTextResult(string(state.list), false)}
+		tools, names, ok := parseToolsList(state.list)
+		if !ok {
+			return foldCallPlan{result: foldTextResult(string(state.list), false)}
+		}
+		if query := strings.TrimSpace(call.Query); query != "" {
+			return foldCallPlan{result: foldQueryTools(tools, names, query)}
+		}
+		return foldCallPlan{result: foldTextResult(foldListSummaries(tools, names), false)}
 	}
 	found := false
 	for _, name := range state.names {

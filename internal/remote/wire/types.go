@@ -489,7 +489,9 @@ type ThreadsToolOutputResult struct {
 // --- 会话订阅与退订 ---
 
 type SubscribeParams struct {
-	ThreadID string `json:"threadID"`
+	ThreadID      string `json:"threadID"`
+	RunID         string `json:"runID,omitempty"`
+	AfterSequence int    `json:"afterSequence,omitempty"`
 }
 
 type ThreadStreamSnapshot struct {
@@ -505,6 +507,7 @@ type SubscribeResult struct {
 	ThreadID   string                `json:"threadID"`
 	Subscribed bool                  `json:"subscribed"`
 	Snapshot   *ThreadStreamSnapshot `json:"snapshot,omitempty"`
+	Replay     []ThreadEvent         `json:"replay,omitempty"`
 }
 
 type UnsubscribeParams struct {

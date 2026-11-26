@@ -389,7 +389,7 @@ func TestProviders_WebSocketDisconnectRemovesHubSubscription(t *testing.T) {
 		t.Fatalf("CreateThread failed: %v", err)
 	}
 
-	subRes, err := backend.Subscribe(ctx, srvConn, thRes.ThreadID)
+	subRes, err := backend.Subscribe(ctx, srvConn, wire.SubscribeParams{ThreadID: thRes.ThreadID})
 	if err != nil || !subRes.Subscribed {
 		t.Fatalf("Subscribe failed: %v, subRes=%+v", err, subRes)
 	}

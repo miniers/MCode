@@ -930,7 +930,10 @@ func (d *Dispatcher) handleSingle(ctx context.Context, c Conn, raw []byte) *wire
 		if !isValidUUID(p.ThreadID) {
 			return replyErr(wire.InvalidParams, "Invalid params: 'threadID' is required")
 		}
-		res, err := d.backend.Subscribe(ctx, c, p.ThreadID)
+		if p.AfterSequence < 0 {
+			return replyErr(wire.InvalidParams, "Invalid params: 'afterSequence' must be non-negative")
+		}
+		res, err := d.backend.Subscribe(ctx, c, p)
 		if err != nil {
 			return replyWithBackendErr(err)
 		}

@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -392,7 +394,7 @@ func TestMemoryBackend_NotFoundErrors(t *testing.T) {
 	}
 
 	// 3. Subscribe 不存在的线程
-	_, err = backend.Subscribe(ctx, conn, badThreadID)
+	_, err = backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: badThreadID})
 	if !errors.As(err, &rpcErr) || rpcErr.Code != wire.ErrCodeResourceNotFound {
 		t.Errorf("expected ErrCodeResourceNotFound for Subscribe, got: %v", err)
 	}
@@ -426,7 +428,7 @@ func TestMemoryBackend_SendMessageAndStreaming(t *testing.T) {
 	backend.AddThread(summary, nil)
 
 	conn := newMockStreamConn()
-	subRes, err := backend.Subscribe(ctx, conn, threadID)
+	subRes, err := backend.Subscribe(ctx, conn, wire.SubscribeParams{ThreadID: threadID})
 	if err != nil {
 		t.Fatalf("subscribe failed: %v", err)
 	}
@@ -2385,7 +2387,7 @@ func TestMemoryBackend_SubscribeRegistersBeforeSnapshot(t *testing.T) {
 	done := make(chan result, 1)
 	b.mu.Lock()
 	go func() {
-		res, err := b.Subscribe(context.Background(), conn, threadID)
+		res, err := b.Subscribe(context.Background(), conn, wire.SubscribeParams{ThreadID: threadID})
 		done <- result{res, err}
 	}()
 	deadline := time.Now().Add(time.Second)
@@ -2427,7 +2429,7 @@ func TestMemoryBackend_SubscribeMissingThreadRemovesRegistration(t *testing.T) {
 	b := NewMemoryBackend(hub)
 	defer b.Close()
 	conn := newMockStreamConn()
-	if _, err := b.Subscribe(context.Background(), conn, "missing"); err == nil {
+	if _, err := b.Subscribe(context.Background(), conn, wire.SubscribeParams{ThreadID: "missing"}); err == nil {
 		t.Fatal("不存在的会话应返回错误")
 	}
 	if hub.IsSubscribed(conn) {
@@ -2438,5 +2440,117 @@ func TestMemoryBackend_SubscribeMissingThreadRemovesRegistration(t *testing.T) {
 	hub.mu.Unlock()
 	if runID != "" {
 		t.Fatalf("不存在的会话遗留 run：%s", runID)
+	}
+}
+
+func TestSubscribeReplay(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+	b := NewMemoryBackend(hub)
+	defer b.Close()
+
+	ctx := context.Background()
+	threadID := "00000000-0000-0000-0000-000000000201"
+	b.AddThread(wire.ThreadSummary{ID: threadID, ProjectID: "00000000-0000-0000-0000-000000000001", Title: "Replay Thread"}, nil)
+
+	// 1. 首次订阅返回 Snapshot
+	conn1 := newMockStreamConn()
+	firstRes, err := b.Subscribe(ctx, conn1, wire.SubscribeParams{ThreadID: threadID})
+	if err != nil {
+		t.Fatalf("initial subscribe failed: %v", err)
+	}
+	if !firstRes.Subscribed || firstRes.Snapshot == nil || len(firstRes.Replay) != 0 {
+		t.Fatalf("expected snapshot on initial subscribe, got %+v", firstRes)
+	}
+	runID := firstRes.Snapshot.RunID
+
+	// 2. 产生两条事件后，断线重连携带 runID 与 afterSequence=0 应只返回 Replay 且 Snapshot 为 nil
+	summary := wire.ThreadSummary{ID: threadID, ProjectID: "00000000-0000-0000-0000-000000000001", Title: "Replay Thread"}
+	hub.Publish(threadID, []wire.ThreadMessage{{ID: "m1", Text: "one"}}, nil, summary)
+	hub.Flush(threadID)
+	hub.Publish(threadID, []wire.ThreadMessage{{ID: "m2", Text: "two"}}, nil, summary)
+	hub.Flush(threadID)
+
+	conn2 := newMockStreamConn()
+	replayRes, err := b.Subscribe(ctx, conn2, wire.SubscribeParams{
+		ThreadID:      threadID,
+		RunID:         runID,
+		AfterSequence: 0,
+	})
+	if err != nil {
+		t.Fatalf("replay subscribe failed: %v", err)
+	}
+	if !replayRes.Subscribed || replayRes.Snapshot != nil {
+		t.Fatalf("expected nil snapshot when replay succeeds, got %+v", replayRes)
+	}
+	if len(replayRes.Replay) != 2 || replayRes.Replay[0].Sequence != 1 || replayRes.Replay[1].Sequence != 2 {
+		t.Fatalf("expected replay [1, 2], got %+v", replayRes.Replay)
+	}
+
+	// 3. afterSequence 等于当前 sequence 时 Snapshot 为 nil 且 Replay 为空
+	headRes, err := b.Subscribe(ctx, newMockStreamConn(), wire.SubscribeParams{
+		ThreadID:      threadID,
+		RunID:         runID,
+		AfterSequence: 2,
+	})
+	if err != nil {
+		t.Fatalf("head subscribe failed: %v", err)
+	}
+	if !headRes.Subscribed || headRes.Snapshot != nil || len(headRes.Replay) != 0 {
+		t.Fatalf("expected nil snapshot and empty replay at head, got %+v", headRes)
+	}
+
+	// 4. runID 不匹配时回退到 Snapshot
+	fallbackRes, err := b.Subscribe(ctx, newMockStreamConn(), wire.SubscribeParams{
+		ThreadID:      threadID,
+		RunID:         "stale-run",
+		AfterSequence: 1,
+	})
+	if err != nil {
+		t.Fatalf("fallback subscribe failed: %v", err)
+	}
+	if !fallbackRes.Subscribed || fallbackRes.Snapshot == nil || len(fallbackRes.Replay) != 0 {
+		t.Fatalf("expected snapshot fallback on mismatched runID, got %+v", fallbackRes)
+	}
+
+	// 5. 会话不存在即使传了 runID 也应返回 ResourceNotFound
+	_, err = b.Subscribe(ctx, newMockStreamConn(), wire.SubscribeParams{
+		ThreadID:      "00000000-0000-0000-0000-000000000999",
+		RunID:         runID,
+		AfterSequence: 1,
+	})
+	var rpcErr *wire.RPCError
+	if !errors.As(err, &rpcErr) || rpcErr.Code != wire.ErrCodeResourceNotFound {
+		t.Fatalf("expected ResourceNotFound for missing thread, got %v", err)
+	}
+
+	// 6. Dispatcher 校验负数 afterSequence 返回 InvalidParams，合法重连返回 replay
+	d := NewDispatcher(&fakeAuth{}, b)
+	rpcConn := &fakeConn{info: ClientInfo{Authenticated: true}}
+	badRaw := d.Handle(ctx, rpcConn, []byte(fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"threads.subscribe","params":{"threadID":%q,"runID":%q,"afterSequence":-1},"id":1}`,
+		threadID, runID,
+	)))
+	var badResp wire.Response
+	if err := json.Unmarshal(badRaw, &badResp); err != nil {
+		t.Fatalf("unmarshal bad resp: %v", err)
+	}
+	if badResp.Error == nil || badResp.Error.Code != wire.InvalidParams {
+		t.Fatalf("expected InvalidParams for negative afterSequence, got %+v", badResp.Error)
+	}
+
+	okRaw := d.Handle(ctx, rpcConn, []byte(fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"threads.subscribe","params":{"threadID":%q,"runID":%q,"afterSequence":1},"id":2}`,
+		threadID, runID,
+	)))
+	var okResp struct {
+		Result wire.SubscribeResult `json:"result"`
+		Error  *wire.RPCError       `json:"error"`
+	}
+	if err := json.Unmarshal(okRaw, &okResp); err != nil || okResp.Error != nil {
+		t.Fatalf("rpc replay failed: err=%v rpc=%+v", err, okResp.Error)
+	}
+	if okResp.Result.Snapshot != nil || len(okResp.Result.Replay) != 1 || okResp.Result.Replay[0].Sequence != 2 {
+		t.Fatalf("unexpected rpc replay result: %+v", okResp.Result)
 	}
 }
