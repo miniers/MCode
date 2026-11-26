@@ -2,6 +2,7 @@
 package remote
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // SetPromptDecorator 设置发送给 Provider 之前的 Prompt 装饰钩子。
@@ -197,6 +199,13 @@ func (b *MemoryBackend) buildGuidance(workDir string, maxSkillRunes int, forBee 
 	// Nowledge Working Memory 放在最后，作为项目文档与技能目录之后的背景参考。
 	if wm := b.nowledgeWorkingMemory(workDir); wm != "" {
 		parts = append(parts, wm)
+	}
+	// 工作区快照不依赖 ContextGuidanceEnabled，主会话与 bee 首轮均注入。
+	snapCtx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	snap := projctx.WorkspaceSnapshot(snapCtx, workDir)
+	cancel()
+	if snap != "" {
+		parts = append(parts, snap)
 	}
 	return strings.Join(parts, "\n\n")
 }

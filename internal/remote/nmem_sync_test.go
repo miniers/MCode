@@ -473,7 +473,7 @@ func TestLocalMemoryGuidance(t *testing.T) {
 	b.SetNowledge(nil)
 	b.SetLocalMemory(func(int) string { return "  " })
 	got = b.buildGuidance(workDir, 0, false)
-	if !strings.HasSuffix(got, localMemoryToolsNote) {
+	if !strings.HasSuffix(stripWorkspaceSnapshot(got), localMemoryToolsNote) {
 		t.Fatalf("空规则不应追加空块: %q", got)
 	}
 	disabled := false
@@ -483,6 +483,17 @@ func TestLocalMemoryGuidance(t *testing.T) {
 	if strings.Contains(got, localMemoryToolsNote) || !strings.Contains(got, "GLOBAL RULES") {
 		t.Fatalf("关闭工具说明后仍应注入全局规则: %q", got)
 	}
+}
+
+// stripWorkspaceSnapshot 去掉末尾可选的 <workspace_snapshot> 段落，避免干扰只校验前置指导词的测试。
+func stripWorkspaceSnapshot(s string) string {
+	if idx := strings.Index(s, "\n\n<workspace_snapshot>"); idx >= 0 {
+		return s[:idx]
+	}
+	if strings.HasPrefix(s, "<workspace_snapshot>") {
+		return ""
+	}
+	return s
 }
 
 // 本地记忆后端不注入 NMEM_SPACE；没注册本地回调时沿用 memspace 的解析结果。

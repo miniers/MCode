@@ -62,6 +62,7 @@ func newRegistry(s *Server) *Registry {
 		r.registerKanbanTools(s)
 	}
 	r.registerContextTools(s)
+	r.registerWorkspaceTools(s)
 	r.registerSessionTools(s)
 	r.registerAutomationTools(s)
 	r.registerSwarmTools(s)

@@ -215,3 +215,22 @@ func TestDisabledSkillPathsSkipsDeactivatedSkill(t *testing.T) {
 		t.Fatalf("停用的技能不应出现在注入清单里：%s", guidance)
 	}
 }
+
+func TestBuildGuidanceIncludesWorkspaceSnapshot(t *testing.T) {
+	testenv.TempHome(t)
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "go.mod"), []byte("module example.com/demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	backend := NewMemoryBackend(nil)
+	t.Cleanup(backend.Close)
+
+	got := backend.buildGuidance(workDir, projctx.LeadSkillIndexDescriptionMaxRunes, false)
+	if !strings.Contains(got, "<workspace_snapshot>") {
+		t.Fatalf("buildGuidance 应包含 <workspace_snapshot>，got %q", got)
+	}
+	if !strings.Contains(got, "stack: Go") {
+		t.Fatalf("buildGuidance 应包含 stack: Go，got %q", got)
+	}
+}
