@@ -216,6 +216,75 @@ func (p *Proxy) foldStateOf(serverID string) (foldState, bool) {
 	return state, ok
 }
 
+// foldToolSchema 从折叠前工具清单中取出指定工具的 inputSchema 原始 JSON；取不到时返回 false。
+func foldToolSchema(state foldState, tool string) (json.RawMessage, bool) {
+	if tool == "" || len(state.list) == 0 {
+		return nil, false
+	}
+	tools, names, ok := parseToolsList(state.list)
+	if !ok {
+		return nil, false
+	}
+	for i, name := range names {
+		if name != tool {
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(tools[i], &fields); err != nil {
+			return nil, false
+		}
+		schema, found := fields["inputSchema"]
+		if !found || strings.TrimSpace(string(schema)) == "" || strings.TrimSpace(string(schema)) == "null" {
+			return nil, false
+		}
+		return schema, true
+	}
+	return nil, false
+}
+
+// appendFoldErrorSchema 在上游 tools/call 结果的 isError 为 true 时，
+// 于 content 数组末尾追加该工具的 inputSchema 提示文本；其余字段保持原样，解析失败时原样返回。
+func appendFoldErrorSchema(result json.RawMessage, tool string, schema json.RawMessage) json.RawMessage {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(result, &envelope); err != nil {
+		return result
+	}
+	rawIsErr, hasIsErr := envelope["isError"]
+	if !hasIsErr {
+		return result
+	}
+	var isErr bool
+	if err := json.Unmarshal(rawIsErr, &isErr); err != nil || !isErr {
+		return result
+	}
+	rawContent, hasContent := envelope["content"]
+	if !hasContent {
+		return result
+	}
+	var content []json.RawMessage
+	if err := json.Unmarshal(rawContent, &content); err != nil {
+		return result
+	}
+	extra, err := json.Marshal(map[string]any{
+		"type": "text",
+		"text": fmt.Sprintf("工具 %s 的 inputSchema：%s", tool, string(schema)),
+	})
+	if err != nil {
+		return result
+	}
+	content = append(content, extra)
+	encodedContent, err := json.Marshal(content)
+	if err != nil {
+		return result
+	}
+	envelope["content"] = encodedContent
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return result
+	}
+	return out
+}
+
 // applyFold 在已按策略过滤的 tools/list 结果上应用折叠，并把状态（含折叠前清单）记入 map。
 // 返回最终要回给客户端的结果与记录下来的状态。
 func (p *Proxy) applyFold(serverID, serverName string, filtered json.RawMessage, policy agentconf.MCPToolPolicy) (json.RawMessage, foldState) {
@@ -681,6 +750,7 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		if spec, ok := p.hub.Upstream(serverID); ok {
 			upstreamName = spec.Name
 		}
+		var foldedTool string
 		// 折叠入口 call_tool 也要先改写成内部工具调用，禁用检查才能命中真正的工具名。
 		var callParams struct {
 			Name      string          `json:"name"`
@@ -712,6 +782,7 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 				if plan.tool != "" {
 					callParams.Name = plan.tool
 					req.Params = plan.params
+					foldedTool = plan.tool
 				}
 			}
 			// 禁用的工具直接拒绝调用（列表已在 tools/list 中过滤）。
@@ -731,6 +802,17 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if rpcErr != nil {
+			if foldedTool != "" && rpcErr.Code == -32602 {
+				if state, ok := p.foldStateOf(serverID); ok {
+					if schema, found := foldToolSchema(state, foldedTool); found {
+						rpcErr = &jsonRPCError{
+							Code:    rpcErr.Code,
+							Message: rpcErr.Message + fmt.Sprintf("\n工具 %s 的 inputSchema：%s", foldedTool, string(schema)),
+							Data:    rpcErr.Data,
+						}
+					}
+				}
+			}
 			writeRPCResponse(w, req.ID, nil, rpcErr)
 			return
 		}
@@ -738,6 +820,13 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 			policy := loadToolPolicy()
 			result = filterDisabledTools(result, upstreamName, policy)
 			result, _ = p.applyFold(serverID, upstreamName, result, policy)
+		}
+		if foldedTool != "" {
+			if state, ok := p.foldStateOf(serverID); ok {
+				if schema, found := foldToolSchema(state, foldedTool); found {
+					result = appendFoldErrorSchema(result, foldedTool, schema)
+				}
+			}
 		}
 		writeRPCResponse(w, req.ID, result, nil)
 		return

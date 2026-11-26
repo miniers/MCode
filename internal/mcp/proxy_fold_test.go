@@ -606,3 +606,228 @@ func TestFoldQuery_NoMatch(t *testing.T) {
 		t.Fatalf("无匹配提示应列出可用工具名, got %q", text)
 	}
 }
+
+// newFoldErrorSchemaUpstream 启动一个可按 arguments.mode 返回成功、isError 或 JSON-RPC 错误的假上游。
+func newFoldErrorSchemaUpstream(t *testing.T, count int) *httptest.Server {
+	t.Helper()
+	tools := foldFakeTools(count)
+	tools[0]["inputSchema"] = map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"target_path": map[string]any{"type": "string"},
+		},
+		"required": []string{"target_path"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     any             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.ID == nil {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+
+		var resp map[string]any
+		switch req.Method {
+		case "initialize":
+			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+				"protocolVersion": "2025-06-18",
+				"serverInfo":      map[string]any{"name": "fake-fold-error-upstream"},
+			}}
+		case "tools/list":
+			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"tools": tools}}
+		case "tools/call":
+			var callParams struct {
+				Name      string `json:"name"`
+				Arguments struct {
+					Mode string `json:"mode"`
+				} `json:"arguments"`
+			}
+			_ = json.Unmarshal(req.Params, &callParams)
+			switch callParams.Arguments.Mode {
+			case "is_error":
+				resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+					"isError": true,
+					"content": []map[string]any{{"type": "text", "text": "missing target_path"}},
+				}}
+			case "invalid_params":
+				resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{
+					"code":    -32602,
+					"message": "invalid params",
+					"data":    map[string]any{"field": "target_path"},
+				}}
+			default:
+				resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{
+					"content": []map[string]any{{"type": "text", "text": "ok:" + callParams.Name}},
+				}}
+			}
+		default:
+			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}}
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestFoldErrorSchema 覆盖：折叠调用上游返回 isError 或 -32602 时附上工具 inputSchema，
+// 成功结果与未折叠服务的错误结果不追加。
+func TestFoldErrorSchema(t *testing.T) {
+	t.Run("折叠调用返回isError时末尾附带inputSchema", func(t *testing.T) {
+		upstream := newFoldErrorSchemaUpstream(t, 45)
+		proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+		handler := proxy.Handler()
+		token := proxy.Token()
+
+		code, resp := postProxy(t, handler, "/mcp/demo", token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      foldEntryToolName,
+				"arguments": map[string]any{"tool": "tool_0", "arguments": map[string]any{"mode": "is_error"}},
+			},
+		})
+		if code != http.StatusOK || resp["error"] != nil {
+			t.Fatalf("isError 应通过 result 返回, code=%d resp=%v", code, resp)
+		}
+		result, _ := resp["result"].(map[string]any)
+		if result["isError"] != true {
+			t.Fatalf("应保留 isError=true, got %v", result)
+		}
+		content, _ := result["content"].([]any)
+		if len(content) != 2 {
+			t.Fatalf("content 应追加为 2 项, got %d: %v", len(content), content)
+		}
+		first, _ := content[0].(map[string]any)
+		if first["text"] != "missing target_path" {
+			t.Fatalf("原有 content 首项不应被改写, got %v", first)
+		}
+		second, _ := content[1].(map[string]any)
+		if second["type"] != "text" {
+			t.Fatalf("追加项 type 应为 text, got %v", second)
+		}
+		text, _ := second["text"].(string)
+		const prefix = "工具 tool_0 的 inputSchema："
+		if !strings.HasPrefix(text, prefix) {
+			t.Fatalf("追加文本前缀不符, got %q", text)
+		}
+		var schema map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(text, prefix)), &schema); err != nil {
+			t.Fatalf("附带的 inputSchema 不是合法 JSON: %v, text=%q", err, text)
+		}
+		props, _ := schema["properties"].(map[string]any)
+		if _, ok := props["target_path"]; !ok {
+			t.Fatalf("附带的 inputSchema 应属于 tool_0, got %v", schema)
+		}
+	})
+
+	t.Run("折叠调用返回-32602时错误message附带inputSchema", func(t *testing.T) {
+		upstream := newFoldErrorSchemaUpstream(t, 45)
+		proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+		handler := proxy.Handler()
+		token := proxy.Token()
+
+		code, resp := postProxy(t, handler, "/mcp/demo", token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      2,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      foldEntryToolName,
+				"arguments": map[string]any{"tool": "tool_0", "arguments": map[string]any{"mode": "invalid_params"}},
+			},
+		})
+		if code != http.StatusOK || resp["result"] != nil {
+			t.Fatalf("-32602 应返回 JSON-RPC error, code=%d resp=%v", code, resp)
+		}
+		errObj, _ := resp["error"].(map[string]any)
+		if errObj["code"] != float64(-32602) {
+			t.Fatalf("错误码应保持 -32602, got %v", errObj["code"])
+		}
+		data, _ := errObj["data"].(map[string]any)
+		if data["field"] != "target_path" {
+			t.Fatalf("错误 data 应保持不变, got %v", errObj["data"])
+		}
+		msg, _ := errObj["message"].(string)
+		const prefix = "invalid params\n工具 tool_0 的 inputSchema："
+		if !strings.HasPrefix(msg, prefix) {
+			t.Fatalf("错误 message 应追加 schema, got %q", msg)
+		}
+		if !strings.Contains(msg, "target_path") {
+			t.Fatalf("错误 message 应包含 tool_0 的 schema 字段, got %q", msg)
+		}
+	})
+
+	t.Run("折叠调用成功时不含追加内容", func(t *testing.T) {
+		upstream := newFoldErrorSchemaUpstream(t, 45)
+		proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+		handler := proxy.Handler()
+		token := proxy.Token()
+
+		code, resp := postProxy(t, handler, "/mcp/demo", token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      3,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      foldEntryToolName,
+				"arguments": map[string]any{"tool": "tool_0", "arguments": map[string]any{"mode": "ok"}},
+			},
+		})
+		if code != http.StatusOK || resp["error"] != nil {
+			t.Fatalf("正常调用应成功, code=%d resp=%v", code, resp)
+		}
+		result, _ := resp["result"].(map[string]any)
+		content, _ := result["content"].([]any)
+		if len(content) != 1 {
+			t.Fatalf("成功结果 content 应保持 1 项, got %v", content)
+		}
+		if got := firstContentText(t, resp); got != "ok:tool_0" {
+			t.Fatalf("成功结果文本不符, got %q", got)
+		}
+	})
+
+	t.Run("未折叠服务的错误结果不含追加内容", func(t *testing.T) {
+		upstream := newFoldErrorSchemaUpstream(t, 5)
+		proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+		handler := proxy.Handler()
+		token := proxy.Token()
+
+		code, resp := postProxy(t, handler, "/mcp/demo", token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      4,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      "tool_0",
+				"arguments": map[string]any{"mode": "is_error"},
+			},
+		})
+		if code != http.StatusOK || resp["error"] != nil {
+			t.Fatalf("未折叠 isError 应原样返回, code=%d resp=%v", code, resp)
+		}
+		result, _ := resp["result"].(map[string]any)
+		content, _ := result["content"].([]any)
+		if len(content) != 1 || firstContentText(t, resp) != "missing target_path" {
+			t.Fatalf("未折叠服务 isError 不应追加 schema, got %v", content)
+		}
+
+		code, resp = postProxy(t, handler, "/mcp/demo", token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      5,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      "tool_0",
+				"arguments": map[string]any{"mode": "invalid_params"},
+			},
+		})
+		if code != http.StatusOK || resp["result"] != nil {
+			t.Fatalf("未折叠 -32602 应原样返回, code=%d resp=%v", code, resp)
+		}
+		errObj, _ := resp["error"].(map[string]any)
+		if errObj["message"] != "invalid params" {
+			t.Fatalf("未折叠服务 -32602 不应追加 schema, got %v", errObj["message"])
+		}
+	})
+}
