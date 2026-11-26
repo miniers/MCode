@@ -845,7 +845,12 @@ export interface MarkdownViewProps {
   math?: boolean;
   /** Markdown 文件所在目录，供相对路径图片解析为工作区本地图片 */
   baseDir?: string;
+  contextHeadings?: boolean;
 }
+
+const ContextHeading: NonNullable<Components['h2']> = ({ node, ...props }) => (
+  <h2 {...props} data-context-heading="" tabIndex={-1} />
+);
 
 type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>['rehypePlugins'];
 
@@ -853,7 +858,8 @@ export const MarkdownView = React.memo(function MarkdownView({
   text,
   highlight,
   math: mathEnabled = true,
-  baseDir
+  baseDir,
+  contextHeadings = false
 }: MarkdownViewProps) {
   const query = (highlight?.query ?? '').trim();
   const caseSensitive = Boolean(highlight?.caseSensitive);
@@ -897,13 +903,14 @@ export const MarkdownView = React.memo(function MarkdownView({
 
   const markdownComponents = React.useMemo<Components>(
     () =>
-      baseDir === undefined
+      baseDir === undefined && !contextHeadings
         ? components
         : {
             ...components,
-            img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} baseDir={baseDir} />
+            ...(baseDir === undefined ? {} : { img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} baseDir={baseDir} /> }),
+            ...(contextHeadings ? { h2: ContextHeading } : {})
           },
-    [baseDir]
+    [baseDir, contextHeadings]
   );
 
   if (!displayText.trim()) {

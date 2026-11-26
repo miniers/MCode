@@ -4,30 +4,17 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"mcode/internal/git"
 )
 
-const gitAutoFetchInterval = 5 * time.Minute
-
-// gitPaneFetchThrottle 是全局节流表：同一仓库根在 gitAutoFetchInterval 内只抓取一次，
-// Git 面板与聊天窗口的自动抓取共用，避免重复请求远端。
-var gitPaneFetchThrottle = struct {
-	sync.Mutex
-	last map[string]time.Time
-}{last: make(map[string]time.Time)}
-
 func gitPaneFetchDue(last, now time.Time) bool {
-	return last.IsZero() || now.Sub(last) >= gitAutoFetchInterval
+	return git.AutoFetchDue(last, now)
 }
 
 // gitAutoFetchClaim 在节流窗口外时登记本次抓取并返回 true；调用方随后必须真正抓取。
 func gitAutoFetchClaim(root string, now time.Time) bool {
-	gitPaneFetchThrottle.Lock()
-	defer gitPaneFetchThrottle.Unlock()
-	if !gitPaneFetchDue(gitPaneFetchThrottle.last[root], now) {
-		return false
-	}
-	gitPaneFetchThrottle.last[root] = now
-	return true
+	return git.ClaimAutoFetch(root, now)
 }
 
 // gitAutoFetchEnabled 读取「自动抓取」开关；设置尚未注册时按默认开启。
@@ -71,13 +58,13 @@ func (s *chatState) gitAutoFetch() bool {
 	return true
 }
 
-// startGitAutoFetch 每 gitAutoFetchInterval 在窗口激活时抓取一次；返回的 stop 在窗口关闭时调用，
+// startGitAutoFetch 在窗口激活时定期抓取；返回的 stop 在窗口关闭时调用，
 // 幂等。用 time.Ticker 而非组件级动画，静止时不触发重绘。
 func startGitAutoFetch(s *chatState) (stop func()) {
 	done := make(chan struct{})
 	var once sync.Once
 	go func() {
-		ticker := time.NewTicker(gitAutoFetchInterval)
+		ticker := time.NewTicker(git.AutoFetchInterval)
 		defer ticker.Stop()
 		for {
 			select {

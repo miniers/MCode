@@ -150,6 +150,7 @@ var defaultFeatures = []string{
 	"threads.media",
 	"files.read",
 	"git.readonly",
+	"kanban.rescue.complete",
 	"context.readonly",
 	"logs.stream",
 	"threads.attachments",

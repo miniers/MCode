@@ -140,6 +140,21 @@ func (x remoteMemoryExt) SearchMemories(ctx context.Context, projectPath, query 
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
+	return memoryItemsToWire(items), nil
+}
+
+func (x remoteMemoryExt) ListMemories(ctx context.Context, projectPath string) ([]wire.MemoryExtMemory, error) {
+	if x.client == nil {
+		return nil, errors.New("记忆服务不可用")
+	}
+	items, err := x.client.ListMemories(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	return memoryItemsToWire(items), nil
+}
+
+func memoryItemsToWire(items []mcodeui.MemoryItem) []wire.MemoryExtMemory {
 	out := make([]wire.MemoryExtMemory, 0, len(items))
 	for _, m := range items {
 		out = append(out, wire.MemoryExtMemory{
@@ -152,7 +167,7 @@ func (x remoteMemoryExt) SearchMemories(ctx context.Context, projectPath, query 
 			CreatedAt:  memoryExtFormatTime(m.CreatedAt),
 		})
 	}
-	return out, nil
+	return out
 }
 
 // proposalByID 在收件箱里按 ID 找一条提议（不限项目与状态）；找不到时与 Client 同文案报错。

@@ -1,7 +1,7 @@
 // 记忆搜索分页：输入关键词回车搜索 Nowledge Mem 里的记忆，结果只读（不改状态、不写入）。
 // 对应桌面端记忆面板的搜索页（internal/ui/memory_panel_views.go 的 renderMemorySearchTab）。
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMemoryActions, type RemoteMemorySearchEntry } from '../context/remoteMemoryApi';
 import { memoryUnitTypeLabel } from './MemoryCreateForm';
 import { SearchIcon } from './Icons';
@@ -35,7 +35,7 @@ export const MemorySearchPanel: React.FC<MemorySearchPanelProps> = ({
   // 默认只在当前项目里搜；勾掉后跨全部项目（宿主 projectID 为空即全局搜索）。
   const [onlyProject, setOnlyProject] = useState(true);
   const scopeProjectID = onlyProject ? projectID : null;
-  const { searchMemories, searchSupported } = useMemoryActions(scopeProjectID);
+  const { listMemories, listSupported, searchMemories, searchSupported } = useMemoryActions(scopeProjectID);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<RemoteMemorySearchEntry[] | null>(null);
   const [searched, setSearched] = useState('');
@@ -44,44 +44,54 @@ export const MemorySearchPanel: React.FC<MemorySearchPanelProps> = ({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // 请求代际：连续回车时丢掉旧请求的结果，避免列表回踩。
   const seqRef = useRef(0);
-
-  if (!searchSupported) return null;
+  const [submittedQuery, setSubmittedQuery] = useState('');
+  const [reloadID, setReloadID] = useState(0);
 
   const toggleExpanded = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const runSearch = async () => {
-    const text = query.trim();
-    if (!text) {
-      setError('请输入要搜索的关键词');
-      setResults(null);
-      return;
-    }
+  useEffect(() => {
+    if (submittedQuery ? !searchSupported : !listSupported) return;
     seqRef.current += 1;
     const seq = seqRef.current;
     setLoading(true);
     setError('');
-    try {
-      const items = await searchMemories({ query: text, limit: RESULT_LIMIT });
+    setResults(null);
+    const request = submittedQuery
+      ? searchMemories({ query: submittedQuery, limit: RESULT_LIMIT })
+      : listMemories();
+    void request.then((items) => {
       if (seq !== seqRef.current) return;
       setResults(items);
-      setSearched(text);
+      setSearched(submittedQuery);
       setExpanded({});
-    } catch (err) {
+    }).catch((err) => {
       if (seq !== seqRef.current) return;
-      setResults(null);
-      setError(err instanceof Error ? err.message : '搜索记忆失败，请稍后重试');
-    } finally {
+      setError(err instanceof Error ? err.message : '读取记忆失败');
+    }).finally(() => {
       if (seq === seqRef.current) setLoading(false);
+    });
+    return () => { seqRef.current += 1; };
+  }, [listMemories, listSupported, reloadID, searchMemories, searchSupported, submittedQuery]);
+
+  const runSearch = () => {
+    const text = query.trim();
+    if (!text && !listSupported) {
+      setError('请输入要搜索的关键词');
+      setResults(null);
+      return;
     }
+    setSubmittedQuery(text);
+    setReloadID((id) => id + 1);
   };
 
-  const scopeHint = onlyProject && projectName ? `只搜当前项目（${projectName}）` : '搜索全部项目';
+  const scopeHint = projectName ? `只看当前项目（${projectName}）` : '只看当前项目';
+  if (!searchSupported && !listSupported) return null;
 
   return (
     <div className="space-y-3 pb-2">
-      <form
+      {searchSupported && <form
         className="flex items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
@@ -94,7 +104,10 @@ export const MemorySearchPanel: React.FC<MemorySearchPanelProps> = ({
           value={query}
           placeholder="搜索记忆标题与正文，回车搜索"
           aria-label="搜索记忆"
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            if (listSupported && !event.target.value.trim()) setSubmittedQuery('');
+          }}
         />
         <button
           type="submit"
@@ -102,9 +115,9 @@ export const MemorySearchPanel: React.FC<MemorySearchPanelProps> = ({
           className="primary-button settings-inline-button shrink-0"
         >
           <SearchIcon className="h-3.5 w-3.5" />
-          {loading ? '搜索中…' : '搜索'}
+          搜索
         </button>
-      </form>
+      </form>}
 
       {projectID ? (
         <label className="flex items-center gap-2 text-xs text-[var(--foreground-muted)]">
@@ -116,21 +129,23 @@ export const MemorySearchPanel: React.FC<MemorySearchPanelProps> = ({
           />
           <span>{scopeHint}</span>
         </label>
-      ) : (
-        <p className="text-mc-caption text-[var(--foreground-muted)]">{scopeHint}</p>
-      )}
+      ) : null}
+
+      {loading && <p className="text-mc-caption text-[var(--foreground-muted)]" role="status">正在读取记忆…</p>}
 
       {error && (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
+        <div className="settings-error" role="alert">
+          {error}{(submittedQuery || listSupported) && (
+            <button type="button" className="secondary-button ms-2" onClick={() => setReloadID((id) => id + 1)}>重试</button>
+          )}
+        </div>
       )}
 
       {results !== null && !error && (
         <p className="text-mc-caption text-[var(--foreground-muted)]" role="status">
           {results.length === 0
-            ? `没有找到与「${searched}」相关的记忆`
-            : `找到 ${results.length} 条记忆`}
+            ? searched ? `没有找到与「${searched}」相关的记忆` : '暂无记忆'
+            : `${results.length} 条记忆`}
         </p>
       )}
 

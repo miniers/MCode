@@ -3,6 +3,8 @@
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import type { RemoteGitBranchesResult, RemoteGitStatusResult } from '../types/contract';
+import { useGitAutoFetch } from '../hooks/useGitAutoFetch';
+import { ConfirmDialog } from './ConfirmDialog';
 import { useRemote, useRemoteStatic } from '../context/RemoteContext';
 import { useRemoteCall } from '../context/useRemoteCall';
 import {
@@ -64,6 +66,7 @@ interface GitStatusSectionProps {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  initAction?: React.ReactNode;
 }
 
 /** 工作区状态区：分支、上游、领先落后与改动文件列表。 */
@@ -71,7 +74,8 @@ const GitStatusSection: React.FC<GitStatusSectionProps> = ({
   result,
   loading,
   error,
-  onRetry
+  onRetry,
+  initAction
 }) => (
   <div className="space-y-3">
     <div className="flex items-center justify-between text-xs text-[var(--foreground-muted)] px-0.5">
@@ -140,6 +144,7 @@ const GitStatusSection: React.FC<GitStatusSectionProps> = ({
             <p className="text-xs text-[var(--foreground-muted)] leading-relaxed">
               当前会话关联的工作目录未包含 Git 元数据目录，未初始化版本控制。
             </p>
+            {initAction}
           </div>
         ) : (
           <div className="space-y-3">
@@ -512,6 +517,7 @@ export const GitStatusSheetBody = React.forwardRef<ThreadMenuPageHandle, GitStat
   const [writeBusyKey, setWriteBusyKey] = useState<string | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [initOpen, setInitOpen] = useState(false);
 
   const [statusResult, setStatusResult] = useState<RemoteGitStatusResult | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -539,6 +545,7 @@ export const GitStatusSheetBody = React.forwardRef<ThreadMenuPageHandle, GitStat
   const canPush = supportsMethod(GIT_EXT_METHODS.push);
   const canPull = supportsMethod(GIT_EXT_METHODS.pull);
   const canFetch = supportsMethod(GIT_EXT_METHODS.fetch);
+  const canInit = supportsMethod('git.init');
   const canCheckout = supportsMethod(GIT_EXT_METHODS.checkout);
   const canCreateBranch = supportsMethod(GIT_EXT_METHODS.createBranch);
   const canMerge = supportsMethod(GIT_EXT_METHODS.merge);
@@ -689,6 +696,23 @@ export const GitStatusSheetBody = React.forwardRef<ThreadMenuPageHandle, GitStat
     void fetchBranches();
   }, [fetchBranches]);
 
+  useGitAutoFetch(threadID, !writeBusyKey, handleRefreshAll);
+
+  const initRepository = async () => {
+    if (writeBusyKey || threadRunning || !isConnected) return;
+    setWriteBusyKey('init');
+    setSyncError(null);
+    try {
+      await call('git.init', { threadID });
+      handleRefreshAll();
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : '初始化 Git 失败');
+    } finally {
+      setInitOpen(false);
+      setWriteBusyKey(null);
+    }
+  };
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -834,6 +858,20 @@ export const GitStatusSheetBody = React.forwardRef<ThreadMenuPageHandle, GitStat
                   loading={statusLoading}
                   error={statusError}
                   onRetry={() => void fetchStatus()}
+                  initAction={canInit && (
+                    <button type="button" className="secondary-button touch-hit-44" disabled={!isConnected || threadRunning || Boolean(writeBusyKey)} onClick={() => setInitOpen(true)}>
+                      初始化 Git
+                    </button>
+                  )}
+                />
+                <ConfirmDialog
+                  isOpen={initOpen}
+                  title="初始化 Git？"
+                  message="在当前会话目录创建 Git 仓库。"
+                  confirmLabel="初始化 Git"
+                  isLoading={writeBusyKey === 'init'}
+                  onConfirm={() => void initRepository()}
+                  onCancel={() => setInitOpen(false)}
                 />
 
                 {/* 远程同步：推送 / 拉取（快进）/ 抓取 */}

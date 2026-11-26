@@ -195,7 +195,7 @@ export interface RemoteContextType {
     offset?: number,
     length?: number
   ) => Promise<RemoteFilesReadResult>;
-  searchThreadFiles: (threadID: string, query: string) => Promise<RemoteFilesSearchResult>;
+  searchThreadFiles: (threadID: string, query: string, path?: string) => Promise<RemoteFilesSearchResult>;
   readThreadMedia: (params: RemoteThreadsMediaReadParams) => Promise<RemoteThreadsMediaReadResult>;
   listThreadScripts: (threadID: string) => Promise<RemoteScriptsListResult>;
   runThreadScript: (threadID: string, target: RemoteScriptsRunTarget) => Promise<RemoteScriptsRunResult>;

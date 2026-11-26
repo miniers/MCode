@@ -13,7 +13,7 @@ import (
 //   - settings.set：按白名单原子写入（任一键非法整体拒绝），成功后广播 settings.changed。
 //
 // 白名单刻意只覆盖「界面偏好」这一层：providers 凭据、remote TLS / Cloudflare token、
-// source_control、memory、workbench 等都不开放，避免远程一改就把本机连不上。
+// memory、workbench 等不开放。Webhook 地址只写入，不随快照返回。
 // 数据与桌面端同源：internal/app/remote_settings.go 注入 "settings" 服务，
 // 由它转 config.Load / config.Update。
 
@@ -33,6 +33,10 @@ const (
 	SettingsKeySessionPinSentMessage              = "session.pin_sent_message"
 	SettingsKeySessionInsertIntoRunningTurn       = "session.insert_into_running_turn"
 	SettingsKeySessionConciseRepliesEnabled       = "session.concise_replies_enabled"
+	SettingsKeySessionCompactSuggestPercent       = "session.compact_suggest_percent"
+	SettingsKeySessionCompactSuggestMaxK          = "session.compact_suggest_max_k"
+	SettingsKeyGitAutoFetch                       = "source_control.auto_fetch"
+	SettingsKeyWebhookURL                         = "notifications.webhook_url"
 	SettingsKeyOrchestrationEnabled               = "orchestration.enabled"
 	SettingsKeyOrchestrationAutoDelegate          = "orchestration.auto_delegate"
 	SettingsKeyOrchestrationMaxBees               = "orchestration.max_bees"
@@ -82,6 +86,10 @@ var SettingsWritableKeys = []string{
 	SettingsKeySessionPinSentMessage,
 	SettingsKeySessionInsertIntoRunningTurn,
 	SettingsKeySessionConciseRepliesEnabled,
+	SettingsKeySessionCompactSuggestPercent,
+	SettingsKeySessionCompactSuggestMaxK,
+	SettingsKeyGitAutoFetch,
+	SettingsKeyWebhookURL,
 	SettingsKeyOrchestrationEnabled,
 	SettingsKeyOrchestrationAutoDelegate,
 	SettingsKeyOrchestrationMaxBees,
@@ -171,6 +179,9 @@ func handleSettingsSet(ctx context.Context, d *Dispatcher, c Conn, params json.R
 	if len(p.Values) == 0 {
 		return nil, ExtInvalidParams("Invalid params: 'values' must contain at least one key")
 	}
+	if _, ok := p.Values[SettingsKeyWebhookURL]; ok && (c == nil || !c.Info().Entry.Secure()) {
+		return nil, &wire.RPCError{Code: wire.ErrCodeOperationRejected, Message: "请通过 HTTPS 修改 Webhook"}
+	}
 	// 白名单在 handler 先拦一道：越权键连服务都调不到，配置文件自然不受影响。
 	unknown := make([]string, 0, len(p.Values))
 	for key := range p.Values {
@@ -204,6 +215,9 @@ func handleSettingsSet(ctx context.Context, d *Dispatcher, c Conn, params json.R
 func normalizeSettingsSnapshot(snapshot wire.SettingsSnapshot) wire.SettingsSnapshot {
 	values := make(map[string]json.RawMessage, len(SettingsWritableKeys))
 	for _, key := range SettingsWritableKeys {
+		if key == SettingsKeyWebhookURL {
+			continue
+		}
 		if v, ok := snapshot.Values[key]; ok {
 			values[key] = v
 		}

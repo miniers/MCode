@@ -25,6 +25,7 @@ import {
   goalStatusClass,
   goalStatusLabel,
   isStewardOrigin,
+  canCancelTask,
   taskStatusLabel,
   taskStatusToneClass
 } from '../utils/taskStatus';
@@ -261,6 +262,17 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     }
   };
 
+  const handleCancel = () => {
+    setConfirmState({
+      isOpen: true,
+      title: '取消任务？',
+      message: `取消「${task.title}」会中断它正在执行的会话。`,
+      confirmLabel: '取消任务',
+      confirmVariant: 'danger',
+      action: async () => { await runConfirmed(() => moveTask(task.id, 'cancelled', task.revision)); }
+    });
+  };
+
   const handleGoalTaskAction = async (action: 'retry' | 'skip') => {
     setErrorMessage(null);
     try {
@@ -280,6 +292,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     <>
       <SheetFrame title={task.title} eyebrow="任务详情" onClose={onClose} footer={(
         <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 max-w-full">
+          {canCancelTask(task.status) && (
+            <button type="button" disabled={isActionDisabled} onClick={handleCancel} className="secondary-button text-danger" data-host-actionable="true">
+              取消任务
+            </button>
+          )}
           {task.canStart && (
             <button type="button" disabled={isActionDisabled || task.blocked} onClick={handleStart} className="primary-button" data-host-actionable="true">
               <PlayIcon className="h-4 w-4" />启动

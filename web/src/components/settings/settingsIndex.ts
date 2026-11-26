@@ -78,6 +78,13 @@ export const SETTINGS_PAGES: SettingsPageDef[] = [
     keywords: ['nowledge', 'nmem', 'memory', 'working memory', 'threads', 'sync', '记忆', '上下文']
   },
   {
+    id: 'skills',
+    title: '技能',
+    group: 'ai',
+    icon: 'document',
+    keywords: ['skills', 'agent', '技能', '扩展']
+  },
+  {
     id: 'appearance',
     title: '外观',
     group: 'app',
@@ -125,6 +132,11 @@ export interface SettingsItemDef {
 }
 
 export const SETTINGS_ITEMS: SettingsItemDef[] = [
+  { id: 'row-compact-suggest-percent', page: 'conversation', section: '上下文压缩', title: '建议压缩比例', settingsKey: 'session.compact_suggest_percent' },
+  { id: 'row-compact-suggest-max', page: 'conversation', section: '上下文压缩', title: '建议压缩上限', settingsKey: 'session.compact_suggest_max_k' },
+  { id: 'row-git-auto-fetch', page: 'conversation', section: '版本控制', title: '自动抓取', aliases: ['git', 'fetch'], settingsKey: 'source_control.auto_fetch' },
+  { id: 'row-webhook-url', page: 'device', section: '通知', title: 'Webhook', settingsKey: 'notifications.webhook_url' },
+  { id: 'skills-list', page: 'skills', section: '技能', title: '已安装技能', aliases: ['Agent', '摘要', '扩展'], webOnly: true },
   // ---- 会话：回复 ----
   {
     id: 'row-auto-collapse-reasoning',

@@ -96,6 +96,11 @@ func (f *fakeMemoryExtService) SearchMemories(ctx context.Context, projectPath, 
 	return f.searchHits, nil
 }
 
+func (f *fakeMemoryExtService) ListMemories(ctx context.Context, projectPath string) ([]wire.MemoryExtMemory, error) {
+	f.projectPath = projectPath
+	return f.searchHits, f.listErr
+}
+
 func (f *fakeMemoryExtService) RejectProposal(ctx context.Context, id string) error {
 	f.rejectedID = id
 	return f.rejectErr
@@ -604,6 +609,30 @@ func TestMemorySearch_Success(t *testing.T) {
 	// 不带 projectID 表示全部项目：路径为空。
 	if svc.searchPath != "" {
 		t.Fatalf("全部项目的路径应为空，得到 %q", svc.searchPath)
+	}
+}
+
+func TestMemoryListWithoutQuery(t *testing.T) {
+	backend, project := newMemoryExtTestBackend(t)
+	svc := &fakeMemoryExtService{searchHits: []wire.MemoryExtMemory{{ID: "m-1", Title: "已保存记忆"}}}
+	backend.SetService(memoryExtServiceName, svc)
+	d, _ := newMemoryExtTestDispatcher(t, backend)
+	conn := &fakeConn{info: ClientInfo{Authenticated: true, DeviceID: "d-1"}}
+	resp := callExtension(t, d, conn, fmt.Sprintf(
+		`{"jsonrpc":"2.0","method":"memory.list","params":{"projectID":%q},"id":1}`, project.ID))
+	if resp.Error != nil {
+		t.Fatalf("memory.list: %+v", resp.Error)
+	}
+	raw, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result wire.MemoryExtSearchResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Results) != 1 || result.Results[0].ID != "m-1" || svc.projectPath != project.Path {
+		t.Fatalf("memory.list result: %#v, scope: %q", resp.Result, svc.projectPath)
 	}
 }
 

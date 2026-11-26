@@ -9,6 +9,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 import React, { useState } from 'react';
 import {
   REMOTE_MEMORY_CREATE_METHOD,
+  REMOTE_MEMORY_LIST_METHOD,
   REMOTE_MEMORY_PROPOSALS_ACCEPT_METHOD,
   REMOTE_MEMORY_PROPOSALS_LIST_METHOD,
   REMOTE_MEMORY_PROPOSALS_REJECT_METHOD,
@@ -142,13 +143,14 @@ const MemoryProposalsSheetBody: React.FC<MemoryProposalsSheetProps> = ({
   const { supportsMethod } = useRemoteCall();
   const listSupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_LIST_METHOD);
   const searchSupported = supportsMethod(REMOTE_MEMORY_SEARCH_METHOD);
+  const browseSupported = supportsMethod(REMOTE_MEMORY_LIST_METHOD);
   const createSupported = supportsMethod(REMOTE_MEMORY_CREATE_METHOD);
   // 接受 / 驳回各自跟着方法走：宿主没声明就只展示提议，不给按钮。
   const acceptSupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_ACCEPT_METHOD);
   const rejectSupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_REJECT_METHOD);
   const tabs: { value: SheetTab; label: string }[] = [
     ...(listSupported ? [{ value: 'proposals' as SheetTab, label: '待审提议' }] : []),
-    ...(searchSupported ? [{ value: 'search' as SheetTab, label: '搜索' }] : []),
+    ...(browseSupported || searchSupported ? [{ value: 'search' as SheetTab, label: browseSupported ? '全部记忆' : '搜索' }] : []),
     ...(createSupported ? [{ value: 'create' as SheetTab, label: '新建' }] : [])
   ];
   const [tab, setTab] = useState<SheetTab>(tabs[0]?.value ?? 'proposals');

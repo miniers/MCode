@@ -1,5 +1,5 @@
 import { SheetFrame, SHEET_LAYER_CLASS } from './sheet/SheetFrame';
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   RemoteAttachmentUploadResult,
@@ -26,7 +26,7 @@ export { AttachmentPreviewOverlay, ComposerAttachButton, ComposerAttachmentStrip
 export type { ComposerAttachButtonProps, ComposerAttachmentStripProps } from './composer/ComposerAttachments';
 import { useThreadMentionSendText } from '../hooks/useThreadMentionCandidates';
 import type { DraftThreadMention } from '../utils/threadMention';
-import { localCommandName } from '../utils/slashCommands';
+import { artifactDraft, commandScopeKey, localCommandName, OPEN_ARTIFACT } from '../utils/slashCommands';
 import type { CommandScope } from '../utils/slashCommands';
 import { modelDisplayName, providerDisplayName } from '../utils/modelLabel';
 import { isImeComposing } from '../utils/ime';
@@ -314,7 +314,10 @@ const ContextUsageBadge: React.FC<{ threadID?: string }> = ({ threadID }) => {
   const used = Math.max(0, Math.round(summary.contextUsedTokens ?? 0));
   const limit = Math.max(0, Math.round(summary.contextWindow ?? 0));
   const cost = summary.lastTurnCostUSD ?? 0;
-  if (limit <= 0 && cost <= 0) return null;
+  const input = summary.usageInputTokens ?? 0;
+  const cached = summary.usageCachedTokens ?? 0;
+  const cacheRate = input > 0 ? Math.max(0, Math.min(100, Math.round(cached * 100 / input))) : null;
+  if (limit <= 0 && cost <= 0 && cacheRate === null) return null;
   const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const remaining = Math.max(0, limit - used);
   const costLabel = cost > 0 ? `$${formatCostUSD(cost)}` : '-';
@@ -383,6 +386,12 @@ const ContextUsageBadge: React.FC<{ threadID?: string }> = ({ threadID }) => {
                   <span className="shrink-0 text-[var(--foreground-muted)]">剩余</span>
                   <span className="font-mono">{`${formatTokenCount(remaining)} tokens`}</span>
                 </div>
+              </div>
+            )}
+            {cacheRate !== null && (
+              <div className="flex items-baseline justify-between gap-3 py-1">
+                <span className="shrink-0 text-[var(--foreground-muted)]">缓存命中率</span>
+                <span className="font-mono">{cacheRate}%</span>
               </div>
             )}
             <div
@@ -574,9 +583,16 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
 }: ThreadComposerProps, ref) {
   const {
     swarm,
+    commandSnapshots,
     getSwarmTiers,
     setThreadSwarmBeeTiers: setBeeTiersRpc
   } = useRemoteStatic();
+  const commands = commandScope ? commandSnapshots[commandScopeKey(commandScope)]?.commands : undefined;
+  const artifactTypes = commands?.find((command) => command.name === OPEN_ARTIFACT)?.artifactTypes;
+  const artifact = artifactTypes?.length ? artifactDraft(draft, artifactTypes) : null;
+  const prefix = artifact?.prefix ?? '';
+  const visibleDraft = draft.slice(prefix.length);
+  const changeVisibleDraft = useCallback((text: string) => onDraftChange(prefix + text), [onDraftChange, prefix]);
   const [activeSheet, setActiveSheet] = useState<ActiveSheetType>(null);
   const [modelSheetPage, setModelSheetPage] = useState<ModelSheetPage>('summary');
   const [activeModelSide, setActiveModelSide] = useState<'lead' | 'bees'>('lead');
@@ -612,6 +628,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
   const [tierError, setTierError] = useState<string | null>(null);
   const [tierNotice, setTierNotice] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const suggestionListID = useId();
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   useOverflowFade(toolbarRef);
 
@@ -696,7 +713,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
       void (async () => {
         let text = expanded;
         try {
-          text = await sendThreadMentionText(expanded, mentions);
+          text = prefix + await sendThreadMentionText(expanded.slice(prefix.length), mentions);
         } catch {
           // 拉取失败时展开逻辑本身会跳过该引用块，这里兜底成原文发送，不阻止发送
           text = expanded;
@@ -713,7 +730,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
         }
       })();
     },
-    [draft, draftThreadMentions, onDraftChange, pastedPlaceholders, sendThreadMentionText]
+    [draft, draftThreadMentions, onDraftChange, pastedPlaceholders, prefix, sendThreadMentionText]
   );
 
   // 点胶囊上的 ✕ 移除对应会话引用
@@ -810,10 +827,10 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
 
   const tierDirty = serializeBeeTiers(tierDraft) !== tierBaseline;
 
-  const { triggerInfo, suggestionItems, suggestionIndex, showSuggestions, suggestionFootnote, commandTriggerLoading,
+  const { triggerInfo, artifactPicker, deleteToken, suggestionItems, suggestionIndex, showSuggestions, suggestionFootnote, commandTriggerLoading,
     isLoadingSuggestions, handleSelectSuggestion, resetTrigger, checkTrigger, setSelectedSuggestionIndex, commandsSupported } =
-    useComposerCompletions({ draft, threadID, selectedProjectID, commandScope, providers, isRunning,
-      textareaRef, onDraftChange, setDraftThreadMentions });
+    useComposerCompletions({ draft: visibleDraft, threadID, selectedProjectID, commandScope, providers, isRunning,
+      artifactSelected: Boolean(artifact), textareaRef, onDraftChange: changeVisibleDraft, setDraftThreadMentions });
 
   // Auto-grow textarea height
   useEffect(() => {
@@ -838,11 +855,11 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
     (text: string) => {
       const quoted = quoteForDraft(text);
       if (!quoted) return;
-      const base = draft.replace(/\n+$/, '');
-      onDraftChange(base ? `${base}\n\n${quoted}` : quoted);
+      const base = visibleDraft.replace(/\n+$/, '');
+      changeVisibleDraft(base ? `${base}\n\n${quoted}` : quoted);
       requestAnimationFrame(focusComposer);
     },
-    [draft, onDraftChange, focusComposer]
+    [visibleDraft, changeVisibleDraft, focusComposer]
   );
 
   useImperativeHandle(ref, () => ({ insertDraft, focus: focusComposer }), [insertDraft, focusComposer]);
@@ -1289,10 +1306,13 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
         {/* @ 文件 / 斜杠命令 / $ 技能 / # 模型 补全建议弹层 */}
         {showSuggestions && triggerInfo && (
           <CommandSuggestions
+            listID={suggestionListID}
             trigger={triggerInfo.trigger}
+            title={artifactPicker ? '交付物类型' : undefined}
             suggestions={suggestionItems}
             selectedIndex={suggestionIndex}
             onSelect={handleSelectSuggestion}
+            onHighlight={setSelectedSuggestionIndex}
             onClose={resetTrigger}
             isLoading={triggerInfo.trigger === '@' ? isLoadingSuggestions : Boolean(commandTriggerLoading)}
             footnote={suggestionFootnote}
@@ -1312,11 +1332,22 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           onRemove={handleRemoveDraftThreadMention}
           className="px-1 pb-2"
         />
+        {artifact && (
+          <button
+            type="button"
+            aria-label={`移除交付物类型「${artifact.label}」`}
+            onClick={() => { onDraftChange(visibleDraft); focusComposer(); }}
+            className="secondary-button ms-1 min-h-[36px] gap-1 rounded-full px-2.5 text-mc-footnote"
+          >
+            {artifact.label}
+            <XMarkIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Textarea */}
         <textarea
           ref={textareaRef}
-          value={draft}
+          value={visibleDraft}
           onChange={(event) => {
             const value = event.target.value;
             const cursor = event.target.selectionStart ?? value.length;
@@ -1324,7 +1355,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             if (historyState.index !== 0 && value !== historyState.recalled) {
               setHistoryState(composerHistoryReset());
             }
-            onDraftChange(value);
+            changeVisibleDraft(value);
             checkTrigger(value, cursor);
           }}
           onPaste={(event) => {
@@ -1342,19 +1373,19 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
             if (!pasted || !isLongPastedText(pasted)) return;
             event.preventDefault();
             const target = event.currentTarget;
-            const start = target.selectionStart ?? draft.length;
+            const start = target.selectionStart ?? visibleDraft.length;
             const end = target.selectionEnd ?? start;
             const { seq, label } = nextPastedPlaceholder(pastedSeqRef.current, pasted);
             pastedSeqRef.current = seq;
-            const inserted = insertPlaceholderAt(draft, start, end, label);
+            const inserted = insertPlaceholderAt(visibleDraft, start, end, label);
             setPastedPlaceholders((previous) => ({ ...previous, [label]: pasted }));
             setHistoryState(composerHistoryReset());
             requestCaret(inserted.caret);
-            onDraftChange(inserted.text);
+            changeVisibleDraft(inserted.text);
           }}
           onSelect={(event) => {
-            const cursor = event.currentTarget.selectionStart ?? draft.length;
-            checkTrigger(draft, cursor);
+            const cursor = event.currentTarget.selectionStart ?? visibleDraft.length;
+            checkTrigger(visibleDraft, cursor);
           }}
           onKeyUp={(event) => {
             if (
@@ -1363,15 +1394,33 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               event.key === 'Home' ||
               event.key === 'End'
             ) {
-              const cursor = event.currentTarget.selectionStart ?? draft.length;
-              checkTrigger(draft, cursor);
+              const cursor = event.currentTarget.selectionStart ?? visibleDraft.length;
+              checkTrigger(visibleDraft, cursor);
             }
           }}
           onClick={(event) => {
-            const cursor = event.currentTarget.selectionStart ?? draft.length;
-            checkTrigger(draft, cursor);
+            const cursor = event.currentTarget.selectionStart ?? visibleDraft.length;
+            checkTrigger(visibleDraft, cursor);
           }}
           onKeyDown={(event) => {
+            const { selectionStart, selectionEnd } = event.currentTarget;
+            if (selectionStart === selectionEnd && !isImeComposing(event) && !event.altKey &&
+                !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+                (event.key === 'Backspace' || event.key === 'Delete')) {
+              if (event.key === 'Backspace' && selectionStart === 0 && artifact) {
+                event.preventDefault();
+                onDraftChange(visibleDraft);
+                return;
+              }
+              const deletion = deleteToken(selectionStart, event.key);
+              if (deletion) {
+                event.preventDefault();
+                changeVisibleDraft(deletion.text);
+                requestCaret(deletion.caret);
+                resetTrigger();
+                return;
+              }
+            }
             if (showSuggestions && suggestionItems.length > 0 && !isImeComposing(event)) {
               if (event.key === 'ArrowDown') {
                 event.preventDefault();
@@ -1404,7 +1453,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               !event.ctrlKey &&
               (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
               event.currentTarget.selectionStart === event.currentTarget.selectionEnd &&
-              (historyEntries?.length ?? 0) > 0
+              (!artifact || historyState.index !== 0) && (historyEntries?.length ?? 0) > 0
             ) {
               const entries = historyEntries ?? [];
               const text = event.currentTarget.value;
@@ -1412,7 +1461,7 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
               const move =
                 event.key === 'ArrowUp'
                   ? caretOnFirstLine(text, caret)
-                    ? composerHistoryPrev(historyState, entries, text)
+                    ? composerHistoryPrev(historyState, entries, prefix + text)
                     : null
                   : caretOnLastLine(text, caret) && historyState.index !== 0
                   ? composerHistoryNext(historyState, entries)
@@ -1443,6 +1492,9 @@ const ThreadComposerInner = React.forwardRef<ThreadComposerHandle, ThreadCompose
           }}
           rows={1}
           aria-label="输入要发送的消息"
+          aria-autocomplete="list"
+          aria-controls={showSuggestions ? suggestionListID : undefined}
+          aria-activedescendant={showSuggestions && suggestionItems.length ? `${suggestionListID}-${suggestionIndex}` : undefined}
           placeholder={placeholder ?? '继续输入消息…'}
           className="composer-input w-full bg-transparent border-0 outline-none resize-none text-[16px] leading-[22px] text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] px-1.5 py-1 max-h-36 min-h-[44px]"
         />

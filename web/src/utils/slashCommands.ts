@@ -1,6 +1,68 @@
 // 输入区的 `/` 命令、`$技能` 与 `#模型` 补全辅助：纯函数，不依赖 React 与连接状态。
 
 import type { RemoteCommand, RemoteFileEntry, RemoteProvider } from '../types/contract';
+import type { RemoteArtifactType } from '../types/generated';
+
+export const OPEN_ARTIFACT = 'open-artifact';
+const artifactLabels: Record<string, string> = {
+  data: '看板', design: '设计', 'design-system': '设计系统', docs: '文档',
+  motion: '动画', page: '网页', sheets: '表格', slides: '幻灯片', whiteboard: '白板'
+};
+const localSlashCommands = new Set(['mode', 'model', 'effort', 'fast', 'pair', 'export', 'clear', 'copy', 'forward']);
+const slashHints: Record<string, string> = {
+  model: '打开模型选择', effort: 'low | medium | high', export: '导出为 Markdown/JSON',
+  copy: '复制会话 Markdown', plan: '<任务描述>', compact: '[保留重点]',
+  forward: '转发到新会话', [OPEN_ARTIFACT]: '<类型> <制作内容>'
+};
+
+export function artifactLabel(type: RemoteArtifactType): string {
+  return Object.prototype.hasOwnProperty.call(artifactLabels, type.id) ? artifactLabels[type.id] : type.name || type.id;
+}
+
+export function artifactDraft(text: string, types: RemoteArtifactType[]) {
+  const match = /^\/open-artifact ([^\s]+) /.exec(text);
+  const type = match && types.find((item) => item.id === match[1]);
+  return match && type ? { prefix: match[0], label: artifactLabel(type) } : null;
+}
+
+export function fileSearchScope(text: string): { query: string; path: string } {
+  const slash = text.lastIndexOf('/');
+  return { query: text.slice(slash + 1), path: text.slice(0, Math.max(slash, 0)) };
+}
+
+export interface CompletionToken {
+  start: number;
+  end: number;
+}
+
+export function rebaseCompletionTokens(previous: string, next: string, tokens: CompletionToken[]): CompletionToken[] {
+  if (!tokens.length || previous === next) return tokens;
+  let start = 0;
+  let previousEnd = previous.length;
+  let nextEnd = next.length;
+  while (start < previousEnd && start < nextEnd && previous[start] === next[start]) start++;
+  while (previousEnd > start && nextEnd > start && previous[previousEnd - 1] === next[nextEnd - 1]) {
+    previousEnd--;
+    nextEnd--;
+  }
+  const shift = nextEnd - previousEnd;
+  return tokens.flatMap((token) => {
+    if (token.end <= start) return [token];
+    if (token.start >= previousEnd) return [{ start: token.start + shift, end: token.end + shift }];
+    return [];
+  });
+}
+
+export function deleteCompletionToken(text: string, caret: number, key: 'Backspace' | 'Delete', tokens: CompletionToken[]) {
+  for (const { start, end } of tokens) {
+    if (start > 0 && !/\s/.test(text[start - 1])) continue;
+    if (end < text.length && !/\s/.test(text[end])) continue;
+    const after = text[end] === ' ' ? end + 1 : end;
+    const matches = key === 'Delete' ? caret === start : caret === end || caret === after;
+    if (matches) return { text: text.slice(0, start) + text.slice(after), caret: start };
+  }
+  return null;
+}
 
 /** `threads.commands` 的取数范围：已有会话，或草稿阶段的 项目 + Provider。 */
 export type CommandScope = { threadID: string } | { projectID: string; provider: string };
@@ -22,6 +84,8 @@ export interface SuggestionItem {
   /** 替换触发片段的完整文本（含触发符与尾随空格）。 */
   insertText: string;
   kind: 'file' | 'command' | 'model';
+  group?: string;
+  hint?: string;
 }
 
 export interface TriggerQueryInfo {
@@ -70,7 +134,8 @@ export function extractTriggerQuery(
 export function filterSlashCommands(
   commands: RemoteCommand[],
   query: string,
-  recent: string[]
+  recent: string[],
+  grouped = true
 ): RemoteCommand[] {
   const needle = query.toLowerCase();
   const ranks = new Map<string, number>();
@@ -83,7 +148,8 @@ export function filterSlashCommands(
     if (seen.has(command.name)) continue;
     seen.add(command.name);
     const name = command.name.toLowerCase();
-    if (needle.length > 0 && !name.includes(needle)) continue;
+    const artifactAlias = grouped && name === OPEN_ARTIFACT && ['artifact', '交付物', '创建', '做', '生成'].some((alias) => alias.includes(needle));
+    if (needle.length > 0 && !name.includes(needle) && !artifactAlias) continue;
     matched.push({
       command,
       name,
@@ -92,6 +158,10 @@ export function filterSlashCommands(
     });
   }
   matched.sort((lhs, rhs) => {
+    if (grouped && needle === '') {
+      const group = (name: string) => name === OPEN_ARTIFACT ? 0 : localSlashCommands.has(name) ? 1 : 2;
+      if (group(lhs.name) !== group(rhs.name)) return group(lhs.name) - group(rhs.name);
+    }
     if (lhs.prefixed !== rhs.prefixed) return lhs.prefixed ? -1 : 1;
     if (lhs.rank !== rhs.rank) return lhs.rank - rhs.rank;
     return lhs.name < rhs.name ? -1 : lhs.name > rhs.name ? 1 : 0;
@@ -114,7 +184,7 @@ export function fileEntryToSuggestion(entry: RemoteFileEntry): SuggestionItem {
     title: entry.name,
     detail: entry.path,
     icon: entry.kind === 'directory' ? 'folder' : entry.kind === 'symlink' ? 'link' : 'file',
-    meta: entry.size > 0 && entry.kind !== 'directory' ? formatBytes(entry.size) : undefined,
+    meta: entry.ignored ? '已忽略' : entry.size > 0 && entry.kind !== 'directory' ? formatBytes(entry.size) : undefined,
     insertText: `@${entry.path} `,
     kind: 'file'
   };
@@ -128,7 +198,8 @@ export function filterSkillCommands(commands: RemoteCommand[], query: string): R
   return filterSlashCommands(
     commands.filter((command) => command.kind === 'skill'),
     query,
-    []
+    [],
+    false
   );
 }
 
@@ -147,11 +218,15 @@ export function skillCommandToSuggestion(command: RemoteCommand): SuggestionItem
   };
 }
 
-export function commandToSuggestion(command: RemoteCommand): SuggestionItem {
+export function commandToSuggestion(command: RemoteCommand, grouped = false): SuggestionItem {
   return {
     key: `command:${command.name}`,
     title: `/${command.name}`,
     detail: command.detail,
+    group: grouped && command.name !== OPEN_ARTIFACT
+      ? localSlashCommands.has(command.name) ? '本地操作' : '会话与 Provider'
+      : undefined,
+    hint: Object.prototype.hasOwnProperty.call(slashHints, command.name) ? slashHints[command.name] : undefined,
     icon: command.kind === 'skill' ? 'skill' : command.kind === 'builtin' || command.isBuiltIn ? 'builtin' : 'command',
     insertText: `/${command.name} `,
     kind: 'command'

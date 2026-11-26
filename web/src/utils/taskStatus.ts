@@ -30,6 +30,10 @@ export function taskStatusLabel(status: string): string {
   return TASK_STATUS_LABELS[status as TaskStatus] ?? '未知状态';
 }
 
+export function canCancelTask(status: TaskStatus): boolean {
+  return status === 'todo' || status === 'in_progress' || status === 'needs_approval' || status === 'waiting';
+}
+
 export type TaskStatusToneInput = Pick<TaskItem, 'status'> &
   Partial<Pick<TaskItem, 'waitKind' | 'blocked' | 'displayColumn'>>;
 

@@ -18,6 +18,7 @@ const expectedPageIDs = [
   'swarm',
   'steward',
   'nowledge',
+  'skills',
   'appearance',
   'device',
   'about'
@@ -59,8 +60,9 @@ for (const key of removedKeys) {
   assert.ok(!presentKeys.has(key), `不应再包含已删除的 settingsKey：${key}`);
 }
 for (const key of presentKeys) {
-  assert.ok(!key.startsWith('notifications.'), `不应再包含 notifications.*：${key}`);
+  assert.ok(!key.startsWith('notifications.') || key === 'notifications.webhook_url', `意外的通知设置：${key}`);
 }
+assert.ok(presentKeys.has('notifications.webhook_url'), '设备设置应包含 Webhook');
 
 const modeItem = SETTINGS_ITEMS.find((item) => item.id === 'row-mode');
 assert.equal(modeItem?.page, 'conversation');

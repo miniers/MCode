@@ -48,7 +48,9 @@ func TestThreadCommandsOpenArtifact(t *testing.T) {
 	}
 
 	// extraGuidance 非空时在末尾追加 open-artifact，Kind 为 command
-	backend.SetExtraGuidance(func() string { return "# Make an artifact: `/open-artifact`" })
+	backend.SetExtraGuidance(func() string {
+		return "# Make an artifact: `/open-artifact`\n\n## Installed types\n- `slides`: Slides. Presentation decks."
+	})
 	resWith, err := backend.ThreadCommands(ctx, params)
 	if err != nil {
 		t.Fatalf("ThreadCommands (with extraGuidance) failed: %v", err)
@@ -59,6 +61,9 @@ func TestThreadCommandsOpenArtifact(t *testing.T) {
 	last := resWith.Commands[len(resWith.Commands)-1]
 	if last.Name != "open-artifact" || last.Kind != "command" || last.IsBuiltIn || last.Detail != "创建交付物" {
 		t.Fatalf("expected open-artifact command at end, got: %+v", last)
+	}
+	if len(last.ArtifactTypes) != 1 || last.ArtifactTypes[0].ID != "slides" {
+		t.Fatalf("expected installed artifact types, got %+v", last.ArtifactTypes)
 	}
 
 	// 已有同名磁盘技能时不重复追加

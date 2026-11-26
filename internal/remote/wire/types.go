@@ -298,6 +298,8 @@ type ThreadSummary struct {
 	// LastTurnCostUSD 是最近一轮的花费（美元）。CLI 上报的 total_cost_usd 可能已是整次会话
 	// 的累计值，所以不能逐轮相加，口径与桌面端用量面板一致。用量不含费用时缺省不输出。
 	LastTurnCostUSD   float64 `json:"lastTurnCostUSD,omitempty"`
+	UsageInputTokens  int64   `json:"usageInputTokens,omitempty"`
+	UsageCachedTokens int64   `json:"usageCachedTokens,omitempty"`
 	FastMode          bool    `json:"fastMode"`
 	SpeedTier         *string `json:"speedTier,omitempty"`
 	WorktreeRequested bool    `json:"worktreeRequested"`
@@ -1433,10 +1435,16 @@ type ThreadsContinueResult struct {
 
 // RemoteCommand 对应会话可用命令与技能定义
 type RemoteCommand struct {
-	Name      string `json:"name"`
-	Detail    string `json:"detail"`
-	IsBuiltIn bool   `json:"isBuiltIn"`
-	Kind      string `json:"kind"`
+	Name          string               `json:"name"`
+	Detail        string               `json:"detail"`
+	IsBuiltIn     bool                 `json:"isBuiltIn"`
+	Kind          string               `json:"kind"`
+	ArtifactTypes []RemoteArtifactType `json:"artifactTypes,omitempty"`
+}
+
+type RemoteArtifactType struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // ThreadsCommandsParams 对应 threads.commands 请求参数

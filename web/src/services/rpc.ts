@@ -1280,9 +1280,10 @@ export class McodeRpcClient {
    */
   public async searchThreadFiles(
     threadID: string,
-    query: string
+    query: string,
+    path?: string
   ): Promise<RemoteFilesSearchResult> {
-    return this.sendRpc<RemoteFilesSearchResult>('files.search', { threadID, query }, 30000);
+    return this.sendRpc<RemoteFilesSearchResult>('files.search', { threadID, query, ...(path ? { path } : {}) }, 30000);
   }
 
   /**

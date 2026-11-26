@@ -14,7 +14,7 @@ import {
   SettingsSwitch
 } from './settings/SettingsLayout';
 
-export type SettingsFormPage = 'conversation' | 'swarm' | 'steward';
+export type SettingsFormPage = 'conversation' | 'swarm' | 'steward' | 'device';
 
 interface SelectOption {
   value: string;
@@ -58,6 +58,39 @@ const asBool = (value: RemoteSettingsValue | undefined, fallback = false): boole
 
 const asNumber = (value: RemoteSettingsValue | undefined, fallback = 0): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const compactSettings = [
+  { key: 'session.compact_suggest_percent', id: 'row-compact-suggest-percent', label: '建议压缩比例（%）', min: 10, max: 95 },
+  { key: 'session.compact_suggest_max_k', id: 'row-compact-suggest-max', label: '建议压缩上限（k tokens）', min: 10, max: 1000 }
+] as const;
+
+function WebhookSettings({ save, busy }: { save: RemoteSettingsApi['setValue']; busy: boolean }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const secure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  const commit = async (next: string) => {
+    setStatus('');
+    const result = await save('notifications.webhook_url', next);
+    setError(result);
+    if (!result) {
+      setValue('');
+      setStatus(next ? 'Webhook 已保存' : 'Webhook 已关闭');
+    }
+  };
+  return (
+    <SettingsStackedRow itemID="row-webhook-url" title="Webhook" error={error}>
+      {secure ? (
+        <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => { event.preventDefault(); if (value.trim()) void commit(value.trim()); }}>
+          <input type="password" autoComplete="new-password" aria-label="Webhook 地址" className="settings-input min-w-0 flex-1" value={value} onChange={(event) => setValue(event.target.value)} disabled={busy} />
+          <button type="submit" disabled={busy || !value.trim()} className="primary-button settings-inline-button">保存</button>
+          <button type="button" disabled={busy} className="secondary-button settings-inline-button" onClick={() => void commit('')}>关闭</button>
+          {status && <span role="status" className="basis-full text-mc-footnote text-[var(--foreground-muted)]">{status}</span>}
+        </form>
+      ) : <p className="text-mc-footnote text-[var(--foreground-muted)]">通过 HTTPS 配置 Webhook。</p>}
+    </SettingsStackedRow>
+  );
+}
 
 interface ToggleFieldProps {
   itemID?: string;
@@ -324,6 +357,22 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
           onChange={(next) => void commit('session.concise_replies_enabled', next)}
         />
       </SettingsSection>
+      {compactSettings.some(({ key }) => hasKey(key)) && (
+        <SettingsSection title="上下文压缩">
+          {compactSettings.filter(({ key }) => hasKey(key)).map(({ key, id, label, min, max }) => (
+            <DraftField key={key} itemID={id} label={label} min={min} max={max} required
+              type="number" value={String(asNumber(values[key]))} disabled={busy} error={errors[key]}
+              onCommit={(next) => void commit(key, Number(next))} />
+          ))}
+        </SettingsSection>
+      )}
+      {hasKey('source_control.auto_fetch') && (
+        <SettingsSection title="版本控制">
+          <ToggleField itemID="row-git-auto-fetch" label="自动抓取" checked={asBool(values['source_control.auto_fetch'], true)}
+            disabled={busy} error={errors['source_control.auto_fetch']}
+            onChange={(next) => void commit('source_control.auto_fetch', next)} />
+        </SettingsSection>
+      )}
       <SettingsSection title="权限">
         <ChoiceField
           itemID="row-mode"
@@ -474,5 +523,11 @@ export const SettingsForm: React.FC<SettingsFormProps> = ({
       return swarmPage;
     case 'steward':
       return stewardPage;
+    case 'device':
+      return hasKey('notifications.webhook_url') ? (
+        <SettingsSection title="通知">
+          <WebhookSettings save={setValue} busy={busy} />
+        </SettingsSection>
+      ) : null;
   }
 };

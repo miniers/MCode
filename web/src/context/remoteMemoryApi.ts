@@ -13,7 +13,8 @@ import type {
   RemoteMemoryProposalsAcceptParams,
   RemoteMemorySearchEntry,
   RemoteMemorySearchParams,
-  RemoteMemorySearchResult
+  RemoteMemorySearchResult,
+  RemoteProjectScopeParams
 } from '../types/generated';
 import { useRemoteCall, useRemoteNotification } from './useRemoteCall';
 
@@ -32,6 +33,7 @@ export const REMOTE_MEMORY_PROPOSALS_REJECT_METHOD = 'memory.proposals.reject';
 export const REMOTE_MEMORY_PROPOSALS_CHANGED_METHOD = 'memory.proposals.changed';
 export const REMOTE_MEMORY_CREATE_METHOD = 'memory.create';
 export const REMOTE_MEMORY_SEARCH_METHOD = 'memory.search';
+export const REMOTE_MEMORY_LIST_METHOD = 'memory.list';
 
 /** 记忆类型，与宿主缺省值一致。 */
 export type RemoteMemoryUnitType = 'fact' | 'preference' | 'decision' | 'plan' | 'procedure' | 'learning' | 'context' | 'event';
@@ -68,12 +70,14 @@ export interface UseMemoryActionsResult {
   createMemory: (input: MemoryCreateInput) => Promise<RemoteMemoryProposal>;
   /** 搜索记忆，query 为空时直接返回空数组；projectID 为空表示全部项目。 */
   searchMemories: (input: MemorySearchInput) => Promise<RemoteMemorySearchEntry[]>;
+  listMemories: () => Promise<RemoteMemorySearchEntry[]>;
   /** 接受一条提议，可同时带上编辑后的标题/内容/类型/重要性。 */
   acceptProposal: (id: string, edits?: MemoryProposalEdits) => Promise<RemoteMemoryProposal>;
   /** 宿主是否声明了 memory.create。 */
   createSupported: boolean;
   /** 宿主是否声明了 memory.search。 */
   searchSupported: boolean;
+  listSupported: boolean;
   /** 宿主是否声明了 memory.proposals.accept。 */
   acceptSupported: boolean;
 }
@@ -196,6 +200,7 @@ export function useMemoryActions(projectID: string | null): UseMemoryActionsResu
   const { call, supportsMethod } = useRemoteCall();
   const createSupported = supportsMethod(REMOTE_MEMORY_CREATE_METHOD);
   const searchSupported = supportsMethod(REMOTE_MEMORY_SEARCH_METHOD);
+  const listSupported = supportsMethod(REMOTE_MEMORY_LIST_METHOD);
   const acceptSupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_ACCEPT_METHOD);
 
   const createMemory = useCallback(
@@ -232,6 +237,11 @@ export function useMemoryActions(projectID: string | null): UseMemoryActionsResu
     },
     [call, projectID]
   );
+  const listMemories = useCallback(async (): Promise<RemoteMemorySearchEntry[]> => {
+    const params: RemoteProjectScopeParams = projectID ? { projectID } : {};
+    const result = await call<RemoteMemorySearchResult>(REMOTE_MEMORY_LIST_METHOD, params);
+    return result.results;
+  }, [call, projectID]);
 
   const acceptProposal = useCallback(
     async (id: string, edits?: MemoryProposalEdits): Promise<RemoteMemoryProposal> => {
@@ -241,5 +251,5 @@ export function useMemoryActions(projectID: string | null): UseMemoryActionsResu
     [call]
   );
 
-  return { createMemory, searchMemories, acceptProposal, createSupported, searchSupported, acceptSupported };
+  return { createMemory, searchMemories, listMemories, acceptProposal, createSupported, searchSupported, listSupported, acceptSupported };
 }

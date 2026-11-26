@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"errors"
+	"time"
 
 	"mcode/internal/git"
 	"mcode/internal/remote"
+	"mcode/internal/remote/wire"
 	mcodeui "mcode/internal/ui"
 )
 
@@ -106,6 +108,43 @@ func (s *remoteGitService) GitPull(ctx context.Context, threadID string) error {
 // GitFetch 抓取远程分支，不改动工作区与本地分支。
 func (s *remoteGitService) GitFetch(ctx context.Context, threadID string) error {
 	return s.client.GitFetch(ctx, threadID)
+}
+
+func (s *remoteGitService) GitInit(ctx context.Context, threadID string) error {
+	thread, err := s.client.backend.GetThread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	if thread.IsRunning {
+		return &wire.RPCError{Code: wire.ErrCodeOperationRejected, Message: "等待会话结束后再初始化 Git"}
+	}
+	return s.client.GitInit(ctx, threadID)
+}
+
+func (s *remoteGitService) GitAutoFetch(ctx context.Context, threadID string) (bool, error) {
+	cfg, err := (remoteSettingsService{client: s.client}).load()
+	if err != nil || !cfg.SourceControl.AutoFetchEnabled() {
+		return false, err
+	}
+	state, err := s.client.GitState(ctx, threadID)
+	if err != nil {
+		return false, err
+	}
+	if state.WorkDir == "" || state.RemoteURL == "" || state.Detached {
+		return false, nil
+	}
+	root := state.WorkDir
+	for _, worktree := range state.Worktrees {
+		if worktree.Current && worktree.Path != "" {
+			root = worktree.Path
+			break
+		}
+	}
+	if !git.ClaimAutoFetch(root, time.Now()) {
+		return false, nil
+	}
+	err = s.client.GitFetch(ctx, threadID)
+	return err == nil, err
 }
 
 // GitCheckout 切换到本地已有分支。

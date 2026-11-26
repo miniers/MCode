@@ -70,6 +70,34 @@ func init() {
 	RegisterMethod("memory.proposals.reject", handleMemoryProposalsReject)
 	RegisterMethod("memory.create", handleMemoryCreate)
 	RegisterMethod("memory.search", handleMemorySearch)
+	RegisterMethod("memory.list", handleMemoryList)
+}
+
+func handleMemoryList(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p struct {
+		ProjectID string `json:"projectID,omitempty"`
+	}
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	svc, ok := backendService[interface {
+		ListMemories(context.Context, string) ([]wire.MemoryExtMemory, error)
+	}](d.backend, memoryExtServiceName)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	path, err := memoryExtProjectPath(ctx, d, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	items, err := svc.ListMemories(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []wire.MemoryExtMemory{}
+	}
+	return wire.MemoryExtSearchResult{Results: items}, nil
 }
 
 // handleMemoryProposalsList 按项目与状态列出记忆提议。

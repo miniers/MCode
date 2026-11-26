@@ -42,6 +42,7 @@ export function MermaidBlock({ content }: { content: string }) {
   const isDark = useIsDarkTheme();
   const [rendered, setRendered] = React.useState<RenderedDiagram | null>(null);
   const [failed, setFailed] = React.useState(false);
+  const [showSource, setShowSource] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -81,17 +82,24 @@ export function MermaidBlock({ content }: { content: string }) {
       svgEl.style.maxWidth = '100%';
     }
     rendered.bindFunctions?.(el);
-  }, [rendered]);
+  }, [rendered, showSource]);
 
   if (failed || rendered === null) {
     return <CodeBlock content={content} language="mermaid" />;
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 [&_svg]:max-w-full [&_svg]:h-auto"
-      dangerouslySetInnerHTML={{ __html: rendered.svg }}
-    />
+    <div className="min-w-0 space-y-2">
+      <button type="button" className="secondary-button touch-hit-44 text-mc-footnote" onClick={() => setShowSource((value) => !value)}>
+        {showSource ? '查看图表' : '查看源码'}
+      </button>
+      {showSource ? <CodeBlock content={content} language="mermaid" /> : (
+        <div
+          ref={containerRef}
+          className="min-w-0 max-w-full overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 [&_svg]:max-w-full [&_svg]:h-auto"
+          dangerouslySetInnerHTML={{ __html: rendered.svg }}
+        />
+      )}
+    </div>
   );
 }

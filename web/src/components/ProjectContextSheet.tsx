@@ -98,6 +98,8 @@ export const ProjectContextSheet = React.forwardRef<ThreadMenuPageHandle, Projec
     } = useProjectContextDocs(effectiveProjectID, active && isConnected);
 
     const [searchQuery, setSearchQuery] = useState('');
+    const readerRef = useRef<HTMLDivElement>(null);
+    const [headings, setHeadings] = useState<HTMLHeadingElement[]>([]);
     const [mobileViewingDoc, setMobileViewingDoc] = useState(false);
     const [copied, setCopied] = useState(false);
     const copyTimerRef = useRef<number | null>(null);
@@ -191,6 +193,12 @@ export const ProjectContextSheet = React.forwardRef<ThreadMenuPageHandle, Projec
       () => docs.find((item) => item.name === selectedName) ?? null,
       [docs, selectedName]
     );
+
+    useEffect(() => {
+      const reader = readerRef.current;
+      setHeadings(reader ? Array.from(reader.querySelectorAll('h2[data-context-heading]')) : []);
+      if (reader) reader.scrollTop = 0;
+    }, [active, doc, loadingDoc, mobileViewingDoc, splitPane]);
 
     if (!active) return null;
 
@@ -360,6 +368,23 @@ export const ProjectContextSheet = React.forwardRef<ThreadMenuPageHandle, Projec
           )}
         </div>
 
+        {headings.length > 0 && (
+          <select
+            value=""
+            className="settings-input shrink-0"
+            aria-label="跳转到章节"
+            onChange={(event) => {
+              if (!event.target.value) return;
+              const heading = headings[Number(event.target.value)];
+              heading?.focus({ preventScroll: true });
+              heading?.scrollIntoView({ block: 'start' });
+            }}
+          >
+            <option value="" disabled>跳转到章节</option>
+            {headings.map((heading, index) => <option key={index} value={index}>{heading.textContent}</option>)}
+          </select>
+        )}
+
         {doc?.truncated && (
           <div
             role="status"
@@ -369,7 +394,7 @@ export const ProjectContextSheet = React.forwardRef<ThreadMenuPageHandle, Projec
           </div>
         )}
 
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 select-text">
+        <div ref={readerRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 select-text">
           {!selectedName ? (
             <div className="empty-state">
               <div className="empty-state__icon">
@@ -396,7 +421,7 @@ export const ProjectContextSheet = React.forwardRef<ThreadMenuPageHandle, Projec
               <p>{selectedSummary.name}</p>
             </div>
           ) : doc ? (
-            <MarkdownView text={doc.content} />
+            <MarkdownView text={doc.content} contextHeadings />
           ) : null}
         </div>
       </div>

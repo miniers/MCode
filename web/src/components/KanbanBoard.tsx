@@ -645,7 +645,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [planReviewSeenIDs, setPlanReviewSeenIDs] = useState<string[]>([]);
   const [taskMenuTaskID, setTaskMenuTaskID] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<TaskItem | null>(null);
-  const [interruptTarget, setInterruptTarget] = useState<TaskItem | null>(null);
+  const [interruptTarget, setInterruptTarget] = useState<{ task: TaskItem; complete: boolean } | null>(null);
   const [taskActionBusyID, setTaskActionBusyID] = useState<string | null>(null);
   const [taskActionBusyText, setTaskActionBusyText] = useState<string | null>(null);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
@@ -811,7 +811,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     return null;
   };
 
-  const rescueTaskAction = async (task: TaskItem, action: 'interrupt' | 'nudge'): Promise<number | null> => {
+  const rescueTaskAction = async (task: TaskItem, action: KanbanRescueTaskParams['action']): Promise<number | null> => {
     const params: KanbanRescueTaskParams = {
       taskID: task.id,
       action,
@@ -860,18 +860,18 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     });
   };
 
-  const requestInterruptTask = (task: TaskItem) => {
+  const requestInterruptTask = (task: TaskItem, complete = false) => {
     setTaskMenuTaskID(null);
-    setInterruptTarget(task);
+    setInterruptTarget({ task, complete });
   };
 
   const confirmInterruptTask = async () => {
     const target = interruptTarget;
     if (!target) return;
     // 确认弹窗可能开了一段时间，用看板里最新的任务对象拿最新修订号，减少无谓冲突。
-    const latest = (board?.tasks ?? []).find((task) => task.id === target.id) ?? target;
+    const latest = (board?.tasks ?? []).find((task) => task.id === target.task.id) ?? target.task;
     const ok = await runTaskCardAction(latest, '正在打断任务…', 'interrupt', async () => {
-      await rescueTaskAction(latest, 'interrupt');
+      await rescueTaskAction(latest, target.complete ? 'complete' : 'interrupt');
     });
     // 失败时也关闭弹窗，把错误交给顶部提示条，避免错误被弹窗遮住。
     if (ok) setTaskMenuTaskID(null);
@@ -1260,6 +1260,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           busyText={taskActionBusyText}
           onNudge={() => void nudgeTaskAction(menuTask)}
           onInterrupt={() => requestInterruptTask(menuTask)}
+          onInterruptAndComplete={capabilities?.features?.includes('kanban.rescue.complete') ? () => requestInterruptTask(menuTask, true) : undefined}
           onDelete={() => requestDeleteTask(menuTask)}
           onClose={() => setTaskMenuTaskID(null)}
         />
@@ -1324,11 +1325,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
       <ConfirmDialog
         isOpen={Boolean(interruptTarget)}
-        title="打断任务？"
-        message={interruptTarget ? `打断「${interruptTarget.title}」会终止正在执行的会话，并把任务退回待办。` : ''}
-        confirmLabel="打断并退回待办"
+        title={interruptTarget?.complete ? '中断并标记完成？' : '打断任务？'}
+        message={interruptTarget ? `中断「${interruptTarget.task.title}」的执行会话，并将任务${interruptTarget.complete ? '标记为完成' : '退回待办'}。` : ''}
+        confirmLabel={interruptTarget?.complete ? '中断并标记完成' : '打断并退回待办'}
         confirmVariant="danger"
-        isLoading={Boolean(interruptTarget && taskActionBusyID === interruptTarget.id)}
+        isLoading={Boolean(interruptTarget && taskActionBusyID === interruptTarget.task.id)}
         onConfirm={() => void confirmInterruptTask()}
         onCancel={() => setInterruptTarget(null)}
       />

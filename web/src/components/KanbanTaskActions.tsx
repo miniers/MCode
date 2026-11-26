@@ -4,7 +4,7 @@ import { SheetFrame } from './sheet/SheetFrame';
 import React, { useRef, useState } from 'react';
 import type { TaskItem } from '../types/contract';
 import { isImeComposing } from '../utils/ime';
-import { ArrowPathIcon, PlusIcon, XMarkIcon } from './Icons';
+import { ArrowPathIcon, CheckCircleIcon, PlusIcon, XMarkIcon } from './Icons';
 
 /** 与桌面端救援菜单一致：进行中或带注意力标记的卡片才提供救援入口。 */
 export function kanbanTaskCanRescue(task: TaskItem): boolean {
@@ -24,6 +24,7 @@ interface KanbanTaskActionSheetProps {
   busyText: string | null;
   onNudge: () => void;
   onInterrupt: () => void;
+  onInterruptAndComplete?: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -37,6 +38,7 @@ export const KanbanTaskActionSheet: React.FC<KanbanTaskActionSheetProps> = ({
   busyText,
   onNudge,
   onInterrupt,
+  onInterruptAndComplete,
   onDelete,
   onClose
 }) => {
@@ -99,6 +101,12 @@ export const KanbanTaskActionSheet: React.FC<KanbanTaskActionSheetProps> = ({
                 <span className="block">打断并退回待办</span>
                 <span className="mt-0.5 block text-micro text-muted">终止执行会话，任务回到待办</span>
               </span>
+            </button>
+          )}
+          {rescue && onInterruptAndComplete && ['todo', 'in_progress', 'needs_approval', 'review'].includes(task.status) && (
+            <button type="button" className="sheet-action" onClick={onInterruptAndComplete} disabled={busy} data-host-actionable="true">
+              <CheckCircleIcon className="h-4 w-4" />
+              <span>中断并标记完成</span>
             </button>
           )}
           {deletable && (

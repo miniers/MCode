@@ -97,7 +97,7 @@ func handleKanbanRescueTask(ctx context.Context, d *Dispatcher, c Conn, params j
 	}
 	action := kanban.RescueAction(strings.TrimSpace(p.Action))
 	if !action.Valid() {
-		return nil, ExtInvalidParams("Invalid params: 'action' must be interrupt or nudge")
+		return nil, ExtInvalidParams("Invalid params: 'action' must be interrupt, complete or nudge")
 	}
 	if p.ExpectedRevision < 0 {
 		return nil, ExtInvalidParams("Invalid params: 'expectedRevision' must be non-negative")

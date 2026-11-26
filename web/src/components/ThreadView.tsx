@@ -57,6 +57,8 @@ import { QuestionMinimap, buildQuestionMinimapData, questionMinimapVisible } fro
 import { TodoProgressPill } from './thread/TodoProgressPill';
 import { PRMergeBar, isMergedThreadTitle } from './PRMergeBar';
 import { taskContextDetail } from './taskContext';
+import { useGitAutoFetch } from '../hooks/useGitAutoFetch';
+import { canCancelTask } from '../utils/taskStatus';
 import {
   isUnresolvedAction,
   linkedTaskColumnLabel,
@@ -208,6 +210,7 @@ function readThreadDraft(threadID: string): string | undefined {
 
 export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, designPath, jumpRequest, onOpenTask, onNewThread }) => {
   const { supportsAnswer, answerDecision } = useRemoteStewardApi();
+  useGitAutoFetch(thread.id, subview !== 'git');
   const {
     getThreadHistory,
     board,
@@ -219,6 +222,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
     threadActions,
     sendThreadMessage,
     checkThreadAction,
+    moveTask,
+    activeActionTaskID,
     dismissThreadAction,
     refreshThread,
     updateThread,
@@ -505,6 +510,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   );
   const logsSupported = Boolean(capabilities?.methods?.includes('logs.subscribe'));
   const [contextBarOpen, setContextBarOpen] = useState(false);
+  const [cancelLinkedTaskID, setCancelLinkedTaskID] = useState<string | null>(null);
+  const [cancelLinkedTaskError, setCancelLinkedTaskError] = useState('');
   const swarmBees = swarmState?.bees ?? [];
   const swarmRunningCount = swarmBees.filter((bee) => bee.status === 'running').length;
   // 有子代理提问且尚未转交主线程时，胶囊上额外挂一个“?”角标
@@ -2668,10 +2675,34 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                 {linkedTask.canReview && (
                   <a href={`#/task/${encodeURIComponent(linkedTask.id)}`} className="font-semibold text-[var(--warning-foreground)] hover:underline">退回</a>
                 )}
+                {canCancelTask(linkedTask.status) && (
+                  <button type="button" className="text-[var(--danger-foreground)] hover:underline touch-hit-44"
+                    disabled={!isConnected || isSyncing || activeActionTaskID === linkedTask.id}
+                    onClick={() => { setCancelLinkedTaskError(''); setCancelLinkedTaskID(linkedTask.id); }}>
+                    取消任务
+                  </button>
+                )}
               </span>
+              {cancelLinkedTaskError && <p className="basis-full text-[var(--danger-foreground)]" role="alert">{cancelLinkedTaskError}</p>}
             </div>
           )}
         </div>
+      )}
+      {linkedTask && cancelLinkedTaskID === linkedTask.id && (
+        <ConfirmDialog
+          isOpen
+          title="取消任务？"
+          message={`取消「${linkedTask.title}」会中断它正在执行的会话。`}
+          confirmLabel="取消任务"
+          confirmVariant="danger"
+          isLoading={activeActionTaskID === linkedTask.id}
+          onCancel={() => setCancelLinkedTaskID(null)}
+          onConfirm={() => {
+            void moveTask(linkedTask.id, 'cancelled', linkedTask.revision)
+              .catch((err) => setCancelLinkedTaskError(err instanceof Error ? err.message : '取消任务失败'))
+              .finally(() => setCancelLinkedTaskID(null));
+          }}
+        />
       )}
 
       {/* 时间线消息滚动区：外圈用来定位提问导航轨，轨道本身不随内容滚动 */}

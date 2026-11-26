@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { SuggestionItem, SuggestionTrigger } from '../utils/slashCommands';
 import { CodeBracketIcon, DocumentTextIcon } from './Icons';
 
 export interface CommandSuggestionsProps {
+  listID: string;
   trigger: SuggestionTrigger;
   suggestions: SuggestionItem[];
   selectedIndex: number;
+  title?: string;
   onSelect: (item: SuggestionItem) => void;
+  onHighlight?: (index: number) => void;
   onClose: () => void;
   isLoading?: boolean;
   /** 底部补充提示（例如宿主仍在后台拉取命令表）。 */
@@ -93,23 +96,28 @@ function renderIcon(icon: SuggestionItem['icon'], isSelected: boolean): React.Re
 
 /** `@` 文件、`/` 命令、`$` 技能、`#` 模型共用的补全弹层：定位与点选交互与原文件补全一致。 */
 export const CommandSuggestions: React.FC<CommandSuggestionsProps> = ({
+  listID,
   trigger,
   suggestions,
   selectedIndex,
+  title,
   onSelect,
+  onHighlight,
   onClose,
   isLoading = false,
   footnote
 }) => {
   const heading = HEADINGS[trigger];
+  const activeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [selectedIndex]);
   return (
     <div
-      className="absolute bottom-full left-0 right-0 mb-2 max-h-[min(14rem,35dvh)] overflow-y-auto rounded-2xl bg-[var(--card)] border border-[var(--border)] shadow-xl z-30 p-1.5 space-y-0.5"
-      role="listbox"
-      aria-label={heading.label}
+      className="absolute bottom-full left-0 right-0 mb-2 max-h-[min(18rem,40dvh)] flex flex-col rounded-2xl bg-[var(--card)] border border-[var(--border)] shadow-xl z-30 p-1.5 space-y-0.5"
     >
       <div className="flex items-center justify-between px-2.5 py-1 text-mc-caption font-medium text-[var(--foreground-muted)] border-b border-[var(--border)]">
-        <span>{heading.title}</span>
+        <span>{title ?? heading.title}</span>
         <div className="flex items-center gap-2">
           {isLoading && <span>{heading.loading}</span>}
           <button
@@ -123,22 +131,29 @@ export const CommandSuggestions: React.FC<CommandSuggestionsProps> = ({
         </div>
       </div>
 
+      <div id={listID} role="listbox" aria-label={title ?? heading.label} className="min-h-0 overflow-y-auto overscroll-contain">
       {suggestions.length === 0 && !isLoading ? (
         <div className="px-3 py-2 text-xs text-[var(--foreground-muted)] text-center">{heading.empty}</div>
       ) : (
         suggestions.map((item, index) => {
           const isSelected = index === selectedIndex;
           return (
+            <React.Fragment key={item.key}>
+            {item.group && item.group !== suggestions[index - 1]?.group && (
+              <div role="presentation" className="px-2.5 pt-1 text-mc-caption text-[var(--foreground-muted)]">{item.group}</div>
+            )}
             <button
-              key={item.key}
+              id={`${listID}-${index}`}
+              ref={isSelected ? activeRef : undefined}
               type="button"
               role="option"
               aria-selected={isSelected}
               onMouseDown={(e) => {
                 // 阻止输入框失焦
                 e.preventDefault();
-                onSelect(item);
               }}
+              onClick={() => onSelect(item)}
+              onPointerEnter={(event) => { if (event.pointerType === 'mouse') onHighlight?.(index); }}
               className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left text-xs transition ${
                 isSelected
                   ? 'bg-[var(--primary)] text-white'
@@ -147,7 +162,7 @@ export const CommandSuggestions: React.FC<CommandSuggestionsProps> = ({
             >
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 {renderIcon(item.icon, isSelected)}
-                <span className={`font-medium truncate ${trigger === '#' ? '' : 'font-mono'}`}>{item.title}</span>
+                <span className={`font-medium break-all ${trigger === '#' || title ? '' : 'font-mono'}`}>{item.title}</span>
                 {item.detail && (
                   <span className={`text-mc-caption truncate ${isSelected ? 'text-white/80' : 'text-[var(--foreground-muted)]'}`}>
                     {item.detail}
@@ -160,9 +175,11 @@ export const CommandSuggestions: React.FC<CommandSuggestionsProps> = ({
                 </span>
               )}
             </button>
+            </React.Fragment>
           );
         })
       )}
+      </div>
       {footnote && (
         <div className="px-2.5 py-1 text-mc-caption text-[var(--foreground-muted)]">{footnote}</div>
       )}

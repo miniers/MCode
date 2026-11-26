@@ -558,7 +558,10 @@ func (b *MemoryBackend) summaryForPublishLocked(td *memoryThread) wire.ThreadSum
 func (b *MemoryBackend) usageSummaryLocked(s *wire.ThreadSummary) {
 	latestIndex := -1
 	var latest harness.Usage
+	s.UsageInputTokens, s.UsageCachedTokens = 0, 0
 	for idx, u := range b.usage[s.ID] {
+		s.UsageInputTokens += u.InputTokens
+		s.UsageCachedTokens += u.CachedTokens
 		if idx > latestIndex {
 			latestIndex = idx
 			latest = u

@@ -85,7 +85,7 @@ export function useRemoteWorkspaceApi({ clientRef, capabilities }: UseRemoteWork
     return result;
   }, [capabilities, clientRef]);
 
-  const searchThreadFiles = useCallback(async (threadID: string, query: string): Promise<RemoteFilesSearchResult> => {
+  const searchThreadFiles = useCallback(async (threadID: string, query: string, path?: string): Promise<RemoteFilesSearchResult> => {
     const client = clientRef.current;
     if (!client) throw new Error('未连接到 Mac 端，无法搜索工作区文件');
     if (capabilities && (
@@ -94,7 +94,7 @@ export function useRemoteWorkspaceApi({ clientRef, capabilities }: UseRemoteWork
     )) {
       throw new Error('当前宿主未声明工作区文件浏览能力');
     }
-    const result = await client.searchThreadFiles(threadID, query);
+    const result = await client.searchThreadFiles(threadID, query, path);
     if (clientRef.current !== client) throw new Error('连接已更换，请重新搜索工作区文件');
     return result;
   }, [capabilities, clientRef]);

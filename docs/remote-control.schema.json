@@ -727,6 +727,12 @@
       "$ref": "#/$defs/RemoteGitFetchRequest"
     },
     {
+      "$ref": "#/$defs/RemoteGitInitRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitAutoFetchRequest"
+    },
+    {
       "$ref": "#/$defs/RemoteGitCheckoutRequest"
     },
     {
@@ -842,6 +848,12 @@
     },
     {
       "$ref": "#/$defs/RemoteGitFetchResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitInitResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitAutoFetchResponse"
     },
     {
       "$ref": "#/$defs/RemoteGitCheckoutResponse"
@@ -1194,7 +1206,19 @@
       "$ref": "#/$defs/RemoteMemorySearchRequest"
     },
     {
+      "$ref": "#/$defs/RemoteSkillsListRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteMemoryListRequest"
+    },
+    {
       "$ref": "#/$defs/RemoteMemorySearchResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteSkillsListResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteMemoryListResponse"
     },
     {
       "$ref": "#/$defs/RemoteContextListDocsRequest"
@@ -1225,6 +1249,268 @@
     }
   ],
   "$defs": {
+    "RemoteGitAutoFetchResult": {
+      "type": "object",
+      "properties": {
+        "fetched": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "fetched"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitAutoFetchRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "git.autoFetch"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteGitFetchParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitAutoFetchResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteGitAutoFetchResult"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteArtifactType": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteProjectScopeParams": {
+      "type": "object",
+      "properties": {
+        "projectID": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RemoteSkillSummary": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "agent",
+        "scope",
+        "disabled"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteSkillsListResult": {
+      "type": "object",
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteSkillSummary"
+          }
+        }
+      },
+      "required": [
+        "skills"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteMemoryListRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "memory.list"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteProjectScopeParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteMemoryListResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteMemorySearchResult"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteSkillsListRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "skills.list"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteProjectScopeParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteSkillsListResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteSkillsListResult"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitInitRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "git.init"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteGitFetchParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitInitResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteGitWriteActionResult"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id",
+        "result"
+      ],
+      "additionalProperties": false
+    },
     "UUID": {
       "type": "string",
       "format": "uuid"
@@ -3003,6 +3289,8 @@
           "minimum": 0,
           "description": "本会话及其全部后代的已完成回合与回合后后台任务活动区间并集长度（毫秒）"
         },
+        "usageInputTokens": { "type": "integer", "minimum": 0 },
+        "usageCachedTokens": { "type": "integer", "minimum": 0 },
         "lastTurnCostUSD": {
           "type": "number",
           "minimum": 0,
@@ -7887,6 +8175,7 @@
     "RemoteCommand": {
       "type": "object",
       "properties": {
+        "artifactTypes": { "type": "array", "items": { "$ref": "#/$defs/RemoteArtifactType" } },
         "name": {
           "type": "string"
         },
@@ -11550,6 +11839,12 @@
             "$ref": "#/$defs/RemoteGitFetchRequest"
           },
           {
+            "$ref": "#/$defs/RemoteGitInitRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitAutoFetchRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteGitCheckoutRequest"
           },
           {
@@ -11720,6 +12015,12 @@
           },
           {
             "$ref": "#/$defs/RemoteMemorySearchRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteSkillsListRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteMemoryListRequest"
           },
           {
             "$ref": "#/$defs/RemoteThreadsMoveToProjectRequest"
@@ -12038,6 +12339,12 @@
             "$ref": "#/$defs/RemoteGitFetchResponse"
           },
           {
+            "$ref": "#/$defs/RemoteGitInitResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitAutoFetchResponse"
+          },
+          {
             "$ref": "#/$defs/RemoteGitCheckoutResponse"
           },
           {
@@ -12199,6 +12506,12 @@
           },
           {
             "$ref": "#/$defs/RemoteMemorySearchResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteSkillsListResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteMemoryListResponse"
           },
           {
             "$ref": "#/$defs/RemoteContextListDocsResponse"
@@ -18424,7 +18737,7 @@
       },
       "KanbanRescueTaskParams": {
         "type": "object",
-        "description": "kanban.rescueTask 参数：执行救援菜单动作。action 取 interrupt（中断并重置为待办）或 nudge（提醒 Agent）；taskID 与 actionID 必须是 UUID，expectedRevision 必须非负。修订号冲突回版本冲突（-32009），任务不存在回 ResourceNotFound（-32002），动作不被支持或状态非法回 OperationRejected（-32000），看板服务不可用回 OperationRejected（-32000），宿主不支持回 MethodNotFound（-32601）。同一个 actionID 重放返回首次结果",
+        "description": "kanban.rescueTask 参数：执行救援菜单动作。action 取 interrupt（中断并重置为待办）、complete（中断并标记完成）或 nudge（提醒 Agent）；taskID 与 actionID 必须是 UUID，expectedRevision 必须非负。修订号冲突回版本冲突（-32009），任务不存在回 ResourceNotFound（-32002），动作不被支持或状态非法回 OperationRejected（-32000），看板服务不可用回 OperationRejected（-32000），宿主不支持回 MethodNotFound（-32601）。同一个 actionID 重放返回首次结果",
         "properties": {
           "taskID": {
             "$ref": "#/$defs/UUID"
@@ -18432,6 +18745,7 @@
           "action": {
             "enum": [
               "interrupt",
+              "complete",
               "nudge"
             ]
           },

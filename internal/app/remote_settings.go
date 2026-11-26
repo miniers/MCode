@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,7 +116,18 @@ func (s remoteSettingsService) load() (config.Config, error) {
 // 指针字段给「生效值」而不是 null：界面要显示开关当前是开还是关，nil 的三态由桌面端自己处理。
 func settingsSnapshotFromConfig(cfg config.Config) (wire.SettingsSnapshot, error) {
 	trayHidden := append([]string(nil), cfg.Startup.TrayQuotaHidden...)
+	compactPercent := cfg.Session.CompactSuggestPercent
+	if compactPercent == 0 {
+		compactPercent = config.DefaultCompactSuggestPercent
+	}
+	compactMax := cfg.Session.CompactSuggestMaxK
+	if compactMax == 0 {
+		compactMax = config.DefaultCompactSuggestMaxK
+	}
 	values := map[string]any{
+		remote.SettingsKeySessionCompactSuggestPercent:       compactPercent,
+		remote.SettingsKeySessionCompactSuggestMaxK:          compactMax,
+		remote.SettingsKeyGitAutoFetch:                       cfg.SourceControl.AutoFetchEnabled(),
 		remote.SettingsKeyModelsProvider:                     cfg.Models.Provider,
 		remote.SettingsKeyPermissionsMode:                    cfg.Permissions.Mode,
 		remote.SettingsKeyProvidersAgyChannel:                cfg.Providers.Agy.AgyChannel,
@@ -276,6 +288,47 @@ func applySettingsValue(cfg *config.Config, key string, raw json.RawMessage) err
 			return err
 		}
 		cfg.Session.ConciseRepliesEnabled = &value
+		return nil
+
+	case remote.SettingsKeySessionCompactSuggestPercent, remote.SettingsKeySessionCompactSuggestMaxK:
+		value, err := decodeSettingsInt(key, raw)
+		if err != nil {
+			return err
+		}
+		if key == remote.SettingsKeySessionCompactSuggestPercent {
+			if value < config.MinCompactSuggestPercent || value > config.MaxCompactSuggestPercent {
+				return settingsValueError(key, "must be between 10 and 95")
+			}
+			cfg.Session.CompactSuggestPercent = value
+		} else {
+			if value < config.MinCompactSuggestMaxK || value > config.MaxCompactSuggestMaxK {
+				return settingsValueError(key, "must be between 10 and 1000")
+			}
+			cfg.Session.CompactSuggestMaxK = value
+		}
+		return nil
+
+	case remote.SettingsKeyGitAutoFetch:
+		value, err := decodeSettingsBool(key, raw)
+		if err != nil {
+			return err
+		}
+		cfg.SourceControl.AutoFetch = &value
+		return nil
+
+	case remote.SettingsKeyWebhookURL:
+		value, err := decodeSettingsString(key, raw)
+		if err != nil {
+			return err
+		}
+		value = strings.TrimSpace(value)
+		if value != "" {
+			target, err := url.Parse(value)
+			if err != nil || target.Hostname() == "" || (target.Scheme != "https" && target.Scheme != "http") || target.User != nil {
+				return settingsValueError(key, "must be an HTTP or HTTPS URL")
+			}
+		}
+		cfg.Notifications.WebhookURL = value
 		return nil
 
 	case remote.SettingsKeyOrchestrationEnabled:

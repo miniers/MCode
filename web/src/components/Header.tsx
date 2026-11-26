@@ -61,6 +61,9 @@ const SwarmTiersSheet = React.lazy(() =>
 const SettingsForm = React.lazy(() =>
   import('./SettingsForm').then((module) => ({ default: module.SettingsForm }))
 );
+const SkillsSettings = React.lazy(() =>
+  import('./settings/SkillsSettings').then((module) => ({ default: module.SkillsSettings }))
+);
 const MemoryProposalsSheet = React.lazy(() =>
   import('./MemoryProposalsSheet').then((module) => ({ default: module.MemoryProposalsSheet }))
 );
@@ -478,6 +481,7 @@ export const Header: React.FC<HeaderProps> = ({
         'conversation',
         'swarm',
         'steward',
+        ...(capabilities?.methods.includes('skills.list') ? ['skills'] : []),
         ...(isMemorySupported ? ['nowledge'] : []),
         'appearance',
         'device',
@@ -784,6 +788,12 @@ export const Header: React.FC<HeaderProps> = ({
                 return (
                   <MemoryProposalSettingsRow projectID={selectedProjectID} onOpen={openMemoryProposals} />
                 );
+              case 'skills':
+                return (
+                  <LazyBoundary label="正在加载技能…">
+                    <SkillsSettings projectID={selectedProjectID} />
+                  </LazyBoundary>
+                );
               case 'appearance':
                 return (
                   <SettingsSection title="主题">
@@ -815,6 +825,11 @@ export const Header: React.FC<HeaderProps> = ({
               case 'device':
                 return (
                   <>
+                    {settingsApi.snapshot?.writableKeys.includes('notifications.webhook_url') && (
+                      <LazyBoundary label="正在加载通知设置…">
+                        <SettingsForm api={settingsApi} page="device" />
+                      </LazyBoundary>
+                    )}
                     <SettingsSection title="连接">
                       <SettingsRow
                         itemID="web-connection-refresh"

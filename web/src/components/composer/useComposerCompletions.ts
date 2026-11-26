@@ -3,8 +3,8 @@ import type { MutableRefObject } from 'react';
 import type { RemoteFileEntry } from '../../types/contract';
 import type { RemoteProviderListWithCatalog } from '../../context/remoteTypes';
 import type { DraftThreadMention } from '../../utils/threadMention';
-import type { CommandScope, SuggestionItem, TriggerQueryInfo } from '../../utils/slashCommands';
-import { commandScopeKey, commandToSuggestion, extractTriggerQuery, fileEntryToSuggestion, filterSkillCommands, filterSlashCommands, modelSuggestions, skillCommandToSuggestion } from '../../utils/slashCommands';
+import type { CommandScope, CompletionToken, SuggestionItem, TriggerQueryInfo } from '../../utils/slashCommands';
+import { artifactLabel, commandScopeKey, commandToSuggestion, deleteCompletionToken, extractTriggerQuery, fileEntryToSuggestion, fileSearchScope, filterSkillCommands, filterSlashCommands, modelSuggestions, OPEN_ARTIFACT, rebaseCompletionTokens, skillCommandToSuggestion } from '../../utils/slashCommands';
 import { useThreadMentionCandidates } from '../../hooks/useThreadMentionCandidates';
 import { useRemoteStatic } from '../../context/RemoteContext';
 
@@ -15,13 +15,14 @@ export interface ComposerCompletionsArgs {
   commandScope?: CommandScope;
   providers: RemoteProviderListWithCatalog;
   isRunning: boolean;
+  artifactSelected: boolean;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
   onDraftChange: (value: string) => void;
   setDraftThreadMentions: React.Dispatch<React.SetStateAction<DraftThreadMention[]>>;
 }
 
 export function useComposerCompletions({
-  draft, threadID, selectedProjectID, commandScope, providers, isRunning,
+  draft, threadID, selectedProjectID, commandScope, providers, isRunning, artifactSelected,
   textareaRef, onDraftChange, setDraftThreadMentions
 }: ComposerCompletionsArgs) {
   const { capabilities, commandSnapshots, searchThreadFiles, listThreadFiles, loadThreadCommands } = useRemoteStatic();
@@ -35,7 +36,7 @@ export function useComposerCompletions({
     capabilities?.features?.includes('threads.commands') &&
     capabilities.methods.includes('threads.commands')
   );
-  const canSlash = commandsSupported && Boolean(commandScope);
+  const canSlash = commandsSupported && Boolean(commandScope) && !artifactSelected;
   // `$` 技能候选同样来自 threads.commands，取数范围与 `/` 相同（草稿页用项目 + Provider）。
   const canSkill = commandsSupported && Boolean(commandScope);
   // 委派只对已有会话有意义；运行中宿主拒绝委派，不弹候选（发送侧另有提示）。
@@ -48,6 +49,12 @@ export function useComposerCompletions({
 
   // 补全状态：@ 文件（异步搜索）、/ 命令与 # 模型（本地过滤）共用一个弹层
   const [triggerInfo, setTriggerInfo] = useState<TriggerQueryInfo | null>(null);
+  const [artifactPicker, setArtifactPicker] = useState(false);
+  const completed = useRef<{ draft: string; tokens: CompletionToken[] }>({ draft, tokens: [] });
+  useEffect(() => {
+    completed.current = { draft, tokens: rebaseCompletionTokens(completed.current.draft, draft, completed.current.tokens) };
+  }, [draft]);
+  const artifactTypes = commandSnapshot?.commands.find((command) => command.name === OPEN_ARTIFACT)?.artifactTypes;
   const [fileSuggestions, setFileSuggestions] = useState<SuggestionItem[]>([]);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState<number>(0);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
@@ -73,6 +80,7 @@ export function useComposerCompletions({
         key: `thread:${candidate.threadID}`,
         title: candidate.insert,
         detail: candidate.detail ? `会话 · ${candidate.detail}` : '会话',
+        group: '会话',
         icon: 'link' as const,
         kind: 'command' as const,
         insertText: ''
@@ -107,6 +115,7 @@ export function useComposerCompletions({
   }, [canSlash, hasCommandSnapshot, requestCommands, scopeKey]);
 
   const resetTrigger = useCallback(() => {
+    setArtifactPicker(false);
     if (mentionDebounceTimerRef.current) {
       clearTimeout(mentionDebounceTimerRef.current);
       mentionDebounceTimerRef.current = null;
@@ -147,6 +156,7 @@ export function useComposerCompletions({
 
       const previousInfo = triggerInfoRef.current;
       if (!previousInfo || previousInfo.trigger !== info.trigger || previousInfo.query !== info.query) {
+        setArtifactPicker(false);
         setSelectedSuggestionIndex(0);
       }
       triggerInfoRef.current = info;
@@ -174,14 +184,14 @@ export function useComposerCompletions({
       mentionDebounceTimerRef.current = setTimeout(async () => {
         try {
           let entries: RemoteFileEntry[] = [];
-          const trimmed = info.query.trim();
-          if (trimmed.length > 0) {
-            const res = await searchThreadFiles(threadID!, trimmed);
+          const { query, path } = fileSearchScope(info.query.trim());
+          if (query.length > 0) {
+            const res = await searchThreadFiles(threadID!, query, path);
             entries = res.entries;
           } else {
             // 查询词为空（仅输入了 @）：若具备 list 能力则优先拉取根目录，否则走搜索空串
             if (capabilities?.methods?.includes('files.list')) {
-              const res = await listThreadFiles(threadID!, '');
+              const res = await listThreadFiles(threadID!, path);
               entries = res.entries;
             } else {
               const res = await searchThreadFiles(threadID!, '');
@@ -191,8 +201,10 @@ export function useComposerCompletions({
 
           if (mentionGenRef.current !== currentGen) return;
           // 受保护项不得补全，并限制建议项数量
-          const filtered = entries.filter((entry) => !entry.protected).slice(0, 8);
-          setFileSuggestions(filtered.map(fileEntryToSuggestion));
+          const filtered = entries.filter((entry) => !entry.protected)
+            .sort((a, b) => Number(Boolean(a.ignored)) - Number(Boolean(b.ignored)))
+            .slice(0, 8);
+          setFileSuggestions(filtered.map((entry) => ({ ...fileEntryToSuggestion(entry), group: '文件' })));
           setSelectedSuggestionIndex(0);
         } catch {
           if (mentionGenRef.current === currentGen) {
@@ -231,6 +243,7 @@ export function useComposerCompletions({
   }, [canDelegate, canMention, canSkill, canSlash, resetTrigger, triggerInfo]);
   useEffect(() => {
     resetTrigger();
+    completed.current.tokens = [];
   }, [resetTrigger, scopeKey, threadID]);
 
   // `/` 与 `$` 共用同一份命令快照，未就绪时弹层显示加载中
@@ -247,12 +260,22 @@ export function useComposerCompletions({
     }
     if (triggerInfo.trigger === '/') {
       if (!commandSnapshot) return [];
+      if (artifactPicker && artifactTypes?.length) {
+        return artifactTypes.map((type) => ({
+          key: `artifact:${type.id}`,
+          title: artifactLabel(type),
+          detail: '',
+          icon: 'command',
+          insertText: `/${OPEN_ARTIFACT} ${type.id} `,
+          kind: 'command'
+        }));
+      }
       return filterSlashCommands(commandSnapshot.commands, triggerInfo.query, commandSnapshot.recent)
         .slice(0, 30)
-        .map(commandToSuggestion);
+        .map((command) => commandToSuggestion(command, triggerInfo.query === ''));
     }
     return modelSuggestions(providers, triggerInfo.query);
-  }, [commandSnapshot, fileSuggestions, providers, threadMentionPicks, triggerInfo]);
+  }, [artifactPicker, artifactTypes, commandSnapshot, fileSuggestions, providers, threadMentionPicks, triggerInfo]);
   const suggestionIndex = Math.min(selectedSuggestionIndex, Math.max(suggestionItems.length - 1, 0));
   const showSuggestions = Boolean(triggerInfo) && (suggestionItems.length > 0 || Boolean(commandTriggerLoading));
   const suggestionFootnote = (triggerInfo?.trigger === '/' || triggerInfo?.trigger === '$') && commandSnapshot
@@ -260,13 +283,18 @@ export function useComposerCompletions({
       ? 'Mac 正在读取命令列表，稍后会自动补全'
       : commandSnapshot.error
       ? '命令列表读取失败，仅显示内置命令'
-      : null
+      : suggestionItems[suggestionIndex]?.hint ?? null
     : null;
 
   // 选择建议项，精准替换触发片段，保留光标前后内容
   const handleSelectSuggestion = useCallback(
     (item: SuggestionItem) => {
       if (!triggerInfo) return;
+      if (item.key === `command:${OPEN_ARTIFACT}` && artifactTypes?.length) {
+        setArtifactPicker(true);
+        setSelectedSuggestionIndex(0);
+        return;
+      }
       const pick = threadMentionPicks.find((entry) => entry.item.key === item.key);
       const before = draft.slice(0, triggerInfo.startIndex);
       const after = draft.slice(triggerInfo.endIndex);
@@ -293,22 +321,29 @@ export function useComposerCompletions({
       }
       const replacement = item.insertText;
       const nextDraft = before + replacement + after;
+      if (item.key.startsWith('file:') || item.key.startsWith('skill:')) {
+        const tokens = rebaseCompletionTokens(completed.current.draft, nextDraft, completed.current.tokens);
+        tokens.push({ start: before.length, end: before.length + replacement.trimEnd().length });
+        completed.current = { draft: nextDraft, tokens };
+      }
       onDraftChange(nextDraft);
 
       resetTrigger();
 
       requestAnimationFrame(() => {
         if (textareaRef.current) {
-          const nextCursor = before.length + replacement.length;
+          const nextCursor = item.key.startsWith('artifact:') ? 0 : before.length + replacement.length;
           textareaRef.current.setSelectionRange(nextCursor, nextCursor);
           textareaRef.current.focus();
         }
       });
     },
-    [draft, onDraftChange, resetTrigger, threadMentionPicks, triggerInfo]
+    [artifactTypes, draft, onDraftChange, resetTrigger, threadMentionPicks, triggerInfo]
   );
 
+  const deleteToken = (caret: number, key: 'Backspace' | 'Delete') =>
+    deleteCompletionToken(draft, caret, key, rebaseCompletionTokens(completed.current.draft, draft, completed.current.tokens));
 
-  return { triggerInfo, suggestionItems, suggestionIndex, showSuggestions, suggestionFootnote, commandTriggerLoading,
+  return { triggerInfo, artifactPicker, deleteToken, suggestionItems, suggestionIndex, showSuggestions, suggestionFootnote, commandTriggerLoading,
     isLoadingSuggestions, handleSelectSuggestion, resetTrigger, checkTrigger, setSelectedSuggestionIndex, commandsSupported };
 }

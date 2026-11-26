@@ -104,11 +104,60 @@ func init() {
 	RegisterMethod("git.push", handleGitExtPush)
 	RegisterMethod("git.pull", handleGitExtPull)
 	RegisterMethod("git.fetch", handleGitExtFetch)
+	RegisterMethod("git.init", handleGitExtInit)
+	RegisterMethod("git.autoFetch", handleGitExtAutoFetch)
 	RegisterMethod("git.checkout", handleGitExtCheckout)
 	RegisterMethod("git.createBranch", handleGitExtCreateBranch)
 	RegisterMethod("git.merge", handleGitExtMerge)
 	RegisterMethod("git.generateCommitMessage", handleGitExtGenerateCommitMessage)
 	RegisterMethod("git.pr.createUrl", handleGitExtPRCreateURL)
+}
+
+func handleGitExtInit(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.GitExtFetchParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
+		return nil, err
+	}
+	svc, ok := backendService[interface {
+		GitInit(context.Context, string) error
+	}](d.backend, GitExtServiceName)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, gitExtLocalTimeout)
+	defer cancel()
+	if err := svc.GitInit(callCtx, p.ThreadID); err != nil {
+		return nil, err
+	}
+	return wire.GitExtWriteActionResult{OK: true}, nil
+}
+
+func handleGitExtAutoFetch(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.GitExtFetchParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
+		return nil, err
+	}
+	svc, ok := backendService[interface {
+		GitAutoFetch(context.Context, string) (bool, error)
+	}](d.backend, GitExtServiceName)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	fetched, err := svc.GitAutoFetch(callCtx, p.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		Fetched bool `json:"fetched"`
+	}{Fetched: fetched}, nil
 }
 
 // gitExtBackend 把后端断言成一项内存后端能力，未实现时返回 false。

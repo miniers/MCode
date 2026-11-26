@@ -18,12 +18,13 @@ type RescueAction string
 
 const (
 	RescueActionInterrupt RescueAction = "interrupt"
+	RescueActionComplete  RescueAction = "complete"
 	RescueActionNudge     RescueAction = "nudge"
 )
 
 // Valid 判断救援动作是否受支持。
 func (a RescueAction) Valid() bool {
-	return a == RescueActionInterrupt || a == RescueActionNudge
+	return a == RescueActionInterrupt || a == RescueActionComplete || a == RescueActionNudge
 }
 
 // RescueTask 按动作救援一条任务，返回更新后的任务。
@@ -53,22 +54,26 @@ func (s *Service) RescueTask(ctx context.Context, taskID string, action RescueAc
 	}
 
 	switch action {
-	case RescueActionInterrupt:
+	case RescueActionInterrupt, RescueActionComplete:
+		target := TaskStatusTodo
+		note := "已按救援请求中断执行并重置为待办"
+		if action == RescueActionComplete {
+			target = TaskStatusDone
+			note = "已按救援请求中断执行并标记完成"
+		}
+		if !CanTransition(TaskStatus(task.Status), target) {
+			return store.Task{}, ErrInvalidTransition
+		}
 		if err := s.interruptSessionLocked(ctx, task); err != nil {
 			return store.Task{}, err
 		}
-		// 与桌面端一致：中断之后把任务重置为待办；已经是待办就不写库。
-		if TaskStatus(task.Status) == TaskStatusTodo {
+		if TaskStatus(task.Status) == target {
 			return task, nil
-		}
-		if !CanTransition(TaskStatus(task.Status), TaskStatusTodo) {
-			return store.Task{}, ErrInvalidTransition
 		}
 		if err := s.closeTaskDecisions(ctx, &task); err != nil {
 			return store.Task{}, err
 		}
-		task.Status = string(TaskStatusTodo)
-		note := "已按救援请求中断执行并重置为待办"
+		task.Status = string(target)
 		task.LastActivityText = &note
 		updated, err := s.opts.Store.UpdateTask(ctx, task, expectedRevision)
 		if err != nil {

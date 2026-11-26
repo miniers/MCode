@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcode/internal/agentconf"
+	"mcode/internal/openartifact"
 	"mcode/internal/remote/wire"
 )
 
@@ -137,6 +138,55 @@ func (d *Dispatcher) notifyQueueChanged(snap wire.ThreadsQueueSnapshot) {
 
 // scanSkills 是技能扫描函数的包级注入点，便于测试 Mock。
 var scanSkills = agentconf.ScanSkills
+
+func init() {
+	RegisterMethod("skills.list", handleSkillsList)
+}
+
+func handleSkillsList(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p struct {
+		ProjectID string `json:"projectID,omitempty"`
+	}
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	path, err := memoryExtProjectPath(ctx, d, p.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	skills, err := scanCommandSkills(d.backend, path)
+	if err != nil {
+		return nil, err
+	}
+	type skillSummary struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Agent       string `json:"agent"`
+		Scope       string `json:"scope"`
+		Plugin      string `json:"plugin,omitempty"`
+		Digest      string `json:"digest,omitempty"`
+		Disabled    bool   `json:"disabled"`
+	}
+	items := make([]skillSummary, 0, len(skills))
+	for _, skill := range skills {
+		items = append(items, skillSummary{
+			Name: skill.Name, Description: skill.Description, Agent: skill.Agent,
+			Scope: skill.Scope, Plugin: skill.Plugin, Digest: skill.Digest, Disabled: skill.Disabled,
+		})
+	}
+	return struct {
+		Skills []skillSummary `json:"skills"`
+	}{Skills: items}, nil
+}
+
+func scanCommandSkills(backend any, projectDir string) ([]agentconf.Skill, error) {
+	opts := agentconf.Options{ProjectDir: projectDir}
+	if provider, ok := backend.(agentConfDataDirProvider); ok {
+		opts.DataDir = provider.AgentConfDataDir()
+	}
+	opts.Home, _ = os.UserHomeDir()
+	return scanSkills(opts)
+}
 
 // agentConfDataDirProvider 是可选接口：后端实现它时，技能扫描会带上数据目录，
 // 从而读到与设置页同一份技能停用配置。
@@ -302,16 +352,23 @@ func appendOpenArtifactCommand(cmds []wire.RemoteCommand, guidance string) []wir
 	if strings.TrimSpace(guidance) == "" {
 		return cmds
 	}
-	for _, cmd := range cmds {
+	types := openartifact.ParseInstalledTypes(guidance)
+	items := make([]wire.RemoteArtifactType, 0, len(types))
+	for _, item := range types {
+		items = append(items, wire.RemoteArtifactType{ID: item.ID, Name: item.Name})
+	}
+	for i, cmd := range cmds {
 		if cmd.Name == "open-artifact" {
+			cmds[i].ArtifactTypes = items
 			return cmds
 		}
 	}
 	return append(cmds, wire.RemoteCommand{
-		Name:      "open-artifact",
-		Detail:    "创建交付物",
-		IsBuiltIn: false,
-		Kind:      "command",
+		Name:          "open-artifact",
+		Detail:        "创建交付物",
+		IsBuiltIn:     false,
+		Kind:          "command",
+		ArtifactTypes: items,
 	})
 }
 
@@ -504,15 +561,7 @@ func ThreadCommandsFromOps(ctx context.Context, ops ThreadOpsBackend, p wire.Thr
 	baseCmds := append(builtin, providerCmds...)
 
 	// 技能停用状态与设置页同源：数据目录由后端提供（可选接口），Home 取当前用户目录。
-	scanOpts := agentconf.Options{ProjectDir: projectDir}
-	if dataDirProvider, ok := ops.(agentConfDataDirProvider); ok {
-		scanOpts.DataDir = dataDirProvider.AgentConfDataDir()
-	}
-	if home, homeErr := os.UserHomeDir(); homeErr == nil {
-		scanOpts.Home = home
-	}
-
-	skills, scanErr := scanSkills(scanOpts)
+	skills, scanErr := scanCommandSkills(ops, projectDir)
 	if scanErr != nil {
 		errMsg := "命令列表加载失败，已显示内置命令"
 		return wire.ThreadsCommandsResult{

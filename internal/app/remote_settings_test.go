@@ -434,10 +434,11 @@ func TestRemoteSettingsReviewMode(t *testing.T) {
 	}
 }
 
-// settings.get 的快照要覆盖全部白名单键，并带上 config 里的快捷回复。
+// settings.get 返回可读白名单键和快捷回复，并隐藏 Webhook 地址。
 func TestRemoteSettingsGetSnapshotCoversWhitelist(t *testing.T) {
 	client := newRemoteSettingsTestClient(t, func(cfg *config.Config) {
 		cfg.QuickReplies = []config.QuickReply{{Label: "继续", Message: "接着刚才的做"}}
+		cfg.Notifications.WebhookURL = "https://example.org/hook/secret"
 	})
 	svc := remoteSettingsService{client: client}
 
@@ -447,6 +448,12 @@ func TestRemoteSettingsGetSnapshotCoversWhitelist(t *testing.T) {
 	}
 	for _, key := range remote.SettingsWritableKeys {
 		raw, ok := snapshot.Values[key]
+		if key == remote.SettingsKeyWebhookURL {
+			if ok {
+				t.Fatal("快照返回了 Webhook 地址")
+			}
+			continue
+		}
 		if !ok {
 			t.Fatalf("快照缺少白名单键 %q", key)
 		}
@@ -456,6 +463,34 @@ func TestRemoteSettingsGetSnapshotCoversWhitelist(t *testing.T) {
 	}
 	if len(snapshot.QuickReplies) != 1 || snapshot.QuickReplies[0].Label != "继续" {
 		t.Fatalf("快捷回复没带上：%+v", snapshot.QuickReplies)
+	}
+}
+
+func TestRemoteSettingsSetWebParityKeys(t *testing.T) {
+	client := newRemoteSettingsTestClient(t, nil)
+	svc := remoteSettingsService{client: client}
+	ctx := context.Background()
+	address := "https://example.org/hook/token"
+	snapshot, err := svc.Set(ctx, remoteSettingsValues(t, map[string]any{
+		remote.SettingsKeyWebhookURL:                   address,
+		remote.SettingsKeyGitAutoFetch:                 false,
+		remote.SettingsKeySessionCompactSuggestPercent: 85,
+		remote.SettingsKeySessionCompactSuggestMaxK:    240,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snapshot.Values[remote.SettingsKeyWebhookURL]; ok {
+		t.Fatal("写入结果返回了 Webhook 地址")
+	}
+	cfg := loadRemoteSettingsTestConfig(t, client.dataDir)
+	if cfg.Notifications.WebhookURL != address || cfg.SourceControl.AutoFetchEnabled() ||
+		cfg.Session.CompactSuggestPercent != 85 || cfg.Session.CompactSuggestMaxK != 240 {
+		t.Fatal("设置没有写入配置")
+	}
+	_, err = svc.Set(ctx, remoteSettingsValues(t, map[string]any{remote.SettingsKeySessionCompactSuggestPercent: 96}))
+	if err == nil {
+		t.Fatal("接受了越界的压缩比例")
 	}
 }
 
