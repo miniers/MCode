@@ -68,6 +68,7 @@ row row-notify-foreground 前台也发送通知
 row row-finish-sound 完成提示音
 row row-chime-attention 需要介入时提示音
 row row-dormant-sound 会话休眠提示音
+row row-notify-webhook Webhook
 section general.startup 启动与托盘
 row row-tray 菜单栏图标
 row row-tray-quota 菜单栏显示额度百分比

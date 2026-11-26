@@ -140,6 +140,12 @@ var pageGeneral = settingsPage{
 					Aliases: []string{"提示音", "声音", "休眠"},
 					Control: toggle(ptr(func(c *config.Config) **bool { return &c.Notifications.DormantSound }, true)),
 				},
+				{
+					ID:      "row-notify-webhook",
+					Title:   "Webhook",
+					Aliases: []string{"webhook", "飞书", "钉钉", "推送", "通知"},
+					Control: text(val(func(c *config.Config) *string { return &c.Notifications.WebhookURL }, ""), "https://open.feishu.cn/open-apis/bot/v2/hook/..."),
+				},
 			},
 		},
 		{

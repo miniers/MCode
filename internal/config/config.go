@@ -622,8 +622,9 @@ type NotificationsConfig struct {
 	PlayFinishSound          bool  `json:"play_finish_sound"`                     // 播放完成提示音
 	ChimeWhenAttentionNeeded *bool `json:"chime_when_attention_needed,omitempty"` // 需要用户介入时播放提示音，nil 视为开启
 	DormantSound             *bool `json:"dormant_sound,omitempty"`               // 会话休眠时播放提示音，nil 视为开启
-	NotifyWhenStalled        *bool `json:"notify_when_stalled,omitempty"`         // 会话长时间没有进展时提醒，nil 视为开启
-	StalledAlertMinutes      int   `json:"stalled_alert_minutes,omitempty"`       // 卡住提醒的无进展阈值（分钟），0 或负数视为默认 10
+	NotifyWhenStalled        *bool  `json:"notify_when_stalled,omitempty"`         // 会话长时间没有进展时提醒，nil 视为开启
+	StalledAlertMinutes      int    `json:"stalled_alert_minutes,omitempty"`       // 卡住提醒的无进展阈值（分钟），0 或负数视为默认 10
+	WebhookURL               string `json:"webhook_url,omitempty"`                 // 通知 Webhook 地址，空字符串表示关闭
 }
 
 // StartupConfig 启动、托盘与退出设置。

@@ -59,13 +59,22 @@ func TestGlobMatchesChineseFilename(t *testing.T) {
 }
 
 func TestTruncateKeepsValidUTF8(t *testing.T) {
+	oldTempDir := toolOutputTempDir
+	dir := t.TempDir()
+	toolOutputTempDir = func() string { return dir }
+	t.Cleanup(func() { toolOutputTempDir = oldTempDir })
+
 	s := strings.Repeat("中", 20000) + "\n"
 	got := truncate(s, "Output truncated.")
 	if !utf8.ValidString(got) {
 		t.Fatalf("截断结果不是合法 UTF-8，长度 %d", len(got))
 	}
-	if len(got) > maxOutputBytes+1+len("Output truncated.") {
-		t.Fatalf("截断结果过长：%d", len(got))
+	prefix, _, ok := strings.Cut(got, "\nOutput truncated.")
+	if !ok {
+		t.Fatalf("截断结果缺少截断提示：%q", got)
+	}
+	if len(prefix) > maxOutputBytes {
+		t.Fatalf("截断结果过长：%d", len(prefix))
 	}
 }
 
