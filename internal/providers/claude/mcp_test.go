@@ -11,7 +11,15 @@ import (
 	"mcode/internal/harness"
 )
 
+func isolateClaudeToolSearchEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ENABLE_TOOL_SEARCH", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+}
+
 func TestMergeMCPArgs_ProxyWins(t *testing.T) {
+	isolateClaudeToolSearchEnv(t)
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	if err := os.WriteFile(path, []byte(`{"mcpServers":{"remote":{"command":"direct-command"},"other":{"command":"other-command","env":{"KEY":"value"}}}}`), 0600); err != nil {
 		t.Fatal(err)
@@ -97,6 +105,7 @@ func TestExternalizeMCPConfig(t *testing.T) {
 }
 
 func TestClaudeMCPConfigDisablesFold(t *testing.T) {
+	isolateClaudeToolSearchEnv(t)
 	args := buildMCPArgs(
 		harness.Turn{Mode: harness.ModeAgent, WorkDir: "/repo"},
 		"",
@@ -128,5 +137,84 @@ func TestClaudeMCPConfigDisablesFold(t *testing.T) {
 	}
 	if got := cfg.MCPServers["mcode"].URL; got != "http://127.0.0.1:2/mcp" {
 		t.Fatalf("builtin mcode URL should remain unchanged, got %q", got)
+	}
+}
+
+func TestClaudeToolSearchFold(t *testing.T) {
+	cases := []struct {
+		name     string
+		procEnv  map[string]string
+		turnEnv  []string
+		wantFold bool
+	}{
+		{
+			name:     "无 base URL 时加 fold=off",
+			wantFold: true,
+		},
+		{
+			name:     "turn.Env 设第三方 base URL 时不加 fold=off",
+			turnEnv:  []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:7777"},
+			wantFold: false,
+		},
+		{
+			name:     "第三方 base URL 且 ENABLE_TOOL_SEARCH=true 时加 fold=off",
+			turnEnv:  []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:7777", "ENABLE_TOOL_SEARCH=true"},
+			wantFold: true,
+		},
+		{
+			name:     "ENABLE_TOOL_SEARCH=false 且无 base URL 时不加 fold=off",
+			turnEnv:  []string{"ENABLE_TOOL_SEARCH=false"},
+			wantFold: false,
+		},
+		{
+			name:     "base URL 为 api.anthropic.com 时加 fold=off",
+			turnEnv:  []string{"ANTHROPIC_BASE_URL=https://api.anthropic.com"},
+			wantFold: true,
+		},
+		{
+			name:     "进程环境设第三方 base URL 且 turn.Env 未设时不加 fold=off",
+			procEnv:  map[string]string{"ANTHROPIC_BASE_URL": "http://127.0.0.1:7777"},
+			wantFold: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateClaudeToolSearchEnv(t)
+			for k, v := range tc.procEnv {
+				t.Setenv(k, v)
+			}
+
+			args := buildMCPArgs(
+				harness.Turn{Mode: harness.ModeAgent, WorkDir: "/repo", Env: tc.turnEnv},
+				"",
+				"",
+				harness.BuiltinMCP{URL: "http://127.0.0.1:2/mcp", Token: "builtin-tok"},
+				[]harness.MCPEndpoint{{Name: "ext", URL: "http://127.0.0.1:2/mcp/ext-id", Token: "ext-tok"}},
+			)
+			var configStr string
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "--mcp-config" {
+					configStr = args[i+1]
+				}
+			}
+			if configStr == "" {
+				t.Fatalf("expected --mcp-config in args: %v", args)
+			}
+			var cfg mcpConfig
+			if err := json.Unmarshal([]byte(configStr), &cfg); err != nil {
+				t.Fatalf("unmarshal mcpConfig failed: %v", err)
+			}
+			wantURL := "http://127.0.0.1:2/mcp/ext-id"
+			if tc.wantFold {
+				wantURL = "http://127.0.0.1:2/mcp/ext-id?fold=off"
+			}
+			if got := cfg.MCPServers["ext"].URL; got != wantURL {
+				t.Fatalf("ext URL = %q, want %q", got, wantURL)
+			}
+			if got := cfg.MCPServers["mcode"].URL; got != "http://127.0.0.1:2/mcp" {
+				t.Fatalf("builtin mcode URL = %q, want unchanged", got)
+			}
+		})
 	}
 }

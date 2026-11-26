@@ -222,7 +222,7 @@ func gatewayEnvironmentValue(key string) string {
 // 再用 settings.json 的 env 块补齐缺失项。
 func gatewayEnvironment() map[string]string {
 	env := make(map[string]string)
-	for _, key := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+	for _, key := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ENABLE_TOOL_SEARCH"} {
 		if v := gatewayEnvironmentValue(key); v != "" {
 			env[key] = v
 		}

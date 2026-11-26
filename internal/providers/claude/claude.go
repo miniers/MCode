@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -367,6 +368,38 @@ func approvalsActive(turn harness.Turn) bool {
 	return turn.Approver != nil
 }
 
+// claudeToolSearchOn 判断本轮 Claude 的 ToolSearch 是否实际开启。
+func claudeToolSearchOn(turn harness.Turn) bool {
+	var fallback map[string]string
+	resolveEnv := func(key string) string {
+		prefix := key + "="
+		for i := len(turn.Env) - 1; i >= 0; i-- {
+			if val, ok := strings.CutPrefix(turn.Env[i], prefix); ok {
+				return strings.TrimSpace(val)
+			}
+		}
+		if fallback == nil {
+			fallback = gatewayEnvironment()
+		}
+		return strings.TrimSpace(fallback[key])
+	}
+
+	if enableToolSearch := resolveEnv("ENABLE_TOOL_SEARCH"); enableToolSearch != "" {
+		return !strings.EqualFold(enableToolSearch, "false")
+	}
+
+	// Claude Code 在第三方 ANTHROPIC_BASE_URL 下默认关闭 ToolSearch。
+	baseURL := resolveEnv("ANTHROPIC_BASE_URL")
+	if baseURL == "" {
+		return true
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "api.anthropic.com")
+}
+
 // buildMCPArgs 根据 Turn 的审批需求与 Harness 的内置 MCP 配置，构造合并后的 MCP 命令行参数。
 // 整个命令行最多只生成一个 --mcp-config 参数。
 func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin harness.BuiltinMCP, external []harness.MCPEndpoint) []string {
@@ -398,6 +431,7 @@ func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin 
 		}
 	}
 
+	toolSearchOn := len(external) > 0 && claudeToolSearchOn(turn)
 	for _, ep := range external {
 		if ep.Name == "mcode" || ep.Name == "mcode_approval" {
 			continue
@@ -406,9 +440,13 @@ func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin 
 		if ep.Token != "" {
 			headers["Authorization"] = "Bearer " + ep.Token
 		}
+		epURL := ep.URL
+		if toolSearchOn {
+			epURL = harness.WithoutFold(ep.URL)
+		}
 		servers[ep.Name] = mcpServerConfig{
 			Type:    "http",
-			URL:     harness.WithoutFold(ep.URL),
+			URL:     epURL,
 			Headers: headers,
 		}
 	}

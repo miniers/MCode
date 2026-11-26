@@ -1546,6 +1546,9 @@ func TestBuildMCPArgs(t *testing.T) {
 	})
 
 	t.Run("外部endpoint合并、跳过保留名、与内置mcode共存", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_BASE_URL", "")
+		t.Setenv("ENABLE_TOOL_SEARCH", "")
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		turn := harness.Turn{
 			Mode:    harness.ModeAgent,
 			WorkDir: "/workspace/test",
