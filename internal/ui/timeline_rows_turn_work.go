@@ -405,13 +405,51 @@ func turnWorkFooterText(s *chatState, turnIndex int, usage TokenUsage, task task
 // renderToolBeatItem 渲染工具组内的一个节拍：上方是思考叙事（这节拍没有前置思考时省略），
 // 下方胶囊竖排，一行一个，点开后详情紧跟在该胶囊下方。
 // 整段没有竖线、圆点或图标，只剩“叙事 + 动作胶囊”。
+// 刚点开工具组的入场窗口内，用 AnimateTo 从 0 展开高度并渐显，避免 List 顶层及回合头内瞬间满高导致遮挡或闪现。
 func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID string) ui.Element {
 	beatTools := item.beatTools
-	return ui.Column(c.Key("tool-beat-" + item.id)).
+	enterAnim := false
+	needJump := false
+	if s != nil {
+		s.mu.Lock()
+		if item.groupID != "" && item.groupID == s.toolGroupEnterID &&
+			!s.toolGroupEnterAt.IsZero() && time.Since(s.toolGroupEnterAt) < toolGroupEnterWindow {
+			enterAnim = true
+			if s.toolGroupEnterMounted == nil {
+				s.toolGroupEnterMounted = make(map[string]struct{})
+			}
+			if _, ok := s.toolGroupEnterMounted[item.id]; !ok {
+				s.toolGroupEnterMounted[item.id] = struct{}{}
+				needJump = true
+			}
+		} else if s.toolGroupEnterID != "" && (s.toolGroupEnterAt.IsZero() || time.Since(s.toolGroupEnterAt) >= toolGroupEnterWindow) {
+			s.toolGroupEnterID = ""
+			s.toolGroupEnterAt = time.Time{}
+			s.toolGroupEnterMounted = nil
+		}
+		s.mu.Unlock()
+	}
+
+	clip := ui.Column(c.Key("tool-beat-" + item.id)).
 		FillWidth().
 		MaxWidth(timelineContentMaxWidth(s)).
-		Gap(Space1).
-		Children(func() {
+		Shrink(0)
+	k := float32(1)
+	if enterAnim && !reduceMotion(c) {
+		if needJump {
+			clip.Jump("tool-beat-enter", 0)
+		}
+		k = clip.AnimateTo("tool-beat-enter", 1, ui.Animation{
+			Duration: animateDuration(c, motionUnfold),
+			Ease:     motionEaseStandard,
+		})
+	}
+	clip.Children(func() {
+		inner := ui.Column(c.Key("tool-beat-body-" + item.id)).
+			FillWidth().
+			Gap(Space1).
+			Shrink(0)
+		inner.Children(func() {
 			if isReasoningMessage(item.msg) && isShowReasoningEnabled(s) {
 				renderToolBeatReasoning(c, s, item.msg, liveID)
 			}
@@ -449,6 +487,12 @@ func renderToolBeatItem(c *ui.Context, s *chatState, item timelineItem, liveID s
 					})
 			}
 		})
+		if k < 1 {
+			h := inner.LayoutBounds().H
+			clip.ClipY().Height(k * h).Opacity(k)
+		}
+	})
+	return clip
 }
 
 // toolBeatReasoningNeedsTruncation 判断节拍里的思考正文是否需要折叠：超过 2 行或超过 180 个字符。

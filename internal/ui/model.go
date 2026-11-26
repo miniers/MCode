@@ -515,6 +515,9 @@ type chatState struct {
 	editGeneration        uint64
 	expandedReasoning     map[string]bool
 	expandedTool          map[string]bool
+	toolGroupEnterID      string              // 用户刚点开的工具组 ID，只用于给该组新挂载的节拍行加入场动效。
+	toolGroupEnterAt      time.Time           // 用户刚点开工具组的时间，只用于给该组新挂载的节拍行加入场动效。
+	toolGroupEnterMounted map[string]struct{} // 入场窗口内已建好动效通道的节拍行 ID，窗口过期后清空。
 	expandedCommandSteps  map[string]bool
 	// 助手正文是否已完全显示的登记表（由 s.mu 保护）：revealedMsgs 按消息 ID 记录本帧
 	// markdown.Revealed 的结果；streamedRevealMsgs 记录本会话里以流式状态渲染过的消息，

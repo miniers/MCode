@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"mcode/internal/git"
@@ -208,6 +209,8 @@ func TestInlineToolDiff_InToolGroup(t *testing.T) {
 	tt := newToolDiffTester(t, fake, "命令 · 编辑")
 
 	clickText(t, tt, "命令 · 编辑")
+	// 等工具组节拍行展开动画结束再点里面的胶囊
+	tt.Advance(motionUnfold + time.Second)
 	clickText(t, tt, "查看改动 other.go")
 	waitFor(t, tt, func() bool {
 		return tt.HasText("OTHER-OLD-LINE") && tt.HasText("OTHER-NEW-LINE")

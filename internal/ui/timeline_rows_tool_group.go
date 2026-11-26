@@ -757,6 +757,8 @@ func toolGroupOpen(expanded map[string]bool, groupID string, defaultOpen bool) b
 	return defaultOpen
 }
 
+const toolGroupEnterWindow = 2 * DurBase
+
 // setToolGroupOpen 显式记录工具组的开合状态，覆盖默认值
 // （运行中的活动组默认展开，用户点一下后按用户设置收起）。
 func (s *chatState) setToolGroupOpen(groupID string, open bool) {
@@ -765,6 +767,15 @@ func (s *chatState) setToolGroupOpen(groupID string, open bool) {
 		s.expandedTool = make(map[string]bool)
 	}
 	s.expandedTool[groupID] = open
+	if open {
+		s.toolGroupEnterID = groupID
+		s.toolGroupEnterAt = time.Now()
+		s.toolGroupEnterMounted = nil
+	} else if s.toolGroupEnterID == groupID {
+		s.toolGroupEnterID = ""
+		s.toolGroupEnterAt = time.Time{}
+		s.toolGroupEnterMounted = nil
+	}
 	s.expandedRev++
 	s.mu.Unlock()
 	s.holdChatPlace()
