@@ -889,7 +889,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 				Label("消息输入框").
 				Radius(cardRadius).
 				MaxHeight(composerCardMaxHeight(viewportHeight)).
-				Background(ThemeSurface(c)).
+				Background(ThemeComposerBackground(c)).
 				Padding(0, 0, Space2, 0)
 
 			if !docked {

@@ -324,6 +324,7 @@ func TestSettingsIndex_CoversEveryRow(t *testing.T) {
 	}
 
 	// 2. 索引 → 源码：每个非区块条目都要有对应的行渲染调用；页面树里的条目除外。
+	// 主题颜色行由 renderThemeColor 按变量 key 渲染，静态抽不出字面量，单独在下面校验。
 	treeIDs := settingsTreeIDSet()
 	literalKeys := map[string]bool{}
 	var concatPrefixes []string
@@ -336,7 +337,9 @@ func TestSettingsIndex_CoversEveryRow(t *testing.T) {
 	}
 	var missing []string
 	for _, it := range settingsItems() {
-		if it.Block || treeIDs[it.ID] {
+		if it.Block || treeIDs[it.ID] || strings.HasPrefix(it.ID, themeColorRowPrefix) {
+			// 主题颜色行的 key 由变量拼出，静态抽不出字面量；由 TestSettingsIndex_ThemeColorRows
+			// 与 TestThemesSheetColorRowKeys 覆盖。
 			continue
 		}
 		if literalKeys[it.ID] {
@@ -396,6 +399,43 @@ func TestSettingsIndex_TitlesMatchSource(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatalf("没有比对到任何标题，解析逻辑可能失效")
+	}
+}
+
+// TestSettingsIndex_ThemeColorRows 校验主题颜色行：colorSections 展开出的每个键都要有条目，
+// 分节等于所在分组标题、标题等于 themeColorTitles 里的标题，且每条颜色行条目都能反查到键。
+func TestSettingsIndex_ThemeColorRows(t *testing.T) {
+	byID := map[string]settingsItem{}
+	for _, it := range settingsItems() {
+		byID[it.ID] = it
+	}
+	seen := map[string]bool{}
+	for _, section := range colorSections {
+		for _, key := range section.keys {
+			if seen[key] {
+				t.Errorf("颜色键 %q 在 colorSections 里重复出现", key)
+			}
+			seen[key] = true
+			id := themeColorRowPrefix + key
+			it, ok := byID[id]
+			if !ok {
+				t.Errorf("%s 未登记在 settingsItems()", id)
+				continue
+			}
+			if it.Section != section.title {
+				t.Errorf("%s 的 Section = %q，分组是 %q", id, it.Section, section.title)
+			}
+			if title, ok := themeColorTitles[key]; ok {
+				if it.Title != title {
+					t.Errorf("%s 的标题是 %q，源码里写的是 %q", id, it.Title, title)
+				}
+			}
+		}
+	}
+	for _, it := range settingsItems() {
+		if strings.HasPrefix(it.ID, themeColorRowPrefix) && !seen[strings.TrimPrefix(it.ID, themeColorRowPrefix)] {
+			t.Errorf("%s 在 colorSections 里没有对应的颜色键", it.ID)
+		}
 	}
 }
 

@@ -6,6 +6,9 @@ import (
 	"unicode/utf8"
 )
 
+// themeColorRowPrefix 是主题颜色行索引条目与行 key 的前缀：行 key 为 row-theme-color-<key>。
+const themeColorRowPrefix = "row-theme-color-"
+
 // settingsItem 是设置面板里可被逐项搜索命中的一条设置项。
 //
 // ID 就是页面树行渲染器（renderSettingRow）用的控件 key，由 renderSettingsTreeSetting 传下去；
@@ -70,7 +73,16 @@ func settingsLegacyItems() []settingsItem {
 		{ID: "row-theme-color-text_secondary", Page: "appearance", Sheet: "themes", Section: "文字", Title: "次要文字", Aliases: []string{"颜色", "主题", "text_secondary"}},
 		{ID: "row-theme-color-text_tertiary", Page: "appearance", Sheet: "themes", Section: "文字", Title: "辅助文字", Aliases: []string{"颜色", "主题", "text_tertiary"}},
 		{ID: "row-theme-color-code_text", Page: "appearance", Sheet: "themes", Section: "文字", Title: "代码文字", Aliases: []string{"颜色", "主题", "code_text", "行内代码"}},
+		{ID: "row-theme-color-code_heading", Page: "appearance", Sheet: "themes", Section: "文字", Title: "标题", Aliases: []string{"颜色", "主题", "code_heading", "Markdown"}},
+		{ID: "row-theme-color-code_muted", Page: "appearance", Sheet: "themes", Section: "文字", Title: "次要标记", Aliases: []string{"颜色", "主题", "code_muted", "Markdown", "列表", "引用"}},
+		{ID: "row-theme-color-code_link", Page: "appearance", Sheet: "themes", Section: "文字", Title: "链接", Aliases: []string{"颜色", "主题", "code_link", "Markdown"}},
+		{ID: "row-theme-color-code_strong", Page: "appearance", Sheet: "themes", Section: "文字", Title: "粗体", Aliases: []string{"颜色", "主题", "code_strong", "Markdown"}},
+		{ID: "row-theme-color-quote_text", Page: "appearance", Sheet: "themes", Section: "文字", Title: "引用文字", Aliases: []string{"颜色", "主题", "quote_text", "引用"}},
 		{ID: "row-theme-color-code_background", Page: "appearance", Sheet: "themes", Section: "背景", Title: "代码底色", Aliases: []string{"颜色", "主题", "code_background", "行内代码"}},
+		{ID: "row-theme-color-table_header", Page: "appearance", Sheet: "themes", Section: "背景", Title: "表头", Aliases: []string{"颜色", "主题", "table_header", "表格"}},
+		{ID: "row-theme-color-composer_background", Page: "appearance", Sheet: "themes", Section: "背景", Title: "输入框", Aliases: []string{"颜色", "主题", "composer_background", "输入框", "对话框"}},
+		{ID: "row-theme-color-user_message_background", Page: "appearance", Sheet: "themes", Section: "背景", Title: "用户消息", Aliases: []string{"颜色", "主题", "user_message_background", "气泡"}},
+		{ID: "row-theme-color-quote_bar", Page: "appearance", Sheet: "themes", Section: "背景", Title: "引用竖线", Aliases: []string{"颜色", "主题", "quote_bar", "引用"}},
 		{ID: "row-theme-color-accent", Page: "appearance", Sheet: "themes", Section: "强调", Title: "强调色", Aliases: []string{"颜色", "主题", "accent"}},
 		{ID: "row-theme-accent-system", Page: "appearance", Sheet: "themes", Section: "强调", Title: "跟随系统", Aliases: []string{"颜色", "主题"}},
 		{ID: "row-theme-color-danger", Page: "appearance", Sheet: "themes", Section: "状态", Title: "危险", Aliases: []string{"颜色", "主题", "danger"}},

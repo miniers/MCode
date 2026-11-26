@@ -62,12 +62,17 @@ func TestSettingsDetailScrollResetsOnPageSwitch(t *testing.T) {
 	if st.currentPage != "appearance" {
 		t.Fatalf("点击外观后当前页 = %q，期望 appearance", st.currentPage)
 	}
+	firstGeneralAfterSwitch, ok := tt.Find("默认权限")
+	if ok && firstGeneralAfterSwitch.H > 0 {
+		t.Fatalf("切到外观页后通用页第一行不应可见：got %+v", firstGeneralAfterSwitch)
+	}
+
 	firstAppearance, ok := tt.Find("主题")
 	if !ok {
 		t.Fatalf("切到外观页后未找到第一行：%v", tt.Texts())
 	}
-	if firstAppearance.H <= 0 || firstAppearance.Y < 0 || firstAppearance.Y > firstBefore.Y+Space4 {
-		t.Fatalf("切到外观页后第一行应在详情区顶部附近：got %+v（通用页初始 firstBefore=%+v）", firstAppearance, firstBefore)
+	if firstAppearance.H <= 0 || firstAppearance.Y < detail.Y || firstAppearance.Y+firstAppearance.H > detail.Y+detail.H {
+		t.Fatalf("切到外观页后第一行应在详情区内可见：got %+v detail=%+v", firstAppearance, detail)
 	}
 
 	// 跨页通过旧 ID 跳到页面底部的存储清理行，目标行应落在窗口内。

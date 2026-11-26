@@ -27,12 +27,18 @@ func (themeControl) renderDisabled(c *ui.Context, st *SettingsState, s setting, 
 			commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = ids[i] })
 		}).Label("主题")
 		ui.Row(c.Key(s.ID + "-custom")).Wrap().Gap(Space2).Children(func() {
+			for _, id := range builtinThemeOrder()[2:] {
+				Capsule(c, CapsuleProps{Key: id, Text: st.cfg.Appearance.ThemeDisplayName(id), Selected: st.cfg.Appearance.Theme == id, Interactive: !disabled, OnClick: func() {
+					commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = id })
+				}}).Transition(motionFeedback(c))
+			}
 			for _, theme := range st.cfg.Appearance.Themes {
 				if config.IsBuiltinTheme(theme.ID) {
 					continue
 				}
-				Capsule(c, CapsuleProps{Key: theme.ID, Text: theme.Name, Selected: st.cfg.Appearance.Theme == theme.ID, Interactive: !disabled, OnClick: func() {
-					commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = theme.ID })
+				id := theme.ID
+				Capsule(c, CapsuleProps{Key: id, Text: st.cfg.Appearance.ThemeDisplayName(id), Selected: st.cfg.Appearance.Theme == id, Interactive: !disabled, OnClick: func() {
+					commitSettingsControl(st, func(cfg *config.Config) { cfg.Appearance.Theme = id })
 				}}).Transition(motionFeedback(c))
 			}
 		})

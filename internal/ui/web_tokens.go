@@ -50,9 +50,16 @@ func writeWebVars(b *strings.Builder, vars []webVar) {
 	}
 }
 
+func webBuiltinPalette(id string) themePalette {
+	colors, _ := config.BuiltinThemeColors(id)
+	palette := paletteFromColors(colors)
+	derivePalette(&palette)
+	return palette
+}
+
 // webLightVars 是浅色主题变量与主题无关的尺寸、字号、时长。
 func webLightVars() []webVar {
-	palette := builtinPalettes[config.ThemeLight]
+	palette := webBuiltinPalette(config.ThemeLight)
 	accent := palette.Accent
 	text := palette.Text
 	return []webVar{
@@ -61,6 +68,7 @@ func webLightVars() []webVar {
 		{"表面", "surface-card", webCSSColor(palette.Card)},
 		{"表面", "surface-raised", webCSSColor(palette.Raised)},
 		{"表面", "surface-popover", webCSSColor(palette.Popover)},
+		{"表面", "surface-user-message", webCSSColor(palette.Card)},
 
 		{"文字", "text-primary", webCSSColor(palette.Text)},
 		{"文字", "text-secondary", webCSSColor(palette.TextSecondary)},
@@ -85,6 +93,8 @@ func webLightVars() []webVar {
 		{"语义", "success", webCSSColor(palette.Success)},
 		{"语义", "caution", webCSSColor(palette.Caution)},
 		{"语义", "plan", webCSSColor(palette.Plan)},
+		{"语义", "quote-text", webCSSColor(palette.QuoteText)},
+		{"语义", "quote-bar", webCSSColor(palette.QuoteBar)},
 
 		{"阴影", "elev-popover", webShadow(ElevPopover, false)},
 		{"阴影", "elev-dialog", webShadow(ElevDialog, false)},
@@ -135,7 +145,7 @@ func webLightVars() []webVar {
 
 // webDarkVars 只覆盖随主题变化的颜色与阴影，尺寸、字号、时长沿用 :root。
 func webDarkVars() []webVar {
-	palette := builtinPalettes[config.ThemeDark]
+	palette := webBuiltinPalette(config.ThemeDark)
 	accent := palette.Accent
 	text := palette.Text
 	return []webVar{
@@ -144,6 +154,7 @@ func webDarkVars() []webVar {
 		{"表面", "surface-card", webCSSColor(palette.Card)},
 		{"表面", "surface-raised", webCSSColor(palette.Raised)},
 		{"表面", "surface-popover", webCSSColor(palette.Popover)},
+		{"表面", "surface-user-message", webCSSColor(palette.Card)},
 
 		{"文字", "text-primary", webCSSColor(palette.Text)},
 		{"文字", "text-secondary", webCSSColor(palette.TextSecondary)},
@@ -168,6 +179,8 @@ func webDarkVars() []webVar {
 		{"语义", "success", webCSSColor(palette.Success)},
 		{"语义", "caution", webCSSColor(palette.Caution)},
 		{"语义", "plan", webCSSColor(palette.Plan)},
+		{"语义", "quote-text", webCSSColor(palette.QuoteText)},
+		{"语义", "quote-bar", webCSSColor(palette.QuoteBar)},
 
 		{"阴影", "elev-popover", webShadow(ElevPopover, true)},
 		{"阴影", "elev-dialog", webShadow(ElevDialog, true)},
