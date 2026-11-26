@@ -2227,6 +2227,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
                 data-index={virtualItem.index}
                 data-item-key={String(virtualItem.key)}
                 ref={virtualizer.measureElement}
+                className="min-w-0"
               >
                 <BackgroundTasksRow
                   activity={activity}
@@ -2249,6 +2250,7 @@ const VirtualTimeline: React.FC<VirtualTimelineProps> = ({
               data-index={virtualItem.index}
               data-item-key={String(virtualItem.key)}
               ref={virtualizer.measureElement}
+              className="min-w-0"
             >
               {renderEntry(item)}
               <TurnTasks group={turnTasks.get(virtualItem.index)} onOpenThread={onOpenThread} onOpenTask={onOpenTask} />

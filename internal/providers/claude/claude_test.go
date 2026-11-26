@@ -129,6 +129,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "auto",
 			},
 		},
@@ -137,6 +138,7 @@ func TestBuildArgs(t *testing.T) {
 			turn: harness.Turn{},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "auto",
 			},
 		},
@@ -147,6 +149,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "plan",
 			},
 		},
@@ -157,6 +160,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "default",
 			},
 		},
@@ -167,6 +171,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "auto",
 			},
 		},
@@ -177,6 +182,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "auto",
 			},
 		},
@@ -187,6 +193,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--allow-dangerously-skip-permissions",
 				"--permission-mode", "bypassPermissions",
 			},
@@ -201,6 +208,7 @@ func TestBuildArgs(t *testing.T) {
 			extra: []string{"--custom-flag", "val"},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--model", "claude-3-7-sonnet",
 				"--resume", "sess-resume-123",
 				"--permission-mode", "auto",
@@ -212,6 +220,7 @@ func TestBuildArgs(t *testing.T) {
 			turn: harness.Turn{Model: "default"},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--permission-mode", "auto",
 			},
 		},
@@ -220,6 +229,7 @@ func TestBuildArgs(t *testing.T) {
 			turn: harness.Turn{Effort: "high"},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--effort", "high", "--permission-mode", "auto",
 			},
 		},
@@ -231,6 +241,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			wantArgs: []string{
 				"-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--disallowed-tools", "Agent,Task",
+				"--append-system-prompt", planModeHint, "--system-prompt-snapshot", "off",
 				"--allow-dangerously-skip-permissions",
 				"--permission-mode", "plan",
 			},

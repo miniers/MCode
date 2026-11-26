@@ -1,6 +1,8 @@
 // web/ 目前没有测试运行器（package.json 里没有 vitest/jest，scripts/check.sh 只跑 tsc --noEmit），
 // 所以这里不引入任何测试框架与 node 内置模块：断言失败直接抛 Error，接入运行器后本文件即可直接执行。
-import { approvalShortcut, pickActiveRequestId, planFeedbackPayload, requestPanelMaxHeight } from './RemoteRequestPanel';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { RemoteRequest } from '../types/contract';
+import { RemoteRequestPanel, approvalShortcut, pickActiveRequestId, planFeedbackPayload, requestPanelMaxHeight } from './RemoteRequestPanel';
 
 for (const [keyboardOpen, expected] of [
   [true, 'calc(var(--app-height, 100dvh) * 0.45)'],
@@ -80,4 +82,123 @@ if (planFeedbackPayload([{ id: 'decline', title: '驳回', role: 'decline' }], '
 }
 if (planFeedbackPayload([{ id: 'approve', title: '批准', role: 'approve' }], '请调整') !== null) {
   throw new Error('没有驳回选项时不得把意见挂到批准选项');
+}
+
+const noopAsync = async (): Promise<void> => {};
+
+// 带 questions 且 detail 为原始 JSON 的提问请求：不渲染 detail 也不渲染「展开完整命令/详情」
+const questionWithJsonDetail: RemoteRequest = {
+  threadID: 't-1',
+  turnID: 'turn-1',
+  runID: 'run-1',
+  requestID: 'req-q-1',
+  kind: 'question',
+  title: '请确认部署策略',
+  detail: JSON.stringify({
+    raw_input_marker: 'RAW_QUESTION_JSON_MARKER',
+    questions: [
+      {
+        id: 'q1',
+        header: '选择发布环境',
+        prompt: '请选择目标环境',
+        choices: [
+          { label: '预发', detail: '先在预发验证' },
+          { label: '生产', detail: '直接发布到生产' }
+        ],
+        allowsMultiple: false,
+        allowsOther: false,
+        isSecret: false
+      }
+    ]
+  }),
+  reason: null,
+  options: [],
+  questions: [
+    {
+      id: 'q1',
+      header: '选择发布环境',
+      prompt: '请选择目标环境',
+      choices: [
+        { label: '预发', detail: '先在预发验证' },
+        { label: '生产', detail: '直接发布到生产' }
+      ],
+      allowsMultiple: false,
+      allowsOther: false,
+      isSecret: false
+    }
+  ]
+};
+
+const questionMarkup = renderToStaticMarkup(
+  <RemoteRequestPanel
+    threadID="t-1"
+    requests={[questionWithJsonDetail]}
+    isConnected={true}
+    onRespond={noopAsync}
+    onRefresh={noopAsync}
+  />
+);
+if (!questionMarkup.includes('选择发布环境')) {
+  throw new Error('提问卡未渲染题目内容');
+}
+if (questionMarkup.includes('RAW_QUESTION_JSON_MARKER') || questionMarkup.includes(questionWithJsonDetail.detail ?? '')) {
+  throw new Error('带 questions 的提问卡不得渲染原始 detail JSON');
+}
+if (questionMarkup.includes('展开完整命令/详情')) {
+  throw new Error('带 questions 的提问卡不得显示展开完整命令/详情按钮');
+}
+
+// 没有题目的 question 请求仍保留 detail 兜底
+const fallbackQuestionRequest: RemoteRequest = {
+  threadID: 't-1',
+  turnID: 'turn-1',
+  runID: 'run-1',
+  requestID: 'req-q-empty',
+  kind: 'question',
+  title: '兜底提问',
+  detail: 'FALLBACK_QUESTION_DETAIL',
+  reason: null,
+  options: [],
+  questions: []
+};
+const fallbackQuestionMarkup = renderToStaticMarkup(
+  <RemoteRequestPanel
+    threadID="t-1"
+    requests={[fallbackQuestionRequest]}
+    isConnected={true}
+    onRespond={noopAsync}
+    onRefresh={noopAsync}
+  />
+);
+if (!fallbackQuestionMarkup.includes('FALLBACK_QUESTION_DETAIL')) {
+  throw new Error('无题目的提问请求必须保留 detail 兜底');
+}
+
+// command 请求的 detail（含长命令展开按钮）仍然显示
+const commandRequest: RemoteRequest = {
+  threadID: 't-1',
+  turnID: 'turn-1',
+  runID: 'run-1',
+  requestID: 'req-cmd-1',
+  kind: 'command',
+  title: '执行检查脚本',
+  detail: `COMMAND_DETAIL_MARKER ${'x'.repeat(130)}`,
+  reason: null,
+  options: [
+    { id: 'allow', title: '允许', role: 'approve' },
+    { id: 'deny', title: '拒绝', role: 'decline' }
+  ],
+  questions: []
+};
+const commandMarkup = renderToStaticMarkup(
+  <RemoteRequestPanel
+    threadID="t-1"
+    requests={[commandRequest]}
+    isConnected={true}
+    onRespond={noopAsync}
+    onRefresh={noopAsync}
+  />
+);
+if (!commandMarkup.includes('COMMAND_DETAIL_MARKER') || !commandMarkup.includes('展开完整命令/详情')) {
+  throw new Error('command 请求的 detail 与展开按钮必须正常显示');
 }

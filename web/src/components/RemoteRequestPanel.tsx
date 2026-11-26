@@ -407,7 +407,8 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
                   <ChevronDownIcon className="h-3.5 w-3.5" />
                 </button>
               </div>
-            ) : request.detail && (
+            ) : request.detail && !(request.kind === 'question' && request.questions.length > 0) && (
+              // 提问有结构化题目时不重复把原始输入 JSON 当详情铺开，无题目时保留 detail 兜底
               <div className="space-y-1.5">
                 <div
                   className={`font-mono text-xs p-3 rounded-xl bg-[var(--user-bubble)] border border-[var(--border)] text-[var(--foreground)] select-text break-all whitespace-pre-wrap overflow-x-auto ${

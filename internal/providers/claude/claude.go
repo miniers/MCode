@@ -149,6 +149,17 @@ func (h *Harness) ProcessRootPIDs(threadID string) []int {
 // swarm_delegate MCP 工具派发，不依赖它们；bee 与未开编排的主线程同样不允许自行起子代理。
 const nativeSubagentTools = "Agent,Task"
 
+// 每轮都带上计划模式提示，避免切换计划模式改变常驻进程启动键而重建进程。
+const planModeHint = "When this session is in plan mode and your plan is ready, call ExitPlanMode to submit it for the user's approval; this is the only way the user sees an approval prompt. If ExitPlanMode is listed as a deferred tool, load it first with ToolSearch (query \"select:ExitPlanMode\") and then call it. Never end a plan-mode turn by asking the user to leave plan mode instead."
+
+// effectiveSystemPolicy 返回本轮实际追加给 CLI 的系统规则；每轮都在 SystemPolicy 后追加 planModeHint。
+func effectiveSystemPolicy(turn harness.Turn) string {
+	if turn.SystemPolicy == "" {
+		return planModeHint
+	}
+	return turn.SystemPolicy + "\n\n" + planModeHint
+}
+
 // buildArgs 组装调用 Claude 命令行所需的参数列表。
 func buildArgs(turn harness.Turn, extra ...string) []string {
 	disallowed := nativeSubagentTools
@@ -164,9 +175,9 @@ func buildArgs(turn harness.Turn, extra ...string) []string {
 		"--disallowed-tools", disallowed,
 	}
 
-	if turn.SystemPolicy != "" {
+	if policy := effectiveSystemPolicy(turn); policy != "" {
 		// 禁用快照，恢复会话时也要应用本轮最新的系统规则。
-		args = append(args, "--append-system-prompt", turn.SystemPolicy, "--system-prompt-snapshot", "off")
+		args = append(args, "--append-system-prompt", policy, "--system-prompt-snapshot", "off")
 	}
 
 	// "default" 表示交给 CLI 自己的默认模型，此时不传 --model。

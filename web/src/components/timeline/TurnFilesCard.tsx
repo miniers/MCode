@@ -172,7 +172,7 @@ export const TurnFilesCard: React.FC<TurnFilesCardProps> = ({ files, onOpenFile 
           </span>
         )}
       </div>
-      <ul className="mt-1 space-y-0.5">
+      <ul className="mt-1 min-w-0 space-y-0.5">
         {visible.map((file) => {
           const isOpen = openPath === file.path;
           const hasDelta = file.additions > 0 || file.deletions > 0;
@@ -187,7 +187,9 @@ export const TurnFilesCard: React.FC<TurnFilesCardProps> = ({ files, onOpenFile 
                 className="flex w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs transition hover:bg-[var(--card-alt,var(--card))] active:scale-[0.99]"
               >
                 <DocumentTextIcon className="h-3.5 w-3.5 shrink-0 text-[var(--foreground-muted)]" />
-                <span className="shrink-0 font-mono font-medium text-[var(--foreground)]">{file.name}</span>
+                <span title={file.path} className="min-w-0 truncate font-mono font-medium text-[var(--foreground)]">
+                  {file.name}
+                </span>
                 {file.dir && (
                   <span className="min-w-0 flex-1 truncate font-mono text-mc-caption text-[var(--foreground-muted)]">
                     {file.dir}
