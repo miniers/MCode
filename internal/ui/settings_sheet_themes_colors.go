@@ -34,6 +34,10 @@ var themeColorTitles = map[string]string{
 
 // themeColorBases 把 palette 按 colorSections 的键摊平，供颜色行显示与拾色面板取基准色。
 func themeColorBases(palette themePalette) map[string]ui.Color {
+	codeLink := palette.CodeLink
+	if codeLink == (ui.Color{}) {
+		codeLink = palette.Accent
+	}
 	return map[string]ui.Color{
 		"canvas": palette.Canvas, "main": palette.Main, "card": palette.Card, "raised": palette.Raised, "popover": palette.Popover,
 		"code_background": palette.CodeBackground, "table_header": palette.TableHeader, "composer_background": palette.ComposerBackground,
@@ -41,7 +45,7 @@ func themeColorBases(palette themePalette) map[string]ui.Color {
 		"text":                    palette.Text, "text_secondary": palette.TextSecondary, "text_tertiary": palette.TextTertiary, "code_text": palette.CodeText,
 		"accent": palette.Accent, "danger": palette.Danger, "warning": palette.Warning, "success": palette.Success, "caution": palette.Caution, "plan": palette.Plan,
 		"border": palette.Border, "divider": palette.Divider,
-		"code_heading": palette.CodeHeading, "code_muted": palette.CodeMuted, "code_link": palette.CodeLink, "code_strong": palette.CodeStrong,
+		"code_heading": palette.CodeHeading, "code_muted": palette.CodeMuted, "code_link": codeLink, "code_strong": palette.CodeStrong,
 		"quote_text": palette.QuoteText, "quote_bar": palette.QuoteBar,
 	}
 }

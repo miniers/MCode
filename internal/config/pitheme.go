@@ -257,18 +257,20 @@ func parseColorFunction(s string) (string, bool, error) {
 }
 
 func parseColorNumber(part string) (float64, error) {
-	switch {
-	case strings.HasSuffix(part, "%"):
-		v, err := strconv.ParseFloat(strings.TrimSuffix(part, "%"), 64)
-		if err != nil {
-			return 0, err
-		}
-		return v, nil
-	case strings.HasSuffix(part, "deg"):
-		return strconv.ParseFloat(strings.TrimSuffix(part, "deg"), 64)
-	default:
-		return strconv.ParseFloat(part, 64)
+	num := part
+	if s, ok := strings.CutSuffix(part, "%"); ok {
+		num = s
+	} else if s, ok := strings.CutSuffix(part, "deg"); ok {
+		num = s
 	}
+	v, err := strconv.ParseFloat(num, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("%q 不是有限数", part)
+	}
+	return v, nil
 }
 
 // rgbHex 把 0..1 的 sRGB 分量转成 #rrggbb，越界时 clamp。

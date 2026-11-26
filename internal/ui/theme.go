@@ -261,7 +261,7 @@ func derivePalette(p *themePalette) {
 	if p.CodeMuted == (ui.Color{}) {
 		p.CodeMuted = p.TextSecondary
 	}
-	if p.CodeLink == (ui.Color{}) {
+	if p.CodeLink == (ui.Color{}) && !p.AccentSystem {
 		p.CodeLink = p.Accent
 	}
 	if p.CodeStrong == (ui.Color{}) {
@@ -495,7 +495,12 @@ func ThemeCodeMuted(c *ui.Context) ui.Color { return paletteOf(c).CodeMuted }
 
 // ThemeCodeLink 返回 Markdown 链接色。
 // 不走主题过渡，原因同 ThemeCodeText。
-func ThemeCodeLink(c *ui.Context) ui.Color { return paletteOf(c).CodeLink }
+func ThemeCodeLink(c *ui.Context) ui.Color {
+	if codeLink := paletteOf(c).CodeLink; codeLink != (ui.Color{}) {
+		return codeLink
+	}
+	return ThemeAccent(c)
+}
 
 // ThemeCodeStrong 返回 Markdown 粗体色。
 // 不走主题过渡，原因同 ThemeCodeText。

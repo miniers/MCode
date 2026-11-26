@@ -323,3 +323,25 @@ func TestPiThemeColorSpace(t *testing.T) {
 		t.Fatalf("rgbHex 输出 = %q", got)
 	}
 }
+
+func TestParseColorFunctionRejectsNonFinite(t *testing.T) {
+	bad := []string{
+		"okhsl(NaN 50% 50%)",
+		"okhsl(0 Inf% 50%)",
+		"oklch(-Inf 10 20)",
+		"okhsl(0 50% NaN%)",
+		"oklch(50 10 Infdeg)",
+	}
+	for _, s := range bad {
+		if _, _, err := parseColorFunction(s); err == nil {
+			t.Errorf("parseColorFunction(%q) 应返回错误", s)
+		}
+	}
+	hex, ok, err := parseColorFunction("okhsl(30 50% 50%)")
+	if err != nil {
+		t.Fatalf("parseColorFunction 合法值报错：%v", err)
+	}
+	if !ok || !strings.HasPrefix(hex, "#") || len(hex) != 7 {
+		t.Fatalf("parseColorFunction 合法值返回 (%q, %v)，期望 ok=true 且 7 位 #hex", hex, ok)
+	}
+}

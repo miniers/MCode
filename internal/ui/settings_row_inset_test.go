@@ -14,6 +14,12 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 		render        func(*ui.Context, *SettingsState)
 	}
 	fixtures := map[string]fixture{
+		"block-themes": {"设置卡片 theme-section-强调", "强调色", func(c *ui.Context, st *SettingsState) {
+			renderSettingsTreeSection(c, st, sheetThemes.Sections[0], false)
+		}},
+		"sheet:themes": {"设置卡片 theme-section-强调", "强调色", func(c *ui.Context, st *SettingsState) {
+			renderSettingsTreeSheet(c, st, sheetThemes)
+		}},
 		"block-swarm-pairs": {"设置卡片 swarm.pairs", "已配置 0 组", func(c *ui.Context, st *SettingsState) {
 			renderSettingsSection(c, "swarm.pairs", "模型配对", func() { renderSwarmPairsBody(c, st) })
 		}},
@@ -27,9 +33,6 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 	}
 	// shortcut: 以下面板和块尚无稳定的内容矩形 fixture，补齐后删除对应条目。
 	knownMissing := map[string]bool{
-		// 主题页的颜色行是「标题 + 右对齐控件」布局，行内没有靠左且不拉伸的控件可锚定内边距。
-		"block-themes":          true,
-		"sheet:themes":          true,
 		"block-skills":          true,
 		"block-swarm-tiers":     true,
 		"block-swarm-review":    true,
@@ -96,7 +99,7 @@ func TestSettingsRowInset_AllBlocksAndSheets(t *testing.T) {
 }
 
 // assertSettingsRowInset 断言元素左边缘相对卡片左边缘的内缩等于设置行水平内边距，
-// 允许 1px 的取整误差。颜色行按钮的命中区撑满整行，其内缩即行的水平内边距。
+// 允许 1px 的取整误差。
 func assertSettingsRowInset(t *testing.T, name string, rect, card ui.Rect) {
 	t.Helper()
 	inset := rect.X - card.X

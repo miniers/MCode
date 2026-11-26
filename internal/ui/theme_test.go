@@ -493,6 +493,55 @@ func TestThemeRuntimeDerivedColors(t *testing.T) {
 	tt.Frame()
 }
 
+func TestThemeCodeLinkFollowsSystemAccent(t *testing.T) {
+	resetRuntimeTheme(t)
+	setAppReduceMotion(t, true)
+
+	system := ui.Hex("#ABCDEF80")
+	cfg := config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{
+		ID: "custom", Base: config.ThemeDark, Colors: map[string]string{"accent": config.ThemeAccentSystem},
+	}}}
+	setActiveTheme(cfg)
+	var gotLink, gotMDLink ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		gotLink = ThemeCodeLink(c)
+		gotMDLink = buildMarkdownTheme(c, 13, "", 12).Link
+	}, 100, 100)
+	appReduceMotion.Store(true)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, Accent: system})
+	tt.Frame()
+	if gotLink != system || gotMDLink != system {
+		t.Fatalf("系统强调色下链接色未跟随系统: link=%v md=%v want=%v", gotLink, gotMDLink, system)
+	}
+	if gotBase := themeColorBases(resolvePalette(cfg, "custom"))["code_link"]; gotBase != builtinPalette(config.ThemeDark).Accent {
+		t.Fatalf("系统强调色下设置页链接基准色 = %v，期望 %v", gotBase, builtinPalette(config.ThemeDark).Accent)
+	}
+
+	override := ui.Hex("#112233")
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{
+		ID: "custom", Base: config.ThemeDark, Colors: map[string]string{
+			"accent": config.ThemeAccentSystem, "code_link": "#112233",
+		},
+	}}})
+	appReduceMotion.Store(true)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, Accent: system})
+	tt.Frame()
+	if gotLink != override || gotMDLink != override {
+		t.Fatalf("显式覆盖 code_link 未生效: link=%v md=%v want=%v", gotLink, gotMDLink, override)
+	}
+
+	staticAccent := ui.Hex("#445566")
+	setActiveTheme(config.AppearanceConfig{Theme: "custom", Themes: []config.ThemeDef{{
+		ID: "custom", Base: config.ThemeDark, Colors: map[string]string{"accent": "#445566"},
+	}}})
+	appReduceMotion.Store(true)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true, Accent: system})
+	tt.Frame()
+	if gotLink != staticAccent || gotMDLink != staticAccent {
+		t.Fatalf("非系统强调色未设 code_link 时应等于主题强调色: link=%v md=%v want=%v", gotLink, gotMDLink, staticAccent)
+	}
+}
+
 func TestThemeRuntimeCodeColors(t *testing.T) {
 	resetRuntimeTheme(t)
 	setAppReduceMotion(t, true)
