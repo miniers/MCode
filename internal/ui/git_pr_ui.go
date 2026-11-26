@@ -434,8 +434,8 @@ func (s *chatState) runGitPRResolve() {
 // runGitPRCheckout 把 PR 分支检出到独立 worktree，并切到新建的会话。
 func (s *chatState) runGitPRCheckout() { s.runGitPRCheckoutThread("checkout") }
 
-// gitPRAIReviewPrompt 是审查会话的首条消息，参数依次为 PR 编号、标题与三处 base 分支。
-const gitPRAIReviewPrompt = `请审查 PR #%d「%s」。这个 worktree 已检出 PR 分支，base 是 origin/%s（需要时先 git fetch origin %s），用 git diff origin/%s...HEAD 查看改动，按需阅读相关代码。审查回答三件事：1）这个 PR 是否有必要（解决什么问题，是否已有实现或重复）；2）改动有什么真实问题（缺陷、安全、数据丢失、逻辑错误，不报风格）；3）能否合并。不要修改文件、不要提交、不要推送，也不要用 gh 或 glab 发表评论。最后输出一个 ` + "```" + `pr-review 代码块，内容是 JSON 对象：{"verdict":"merge|fix|comment|close","reason":"一句话：能否合并及理由","comments":[{"path":"仓库相对路径","line":新文件行号,"severity":"blocking|suggestion","headline":"一句话问题","impact":"不改的后果","fix":"具体改法","patch":"可选，unified diff 片段，最多 8 行"}]}。其中 merge=有必要、没有问题、可直接合并；fix=有必要，但有明确问题，应由我们让 agent 修好、复审后再合并；comment=问题涉及设计取舍或改动较大，需要作者修改；close=没有必要，不建议合并。severity=blocking 表示合并前必须解决，suggestion 表示可以不改。要求 headline 不超过 30 字，impact 和 fix 各一两句；line 必须落在 diff 改动范围内；最多 10 条；没有问题时 comments 输出 []。`
+// GitPRAIReviewPrompt 是审查会话的首条消息，参数依次为 PR 编号、标题与三处 base 分支。
+const GitPRAIReviewPrompt = `请审查 PR #%d「%s」。这个 worktree 已检出 PR 分支，base 是 origin/%s（需要时先 git fetch origin %s），用 git diff origin/%s...HEAD 查看改动，按需阅读相关代码。审查回答三件事：1）这个 PR 是否有必要（解决什么问题，是否已有实现或重复）；2）改动有什么真实问题（缺陷、安全、数据丢失、逻辑错误，不报风格）；3）能否合并。不要修改文件、不要提交、不要推送，也不要用 gh 或 glab 发表评论。最后输出一个 ` + "```" + `pr-review 代码块，内容是 JSON 对象：{"verdict":"merge|fix|comment|close","reason":"一句话：能否合并及理由","comments":[{"path":"仓库相对路径","line":新文件行号,"severity":"blocking|suggestion","headline":"一句话问题","impact":"不改的后果","fix":"具体改法","patch":"可选，unified diff 片段，最多 8 行"}]}。其中 merge=有必要、没有问题、可直接合并；fix=有必要，但有明确问题，应由我们让 agent 修好、复审后再合并；comment=问题涉及设计取舍或改动较大，需要作者修改；close=没有必要，不建议合并。severity=blocking 表示合并前必须解决，suggestion 表示可以不改。要求 headline 不超过 30 字，impact 和 fix 各一两句；line 必须落在 diff 改动范围内；最多 10 条；没有问题时 comments 输出 []。`
 
 // runGitPRAIReview 检出 PR 分支，在新会话里让 agent 直接开始审查。
 func (s *chatState) runGitPRAIReview() { s.runGitPRCheckoutThread("ai-review") }
@@ -464,7 +464,7 @@ func (s *chatState) runGitPRCheckoutThread(kind string) {
 			title, prompt := fmt.Sprintf("PR #%d", number), ""
 			if kind == "ai-review" {
 				title = fmt.Sprintf("审查 PR #%d", number)
-				prompt = fmt.Sprintf(gitPRAIReviewPrompt, number, detail.Title, detail.BaseBranch, detail.BaseBranch, detail.BaseBranch)
+				prompt = fmt.Sprintf(GitPRAIReviewPrompt, number, detail.Title, detail.BaseBranch, detail.BaseBranch, detail.BaseBranch)
 			}
 			newID, err = s.createGitPRThread(threadID, number, path, title, prompt)
 		}

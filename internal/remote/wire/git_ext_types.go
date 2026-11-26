@@ -246,3 +246,46 @@ type GitExtPRCreateURLResult struct {
 	Title string `json:"title,omitempty"`
 	Body  string `json:"body,omitempty"`
 }
+
+// GitExtPRThreadStateParams 对应 git.pr.threadState 请求参数。
+type GitExtPRThreadStateParams struct {
+	ThreadID string `json:"threadID"`
+}
+
+// GitExtPRThreadStateResult 对应 git.pr.threadState 成功返回。
+type GitExtPRThreadStateResult struct {
+	IsPR         bool `json:"isPR"`
+	Number       int  `json:"number"`
+	CrossRepo    bool `json:"crossRepo"`
+	Dirty        bool `json:"dirty"`
+	LocalCommits int  `json:"localCommits"`
+}
+
+// GitExtPRMergeFlowParams 对应 git.pr.mergeFlow 请求参数。
+type GitExtPRMergeFlowParams struct {
+	ThreadID string `json:"threadID"`
+	Number   int    `json:"number"`
+	Method   string `json:"method"`
+	From     string `json:"from,omitempty"`
+}
+
+// GitExtPRMergeFlowResult 对应 git.pr.mergeFlow 返回结果。
+// 流程失败时不返回 JSON-RPC 错误，而是 ok=false 并附带 failedStep 与 message，便于前端从失败步骤重试。
+type GitExtPRMergeFlowResult struct {
+	OK         bool   `json:"ok"`
+	FailedStep string `json:"failedStep,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// GitExtPRStartReviewParams 对应 git.pr.startReview 请求参数。
+type GitExtPRStartReviewParams struct {
+	ThreadID string `json:"threadID"`
+	Number   int    `json:"number"`
+}
+
+// GitExtPRStartReviewResult 对应 git.pr.startReview 返回结果。
+// 首条审查消息发送失败但会话已创建时，仍返回新会话 threadID 并附带 message。
+type GitExtPRStartReviewResult struct {
+	ThreadID string `json:"threadID"`
+	Message  string `json:"message,omitempty"`
+}

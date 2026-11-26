@@ -514,34 +514,85 @@ func (c *Client) GitPRCleanupWorktree(ctx context.Context, threadID string, numb
 	if reason, err := runner.PRWorktreeKeepReason(callCtx, mainRoot, path, git.DetectForge(remoteURL), number); err != nil || reason != "" {
 		return reason, err
 	}
+	return c.cleanupPRWorktreeThreads(callCtx, runner, mainRoot, path, number, false)
+}
+
+// cleanupPRWorktreeThreads 找出工作目录位于 path 的会话，按 stopRunning 决定
+// 中断运行中会话或返回保留原因，再将受影响会话切回主仓库并移除 PR worktree。
+func (c *Client) cleanupPRWorktreeThreads(ctx context.Context, runner *git.Runner, mainRoot, path string, number int, stopRunning bool) (string, error) {
 	includeArchived := true
-	threads, err := c.backend.ListThreads(callCtx, wire.ThreadListParams{IncludeArchived: &includeArchived})
+	threads, err := c.backend.ListThreads(ctx, wire.ThreadListParams{IncludeArchived: &includeArchived})
 	if err != nil {
 		return "", err
 	}
-	cleanPath := func(path string) string {
-		if real, err := filepath.EvalSymlinks(path); err == nil {
-			path = real
+	cleanPath := func(p string) string {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
 		}
-		return filepath.Clean(path)
+		return filepath.Clean(p)
 	}
+	target := cleanPath(path)
 	var affected []string
+	var runningIDs []string
 	for _, thread := range threads.Threads {
 		workDir, ok := c.ThreadWorkDir(thread.ID)
-		if !ok || cleanPath(workDir) != cleanPath(path) {
+		if !ok || cleanPath(workDir) != target {
 			continue
 		}
 		if thread.IsRunning {
-			return "会话正在运行", nil
+			if !stopRunning {
+				return "会话正在运行", nil
+			}
+			runningIDs = append(runningIDs, thread.ID)
 		}
 		affected = append(affected, thread.ID)
 	}
+	for _, id := range runningIDs {
+		alreadyStopped, err := c.Interrupt(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if !alreadyStopped {
+			if err := c.waitThreadStopped(ctx, id); err != nil {
+				return "", err
+			}
+		}
+	}
 	for _, id := range affected {
-		if err := c.GitSwitchWorktree(callCtx, id, mainRoot); err != nil {
+		if err := c.GitSwitchWorktree(ctx, id, mainRoot); err != nil {
 			return "", err
 		}
 	}
-	return "", runner.PRRemoveWorktree(callCtx, mainRoot, path, number)
+	return "", runner.PRRemoveWorktree(ctx, mainRoot, path, number)
+}
+
+func (c *Client) waitThreadStopped(ctx context.Context, threadID string) error {
+	waitCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	includeArchived := true
+	for {
+		threads, err := c.backend.ListThreads(waitCtx, wire.ThreadListParams{IncludeArchived: &includeArchived})
+		if err != nil {
+			return err
+		}
+		running := false
+		for _, th := range threads.Threads {
+			if th.ID == threadID {
+				running = th.IsRunning
+				break
+			}
+		}
+		if !running {
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return waitCtx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // GitPRDetail 读取单条 PR/MR 的详情。

@@ -13,7 +13,13 @@ import type {
   RemoteGitPRCreateURLResult,
   RemoteGitPRDetail,
   RemoteGitPRListResult,
+  RemoteGitPRMergeFlowParams,
+  RemoteGitPRMergeFlowResult,
+  RemoteGitPRStartReviewParams,
+  RemoteGitPRStartReviewResult,
   RemoteGitPRSummary,
+  RemoteGitPRThreadStateParams,
+  RemoteGitPRThreadStateResult,
   RemoteGitStashActionResult,
   RemoteGitStashEntry,
   RemoteGitStashListResult,
@@ -30,7 +36,13 @@ export type {
   RemoteGitPRCreateURLResult,
   RemoteGitPRDetail,
   RemoteGitPRListResult,
+  RemoteGitPRMergeFlowParams,
+  RemoteGitPRMergeFlowResult,
+  RemoteGitPRStartReviewParams,
+  RemoteGitPRStartReviewResult,
   RemoteGitPRSummary,
+  RemoteGitPRThreadStateParams,
+  RemoteGitPRThreadStateResult,
   RemoteGitStashActionResult,
   RemoteGitStashEntry,
   RemoteGitStashListResult,
@@ -51,6 +63,9 @@ export const GIT_EXT_METHODS = {
   stashDrop: 'git.stash.drop',
   prList: 'git.pr.list',
   prDetail: 'git.pr.detail',
+  prStartReview: 'git.pr.startReview',
+  prThreadState: 'git.pr.threadState',
+  prMergeFlow: 'git.pr.mergeFlow',
   push: 'git.push',
   pull: 'git.pull',
   fetch: 'git.fetch',
@@ -181,9 +196,51 @@ export async function fetchGitPRDetail(
 }
 
 // 网络操作（推送、拉取、抓取、生成提交信息）在宿主侧有 5 分钟上限，本地操作 2 分钟，
-// 这里给前端请求留同样的余量，避免宿主还在跑时前端先超时。
+// PR 合并流程是同步调用且最长约 10 分钟，前端超时留足余量避免提前中断。
 const GIT_NETWORK_TIMEOUT_MS = 5 * 60 * 1000;
 const GIT_LOCAL_TIMEOUT_MS = 2 * 60 * 1000;
+const GIT_PR_MERGE_FLOW_TIMEOUT_MS = 11 * 60 * 1000;
+
+/** 在 PR 分支创建临时 worktree 与审查会话并发送首条审查消息；首条消息失败时也返回新 threadID 与提示。 */
+export async function startGitPRReview(
+  call: GitExtCaller,
+  threadID: string,
+  number: number
+): Promise<RemoteGitPRStartReviewResult> {
+  return call<RemoteGitPRStartReviewResult>(
+    GIT_EXT_METHODS.prStartReview,
+    { threadID, number },
+    GIT_NETWORK_TIMEOUT_MS
+  );
+}
+
+/** 查询当前会话是否绑定 PR worktree 及本地改动、新增提交与跨仓库状态。 */
+export async function fetchGitPRThreadState(
+  call: GitExtCaller,
+  threadID: string
+): Promise<RemoteGitPRThreadStateResult> {
+  return call<RemoteGitPRThreadStateResult>(GIT_EXT_METHODS.prThreadState, { threadID });
+}
+
+/** 同步执行 PR 合并全流程（推送 → 合并 PR → 更新本地 main → 清理）；支持从 failedStep 重试。 */
+export async function mergeGitPRFlow(
+  call: GitExtCaller,
+  threadID: string,
+  number: number,
+  method: RemoteGitPRMergeFlowParams['method'],
+  from?: RemoteGitPRMergeFlowParams['from']
+): Promise<RemoteGitPRMergeFlowResult> {
+  return call<RemoteGitPRMergeFlowResult>(
+    GIT_EXT_METHODS.prMergeFlow,
+    {
+      threadID,
+      number,
+      method,
+      ...(from ? { from } : {})
+    },
+    GIT_PR_MERGE_FLOW_TIMEOUT_MS
+  );
+}
 
 /** 推送当前分支到远程；失败由宿主回 InternalError，文案是 git 原始错误。 */
 export async function pushGitBranch(

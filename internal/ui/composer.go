@@ -23,6 +23,9 @@ type composerViewState struct {
 	planBarHiding             bool                 // 全部完成的停留已结束，条正在收起
 	planBarRowOpen            map[int]bool         // 展开成多行的待办行
 	planBarScroll             ui.ScrollState       // 待办清单滚动位置
+	prBarShown                bool                 // PR 会话条是否已展示
+	prBarThread               string               // PR 会话条当前所属会话
+	prConfirmOpen             bool                 // PR 合并确认浮层是否打开
 	backgroundTasksOpen       bool                 // 后台任务胶囊的浮层是否打开
 	backgroundTaskExpanded    string               // 当前展开的消息 ID。
 	backgroundTaskThread      string               // 后台任务浮层所属会话。
@@ -852,6 +855,11 @@ func renderComposer(c *ui.Context, s *chatState) {
 		}
 
 		outerCol.Children(func() {
+			// PR 审查会话合并并归档后进入只读已合并态：隐藏输入卡片，改为「已合并」状态条与「新建会话」按钮。
+			if !s.embeddedBee && renderComposerPRMergedBar(c, s, currentThreadID, currentThread) {
+				return
+			}
+
 			// 输入区状态胶囊：后台任务、继续提示与运行中改动统一成一行，
 			// 状态类在左、内容类在右；没有胶囊时整行连同间距都不渲染。
 			pillKind := continuePillNone
@@ -874,6 +882,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 			// 待办条紧贴输入卡片上沿，被卡片盖住最后 8pt；Hero 与停靠两种布局共用这一处。
 			renderComposerPlanBar(c, s, currentThreadID)
+			renderComposerPRBar(c, s, currentThreadID)
 
 			// 悬浮卡片主体。
 			card := ui.Column(c.Key("composer-card")).

@@ -40,6 +40,9 @@ const KanbanBoard = React.lazy(() =>
 const AutomationPanel = React.lazy(() =>
   import('./components/AutomationSheet').then((module) => ({ default: module.AutomationPanel }))
 );
+const PRView = React.lazy(() =>
+  import('./components/PRView').then((module) => ({ default: module.PRView }))
+);
 const TaskDetailModal = React.lazy(() =>
   import('./components/TaskDetailModal').then((module) => ({ default: module.TaskDetailModal }))
 );
@@ -107,6 +110,29 @@ const AppContent: React.FC = () => {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
+  const [appToast, setAppToast] = useState<string | null>(null);
+  const appToastTimerRef = useRef<number | null>(null);
+
+  const showAppToast = useCallback((message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    if (appToastTimerRef.current !== null) {
+      window.clearTimeout(appToastTimerRef.current);
+    }
+    setAppToast(trimmed);
+    appToastTimerRef.current = window.setTimeout(() => {
+      appToastTimerRef.current = null;
+      setAppToast(null);
+    }, 6000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (appToastTimerRef.current !== null) {
+        window.clearTimeout(appToastTimerRef.current);
+      }
+    };
+  }, []);
   // 只有宿主声明了 projects.add 才给入口，避免在不支持的 Mac 端点了没反应。
   const { supportsMethod } = useRemoteCall();
   const canAddProject = supportsMethod(PROJECTS_ADD_METHOD);
@@ -114,11 +140,12 @@ const AppContent: React.FC = () => {
   const showPairingScreen = pairingInProgress || connectionState === 'unpaired' || connectionState === 'auth_failed';
   const boardRoute = route.kind === 'board' || route.kind === 'task' || route.kind === 'goal';
   const automationsRoute = route.kind === 'automations';
-  const activeView: HomeView = boardRoute ? 'board' : automationsRoute ? 'automations' : 'sessions';
+  const prRoute = route.kind === 'pr';
+  const activeView: HomeView = boardRoute ? 'board' : automationsRoute ? 'automations' : prRoute ? 'pr' : 'sessions';
   const settingsOpen = route.kind === 'settings';
   const settingsPageID = route.kind === 'settings' ? route.page ?? null : null;
   const isHomeOrBoard = route.kind === 'home' || route.kind === 'board';
-  const isTopLevelTab = isHomeOrBoard || automationsRoute;
+  const isTopLevelTab = isHomeOrBoard || automationsRoute || prRoute;
 
   // 新建会话 sheet 只接管把手拖动关闭（W-4）；非首页启用左边缘右滑返回（W-8）。
   const createSheetRef = useRef<HTMLElement | null>(null);
@@ -347,6 +374,28 @@ const AppContent: React.FC = () => {
     </div>
   ) : null;
 
+  const toastNode = appToast ? (
+    <div
+      className="fixed inset-x-0 z-[60] flex justify-center pointer-events-none px-4"
+      style={{ top: 'calc(var(--sat, 0px) + 12px)' }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="floating-status__pill floating-status__pill--warning pointer-events-auto gap-2 shadow-mc-elev-popover">
+        <ExclamationTriangleIcon className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 break-words">{appToast}</span>
+        <button
+          type="button"
+          onClick={() => setAppToast(null)}
+          aria-label="关闭提示"
+          className="touch-hit-44 inline-flex items-center justify-center rounded-full p-0.5 hover:bg-mc-overlay-hover"
+        >
+          <XMarkIcon className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   if (showPairingScreen) return <PairingScreen />;
 
   let detailPane: React.ReactNode = null;
@@ -374,6 +423,14 @@ const AppContent: React.FC = () => {
               designPath={route.design}
               jumpRequest={jumpRequest}
               onOpenTask={(taskID) => navigate(`#/task/${encodeURIComponent(taskID)}`)}
+              onNewThread={(projectID) => {
+                prefetchThreadViews();
+                if (projectID) {
+                  navigate(`#/new/${encodeURIComponent(projectID)}`, threadNavigationOptions);
+                } else {
+                  handleNewThread();
+                }
+              }}
             />
           </MarkdownImageProvider>
         </LazyBoundary>
@@ -418,7 +475,7 @@ const AppContent: React.FC = () => {
     );
   }
   if (!split && (route.kind === 'thread' || route.kind === 'draft')) {
-    return <div className="app-shell mobile-page">{buildNotice}{detailPane}</div>;
+    return <div className="app-shell mobile-page">{toastNode}{buildNotice}{detailPane}</div>;
   }
 
   const boardScreen = (
@@ -442,6 +499,21 @@ const AppContent: React.FC = () => {
         }
         onOpenThread={(threadID) => {
           prefetchThreadViews();
+          navigate(`#/t/${encodeURIComponent(threadID)}`);
+        }}
+      />
+    </LazyBoundary>
+  );
+  const prScreen = (
+    <LazyBoundary label="正在加载 PR…">
+      <PRView
+        initialNumber={route.kind === 'pr' ? route.number ?? null : null}
+        onSelectPR={(number, options) =>
+          navigate(number ? `#/pr/${number}` : '#/pr', options)
+        }
+        onOpenThread={(threadID, message) => {
+          prefetchThreadViews();
+          if (message?.trim()) showAppToast(message);
           navigate(`#/t/${encodeURIComponent(threadID)}`);
         }}
       />
@@ -479,7 +551,14 @@ const AppContent: React.FC = () => {
           if (view !== 'sessions') {
             try { clearHomeQuery(window.sessionStorage); } catch { /* 存储不可用时忽略。 */ }
           }
-          const target = view === 'board' ? '#/board' : view === 'automations' ? '#/automations' : '#/';
+          const target =
+            view === 'board'
+              ? '#/board'
+              : view === 'automations'
+                ? '#/automations'
+                : view === 'pr'
+                  ? '#/pr'
+                  : '#/';
           navigate(target, { replace: true });
         }}
         settingsOpen={settingsOpen}
@@ -495,7 +574,7 @@ const AppContent: React.FC = () => {
       />
       {buildNotice}
       <main className={`app-main${split || settingsOpen ? '' : ' mobile-page'}`}>
-        {boardRoute ? boardScreen : automationsRoute ? automationsScreen : sessionsScreen}
+        {boardRoute ? boardScreen : automationsRoute ? automationsScreen : prRoute ? prScreen : sessionsScreen}
       </main>
 
       {(isHomeOrBoard || split) && (
@@ -510,6 +589,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div className={split ? 'app-shell split-shell' : 'app-shell'}>
+      {toastNode}
       {split ? (
         <>
           <aside className="split-sidebar">{sidebar}</aside>

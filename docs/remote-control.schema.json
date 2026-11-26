@@ -640,6 +640,15 @@
       "$ref": "#/$defs/RemoteGitPRAIReviewRequest"
     },
     {
+      "$ref": "#/$defs/RemoteGitPRThreadStateRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPRMergeFlowRequest"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPRStartReviewRequest"
+    },
+    {
       "$ref": "#/$defs/RemoteGitPushRequest"
     },
     {
@@ -746,6 +755,15 @@
     },
     {
       "$ref": "#/$defs/RemoteGitPRAIReviewResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPRThreadStateResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPRMergeFlowResponse"
+    },
+    {
+      "$ref": "#/$defs/RemoteGitPRStartReviewResponse"
     },
     {
       "$ref": "#/$defs/RemoteGitPushResponse"
@@ -11432,6 +11450,15 @@
             "$ref": "#/$defs/RemoteGitPRAIReviewRequest"
           },
           {
+            "$ref": "#/$defs/RemoteGitPRThreadStateRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPRMergeFlowRequest"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPRStartReviewRequest"
+          },
+          {
             "$ref": "#/$defs/RemoteGitPushRequest"
           },
           {
@@ -11909,6 +11936,15 @@
           },
           {
             "$ref": "#/$defs/RemoteGitPRAIReviewResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPRThreadStateResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPRMergeFlowResponse"
+          },
+          {
+            "$ref": "#/$defs/RemoteGitPRStartReviewResponse"
           },
           {
             "$ref": "#/$defs/RemoteGitPushResponse"
@@ -13737,6 +13773,282 @@
       "type": "object",
       "properties": {"jsonrpc": {"const": "2.0"}, "result": {"$ref": "#/$defs/RemoteGitPRAIReviewResult"}, "id": {"$ref": "#/$defs/JSONRPCId"}},
       "required": ["jsonrpc", "result", "id"],
+      "additionalProperties": false
+    },
+    "RemoteGitPRThreadStateParams": {
+      "type": "object",
+      "description": "git.pr.threadState：查询会话所在 worktree 是否为 PR 审阅分支及其本地状态。",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        }
+      },
+      "required": [
+        "threadID"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRThreadStateRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "git.pr.threadState"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteGitPRThreadStateParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRThreadStateResult": {
+      "type": "object",
+      "description": "git.pr.threadState 的成功结果：会话所在 worktree 的 PR 审阅分支状态。",
+      "properties": {
+        "isPR": {
+          "type": "boolean",
+          "description": "当前 worktree 是否处于 PR 审阅分支。"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "PR 编号；isPR 为 false 时为 0。"
+        },
+        "crossRepo": {
+          "type": "boolean",
+          "description": "是否来自 fork 的跨仓库 PR。"
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "工作区是否存在未提交改动。"
+        },
+        "localCommits": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "尚未推送或尚未合入的本地提交数量。"
+        }
+      },
+      "required": [
+        "isPR",
+        "number",
+        "crossRepo",
+        "dirty",
+        "localCommits"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRThreadStateResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteGitPRThreadStateResult"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRMergeFlowParams": {
+      "type": "object",
+      "description": "git.pr.mergeFlow：执行 PR 审阅会话的一键合并四步流程（推送、合并、同步、清理）。",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "squash",
+            "merge",
+            "rebase"
+          ]
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "push",
+            "merge",
+            "sync",
+            "cleanup"
+          ],
+          "description": "可选，从指定步骤开始重试，跳过其之前的步骤。"
+        }
+      },
+      "required": [
+        "threadID",
+        "number",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRMergeFlowRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "git.pr.mergeFlow"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteGitPRMergeFlowParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRMergeFlowResult": {
+      "type": "object",
+      "description": "git.pr.mergeFlow 的结果：流程失败时 ok 为 false 并附带 failedStep 与 message，便于从失败步骤重试。",
+      "properties": {
+        "ok": {
+          "type": "boolean",
+          "description": "一键合并流程是否全部完成。"
+        },
+        "failedStep": {
+          "type": "string",
+          "description": "失败所在的步骤名（push / merge / sync / cleanup）；校验前失败或成功时可省略。"
+        },
+        "message": {
+          "type": "string",
+          "description": "失败原因（已脱敏）；成功时省略。"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRMergeFlowResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteGitPRMergeFlowResult"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRStartReviewParams": {
+      "type": "object",
+      "description": "git.pr.startReview：检出 PR 分支到独立 worktree，新建审查会话并发送 AI 审查指令。",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID"
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "threadID",
+        "number"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRStartReviewRequest": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "method": {
+          "const": "git.pr.startReview"
+        },
+        "params": {
+          "$ref": "#/$defs/RemoteGitPRStartReviewParams"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRStartReviewResult": {
+      "type": "object",
+      "description": "git.pr.startReview 的结果：新建的审查会话 ID；首条消息发送失败但会话已保留时附带 message。",
+      "properties": {
+        "threadID": {
+          "$ref": "#/$defs/UUID",
+          "description": "新建审查会话的 ID。"
+        },
+        "message": {
+          "type": "string",
+          "description": "首条审查消息发送失败时的提示（已脱敏）；全部成功时省略。"
+        }
+      },
+      "required": [
+        "threadID"
+      ],
+      "additionalProperties": false
+    },
+    "RemoteGitPRStartReviewResponse": {
+      "type": "object",
+      "properties": {
+        "jsonrpc": {
+          "const": "2.0"
+        },
+        "result": {
+          "$ref": "#/$defs/RemoteGitPRStartReviewResult"
+        },
+        "id": {
+          "$ref": "#/$defs/JSONRPCId"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "result",
+        "id"
+      ],
       "additionalProperties": false
     },
     "RemoteGitPRDetailParams": {

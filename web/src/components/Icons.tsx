@@ -304,3 +304,14 @@ export const UserRoundCheckIcon: React.FC<IconProps> = ({ className = 'w-4 h-4' 
     <path d="m16 19 2 2 4-4" />
   </svg>
 );
+
+export const GitPullRequestIcon: React.FC<IconProps> = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="6" cy="6" r="2.25" />
+    <circle cx="6" cy="18" r="2.25" />
+    <circle cx="18" cy="18" r="2.25" />
+    <path d="M6 8.25v7.5" />
+    <path d="M13 6h2.75A2.25 2.25 0 0 1 18 8.25v7.5" />
+    <path d="m15 3.75-2.25 2.25L15 8.25" />
+  </svg>
+);

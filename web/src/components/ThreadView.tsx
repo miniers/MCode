@@ -55,6 +55,7 @@ import { useThreadQueue } from './thread/useThreadQueue';
 import { ContinueTurnPill } from './thread/ContinueTurnPill';
 import { QuestionMinimap, buildQuestionMinimapData, questionMinimapVisible } from './thread/QuestionMinimap';
 import { TodoProgressPill } from './thread/TodoProgressPill';
+import { PRMergeBar, isMergedThreadTitle } from './PRMergeBar';
 import { taskContextDetail } from './taskContext';
 import {
   isUnresolvedAction,
@@ -185,6 +186,8 @@ interface ThreadViewProps {
   jumpRequest?: { messageID?: string; requestID?: string; nonce: number } | null;
   /** 总管任务卡直达任务详情。 */
   onOpenTask?: (taskID: string) => void;
+  /** 新建会话动作（如合并归档后从当前项目开新会话）。 */
+  onNewThread?: (projectID?: string | null) => void;
 }
 
 // 草稿按会话隔离：内存 Map 作前置缓存，首次读取时回读 draftStorage（刷新后仍在），写入防抖落盘。
@@ -203,7 +206,7 @@ function readThreadDraft(threadID: string): string | undefined {
   return stored;
 }
 
-export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, designPath, jumpRequest, onOpenTask }) => {
+export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview, filePath, designPath, jumpRequest, onOpenTask, onNewThread }) => {
   const { supportsAnswer, answerDecision } = useRemoteStewardApi();
   const {
     getThreadHistory,
@@ -298,6 +301,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   // 跨过滚动区底边的展开工作记录：非空时右下角胶囊多出「收起」段。
   const [activeExpandedTurnID, setActiveExpandedTurnID] = useState<string | null>(null);
+  const [prMergedThreadID, setPrMergedThreadID] = useState<string | null>(null);
   // 「跳到最新」按钮的未读基线：按钮第一次出现（离开底部）时记录，回到底部或切会话时清空。
   const [unreadAnchor, setUnreadAnchor] = useState<UnreadAnchor | null>(null);
   const unreadCount = useMemo(
@@ -737,6 +741,11 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
   const canSend =
     Boolean(capabilities?.methods.includes('threads.sendMessage') &&
       capabilities.methods.includes('threads.actionStatus'));
+  const prThreadStateSupported = !capabilities || capabilities.methods.includes('git.pr.threadState');
+  const isPRMerged =
+    prThreadStateSupported &&
+    !swarmState?.isBee &&
+    (isMergedThreadTitle(latestSummary.title) || prMergedThreadID === thread.id);
   const eventsSupported = Boolean(capabilities?.features?.includes('threads.events'));
   const requestsSupported = Boolean(
     capabilities?.methods.includes('requests.list') && capabilities.methods.includes('requests.respond')
@@ -2895,8 +2904,8 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
         {/* 待办进度胶囊：最新一份待办清单没做完时常驻在输入框上方，点开展开完整清单 */}
         {!swarmState?.isBee && <TodoProgressPill messages={messages} isRunning={latestSummary.isRunning} />}
 
-        {/* 继续胶囊：上一轮被中断或失败后，在输入框上方一键续跑（草稿非空、运行中、子代理页都不显示） */}
-        {!swarmState?.isBee && canSend && !latestSummary.isRunning && !composerHasContent && (
+        {/* 继续胶囊：上一轮被中断或失败后，在输入框上方一键续跑（草稿非空、运行中、子代理页或已合并归档都不显示） */}
+        {!swarmState?.isBee && canSend && !isPRMerged && !latestSummary.isRunning && !composerHasContent && (
           <div className="w-full max-w-[880px] mx-auto px-4">
             <ContinueTurnPill
               lastStatus={latestSummary.lastStatus}
@@ -3137,10 +3146,26 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
               重试
             </button>
           </div>
-        ) : canSend ? (
+        ) : canSend || isPRMerged ? (
           <div className="w-full max-w-[880px] mx-auto">
-            {takeOverComposer && requestPanel}
-            <div hidden={takeOverComposer}>
+            {!isPRMerged && takeOverComposer && requestPanel}
+            <div hidden={!isPRMerged && takeOverComposer}>
+            {!swarmState?.isBee && (
+              <PRMergeBar
+                threadID={thread.id}
+                threadTitle={latestSummary.title}
+                projectID={latestSummary.projectID}
+                isRunning={latestSummary.isRunning}
+                merged={isPRMerged}
+                onMerged={() => {
+                  setPrMergedThreadID(thread.id);
+                  void refreshThread(thread.id);
+                  void loadThreads(latestSummary.projectID || null);
+                }}
+                onNewThread={onNewThread}
+              />
+            )}
+            {canSend && !isPRMerged && (
             <ThreadComposer
               ref={composerRef}
               threadID={thread.id}
@@ -3213,6 +3238,7 @@ export const ThreadView: React.FC<ThreadViewProps> = ({ thread, onBack, subview,
                   : undefined
               }
             />
+            )}
             </div>
           </div>
         ) : (

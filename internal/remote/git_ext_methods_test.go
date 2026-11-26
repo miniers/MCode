@@ -49,6 +49,17 @@ type gitExtFakeService struct {
 	prURL         string
 	prTitle       string
 	prBody        string
+
+	// PR 审阅会话状态、一键合并与新建审查会话。
+	prThreadState     git.PRThreadState
+	prThreadIsPR      bool
+	prMergeFlowStep   string
+	prMergeFlowMethod string
+	prMergeFlowFrom   string
+	prMergeFlowCalls  int
+	prStartReviewID   string
+	prStartReviewErr  error
+	prStartCalls      int
 }
 
 func (s *gitExtFakeService) GitStashList(ctx context.Context, threadID string) ([]git.StashEntry, error) {
@@ -192,6 +203,41 @@ func (s *gitExtFakeService) GitPullRequestCreateURL(ctx context.Context, threadI
 	return s.prURL, s.prTitle, s.prBody, nil
 }
 
+func (s *gitExtFakeService) GitPRThreadState(ctx context.Context, threadID string) (git.PRThreadState, bool, error) {
+	s.prCalls++
+	s.prThreadID = threadID
+	_, s.prDeadline = ctx.Deadline()
+	if s.err != nil {
+		return git.PRThreadState{}, false, s.err
+	}
+	return s.prThreadState, s.prThreadIsPR, nil
+}
+
+func (s *gitExtFakeService) GitPRMergeFlow(ctx context.Context, threadID string, number int, method, from string, onStep func(step string)) (string, error) {
+	s.prMergeFlowCalls++
+	s.prCalls++
+	s.prThreadID, s.prNumber, s.prMergeFlowMethod, s.prMergeFlowFrom = threadID, number, method, from
+	_, s.prDeadline = ctx.Deadline()
+	if s.err != nil {
+		return s.prMergeFlowStep, s.err
+	}
+	return "", nil
+}
+
+func (s *gitExtFakeService) GitPRStartReview(ctx context.Context, threadID string, number int) (string, error) {
+	s.prStartCalls++
+	s.prCalls++
+	s.prThreadID, s.prNumber = threadID, number
+	_, s.prDeadline = ctx.Deadline()
+	if s.prStartReviewErr != nil {
+		return s.prStartReviewID, s.prStartReviewErr
+	}
+	if s.err != nil {
+		return "", s.err
+	}
+	return s.prStartReviewID, nil
+}
+
 // gitExtTestCommit 记录一次只提交部分路径的调用。
 type gitExtTestCommit struct {
 	Paths   []string
@@ -270,6 +316,9 @@ func TestGitExtMethodsRegistered(t *testing.T) {
 		"git.stash.drop",
 		"git.pr.list",
 		"git.pr.detail",
+		"git.pr.threadState",
+		"git.pr.mergeFlow",
+		"git.pr.startReview",
 		"git.push",
 		"git.pull",
 		"git.fetch",
@@ -655,7 +704,14 @@ func TestGitExtPRWriteSchema(t *testing.T) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"RemoteGitPRMerge", "RemoteGitPRReview", "RemoteGitPRAIReview"} {
+	for _, name := range []string{
+		"RemoteGitPRMerge",
+		"RemoteGitPRReview",
+		"RemoteGitPRAIReview",
+		"RemoteGitPRThreadState",
+		"RemoteGitPRMergeFlow",
+		"RemoteGitPRStartReview",
+	} {
 		for _, kind := range []string{"Request", "Response"} {
 			if strings.Count(string(data), `"$ref": "#/$defs/`+name+kind+`"`) != 2 {
 				t.Fatalf("%s%s 未加入顶层和批量 schema", name, kind)
@@ -685,6 +741,152 @@ func TestGitExtPRWriteSchema(t *testing.T) {
 			if len(doc.Defs[name+kind]) == 0 {
 				t.Fatalf("schema 缺少 %s%s", name, kind)
 			}
+		}
+	}
+}
+
+func TestGitExtPRThreadState(t *testing.T) {
+	svc := &gitExtFakeService{
+		prThreadIsPR: true,
+		prThreadState: git.PRThreadState{
+			Number:       42,
+			CrossRepo:    true,
+			Dirty:        true,
+			LocalCommits: 3,
+		},
+	}
+	backend := &gitExtTestBackend{services: map[string]any{GitExtServiceName: svc}}
+	d, conn := newGitExtTestDispatcher(backend)
+
+	resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","id":1,"method":"git.pr.threadState","params":{"threadID":"`+gitExtTestThreadID+`"}}`)
+	var res wire.GitExtPRThreadStateResult
+	gitExtResult(t, resp, &res)
+	if !res.IsPR || res.Number != 42 || !res.CrossRepo || !res.Dirty || res.LocalCommits != 3 || !svc.prDeadline {
+		t.Fatalf("状态结果不符: %+v svc=%+v", res, svc)
+	}
+
+	// 非 PR 分支时返回 isPR=false 与零值字段。
+	svc.prThreadIsPR = false
+	svc.prThreadState = git.PRThreadState{}
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":2,"method":"git.pr.threadState","params":{"threadID":"`+gitExtTestThreadID+`"}}`)
+	gitExtResult(t, resp, &res)
+	if res.IsPR || res.Number != 0 || res.CrossRepo || res.Dirty || res.LocalCommits != 0 {
+		t.Fatalf("非 PR 状态不符: %+v", res)
+	}
+
+	// 参数校验失败返回 InvalidParams。
+	for _, params := range []string{`{}`, `{"threadID":"bad"}`, `{"threadID":"` + gitExtTestThreadID + `","extra":1}`} {
+		resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":3,"method":"git.pr.threadState","params":`+params+`}`)
+		if resp.Error == nil || resp.Error.Code != wire.InvalidParams {
+			t.Fatalf("无效参数未拦截 (%s): %+v", params, resp.Error)
+		}
+	}
+
+	// 未注入服务返回 MethodNotFound。
+	backend.services = nil
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":4,"method":"git.pr.threadState","params":{"threadID":"`+gitExtTestThreadID+`"}}`)
+	if resp.Error == nil || resp.Error.Code != wire.MethodNotFound {
+		t.Fatalf("缺少服务错误不符: %+v", resp.Error)
+	}
+}
+
+func TestGitExtPRMergeFlow(t *testing.T) {
+	svc := &gitExtFakeService{}
+	backend := &gitExtTestBackend{services: map[string]any{GitExtServiceName: svc}}
+	d, conn := newGitExtTestDispatcher(backend)
+
+	// 正常路径（不传 from 与传入合法 from）。
+	for _, tc := range []struct {
+		method string
+		from   string
+	}{
+		{"squash", ""},
+		{"merge", "push"},
+		{"rebase", "sync"},
+	} {
+		extra := ""
+		if tc.from != "" {
+			extra = `,"from":"` + tc.from + `"`
+		}
+		resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","id":1,"method":"git.pr.mergeFlow","params":{"threadID":"`+gitExtTestThreadID+`","number":9,"method":"`+tc.method+`"`+extra+`}}`)
+		var res wire.GitExtPRMergeFlowResult
+		gitExtResult(t, resp, &res)
+		if !res.OK || res.FailedStep != "" || res.Message != "" || !svc.prDeadline {
+			t.Fatalf("正常路径结果不符: %+v", res)
+		}
+		if svc.prMergeFlowMethod != tc.method || svc.prMergeFlowFrom != tc.from || svc.prNumber != 9 {
+			t.Fatalf("调用参数不符: method=%q from=%q number=%d", svc.prMergeFlowMethod, svc.prMergeFlowFrom, svc.prNumber)
+		}
+	}
+
+	// 流程失败不回 JSON-RPC 错误，而是 ok=false + failedStep + message。
+	svc.prMergeFlowStep = "merge"
+	svc.err = errors.New("gh merge failed")
+	resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","id":2,"method":"git.pr.mergeFlow","params":{"threadID":"`+gitExtTestThreadID+`","number":9,"method":"squash"}}`)
+	var failRes wire.GitExtPRMergeFlowResult
+	gitExtResult(t, resp, &failRes)
+	if failRes.OK || failRes.FailedStep != "merge" || !strings.Contains(failRes.Message, "gh merge failed") {
+		t.Fatalf("失败结果不符: %+v", failRes)
+	}
+
+	// 非法参数返回 InvalidParams 且不调用服务。
+	for _, params := range []string{
+		`{"number":9,"method":"squash"}`,
+		`{"threadID":"bad","number":9,"method":"squash"}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":0,"method":"squash"}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":9,"method":"fast-forward"}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":9,"method":"squash","from":"unknown"}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":9,"method":"squash","extra":1}`,
+	} {
+		before := svc.prMergeFlowCalls
+		resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":3,"method":"git.pr.mergeFlow","params":`+params+`}`)
+		if resp.Error == nil || resp.Error.Code != wire.InvalidParams || svc.prMergeFlowCalls != before {
+			t.Fatalf("无效参数未拦截 (%s): err=%+v calls=%d/%d", params, resp.Error, svc.prMergeFlowCalls, before)
+		}
+	}
+}
+
+func TestGitExtPRStartReview(t *testing.T) {
+	newThreadID := "22222222-2222-2222-2222-222222222222"
+	svc := &gitExtFakeService{prStartReviewID: newThreadID}
+	backend := &gitExtTestBackend{services: map[string]any{GitExtServiceName: svc}}
+	d, conn := newGitExtTestDispatcher(backend)
+
+	// 正常路径。
+	resp := callExtension(t, d, conn, `{"jsonrpc":"2.0","id":1,"method":"git.pr.startReview","params":{"threadID":"`+gitExtTestThreadID+`","number":15}}`)
+	var res wire.GitExtPRStartReviewResult
+	gitExtResult(t, resp, &res)
+	if res.ThreadID != newThreadID || res.Message != "" || svc.prNumber != 15 || !svc.prDeadline {
+		t.Fatalf("正常路径结果不符: %+v svc=%+v", res, svc)
+	}
+
+	// 会话已创建但发送失败：返回 threadID + message。
+	svc.prStartReviewErr = errors.New("会话已创建，但首条消息发送失败：timeout")
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":2,"method":"git.pr.startReview","params":{"threadID":"`+gitExtTestThreadID+`","number":15}}`)
+	res = wire.GitExtPRStartReviewResult{}
+	gitExtResult(t, resp, &res)
+	if res.ThreadID != newThreadID || !strings.Contains(res.Message, "首条消息发送失败") {
+		t.Fatalf("部分失败结果不符: %+v", res)
+	}
+
+	// 创建前失败：返回 JSON-RPC 错误。
+	svc.prStartReviewErr = nil
+	svc.err = errors.New("checkout failed")
+	resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":3,"method":"git.pr.startReview","params":{"threadID":"`+gitExtTestThreadID+`","number":15}}`)
+	if resp.Error == nil || resp.Error.Code != wire.InternalError {
+		t.Fatalf("创建前失败应返回错误: %+v", resp.Error)
+	}
+
+	// 非法参数返回 InvalidParams 且不调用服务。
+	for _, params := range []string{
+		`{"number":15}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":0}`,
+		`{"threadID":"` + gitExtTestThreadID + `","number":15,"extra":1}`,
+	} {
+		before := svc.prStartCalls
+		resp = callExtension(t, d, conn, `{"jsonrpc":"2.0","id":4,"method":"git.pr.startReview","params":`+params+`}`)
+		if resp.Error == nil || resp.Error.Code != wire.InvalidParams || svc.prStartCalls != before {
+			t.Fatalf("无效参数未拦截 (%s): err=%+v calls=%d/%d", params, resp.Error, svc.prStartCalls, before)
 		}
 	}
 }

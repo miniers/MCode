@@ -4,6 +4,7 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markd
 import { CheckCircleIcon, LayoutIcon, XMarkIcon } from './Icons';
 import { MarkdownImage } from './MarkdownImage';
 import { MermaidBlock, readIsDarkTheme, useIsDarkTheme } from './MermaidBlock';
+import { parsePRReview, PRReviewCard } from './PRReviewCard';
 import { SheetFrame } from './sheet/SheetFrame';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -489,6 +490,12 @@ const components: Components = {
     }
     if (isMermaidLanguage(langLower)) {
       return <MermaidBlock content={text} />;
+    }
+    if (langLower === 'pr-review') {
+      const parsedReview = parsePRReview(text);
+      if (parsedReview) {
+        return <PRReviewCard review={parsedReview} />;
+      }
     }
     // 代码块命中：CodeBlock 走 highlight.js 的 innerHTML，mark 塞不进去，这里退回纯文本渲染让高亮看得见；
     // 没有命中时仍走原来的语法着色，行为不变。

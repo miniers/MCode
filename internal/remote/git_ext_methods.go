@@ -38,6 +38,8 @@ const (
 	gitExtNetworkTimeout = 5 * time.Minute
 	// gitExtLocalTimeout 是纯本地操作的超时：切换分支、新建分支、合并与生成 PR 链接。
 	gitExtLocalTimeout = 2 * time.Minute
+	// gitExtPRMergeFlowTimeout 是 PR 一键合并全流程（推送、合并、同步、清理）的超时上限。
+	gitExtPRMergeFlowTimeout = 10 * time.Minute
 )
 
 // gitExtService 是只在桌面端 *Client 上可用的 git 能力，由 app 层注入。
@@ -52,6 +54,9 @@ type gitExtService interface {
 	GitPRReview(ctx context.Context, threadID string, number int, event, body string) error
 	GitPRSubmitReview(ctx context.Context, threadID string, number int, event, body string, comments []git.PRReviewComment) error
 	GitPRAIReview(ctx context.Context, threadID string, number int) ([]git.PRReviewComment, error)
+	GitPRThreadState(ctx context.Context, threadID string) (git.PRThreadState, bool, error)
+	GitPRMergeFlow(ctx context.Context, threadID string, number int, method, from string, onStep func(step string)) (failedStep string, err error)
+	GitPRStartReview(ctx context.Context, threadID string, number int) (string, error)
 	GitPush(ctx context.Context, threadID string) error
 	GitPull(ctx context.Context, threadID string) error
 	GitFetch(ctx context.Context, threadID string) error
@@ -93,6 +98,9 @@ func init() {
 	RegisterMethod("git.pr.review", handleGitExtPRReview)
 	RegisterMethod("git.pr.submitReview", handleGitExtPRSubmitReview)
 	RegisterMethod("git.pr.aiReview", handleGitExtPRAIReview)
+	RegisterMethod("git.pr.threadState", handleGitExtPRThreadState)
+	RegisterMethod("git.pr.mergeFlow", handleGitExtPRMergeFlow)
+	RegisterMethod("git.pr.startReview", handleGitExtPRStartReview)
 	RegisterMethod("git.push", handleGitExtPush)
 	RegisterMethod("git.pull", handleGitExtPull)
 	RegisterMethod("git.fetch", handleGitExtFetch)
@@ -814,4 +822,104 @@ func handleGitExtPRCreateURL(ctx context.Context, d *Dispatcher, c Conn, params 
 		return nil, ExtInvalidParams("Invalid params: cannot build a pull request URL, the repository has no recognizable remote")
 	}
 	return wire.GitExtPRCreateURLResult{URL: target, Title: title, Body: body}, nil
+}
+
+// handleGitExtPRThreadState 实现 git.pr.threadState：查询会话所在 worktree 的 PR 审阅分支状态。
+func handleGitExtPRThreadState(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.GitExtPRThreadStateParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
+		return nil, err
+	}
+	svc, ok := gitExtServiceFrom(d)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, gitExtLocalTimeout)
+	defer cancel()
+	st, isPR, err := svc.GitPRThreadState(callCtx, p.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	return wire.GitExtPRThreadStateResult{
+		IsPR:         isPR,
+		Number:       st.Number,
+		CrossRepo:    st.CrossRepo,
+		Dirty:        st.Dirty,
+		LocalCommits: st.LocalCommits,
+	}, nil
+}
+
+// handleGitExtPRMergeFlow 实现 git.pr.mergeFlow：执行 PR 审阅会话的一键合并四步流程。
+// 流程失败时返回 ok=false 与失败步、脱敏错误信息，不回 JSON-RPC 错误，便于前端从失败步骤重试。
+func handleGitExtPRMergeFlow(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.GitExtPRMergeFlowParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
+		return nil, err
+	}
+	if p.Number <= 0 {
+		return nil, ExtInvalidParams("Invalid params: 'number' must be positive")
+	}
+	switch p.Method {
+	case "squash", "merge", "rebase":
+	default:
+		return nil, ExtInvalidParams("无效的合并方式")
+	}
+	switch p.From {
+	case "", "push", "merge", "sync", "cleanup":
+	default:
+		return nil, ExtInvalidParams("无效的起始步骤")
+	}
+	svc, ok := gitExtServiceFrom(d)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, gitExtPRMergeFlowTimeout)
+	defer cancel()
+	failedStep, err := svc.GitPRMergeFlow(callCtx, p.ThreadID, p.Number, p.Method, p.From, nil)
+	if err != nil {
+		return wire.GitExtPRMergeFlowResult{
+			OK:         false,
+			FailedStep: failedStep,
+			Message:    RedactSecrets(err.Error()),
+		}, nil
+	}
+	return wire.GitExtPRMergeFlowResult{OK: true}, nil
+}
+
+// handleGitExtPRStartReview 实现 git.pr.startReview：检出 PR 分支到独立 worktree 并启动 AI 审查会话。
+// 若首条审查消息发送失败但会话已创建，仍返回新会话 threadID 与脱敏后的错误信息。
+func handleGitExtPRStartReview(ctx context.Context, d *Dispatcher, c Conn, params json.RawMessage) (any, error) {
+	var p wire.GitExtPRStartReviewParams
+	if err := decodeExtParams(params, &p); err != nil {
+		return nil, err
+	}
+	if err := gitExtThreadIDParam(p.ThreadID); err != nil {
+		return nil, err
+	}
+	if p.Number <= 0 {
+		return nil, ExtInvalidParams("Invalid params: 'number' must be positive")
+	}
+	svc, ok := gitExtServiceFrom(d)
+	if !ok {
+		return nil, ExtNotImplemented()
+	}
+	callCtx, cancel := context.WithTimeout(ctx, gitExtNetworkTimeout)
+	defer cancel()
+	newID, err := svc.GitPRStartReview(callCtx, p.ThreadID, p.Number)
+	if err != nil {
+		if newID != "" {
+			return wire.GitExtPRStartReviewResult{
+				ThreadID: newID,
+				Message:  RedactSecrets(err.Error()),
+			}, nil
+		}
+		return nil, err
+	}
+	return wire.GitExtPRStartReviewResult{ThreadID: newID}, nil
 }

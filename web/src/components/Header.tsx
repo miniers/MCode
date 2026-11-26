@@ -32,6 +32,7 @@ import {
   ChevronDownIcon,
   ClockIcon,
   ComputerDesktopIcon,
+  GitPullRequestIcon,
   LayoutIcon,
   ListBulletIcon,
   MoonIcon,
@@ -64,7 +65,7 @@ const MemoryProposalsSheet = React.lazy(() =>
   import('./MemoryProposalsSheet').then((module) => ({ default: module.MemoryProposalsSheet }))
 );
 
-export type HomeView = 'sessions' | 'board' | 'automations';
+export type HomeView = 'sessions' | 'board' | 'automations' | 'pr';
 type HomePairingCode = { token: string; expiresAt: string };
 
 function issuedPairingToken(value: string): string | null {
@@ -462,6 +463,7 @@ export const Header: React.FC<HeaderProps> = ({
   const isAttentionSupported = supportsMethod(REMOTE_ATTENTION_LIST_METHOD);
   const isAutomationSupported = supportsMethod(REMOTE_AUTOMATIONS_LIST_METHOD);
   const isMemorySupported = supportsMethod(REMOTE_MEMORY_PROPOSALS_LIST_METHOD);
+  const canPR = supportsMethod('git.pr.list');
   const { unreadTotal: automationUnreadTotal } = useProjectAutomations(
     connectionState === 'connected' && isAutomationSupported ? selectedProjectID : null
   );
@@ -621,6 +623,19 @@ export const Header: React.FC<HeaderProps> = ({
                     />
                   )}
                 </button>
+                {canPR && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeView === 'pr'}
+                    aria-label="PR"
+                    onClick={() => onSwitchView('pr')}
+                    className={`view-switch__item touch-hit-44 ${activeView === 'pr' ? 'view-switch__item--active' : ''}`}
+                  >
+                    <GitPullRequestIcon className="h-4 w-4 shrink-0" />
+                    <span>PR</span>
+                  </button>
+                )}
               </div>
             ) : (
               <span className="text-base font-semibold text-foreground truncate">mcode</span>

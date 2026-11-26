@@ -8,6 +8,7 @@ export type Route =
   | { kind: 'home' }
   | { kind: 'board' }
   | { kind: 'automations'; automationID?: string }
+  | { kind: 'pr'; number?: number }
   | { kind: 'settings'; page?: string }
   | { kind: 'draft'; projectID: string }
   | {
@@ -35,6 +36,11 @@ export function parseRoute(hash: string): Route {
     } catch {
       return { kind: 'automations' };
     }
+  }
+  if (value === '/pr') return { kind: 'pr' };
+  const prMatch = value.match(/^\/pr\/([1-9]\d*)$/);
+  if (prMatch) {
+    return { kind: 'pr', number: Number.parseInt(prMatch[1], 10) };
   }
   if (value === '/settings') return { kind: 'settings' };
   // #/settings/<页面 id>：直接打开某个 tab，tab 切换用 replace 写，不压浏览历史。

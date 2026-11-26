@@ -18,6 +18,7 @@ export function routeDepth(route: NavRouteLike): number {
       return 0;
     case 'board':
     case 'automations':
+    case 'pr':
     case 'settings':
     case 'draft':
     case 'thread':
@@ -60,6 +61,7 @@ export function shouldSkipNavTransition(
   nextRoute: NavRouteLike
 ): boolean {
   if (prevRoute.kind === 'settings' || nextRoute.kind === 'settings') return true;
+  if (prevRoute.kind === 'pr' && nextRoute.kind === 'pr') return true;
   if (prevRoute.kind === 'thread' && nextRoute.kind === 'home') return true;
   return (
     prevRoute.kind === 'thread' &&
