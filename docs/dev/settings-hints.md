@@ -75,6 +75,8 @@
 | row-auto-dormant-days | 无消息多少天后自动休眠 | 会话超过这个天数没有新消息时，自动进入休眠。 |
 | row-confirm-delete | 删除会话前确认 | 打开后，删除会话前先弹出确认框。 |
 | row-ask-compact-before-resume | 恢复旧会话前询问压缩 | 打开超过 1 小时没动、上下文占用较高的旧会话时，先问你是否压缩。 |
+| row-compact-suggest-percent | 建议压缩比例 | 上下文占用达到模型窗口的这个比例时建议压缩。 |
+| row-compact-suggest-max | 建议压缩上限 | 占用达到这个大小就建议压缩，窗口未知时也按它判断。 |
 | row-bee-message-retention | 压缩 30 天前的子代理消息 | 后台压缩已结束会话里的工具和思考记录，内容不丢。满 30 天的子代理思考内容将被删除。 |
 
 ### 工作台

@@ -1402,9 +1402,9 @@ type chatUIState struct {
 	compactDismissed map[string]bool
 	// forwardSuggestDismissed 记录已忽略转发到新会话建议的会话，本会话不再提示。
 	forwardSuggestDismissed map[string]bool
-	// askCompactCache/askCompactCachedAt 缓存回退读取的“恢复旧会话前询问压缩”设置。
-	askCompactCache    bool
-	askCompactCachedAt time.Time
+	// compactSuggestSessionCache/compactSuggestSessionCachedAt 缓存回退读取的压缩建议会话配置。
+	compactSuggestSessionCache    config.SessionConfig
+	compactSuggestSessionCachedAt time.Time
 	// projectOrder 是侧边栏项目拖拽重排后的顺序（项目 ID 列表），随 ui-state.json 持久化。
 	projectOrder []string
 	// projectActivation 是项目激活状态的覆盖表（项目 ID -> 是否激活），随 ui-state.json 持久化。
@@ -1547,43 +1547,54 @@ func forwardSuggestionDismissed(s *chatState, threadID string) bool {
 	return st != nil && st.forwardSuggestDismissed[threadID]
 }
 
-// askCompactOnResumeEnabled 读取“恢复旧会话前询问压缩”设置。
+func compactSuggestDisabledSession() config.SessionConfig {
+	disabled := false
+	return config.SessionConfig{AskCompactBeforeResume: &disabled}
+}
+
+func copySessionConfigForCompact(s config.SessionConfig) config.SessionConfig {
+	enabled := s.AskCompactOnResume()
+	s.AskCompactBeforeResume = &enabled
+	return s
+}
+
+// compactSuggestSession 读取压缩建议所需的会话配置。
 // 与 model.go 的 queueWhileRunningEnabled 一致：优先读内存中的设置面板配置，
 // 缺失时回退读取持久化配置并在 chatUIState 上缓存 2 秒。
-func (s *chatState) askCompactOnResumeEnabled() bool {
+func (s *chatState) compactSuggestSession() config.SessionConfig {
 	if s == nil {
-		return false
+		return compactSuggestDisabledSession()
 	}
 	if st := getChatSettings(s); st != nil {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return st.cfg.Session.AskCompactOnResume()
+		return copySessionConfigForCompact(st.cfg.Session)
 	}
 
 	ui := getChatUIState(s)
 	if ui == nil {
-		return false
+		return compactSuggestDisabledSession()
 	}
 	chatUIMu.Lock()
-	fresh := !ui.askCompactCachedAt.IsZero() && time.Since(ui.askCompactCachedAt) < 2*time.Second
-	cached := ui.askCompactCache
+	fresh := !ui.compactSuggestSessionCachedAt.IsZero() && time.Since(ui.compactSuggestSessionCachedAt) < 2*time.Second
+	cached := ui.compactSuggestSessionCache
 	chatUIMu.Unlock()
 	if fresh {
 		return cached
 	}
 
-	enabled := false
+	session := compactSuggestDisabledSession()
 	if dataDir := resolveDataDirFallback(); dataDir != "" {
 		if cfg, err := config.Load(dataDir); err == nil {
-			enabled = cfg.Session.AskCompactOnResume()
+			session = copySessionConfigForCompact(cfg.Session)
 		}
 	}
 
 	chatUIMu.Lock()
-	ui.askCompactCache = enabled
-	ui.askCompactCachedAt = time.Now()
+	ui.compactSuggestSessionCache = session
+	ui.compactSuggestSessionCachedAt = time.Now()
 	chatUIMu.Unlock()
-	return enabled
+	return session
 }
 
 // sidebarProjectOrder 返回当前窗口保存的项目顺序副本。

@@ -1039,3 +1039,21 @@ func TestSettingsQuickReplySearchAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsCompactSuggestRows(t *testing.T) {
+	dataDir := settingsTestDir(t)
+	st := NewSettingsState(dataDir, nil, newChatState(NewFakeClient()))
+	tt := ui.NewTester(func(c *ui.Context) { renderPageConversation(c, st) }, 1200, 3000)
+	waitFor(t, tt, func() bool {
+		return tt.HasText("建议压缩比例") && tt.HasText("建议压缩上限")
+	})
+
+	disabled := false
+	st.cfgMu.Lock()
+	st.cfg.Session.AskCompactBeforeResume = &disabled
+	st.cfgMu.Unlock()
+	tt.Frame()
+	if tt.HasText("建议压缩比例") || tt.HasText("建议压缩上限") {
+		t.Fatalf("关闭「恢复旧会话前询问压缩」后不应显示阈值设置行: %v", tt.Texts())
+	}
+}

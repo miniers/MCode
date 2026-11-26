@@ -28,6 +28,33 @@ func TestSessionAttachmentLimit(t *testing.T) {
 	}
 }
 
+func TestSessionConfigCompactSuggest(t *testing.T) {
+	tests := []struct {
+		name    string
+		session SessionConfig
+		window  int64
+		want    int64
+	}{
+		{"零值配置窗口未知取默认上限 140k", SessionConfig{}, 0, 140_000},
+		{"零值配置 32k 窗口取 70%", SessionConfig{}, 32_000, 22_400},
+		{"零值配置 200k 窗口取 140k", SessionConfig{}, 200_000, 140_000},
+		{"零值配置 1M 窗口受默认上限 140k 封顶", SessionConfig{}, 1_000_000, 140_000},
+		{"自定义 50%/1000k 时 1M 窗口取 500k", SessionConfig{CompactSuggestPercent: 50, CompactSuggestMaxK: 1000}, 1_000_000, 500_000},
+		{"自定义 50%/1000k 时窗口未知取 1000k", SessionConfig{CompactSuggestPercent: 50, CompactSuggestMaxK: 1000}, 0, 1_000_000},
+		{"越界值被 clamp：percent=200→95、maxK=5→10", SessionConfig{CompactSuggestPercent: 200, CompactSuggestMaxK: 5}, 10_000, 9_500},
+		{"越界值被 clamp：maxK=5→10k 窗口未知取 10k", SessionConfig{CompactSuggestPercent: 200, CompactSuggestMaxK: 5}, 0, 10_000},
+		{"越界下限被 clamp：percent=-1→10、maxK=2000→1000", SessionConfig{CompactSuggestPercent: -1, CompactSuggestMaxK: 2000}, 200_000, 20_000},
+		{"越界上限被 clamp：maxK=2000→1000k 窗口未知取 1000k", SessionConfig{CompactSuggestPercent: -1, CompactSuggestMaxK: 2000}, 0, 1_000_000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.session.CompactSuggestThreshold(tc.window); got != tc.want {
+				t.Errorf("SessionConfig%+v.CompactSuggestThreshold(%d) = %d, want %d", tc.session, tc.window, got, tc.want)
+			}
+		})
+	}
+}
+
 // 1. 文件不存在时 Load 返回 Defaults()，不报错，不创建文件。
 func TestLoadNotExist(t *testing.T) {
 	dir := t.TempDir()

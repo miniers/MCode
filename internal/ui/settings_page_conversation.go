@@ -7,6 +7,15 @@ import (
 	"mcode/internal/config"
 )
 
+func askCompactOnResumeVisible(st *SettingsState) bool {
+	if st == nil {
+		return true
+	}
+	st.cfgMu.Lock()
+	defer st.cfgMu.Unlock()
+	return st.cfg.Session.AskCompactOnResume()
+}
+
 // advancedConversation 是会话页的高级设置。
 var advancedConversation = settingsSection{
 	ID:    "advanced.conversation",
@@ -17,6 +26,20 @@ var advancedConversation = settingsSection{
 			Title:   "恢复旧会话前询问压缩",
 			Aliases: []string{"压缩", "上下文", "旧会话", "继续", "恢复", "长时间未活动"},
 			Control: toggle(ptr(func(c *config.Config) **bool { return &c.Session.AskCompactBeforeResume }, true)),
+		},
+		{
+			ID:      "row-compact-suggest-percent",
+			Title:   "建议压缩比例",
+			Aliases: []string{"压缩", "上下文", "阈值", "比例", "上限", "tokens", "compact"},
+			Visible: askCompactOnResumeVisible,
+			Control: number(val(func(c *config.Config) *int { return &c.Session.CompactSuggestPercent }, config.DefaultCompactSuggestPercent), "%", config.MinCompactSuggestPercent, config.MaxCompactSuggestPercent),
+		},
+		{
+			ID:      "row-compact-suggest-max",
+			Title:   "建议压缩上限",
+			Aliases: []string{"压缩", "上下文", "阈值", "比例", "上限", "tokens", "compact"},
+			Visible: askCompactOnResumeVisible,
+			Control: number(val(func(c *config.Config) *int { return &c.Session.CompactSuggestMaxK }, config.DefaultCompactSuggestMaxK), "k tokens", config.MinCompactSuggestMaxK, config.MaxCompactSuggestMaxK),
 		},
 		{
 			ID:      "row-bee-message-retention",

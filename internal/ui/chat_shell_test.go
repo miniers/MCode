@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/config"
 )
 
 // TestChatHeaderLeadingInset 验证标题栏左边距随侧边栏显示进度在交通灯避让与常规内边距之间插值。
@@ -58,15 +59,15 @@ func TestCompactSuggestionThreshold(t *testing.T) {
 		limit int64
 		want  int64
 	}{
-		{"窗口未知时用固定 100k", 0, 100_000},
+		{"窗口未知时用默认上限 140k", 0, 140_000},
 		{"32k 窗口取 70%", 32_000, 22_400},
-		{"200k 窗口封顶 100k", 200_000, 100_000},
-		{"1M 窗口封顶 100k", 1_000_000, 100_000},
+		{"200k 窗口取 70%（140k）", 200_000, 140_000},
+		{"1M 窗口受默认上限 140k 封顶", 1_000_000, 140_000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := compactSuggestionThreshold(tc.limit); got != tc.want {
-				t.Errorf("compactSuggestionThreshold(%d) = %d, want %d", tc.limit, got, tc.want)
+			if got := (config.SessionConfig{}).CompactSuggestThreshold(tc.limit); got != tc.want {
+				t.Errorf("SessionConfig{}.CompactSuggestThreshold(%d) = %d, want %d", tc.limit, got, tc.want)
 			}
 		})
 	}
@@ -74,9 +75,10 @@ func TestCompactSuggestionThreshold(t *testing.T) {
 
 // TestShouldOfferCompact 验证压缩建议卡片的判定条件。
 func TestShouldOfferCompact(t *testing.T) {
+	boolPtr := func(v bool) *bool { return &v }
 	tests := []struct {
 		name          string
-		askCompact    bool
+		session       config.SessionConfig
 		dismissed     bool
 		contextTokens int64
 		limit         int64
@@ -84,26 +86,31 @@ func TestShouldOfferCompact(t *testing.T) {
 		draft         string
 		want          bool
 	}{
-		{"会话较旧且用量达标时提示", true, false, 150_000, 0, 2 * time.Hour, "", true},
-		{"总量刚好达标且空闲刚好达标时提示", true, false, 100_000, 0, time.Hour, "继续", true},
-		{"设置关闭时不提示", false, false, 150_000, 0, 2 * time.Hour, "", false},
-		{"本会话已忽略时不提示", true, true, 150_000, 0, 2 * time.Hour, "", false},
-		{"用量不足时不提示", true, false, 99_999, 0, 2 * time.Hour, "", false},
-		{"空闲不足时不提示", true, false, 150_000, 0, 30 * time.Minute, "", false},
-		{"命令草稿时不提示", true, false, 150_000, 0, 2 * time.Hour, "/compact", false},
-		{"带空白的命令草稿也不提示", true, false, 150_000, 0, 2 * time.Hour, "  /help", false},
-		{"1M 窗口上下文 120k 时提示（阈值 100k）", true, false, 120_000, 1_000_000, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 25k 时提示（阈值 22.4k）", true, false, 25_000, 32_000, 2 * time.Hour, "", true},
-		{"32k 窗口上下文 20k 时不提示", true, false, 20_000, 32_000, 2 * time.Hour, "", false},
-		{"窗口未知且真实占用 25k 时不提示", true, false, 25_000, 0, 2 * time.Hour, "", false},
-		{"窗口未知但真实占用 120k 时提示", true, false, 120_000, 0, 2 * time.Hour, "", true},
+		{"会话较旧且用量达标时提示", config.SessionConfig{}, false, 150_000, 0, 2 * time.Hour, "", true},
+		{"总量刚好达标且空闲刚好达标时提示", config.SessionConfig{}, false, 140_000, 0, time.Hour, "继续", true},
+		{"设置关闭时不提示", config.SessionConfig{AskCompactBeforeResume: boolPtr(false)}, false, 150_000, 0, 2 * time.Hour, "", false},
+		{"本会话已忽略时不提示", config.SessionConfig{}, true, 150_000, 0, 2 * time.Hour, "", false},
+		{"用量不足时不提示", config.SessionConfig{}, false, 99_999, 0, 2 * time.Hour, "", false},
+		{"空闲不足时不提示", config.SessionConfig{}, false, 150_000, 0, 30 * time.Minute, "", false},
+		{"命令草稿时不提示", config.SessionConfig{}, false, 150_000, 0, 2 * time.Hour, "/compact", false},
+		{"带空白的命令草稿也不提示", config.SessionConfig{}, false, 150_000, 0, 2 * time.Hour, "  /help", false},
+		{"1M 窗口上下文 140k 时提示（受默认上限 140k 封顶）", config.SessionConfig{}, false, 140_000, 1_000_000, 2 * time.Hour, "", true},
+		{"1M 窗口上下文 139_999 时不提示（阈值 140k）", config.SessionConfig{}, false, 139_999, 1_000_000, 2 * time.Hour, "", false},
+		{"200k 窗口上下文 140k 时提示（阈值 140k）", config.SessionConfig{}, false, 140_000, 200_000, 2 * time.Hour, "", true},
+		{"200k 窗口上下文 139_999 时不提示（阈值 140k）", config.SessionConfig{}, false, 139_999, 200_000, 2 * time.Hour, "", false},
+		{"32k 窗口上下文 22.4k 时提示（阈值 22.4k）", config.SessionConfig{}, false, 22_400, 32_000, 2 * time.Hour, "", true},
+		{"32k 窗口上下文 22.3k 时不提示（阈值 22.4k）", config.SessionConfig{}, false, 22_399, 32_000, 2 * time.Hour, "", false},
+		{"窗口未知且真实占用 120k 时不提示（默认上限 140k）", config.SessionConfig{}, false, 120_000, 0, 2 * time.Hour, "", false},
+		{"窗口未知且真实占用 140k 时提示（默认上限 140k）", config.SessionConfig{}, false, 140_000, 0, 2 * time.Hour, "", true},
+		{"自定义 percent=50/maxK=1000 时 1M 窗口 500k 提示", config.SessionConfig{CompactSuggestPercent: 50, CompactSuggestMaxK: 1000}, false, 500_000, 1_000_000, 2 * time.Hour, "", true},
+		{"自定义 percent=50/maxK=1000 时 1M 窗口 499_999 不提示", config.SessionConfig{CompactSuggestPercent: 50, CompactSuggestMaxK: 1000}, false, 499_999, 1_000_000, 2 * time.Hour, "", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shouldOfferCompact(tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft)
+			got := shouldOfferCompact(tc.session, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft)
 			if got != tc.want {
-				t.Errorf("shouldOfferCompact(%v, %v, %d, %d, %v, %q) = %v, want %v",
-					tc.askCompact, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft, got, tc.want)
+				t.Errorf("shouldOfferCompact(%+v, %v, %d, %d, %v, %q) = %v, want %v",
+					tc.session, tc.dismissed, tc.contextTokens, tc.limit, tc.idle, tc.draft, got, tc.want)
 			}
 		})
 	}
