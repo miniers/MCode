@@ -408,7 +408,7 @@ func buildMCPArgs(turn harness.Turn, approvalURL, approvalToken string, builtin 
 		}
 		servers[ep.Name] = mcpServerConfig{
 			Type:    "http",
-			URL:     ep.URL,
+			URL:     harness.WithoutFold(ep.URL),
 			Headers: headers,
 		}
 	}

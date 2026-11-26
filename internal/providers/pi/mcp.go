@@ -58,7 +58,7 @@ func mcpServerList(turn harness.Turn, builtin harness.BuiltinMCP, external []har
 		if ep.Token != "" {
 			headers["Authorization"] = "Bearer " + ep.Token
 		}
-		servers = append(servers, mcpServerEntry{Name: ep.Name, URL: ep.URL, Headers: headers})
+		servers = append(servers, mcpServerEntry{Name: ep.Name, URL: harness.WithoutFold(ep.URL), Headers: headers})
 	}
 	return servers
 }

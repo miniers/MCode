@@ -1572,7 +1572,7 @@ func TestBuildMCPArgs(t *testing.T) {
 		if !ok {
 			t.Fatalf("custom_server not found in servers")
 		}
-		if custom.Type != "http" || custom.URL != "http://127.0.0.1:4000/mcp/custom_server" {
+		if custom.Type != "http" || custom.URL != "http://127.0.0.1:4000/mcp/custom_server?fold=off" {
 			t.Errorf("unexpected custom server: %+v", custom)
 		}
 		if custom.Headers["Authorization"] != "Bearer custom-token" {

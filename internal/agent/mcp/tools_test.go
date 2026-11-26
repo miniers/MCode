@@ -103,6 +103,30 @@ func TestServersHeaders(t *testing.T) {
 	}
 }
 
+func TestEndpointsDisableFold(t *testing.T) {
+	turn := harness.Turn{ThreadID: "thread/a", WorkDir: "/work/project"}
+	servers := Servers(
+		turn,
+		harness.BuiltinMCP{ThreadBase: "https://thread/", ThreadToken: "thread-token"},
+		[]harness.MCPEndpoint{
+			{Name: "remote", URL: "https://remote/mcp/srv", Token: "remote-token"},
+			{Name: "remote_q", URL: "https://remote/mcp/q?a=1"},
+		},
+	)
+	if len(servers) != 3 {
+		t.Fatalf("unexpected servers: %#v", servers)
+	}
+	if servers[0].Name != "mcode" || servers[0].URL != "https://thread/thread%2Fa" {
+		t.Fatalf("builtin server = %#v", servers[0])
+	}
+	if servers[1].Name != "remote" || servers[1].URL != "https://remote/mcp/srv?fold=off" {
+		t.Fatalf("remote server = %#v", servers[1])
+	}
+	if servers[2].Name != "remote_q" || servers[2].URL != "https://remote/mcp/q?a=1&fold=off" {
+		t.Fatalf("remote_q server = %#v", servers[2])
+	}
+}
+
 func TestExternalCallValidationErrors(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req rpcRequest

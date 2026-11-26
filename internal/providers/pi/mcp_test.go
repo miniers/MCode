@@ -49,8 +49,8 @@ func TestMCPServersEnvValue(t *testing.T) {
 		{
 			name: "外部端点过滤重名服务",
 			ext:  external,
-			want: `[{"name":"remote","url":"http://remote/mcp","headers":{"Authorization":"Bearer remote-token"}},` +
-				`{"name":"open","url":"http://open/mcp"}]`,
+			want: `[{"name":"remote","url":"http://remote/mcp?fold=off","headers":{"Authorization":"Bearer remote-token"}},` +
+				`{"name":"open","url":"http://open/mcp?fold=off"}]`,
 			wantOK: true,
 		},
 		{
@@ -59,8 +59,8 @@ func TestMCPServersEnvValue(t *testing.T) {
 			builtin: builtin,
 			ext:     external,
 			want: `[{"name":"mcode","url":"http://127.0.0.1:9/mcp/mcode/t42","headers":{"Authorization":"Bearer thread-token"}},` +
-				`{"name":"remote","url":"http://remote/mcp","headers":{"Authorization":"Bearer remote-token"}},` +
-				`{"name":"open","url":"http://open/mcp"}]`,
+				`{"name":"remote","url":"http://remote/mcp?fold=off","headers":{"Authorization":"Bearer remote-token"}},` +
+				`{"name":"open","url":"http://open/mcp?fold=off"}]`,
 			wantOK: true,
 		},
 		{
@@ -106,5 +106,28 @@ func TestInstallMCPBridge(t *testing.T) {
 	}
 	if string(data) != mcpBridgeSource || !strings.Contains(string(data), "loadMCPTools") {
 		t.Fatalf("桥内容与嵌入源码不一致")
+	}
+}
+
+func TestPiMCPServersDisableFold(t *testing.T) {
+	servers := mcpServerList(
+		harness.Turn{ThreadID: "t42", WorkDir: "/repo"},
+		harness.BuiltinMCP{ThreadBase: "http://127.0.0.1:9/mcp/mcode/", ThreadToken: "tok"},
+		[]harness.MCPEndpoint{
+			{Name: "ext", URL: "http://127.0.0.1:9/mcp/ext-id", Token: "ext-tok"},
+			{Name: "ext_q", URL: "http://127.0.0.1:9/mcp/ext-q?x=1"},
+		},
+	)
+	if len(servers) != 3 {
+		t.Fatalf("len(servers) = %d, want 3", len(servers))
+	}
+	if servers[0].Name != "mcode" || servers[0].URL != "http://127.0.0.1:9/mcp/mcode/t42" {
+		t.Fatalf("builtin server = %+v", servers[0])
+	}
+	if servers[1].Name != "ext" || servers[1].URL != "http://127.0.0.1:9/mcp/ext-id?fold=off" {
+		t.Fatalf("ext server = %+v", servers[1])
+	}
+	if servers[2].Name != "ext_q" || servers[2].URL != "http://127.0.0.1:9/mcp/ext-q?fold=off&x=1" {
+		t.Fatalf("ext_q server = %+v", servers[2])
 	}
 }

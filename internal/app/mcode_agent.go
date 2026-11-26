@@ -313,7 +313,8 @@ func mcodeEngineOptions(kind harness.Kind, cfg config.Config, secrets config.Sec
 			if endpoint, ok := magpieSearchEndpoint(ctx, kind, turn, current, store); ok {
 				duplicate := false
 				for _, server := range servers {
-					if server.Name == endpoint.Name || strings.TrimRight(server.URL, "/") == endpoint.URL {
+					serverURL, _, _ := strings.Cut(server.URL, "?")
+					if server.Name == endpoint.Name || strings.TrimRight(serverURL, "/") == endpoint.URL {
 						duplicate = true
 						break
 					}

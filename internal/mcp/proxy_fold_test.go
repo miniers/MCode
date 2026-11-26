@@ -863,3 +863,64 @@ func TestProxyFoldStateStale(t *testing.T) {
 		t.Fatal("SetUpstreams 变更上游配置后，foldStateOf 应返回 known=false")
 	}
 }
+
+// TestProxyFoldOffQuery 覆盖：带 ?fold=off 查询串时 tools/list 返回完整列表且不写折叠缓存，
+// 不带时仍折叠成 call_tool；带 ?fold=off 的 tools/call 按工具原名直达上游。
+func TestProxyFoldOffQuery(t *testing.T) {
+	var calls atomic.Int64
+	var lastTool atomic.Value
+	upstream := newFoldFakeUpstream(t, 45, &calls, &lastTool)
+
+	proxy := newPolicyProxy(t, upstream.URL, filepath.Join(t.TempDir(), "missing_policy.json"))
+	handler := proxy.Handler()
+	token := proxy.Token()
+
+	// 1. 带 ?fold=off 的 tools/list 返回全部 45 个工具，且不记录 p.fold
+	code, resp := postProxy(t, handler, "/mcp/demo?fold=off", token, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/list",
+	})
+	if code != http.StatusOK || resp["error"] != nil {
+		t.Fatalf("tools/list (?fold=off) 失败: code=%d resp=%v", code, resp)
+	}
+	if names := toolNamesFromResponse(t, resp); len(names) != 45 {
+		t.Fatalf("带 ?fold=off 应返回全部 45 个工具, got %d 个", len(names))
+	}
+	if _, known := proxy.foldStateOf("demo"); known {
+		t.Fatal("带 ?fold=off 的 tools/list 不应写入 p.fold")
+	}
+
+	// 2. 不带 ?fold=off 的 tools/list 仍然折叠成 call_tool
+	code, resp = postProxy(t, handler, "/mcp/demo", token, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/list",
+	})
+	if code != http.StatusOK || resp["error"] != nil {
+		t.Fatalf("tools/list 失败: code=%d resp=%v", code, resp)
+	}
+	if names := toolNamesFromResponse(t, resp); len(names) != 1 || names[0] != foldEntryToolName {
+		t.Fatalf("不带 ?fold=off 应返回 call_tool, got %v", names)
+	}
+
+	// 3. 即使已写入折叠缓存，带 ?fold=off 时按原名 tools/call 仍能直达上游
+	code, resp = postProxy(t, handler, "/mcp/demo?fold=off", token, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "tools/call",
+		"params":  map[string]any{"name": "tool_12", "arguments": map[string]any{}},
+	})
+	if code != http.StatusOK || resp["error"] != nil {
+		t.Fatalf("tools/call (?fold=off) 失败: code=%d resp=%v", code, resp)
+	}
+	if got, _ := lastTool.Load().(string); got != "tool_12" {
+		t.Fatalf("上游收到的工具名应为 tool_12, got %v", got)
+	}
+	if got := firstContentText(t, resp); got != "called:tool_12" {
+		t.Fatalf("调用结果不符, got %q", got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("应只有一次真实工具调用, calls=%d", got)
+	}
+}

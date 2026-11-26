@@ -758,6 +758,7 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	default:
+		noFold := r.URL.Query().Get("fold") == "off"
 		upstreamName := ""
 		if spec, ok := p.hub.Upstream(serverID); ok {
 			upstreamName = spec.Name
@@ -772,7 +773,7 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 			if len(req.Params) > 0 {
 				_ = json.Unmarshal(req.Params, &callParams)
 			}
-			if callParams.Name == foldEntryToolName {
+			if !noFold && callParams.Name == foldEntryToolName {
 				// 折叠入口的禁用检查必须命中内部工具名：dispatchFoldCall 用的工具清单
 				// 已被 filterDisabledTools 过滤，被禁用的名字会先被当成「不存在」，
 				// 所以这里先从折叠参数里取出 tool 做一次禁用判断。
@@ -814,7 +815,7 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if rpcErr != nil {
-			if foldedTool != "" && rpcErr.Code == -32602 {
+			if !noFold && foldedTool != "" && rpcErr.Code == -32602 {
 				if state, ok := p.foldStateOf(serverID); ok {
 					if schema, found := foldToolSchema(state, foldedTool); found {
 						rpcErr = &jsonRPCError{
@@ -831,9 +832,11 @@ func (p *Proxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		if upstreamName != "" && req.Method == "tools/list" {
 			policy := loadToolPolicy()
 			result = filterDisabledTools(result, upstreamName, policy)
-			result, _ = p.applyFold(serverID, upstreamName, result, policy)
+			if !noFold {
+				result, _ = p.applyFold(serverID, upstreamName, result, policy)
+			}
 		}
-		if foldedTool != "" {
+		if !noFold && foldedTool != "" {
 			if state, ok := p.foldStateOf(serverID); ok {
 				if schema, found := foldToolSchema(state, foldedTool); found {
 					result = appendFoldErrorSchema(result, foldedTool, schema)

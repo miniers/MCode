@@ -33,7 +33,7 @@ func TestMergeMCPArgs_ProxyWins(t *testing.T) {
 		if err := json.Unmarshal([]byte(args[i+1]), &cfg); err != nil {
 			t.Fatal(err)
 		}
-		if len(cfg.Servers) != 3 || cfg.Servers["remote"]["url"] != "http://proxy" || cfg.Servers["remote"]["command"] != nil || cfg.Servers["other"]["command"] != "other-command" {
+		if len(cfg.Servers) != 3 || cfg.Servers["remote"]["url"] != "http://proxy?fold=off" || cfg.Servers["remote"]["command"] != nil || cfg.Servers["other"]["command"] != "other-command" {
 			t.Fatal("merge lost a server or retained a direct duplicate")
 		}
 	}
@@ -93,5 +93,40 @@ func TestExternalizeMCPConfig(t *testing.T) {
 	cleanup()
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Errorf("清理后临时配置文件应被删除，stat 错误: %v", err)
+	}
+}
+
+func TestClaudeMCPConfigDisablesFold(t *testing.T) {
+	args := buildMCPArgs(
+		harness.Turn{Mode: harness.ModeAgent, WorkDir: "/repo"},
+		"",
+		"",
+		harness.BuiltinMCP{URL: "http://127.0.0.1:2/mcp", Token: "builtin-tok"},
+		[]harness.MCPEndpoint{
+			{Name: "ext", URL: "http://127.0.0.1:2/mcp/ext-id", Token: "ext-tok"},
+			{Name: "ext_q", URL: "http://127.0.0.1:2/mcp/ext-q?x=1"},
+		},
+	)
+	var configStr string
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--mcp-config" {
+			configStr = args[i+1]
+		}
+	}
+	if configStr == "" {
+		t.Fatalf("expected --mcp-config in args: %v", args)
+	}
+	var cfg mcpConfig
+	if err := json.Unmarshal([]byte(configStr), &cfg); err != nil {
+		t.Fatalf("unmarshal mcpConfig failed: %v", err)
+	}
+	if got := cfg.MCPServers["ext"].URL; got != "http://127.0.0.1:2/mcp/ext-id?fold=off" {
+		t.Fatalf("ext URL = %q, want fold=off", got)
+	}
+	if got := cfg.MCPServers["ext_q"].URL; got != "http://127.0.0.1:2/mcp/ext-q?fold=off&x=1" {
+		t.Fatalf("ext_q URL = %q, want fold=off&x=1", got)
+	}
+	if got := cfg.MCPServers["mcode"].URL; got != "http://127.0.0.1:2/mcp" {
+		t.Fatalf("builtin mcode URL should remain unchanged, got %q", got)
 	}
 }

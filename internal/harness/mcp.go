@@ -39,3 +39,15 @@ func (b BuiltinMCP) Endpoint(turn Turn) (url, token string, workdirHeader bool) 
 func threadEndpoint(base, threadID string) string {
 	return base + url.PathEscape(threadID)
 }
+
+// WithoutFold 在 MCP 端点 URL 上设置 fold=off 查询参数，通知本地代理关闭工具折叠。
+func WithoutFold(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	q := u.Query()
+	q.Set("fold", "off")
+	u.RawQuery = q.Encode()
+	return u.String()
+}

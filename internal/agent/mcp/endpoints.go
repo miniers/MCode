@@ -20,7 +20,7 @@ func Servers(turn harness.Turn, builtin harness.BuiltinMCP, external []harness.M
 		if endpoint.Token != "" {
 			headers["Authorization"] = "Bearer " + endpoint.Token
 		}
-		out = append(out, Server{Name: endpoint.Name, URL: endpoint.URL, Headers: headers})
+		out = append(out, Server{Name: endpoint.Name, URL: harness.WithoutFold(endpoint.URL), Headers: headers})
 	}
 	return out
 }
