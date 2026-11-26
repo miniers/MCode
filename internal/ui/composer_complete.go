@@ -234,13 +234,21 @@ func isLocalSlashCommand(name string) bool {
 	}
 }
 
-// slashCompletionItems 生成 '/' 补全菜单项：空查询时返回全部命令并按「本地操作」「会话与 Provider」分组；
+// slashCompletionItems 生成 '/' 补全菜单项：空查询时将 open-artifact 置顶，其余命令按「本地操作」「会话与 Provider」分组；
 // 非空查询时按匹配优先级排序并限制条数。
 func slashCompletionItems(cmds []SlashCommand, query string) []completionItem {
 	if strings.TrimSpace(query) == "" {
 		all := filterCommands(cmds, "", 0)
+		var openArtifactCmd *SlashCommand
 		var localCmds, sessionCmds []SlashCommand
 		for _, cmd := range all {
+			if strings.EqualFold(cmd.Name, "open-artifact") {
+				if openArtifactCmd == nil {
+					c := cmd
+					openArtifactCmd = &c
+				}
+				continue
+			}
 			if isLocalSlashCommand(cmd.Name) {
 				localCmds = append(localCmds, cmd)
 			} else {
@@ -248,6 +256,9 @@ func slashCompletionItems(cmds []SlashCommand, query string) []completionItem {
 			}
 		}
 		items := make([]completionItem, 0, len(all)+2)
+		if openArtifactCmd != nil {
+			items = append(items, slashCommandsToItems([]SlashCommand{*openArtifactCmd}, "")...)
+		}
 		if len(localCmds) > 0 {
 			items = append(items, completionItem{Label: "本地操作", Header: true})
 			items = append(items, slashCommandsToItems(localCmds, "")...)

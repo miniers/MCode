@@ -277,3 +277,38 @@ func TestComposerOpenArtifactGridAnimationSettles(t *testing.T) {
 		}
 	})
 }
+
+func TestSlashCompletionOpenArtifactFirst(t *testing.T) {
+	cmds := []SlashCommand{
+		{Name: "clear", Detail: "清空会话", Kind: "command"},
+		{Name: "model", Detail: "切换模型", Kind: "command"},
+		{Name: "compact", Detail: "压缩上下文", Kind: "command"},
+		{Name: "open-artifact", Detail: "创建交付物", Kind: "command"},
+	}
+
+	items := slashCompletionItems(cmds, "")
+	if len(items) == 0 {
+		t.Fatal("slashCompletionItems(cmds, \"\") 返回空切片")
+	}
+	if items[0].Header || items[0].Label != "/open-artifact" {
+		t.Fatalf("items[0] = %+v, want non-header Label /open-artifact", items[0])
+	}
+	if items[0].Icon != "sparkles" {
+		t.Fatalf("items[0].Icon = %q, want %q", items[0].Icon, "sparkles")
+	}
+
+	openArtifactCount := 0
+	for _, it := range items {
+		if !it.Header && it.Label == "/open-artifact" {
+			openArtifactCount++
+		}
+	}
+	if openArtifactCount != 1 {
+		t.Fatalf("open-artifact 出现次数 = %d, want 1", openArtifactCount)
+	}
+
+	clearItems := slashCompletionItems(cmds, "clear")
+	if len(clearItems) == 0 || clearItems[0].Label != "/clear" {
+		t.Fatalf("slashCompletionItems(cmds, \"clear\") = %+v, want first Label /clear", clearItems)
+	}
+}
