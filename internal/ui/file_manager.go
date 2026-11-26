@@ -761,12 +761,15 @@ func renderFileManagerFileBody(c *ui.Context, s *chatState, tab fileManagerTabSn
 				}
 			})
 	default:
+		if tab.kind == "" && tab.content == "" {
+			return
+		}
 		if tab.svgPreview && isInspectorSVGPath(tab.path) && tab.svg != nil {
 			renderFileManagerSVGPreview(c, tab, keyPrefix)
 			return
 		}
 		mdPreview := tab.mdPreview && isMarkdownPath(tab.path)
-		if tab.content == "" {
+		if mdPreview && tab.content == "" {
 			ui.Text(c, "空文件").
 				FontSize(uiFont(TypeFootnote)).
 				TextColor(ThemeSecondaryText(c)).

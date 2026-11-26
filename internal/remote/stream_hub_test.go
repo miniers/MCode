@@ -3,6 +3,7 @@ package remote
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -462,5 +463,91 @@ func TestStreamHubReplay(t *testing.T) {
 	curRunID, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID2, 0)
 	if !ok || curRunID != runID2 || seq != 0 || len(replay) != 0 {
 		t.Fatalf("expected ok=true at fresh run head, got ok=%v runID=%s seq=%d len=%d", ok, curRunID, seq, len(replay))
+	}
+}
+
+func TestStreamHubReplayDowngradesOversizedEvent(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+
+	threadID := "00000000-0000-0000-0000-000000000102"
+	runID := hub.BeginRun(threadID)
+	summary := wire.ThreadSummary{ID: threadID, Title: "Oversized Replay"}
+
+	liveConn := newMockStreamConn()
+	hub.Subscribe(liveConn, threadID)
+
+	hub.Publish(threadID, []wire.ThreadMessage{{ID: "m1", Text: "small"}}, nil, summary)
+	hub.Flush(threadID)
+
+	largeText := strings.Repeat("x", maxThreadEventFrameBytes+1024)
+	hub.Publish(threadID, []wire.ThreadMessage{{ID: "m2", Text: largeText}}, nil, summary)
+	hub.Flush(threadID)
+
+	liveEvents := liveConn.getEvents()
+	if len(liveEvents) != 2 {
+		t.Fatalf("expected 2 live events, got %d", len(liveEvents))
+	}
+	if liveEvents[1].Kind != "resync" {
+		t.Fatalf("expected live event 2 to be resync, got %q", liveEvents[1].Kind)
+	}
+
+	replayConn := newMockStreamConn()
+	curRunID, seq, replay, ok := hub.SubscribeFrom(replayConn, threadID, runID, 0)
+	if !ok || curRunID != runID || seq != 2 {
+		t.Fatalf("expected ok=true runID=%s seq=2, got ok=%v runID=%s seq=%d", runID, ok, curRunID, seq)
+	}
+	if len(replay) != 2 {
+		t.Fatalf("expected 2 replay events, got %d", len(replay))
+	}
+	if replay[0].Sequence != 1 || replay[0].Kind != "projection" {
+		t.Fatalf("unexpected first replay event: %+v", replay[0])
+	}
+	if replay[1].Sequence != 2 || replay[1].Kind != "resync" {
+		t.Fatalf("expected replay event 2 to be resync, got seq=%d kind=%q", replay[1].Sequence, replay[1].Kind)
+	}
+	if len(replay[1].Payload.Messages) != 0 || len(replay[1].Payload.RemovedMessageIDs) != 0 {
+		t.Fatalf("expected resync replay event without messages, got %+v", replay[1].Payload)
+	}
+	if replay[1].Payload.Thread.Title != summary.Title {
+		t.Fatalf("expected thread summary retained in resync replay, got %q", replay[1].Payload.Thread.Title)
+	}
+}
+
+func TestStreamHubReplayTotalBytesLimit(t *testing.T) {
+	hub := NewStreamHub(StreamHubOptions{Interval: time.Hour})
+	defer hub.Close()
+
+	threadID := "00000000-0000-0000-0000-000000000103"
+	runID := hub.BeginRun(threadID)
+	summary := wire.ThreadSummary{ID: threadID, Title: "Total Bytes Limit"}
+
+	liveConn := newMockStreamConn()
+	hub.Subscribe(liveConn, threadID)
+
+	chunk := strings.Repeat("a", 200*1024)
+	for i := 1; i <= 3; i++ {
+		hub.Publish(threadID, []wire.ThreadMessage{{ID: fmt.Sprintf("m%d", i), Text: chunk}}, nil, summary)
+		hub.Flush(threadID)
+	}
+
+	liveEvents := liveConn.getEvents()
+	if len(liveEvents) != 3 {
+		t.Fatalf("expected 3 live events, got %d", len(liveEvents))
+	}
+	for i, ev := range liveEvents {
+		if ev.Kind != "projection" {
+			t.Fatalf("expected live event %d to be projection, got %q", i+1, ev.Kind)
+		}
+	}
+
+	curRunID, seq, replay, ok := hub.SubscribeFrom(newMockStreamConn(), threadID, runID, 0)
+	if ok || replay != nil || curRunID != runID || seq != 3 {
+		t.Fatalf("expected ok=false and nil replay when total bytes exceed limit, got ok=%v len=%d runID=%s seq=%d", ok, len(replay), curRunID, seq)
+	}
+
+	curRunID, seq, replay, ok = hub.SubscribeFrom(newMockStreamConn(), threadID, runID, 1)
+	if !ok || curRunID != runID || seq != 3 || len(replay) != 2 || replay[0].Sequence != 2 || replay[1].Sequence != 3 {
+		t.Fatalf("expected ok=true for events [2, 3] within limit, got ok=%v runID=%s seq=%d len=%d", ok, curRunID, seq, len(replay))
 	}
 }

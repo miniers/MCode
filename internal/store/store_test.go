@@ -1631,8 +1631,8 @@ func TestUpdateThreadProject(t *testing.T) {
 		t.Fatalf("CreateThread 失败: %v", err)
 	}
 
-	if err := s.UpdateThreadProject(ctx, "t1", "p2"); err != nil {
-		t.Fatalf("UpdateThreadProject 失败: %v", err)
+	if err := s.UpdateThreadFamilyProject(ctx, "p2", []string{"t1"}, nil); err != nil {
+		t.Fatalf("UpdateThreadFamilyProject 失败: %v", err)
 	}
 
 	got, err := s.GetThread(ctx, "t1")
@@ -1643,7 +1643,97 @@ func TestUpdateThreadProject(t *testing.T) {
 		t.Fatalf("更新后字段不符: %+v", got)
 	}
 
-	if err := s.UpdateThreadProject(ctx, "missing", "p2"); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateThreadFamilyProject(ctx, "p2", []string{"missing"}, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("不存在的线程应返回 ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateThreadFamilyProject(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := OpenForTest(t)
+
+	now := time.Now().UTC()
+	_ = s.UpsertProject(ctx, Project{ID: "p1", Name: "P1", Path: "/p1", CreatedAt: now, UpdatedAt: now})
+	_ = s.UpsertProject(ctx, Project{ID: "p2", Name: "P2", Path: "/p2", CreatedAt: now, UpdatedAt: now})
+
+	seed := []Thread{
+		{
+			ID:                "parent",
+			ProjectID:         "p1",
+			Title:             "Parent",
+			Provider:          "claude",
+			SessionID:         "sess-parent",
+			WorktreePath:      "/p1/wt-parent",
+			WorktreeRequested: true,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+		{
+			ID:                "child-reset",
+			ProjectID:         "p1",
+			ParentThreadID:    "parent",
+			IsHelper:          true,
+			Title:             "ChildReset",
+			Provider:          "claude",
+			SessionID:         "sess-reset",
+			WorktreeRequested: true,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+		{
+			ID:                "child-keep",
+			ProjectID:         "p1",
+			ParentThreadID:    "parent",
+			IsHelper:          true,
+			Title:             "ChildKeep",
+			Provider:          "claude",
+			SessionID:         "sess-keep",
+			WorktreePath:      "/custom/wt-keep",
+			WorktreeRequested: true,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+	}
+	for _, th := range seed {
+		if err := s.CreateThread(ctx, th); err != nil {
+			t.Fatalf("CreateThread(%s) 失败: %v", th.ID, err)
+		}
+	}
+
+	// 含不存在 id 时回滚整个事务，所有行保持原状。
+	err := s.UpdateThreadFamilyProject(ctx, "p2", []string{"parent", "child-reset"}, []string{"child-keep", "missing-id"})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("含不存在线程时应返回 ErrNotFound, got %v", err)
+	}
+	for _, want := range seed {
+		got, err := s.GetThread(ctx, want.ID)
+		if err != nil {
+			t.Fatalf("回滚后 GetThread(%s) 失败: %v", want.ID, err)
+		}
+		if got.ProjectID != "p1" || got.WorktreePath != want.WorktreePath || got.WorktreeRequested != want.WorktreeRequested || got.SessionID != want.SessionID {
+			t.Fatalf("回滚后 %s 不应改动: got=%+v want=%+v", want.ID, got, want)
+		}
+	}
+
+	// 正常分组更新：reset 组清空 worktree 与 session_id，keep 组保留。
+	if err := s.UpdateThreadFamilyProject(ctx, "p2", []string{"parent", "child-reset"}, []string{"child-keep"}); err != nil {
+		t.Fatalf("UpdateThreadFamilyProject 失败: %v", err)
+	}
+	for _, id := range []string{"parent", "child-reset"} {
+		got, err := s.GetThread(ctx, id)
+		if err != nil {
+			t.Fatalf("GetThread(%s) 失败: %v", id, err)
+		}
+		if got.ProjectID != "p2" || got.WorktreePath != "" || got.WorktreeRequested || got.SessionID != "" {
+			t.Fatalf("reset 组 %s 字段不符: %+v", id, got)
+		}
+	}
+	kept, err := s.GetThread(ctx, "child-keep")
+	if err != nil {
+		t.Fatalf("GetThread(child-keep) 失败: %v", err)
+	}
+	if kept.ProjectID != "p2" || kept.WorktreePath != "/custom/wt-keep" || !kept.WorktreeRequested || kept.SessionID != "sess-keep" {
+		t.Fatalf("keep 组 child-keep 应保留独立工作目录与 session_id: %+v", kept)
 	}
 }

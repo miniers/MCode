@@ -428,19 +428,17 @@ func (b *MemoryBackend) MoveThreadToProject(ctx context.Context, p wire.ThreadsM
 	}
 
 	if b.store != nil {
+		resetIDs := make([]string, 0, 1+len(descendants))
+		resetIDs = append(resetIDs, p.ThreadID)
+		var keepIDs []string
 		for _, desc := range descendants {
-			if err := b.store.UpdateThreadProject(ctx, desc.id, p.ProjectID); err != nil {
-				b.mu.Unlock()
-				if errors.Is(err, store.ErrNotFound) {
-					return wire.ThreadSummary{}, &wire.RPCError{
-						Code:    wire.ErrCodeResourceNotFound,
-						Message: fmt.Sprintf("thread %s not found", desc.id),
-					}
-				}
-				return wire.ThreadSummary{}, err
+			if desc.td.workDir == "" {
+				resetIDs = append(resetIDs, desc.id)
+			} else {
+				keepIDs = append(keepIDs, desc.id)
 			}
 		}
-		if err := b.store.UpdateThreadProject(ctx, p.ThreadID, p.ProjectID); err != nil {
+		if err := b.store.UpdateThreadFamilyProject(ctx, p.ProjectID, resetIDs, keepIDs); err != nil {
 			b.mu.Unlock()
 			if errors.Is(err, store.ErrNotFound) {
 				return wire.ThreadSummary{}, &wire.RPCError{

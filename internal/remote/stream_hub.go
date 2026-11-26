@@ -22,11 +22,16 @@ type StreamHubOptions struct {
 	Interval time.Duration
 }
 
+type journalEntry struct {
+	event     wire.ThreadEvent
+	frameSize int
+}
+
 type threadState struct {
 	runID       string
 	sequence    int
 	subscribers map[Conn]struct{}
-	journal     []wire.ThreadEvent
+	journal     []journalEntry
 
 	// 待发缓冲状态
 	hasPending    bool
@@ -182,7 +187,7 @@ func (h *StreamHub) getOrCreateThreadLocked(threadID string) *threadState {
 }
 
 // SubscribeFrom 登记连接对指定会话的订阅，并在同一把锁内判断是否可按序号补发。
-// 当 runID 非空且匹配当前 run、after 合法且 journal 能覆盖 (after, st.sequence] 时返回 ok=true 与按序号升序的事件副本；
+// 当 runID 非空且匹配当前 run、after 合法、journal 能覆盖 (after, st.sequence]，且待补发事件帧字节总和不超过 maxThreadEventFrameBytes 时返回 ok=true 与按序号升序的事件副本；
 // 否则 ok=false，replay 为 nil。
 func (h *StreamHub) SubscribeFrom(c Conn, threadID, runID string, after int) (curRunID string, seq int, replay []wire.ThreadEvent, ok bool) {
 	h.mu.Lock()
@@ -202,20 +207,29 @@ func (h *StreamHub) SubscribeFrom(c Conn, threadID, runID string, after int) (cu
 	if len(st.journal) == 0 {
 		return curRunID, seq, nil, false
 	}
-	firstSeq := st.journal[0].Sequence
-	lastSeq := st.journal[len(st.journal)-1].Sequence
+	firstSeq := st.journal[0].event.Sequence
+	lastSeq := st.journal[len(st.journal)-1].event.Sequence
 	if firstSeq > after+1 || lastSeq != st.sequence {
 		return curRunID, seq, nil, false
 	}
 
 	startIdx := (after + 1) - firstSeq
-	if startIdx < 0 || startIdx >= len(st.journal) || st.journal[startIdx].Sequence != after+1 {
+	if startIdx < 0 || startIdx >= len(st.journal) || st.journal[startIdx].event.Sequence != after+1 {
 		return curRunID, seq, nil, false
 	}
 
-	replay = make([]wire.ThreadEvent, len(st.journal)-startIdx)
-	for i, ev := range st.journal[startIdx:] {
-		replay[i] = cloneThreadEvent(ev)
+	entries := st.journal[startIdx:]
+	totalBytes := 0
+	for _, entry := range entries {
+		totalBytes += entry.frameSize
+		if totalBytes > maxThreadEventFrameBytes {
+			return curRunID, seq, nil, false
+		}
+	}
+
+	replay = make([]wire.ThreadEvent, len(entries))
+	for i, entry := range entries {
+		replay[i] = cloneThreadEvent(entry.event)
 	}
 	return curRunID, seq, replay, true
 }
@@ -353,6 +367,8 @@ func (h *StreamHub) Publish(threadID string, messages []wire.ThreadMessage, remo
 func (h *StreamHub) Flush(threadID string) {
 	var (
 		ev           wire.ThreadEvent
+		frameBytes   []byte
+		marshalErr   error
 		subscribers  []Conn
 		shouldNotify bool
 		observers    []func(string, string, any)
@@ -387,7 +403,25 @@ func (h *StreamHub) Flush(threadID string) {
 			},
 		}
 
-		st.journal = append(st.journal, ev)
+		frameBytes, marshalErr = json.Marshal(rpcNotification{JSONRPC: "2.0", Method: "threads.event", Params: ev})
+		if marshalErr == nil && len(frameBytes) > maxThreadEventFrameBytes {
+			ev = wire.ThreadEvent{
+				ThreadID: ev.ThreadID,
+				RunID:    ev.RunID,
+				Sequence: ev.Sequence,
+				Kind:     "resync",
+				Payload: wire.ThreadEventPayload{
+					Thread: ev.Payload.Thread,
+				},
+			}
+			frameBytes, marshalErr = json.Marshal(rpcNotification{JSONRPC: "2.0", Method: "threads.event", Params: ev})
+		}
+
+		frameSize := len(frameBytes)
+		if marshalErr != nil {
+			frameSize = maxThreadEventFrameBytes + 1
+		}
+		st.journal = append(st.journal, journalEntry{event: ev, frameSize: frameSize})
 		if len(st.journal) > maxThreadEventJournal {
 			excess := len(st.journal) - maxThreadEventJournal
 			copy(st.journal, st.journal[excess:])
@@ -428,20 +462,7 @@ func (h *StreamHub) Flush(threadID string) {
 		observer(threadID, "thread.summary", ev.Payload.Thread)
 	}
 
-	frameBytes, err := json.Marshal(rpcNotification{JSONRPC: "2.0", Method: "threads.event", Params: ev})
-	if err == nil && len(frameBytes) > maxThreadEventFrameBytes {
-		ev = wire.ThreadEvent{
-			ThreadID: ev.ThreadID,
-			RunID:    ev.RunID,
-			Sequence: ev.Sequence,
-			Kind:     "resync",
-			Payload: wire.ThreadEventPayload{
-				Thread: ev.Payload.Thread,
-			},
-		}
-		frameBytes, err = json.Marshal(rpcNotification{JSONRPC: "2.0", Method: "threads.event", Params: ev})
-	}
-	if err != nil || len(frameBytes) > maxThreadEventFrameBytes {
+	if marshalErr != nil || len(frameBytes) > maxThreadEventFrameBytes {
 		// 摘要本身也超限时通过断连强制重新同步，绝不发送超大帧。
 		for _, c := range subscribers {
 			_ = c.Close()

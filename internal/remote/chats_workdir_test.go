@@ -597,3 +597,109 @@ func TestMoveThreadToProjectWithChildren(t *testing.T) {
 		t.Fatalf("有 workDir 后代应保留独立目录与会话状态: workDir=%q sessionID=%q", grandchildWorkDir, grandchildSessionID)
 	}
 }
+
+func TestMoveThreadKeepsDescendantWorkDir(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), "move_keeps_descendant_workdir.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	defer s.Close()
+
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub.Close()
+	backend := NewMemoryBackend(hub)
+	defer backend.Close()
+	backend.RegisterHarness(&mockHarness{kind: "mock"})
+	if err := backend.AttachStore(ctx, s); err != nil {
+		t.Fatalf("AttachStore: %v", err)
+	}
+
+	chatsProjID := newUUID()
+	targetProjID := newUUID()
+	backend.AddProject(wire.ProjectSummary{ID: chatsProjID, Name: "对话", Path: t.TempDir()})
+	backend.AddProject(wire.ProjectSummary{ID: targetProjID, Name: "目标项目", Path: t.TempDir()})
+	backend.SetChatsProjectID(chatsProjID)
+
+	parentRes, err := backend.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: chatsProjID, ActionID: newUUID()})
+	if err != nil {
+		t.Fatalf("CreateThread(parent): %v", err)
+	}
+	if err := s.UpdateThreadSession(ctx, parentRes.ThreadID, "parent-sess"); err != nil {
+		t.Fatalf("UpdateThreadSession(parent): %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[parentRes.ThreadID].sessionID = "parent-sess"
+	backend.mu.Unlock()
+
+	childID := newUUID()
+	backend.AddThread(wire.ThreadSummary{
+		ID:             childID,
+		ProjectID:      chatsProjID,
+		ParentThreadID: &parentRes.ThreadID,
+		IsHelper:       true,
+	}, nil)
+
+	customWorkDir := t.TempDir()
+	if err := s.UpdateThreadWorkDir(ctx, childID, customWorkDir, true); err != nil {
+		t.Fatalf("UpdateThreadWorkDir(child): %v", err)
+	}
+	if err := s.UpdateThreadSession(ctx, childID, "child-sess"); err != nil {
+		t.Fatalf("UpdateThreadSession(child): %v", err)
+	}
+	backend.mu.Lock()
+	backend.threads[childID].workDir = customWorkDir
+	backend.threads[childID].summary.WorktreeRequested = true
+	backend.threads[childID].sessionID = "child-sess"
+	backend.mu.Unlock()
+
+	if _, err := backend.MoveThreadToProject(ctx, wire.ThreadsMoveToProjectParams{
+		ThreadID:  parentRes.ThreadID,
+		ProjectID: targetProjID,
+	}); err != nil {
+		t.Fatalf("MoveThreadToProject failed: %v", err)
+	}
+
+	// 验证 store 中子会话保留独立工作目录与 session_id，且已迁入目标项目；父会话已重置。
+	stParent, err := s.GetThread(ctx, parentRes.ThreadID)
+	if err != nil {
+		t.Fatalf("store.GetThread(parent): %v", err)
+	}
+	if stParent.ProjectID != targetProjID || stParent.WorktreePath != "" || stParent.SessionID != "" {
+		t.Fatalf("父会话在 store 中应已迁入目标项目并清空工作目录与 session: %+v", stParent)
+	}
+	stChild, err := s.GetThread(ctx, childID)
+	if err != nil {
+		t.Fatalf("store.GetThread(child): %v", err)
+	}
+	if stChild.ProjectID != targetProjID || stChild.WorktreePath != customWorkDir || stChild.SessionID != "child-sess" {
+		t.Fatalf("子会话在 store 中应保留独立工作目录与 session_id: %+v", stChild)
+	}
+
+	// 重建 backend 并重载 store，验证重启后子会话仍保留 workDir 与 sessionID。
+	hub2 := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	defer hub2.Close()
+	backend2 := NewMemoryBackend(hub2)
+	defer backend2.Close()
+	if err := backend2.AttachStore(ctx, s); err != nil {
+		t.Fatalf("AttachStore(2): %v", err)
+	}
+	backend2.SetChatsProjectID(chatsProjID)
+
+	reloadedChild, err := backend2.GetThread(ctx, childID)
+	if err != nil {
+		t.Fatalf("GetThread(child) after reload: %v", err)
+	}
+	if reloadedChild.ProjectID != targetProjID {
+		t.Fatalf("重载后子会话 ProjectID = %q, want %q", reloadedChild.ProjectID, targetProjID)
+	}
+	if gotDir, ok := backend2.ThreadWorkDir(childID); !ok || gotDir != customWorkDir {
+		t.Fatalf("重载后子会话 ThreadWorkDir = (%q, %v), want (%q, true)", gotDir, ok, customWorkDir)
+	}
+	backend2.mu.Lock()
+	reloadedSess := backend2.threads[childID].sessionID
+	backend2.mu.Unlock()
+	if reloadedSess != "child-sess" {
+		t.Fatalf("重载后子会话 sessionID = %q, want %q", reloadedSess, "child-sess")
+	}
+}

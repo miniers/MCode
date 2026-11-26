@@ -495,3 +495,76 @@ func TestFileManagerSaveButtonUsesModifiedPane(t *testing.T) {
 		return !hasSave && !pane1.state.Buffer.Modified() && fileManagerTabText(s, "a.txt") == wantContent
 	})
 }
+
+func TestFileManagerEmptyTextFileEditable(t *testing.T) {
+	fake, s, tt := openFileManagerForTest(t)
+	fake.SetFileContents(map[string]FileContent{
+		"empty.txt": {Path: "empty.txt", Kind: "text", Text: "", TotalSize: 0},
+	})
+	openTestFileManagerFileExternal(t, s, "empty.txt")
+	waitFor(t, tt, func() bool {
+		st := getFileManagerState(s)
+		if st == nil {
+			return false
+		}
+		fileManagerMu.Lock()
+		snap := fileManagerSnapshotLocked(st)
+		fileManagerMu.Unlock()
+		tab, ok := snap.tabByPath("empty.txt")
+		return ok && !tab.fileLoading && tab.kind == "text"
+	})
+	tt.Frame()
+
+	if tt.HasText("空文件") {
+		t.Fatal("已加载的空文本文件不应再显示「空文件」提示")
+	}
+
+	var info ui.AccessInfo
+	var ok bool
+	waitFor(t, tt, func() bool {
+		info, ok = tt.AccessByRole(ui.RoleTextField, "empty.txt")
+		return ok && info.Bounds.W > 0 && info.Bounds.H > 0
+	})
+
+	st := getFileManagerState(s)
+	preview := st.codeViews["file-manager-pane-0-empty.txt"]
+	if preview == nil || preview.state == nil {
+		t.Fatal("空文本文件编辑器状态未创建")
+	}
+	if preview.state.ReadOnly {
+		t.Fatal("已加载的空文本文件应可编辑（ReadOnly=false）")
+	}
+
+	clickFileManagerEditorForTest(t, tt, "empty.txt")
+	tt.Type("hello")
+	waitFor(t, tt, func() bool {
+		_, hasDot := tt.Find("未保存")
+		return hasDot && preview.state.Buffer.Modified()
+	})
+	if got := preview.state.Buffer.String(); got != "hello" {
+		t.Fatalf("输入后缓冲区文本 = %q，期望 %q", got, "hello")
+	}
+
+	tt.Key(ui.Cmd, ui.KeyS)
+	var writeCall FileOpCall
+	waitFor(t, tt, func() bool {
+		for _, call := range fake.FileOpCalls() {
+			if call.Op == "write" {
+				writeCall = call
+				return true
+			}
+		}
+		return false
+	})
+	if writeCall.Path != "empty.txt" || writeCall.Content != "hello" {
+		t.Fatalf("FilesWrite 参数不符: %+v, want content=%q", writeCall, "hello")
+	}
+	if wantHash := fakeFileSHA256Hex(""); writeCall.ExpectedHash != wantHash {
+		t.Fatalf("expectedHash = %q, want %q", writeCall.ExpectedHash, wantHash)
+	}
+
+	waitFor(t, tt, func() bool {
+		_, hasDot := tt.Find("未保存")
+		return !hasDot && !preview.state.Buffer.Modified() && fileManagerTabText(s, "empty.txt") == "hello"
+	})
+}

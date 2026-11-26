@@ -36,9 +36,12 @@ func fileManagerTabEditable(tab fileManagerTabSnapshot) bool {
 
 // fileManagerCodePreviewTab 报告该 tab 的预览是否由代码编辑器直接占满一栏。
 // 代码编辑器自带滚动，这种预览不能再套外层 ui.Scroll，否则会出现两层滚动；
-// 图片、错误、加载中、空文件和 Markdown 预览仍走原来的滚动容器。
+// 图片、错误、加载中、未加载内容和 Markdown 预览仍走原来的滚动容器。
 func fileManagerCodePreviewTab(tab fileManagerTabSnapshot) bool {
-	if tab.fileErr != "" || tab.kind == "image" || tab.kind == "binary" || tab.content == "" {
+	if tab.fileErr != "" || tab.kind == "image" || tab.kind == "binary" {
+		return false
+	}
+	if (tab.fileLoading || tab.kind == "") && tab.content == "" {
 		return false
 	}
 	return !(tab.mdPreview && isMarkdownPath(tab.path))

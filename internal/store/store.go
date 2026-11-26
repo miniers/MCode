@@ -1628,21 +1628,44 @@ func (s *Store) UpdateThreadWorkDir(ctx context.Context, id, workDir string, wor
 	return nil
 }
 
-// UpdateThreadProject 将线程移入指定项目，并清空 worktree_path、worktree_requested 与 session_id。
-// 若线程不存在返回 ErrNotFound。
-func (s *Store) UpdateThreadProject(ctx context.Context, id, projectID string) error {
-	res, err := s.db.ExecContext(ctx,
-		"UPDATE threads SET project_id = ?, worktree_path = NULL, worktree_requested = 0, session_id = '' WHERE id = ?",
-		projectID, id)
-	if err != nil {
-		return fmt.Errorf("update thread project %s: %w", id, err)
+// UpdateThreadFamilyProject 在同一事务中将线程组移入指定项目。
+// resetIDs 中的线程清空 worktree_path、worktree_requested 与 session_id；
+// keepIDs 中的线程只更新 project_id，保留独立工作目录与 session_id。
+// 任一行受影响数为 0 时回滚并返回包装了 id 的 ErrNotFound。
+func (s *Store) UpdateThreadFamilyProject(ctx context.Context, projectID string, resetIDs, keepIDs []string) error {
+	if len(resetIDs) == 0 && len(keepIDs) == 0 {
+		return nil
 	}
-	affected, err := res.RowsAffected()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin update thread family project: %w", err)
 	}
-	if affected == 0 {
-		return ErrNotFound
+	defer tx.Rollback()
+
+	groups := []struct {
+		query string
+		ids   []string
+	}{
+		{"UPDATE threads SET project_id = ?, worktree_path = NULL, worktree_requested = 0, session_id = '' WHERE id = ?", resetIDs},
+		{"UPDATE threads SET project_id = ? WHERE id = ?", keepIDs},
+	}
+	for _, g := range groups {
+		for _, id := range g.ids {
+			res, err := tx.ExecContext(ctx, g.query, projectID, id)
+			if err != nil {
+				return fmt.Errorf("update thread project %s: %w", id, err)
+			}
+			affected, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if affected == 0 {
+				return fmt.Errorf("thread %s: %w", id, ErrNotFound)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update thread family project: %w", err)
 	}
 	return nil
 }
