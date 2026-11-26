@@ -344,7 +344,11 @@ func TestComposerPRBarConfirmPopoverAndMergeFlow(t *testing.T) {
 	}
 
 	clickText(t, tt, "新建会话")
-	tt.Frame()
+	waitFor(t, tt, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.creatingThread && s.selectedThreadID != "" && s.selectedThreadID != "t1"
+	})
 	s.mu.Lock()
 	sel := s.selectedThreadID
 	var selProj string

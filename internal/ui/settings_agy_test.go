@@ -495,8 +495,18 @@ func TestSettingsAgy_WarmupButtonsAndErrorVisible(t *testing.T) {
 	}
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
-		defer st.mu.Unlock()
-		return tt.HasText("预热失败: warmup backend error")
+		done := !st.agy.warmupBusyIDs["acc-warmup-1"] && st.agy.warmupRowErr["acc-warmup-1"] != ""
+		st.mu.Unlock()
+		if !done {
+			return false
+		}
+		// 精确匹配整段文本，避免被顶部“批量预热失败: warmup backend error”的子串提前命中。
+		for _, txt := range tt.Texts() {
+			if txt == "预热失败: warmup backend error" {
+				return true
+			}
+		}
+		return false
 	})
 
 	fake.mu.Lock()
