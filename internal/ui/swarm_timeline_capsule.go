@@ -65,10 +65,12 @@ const swarmCapsulePopoverWidth float32 = 460
 // 胶囊浮窗的开合状态，均由 swarmFloatMu 保护（与浮窗状态同一把锁）：
 //   - swarmCapsuleOpen 键为 leadID + "|" + bee 标识，值为浮窗是否展开；
 //   - swarmCapsuleDismissed 记录上一帧浮窗是否被点外部或 Esc 关闭，
-//     避免同一轮里胶囊按钮的 Clicked 又把刚关掉的浮窗打开。
+//     避免同一轮里胶囊按钮的 Clicked 又把刚关掉的浮窗打开；
+//   - swarmCapsuleDiscardBee 记录待二次确认放弃改动的 bee ThreadID。
 var (
-	swarmCapsuleOpen      = make(map[string]bool)
-	swarmCapsuleDismissed = make(map[string]bool)
+	swarmCapsuleOpen       = make(map[string]bool)
+	swarmCapsuleDismissed  = make(map[string]bool)
+	swarmCapsuleDiscardBee = make(map[string]string)
 )
 
 // appendSwarmCapsuleRow 在时间线末尾追加代表最新回合的子线程胶囊行。
@@ -628,14 +630,14 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 					}
 				})
 		}, func() {
-			renderSwarmCapsuleOpenFloatButton(fc, s, leadID, h, key, func() {
+			renderSwarmCapsuleActions(fc, s, leadID, h, key, func() {
 				closeRequested = true
 				swarmFloatMu.Lock()
 				swarmCapsuleOpen[key] = false
 				swarmFloatMu.Unlock()
 				closeAppFlyoutPopover(host, "swarm-capsule-popover-"+key)
 				host.Invalidate()
-			})
+			}, false)
 		})
 	})
 	if closeRequested {
@@ -645,6 +647,7 @@ func renderSwarmCapsule(c *ui.Context, s *chatState, leadID string, h SwarmBee, 
 	swarmCapsuleOpen[key] = open
 	swarmCapsuleDismissed[key] = wasDismissed
 	swarmFloatMu.Unlock()
+	renderSwarmCapsuleDiscardConfirm(c, s, key)
 }
 
 // renderSwarmCapsuleHeader 渲染浮窗头部：头像、名字与档位徽章、状态统计行与模型标签，全宽展示不截断。
@@ -686,9 +689,13 @@ func renderSwarmCapsuleHeader(c *ui.Context, s *chatState, h SwarmBee, key strin
 	})
 }
 
-// renderSwarmCapsuleOpenFloatButton 渲染底部固定操作栏中的「打开浮窗」「查看会话」「复制汇报」按钮：
+// renderSwarmCapsuleOpenFloatButton 渲染底部固定操作栏中的「打开浮窗」「查看会话」「停止/放弃改动」「复制汇报」按钮：
 // 点击「打开浮窗」解除浮窗关闭记录并选中该子线程；点击「查看会话」跳转至子线程完整会话。
 func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID string, h SwarmBee, key string, onOpened func()) {
+	renderSwarmCapsuleActions(c, s, leadID, h, key, onOpened, true)
+}
+
+func renderSwarmCapsuleActions(c *ui.Context, s *chatState, leadID string, h SwarmBee, key string, onOpened func(), inlineConfirm bool) {
 	beeThreadID := strings.TrimSpace(h.ThreadID)
 	report := swarmCapsuleReport(h)
 	ui.Row(c.Key("swarm-capsule-actions-" + key)).
@@ -744,9 +751,81 @@ func renderSwarmCapsuleOpenFloatButton(c *ui.Context, s *chatState, leadID strin
 				})
 			}
 
+			if s != nil && beeThreadID != "" {
+				if h.Status == "running" {
+					stopBusy := s.swarmActionBusy("stop:" + h.ThreadID)
+					Button(c, ButtonOpts{
+						Key:      "swarm-capsule-stop-" + key,
+						Text:     "停止",
+						Label:    "停止",
+						Tooltip:  "停止子代理",
+						Variant:  ButtonDanger,
+						Size:     ControlSM,
+						Disabled: stopBusy,
+						Loading:  stopBusy,
+						OnClick: func() {
+							s.stopSwarmBee(h.ThreadID)
+						},
+					})
+				} else if h.PendingMerge && h.ReviewState != "running" {
+					Button(c, ButtonOpts{
+						Key:     "swarm-capsule-discard-" + key,
+						Text:    "放弃改动",
+						Label:   "放弃改动",
+						Variant: ButtonDanger,
+						Size:    ControlSM,
+						OnClick: func() {
+							swarmFloatMu.Lock()
+							swarmCapsuleDiscardBee[key] = h.ThreadID
+							swarmFloatMu.Unlock()
+							if onOpened != nil {
+								onOpened()
+							}
+							c.Invalidate()
+							s.invalidate()
+						},
+					})
+				}
+			}
+
 			if report != "" {
 				ui.Box(c.Key("swarm-capsule-actions-spacer-" + key)).Grow(1)
 				renderSwarmReportCopyTextButton(c, s, "swarm-capsule-"+key, report)
 			}
 		})
+	if inlineConfirm {
+		renderSwarmCapsuleDiscardConfirm(c, s, key)
+	}
+}
+
+// renderSwarmCapsuleDiscardConfirm 渲染胶囊底栏「放弃改动」的二次确认弹窗，复用合并审查器的确认文案与流程。
+func renderSwarmCapsuleDiscardConfirm(c *ui.Context, s *chatState, key string) {
+	if s == nil {
+		return
+	}
+	swarmFloatMu.Lock()
+	beeID := swarmCapsuleDiscardBee[key]
+	swarmFloatMu.Unlock()
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:          "swarm-capsule-discard-confirm-" + key,
+		Open:         beeID != "",
+		Tone:         ConfirmDanger,
+		Title:        "放弃这些改动？",
+		Body:         "子代理的改动不会合入工作区，此操作不可撤销",
+		ConfirmLabel: "放弃改动",
+		CancelLabel:  "取消",
+		OnConfirm: func() {
+			swarmFloatMu.Lock()
+			delete(swarmCapsuleDiscardBee, key)
+			swarmFloatMu.Unlock()
+			s.discardSwarmMerge(beeID)
+		},
+		OnCancel: func() {
+			swarmFloatMu.Lock()
+			delete(swarmCapsuleDiscardBee, key)
+			swarmFloatMu.Unlock()
+			c.Invalidate()
+			s.invalidate()
+		},
+	})
 }

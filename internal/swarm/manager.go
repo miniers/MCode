@@ -2631,7 +2631,12 @@ func (m *Manager) Tick(ctx context.Context) {
 		m.notifyChange(t.leadThreadID)
 	}
 
+	type approveWaitTarget struct {
+		leadThreadID string
+		beeThreadID  string
+	}
 	var targets []runningTarget
+	var approveWaits []approveWaitTarget
 	m.mu.Lock()
 	for leadID, lead := range m.leads {
 		for _, h := range lead.bees {
@@ -2645,10 +2650,21 @@ func (m *Manager) Tick(ctx context.Context) {
 					targetWorkDir: targetDir,
 					bee:           h.clone(),
 				})
+			} else if h.PendingMerge && h.MergeWaitSince != nil && !h.ReviewApplyPending && h.ReviewState != ReviewRunning {
+				approveWaits = append(approveWaits, approveWaitTarget{
+					leadThreadID: leadID,
+					beeThreadID:  h.ThreadID,
+				})
 			}
 		}
 	}
 	m.mu.Unlock()
+
+	for _, w := range approveWaits {
+		if _, err := m.approveMerge(ctx, w.leadThreadID, w.beeThreadID, false); err != nil {
+			log.Printf("swarm: 重试批准合并等待失败 (lead=%s bee=%s): %v", w.leadThreadID, w.beeThreadID, err)
+		}
+	}
 
 	changedLeads := make(map[string]struct{})
 	// progressLeads 收集只涉及进度（思考分钟数、无进展时长）的 lead：它们走合并落盘通道，
@@ -6433,6 +6449,7 @@ func (m *Manager) DiscardMerge(ctx context.Context, leadThreadID, beeThreadID st
 	h.MergeError = ""
 	h.Merged = false
 	h.ConflictFiles = []string{}
+	h.MergeWaitSince = nil
 	// 放弃后不再保留审查状态：再留着审查结论会让汇报与忙态判断误以为还有审查在跑。
 	h.ReviewState = ReviewNone
 	h.ReviewReason = ""
