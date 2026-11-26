@@ -18,8 +18,11 @@ const (
 	DiffPanelMaxWidth     float32 = 720
 )
 
-// 改动面板空态卡片标题。
-const diffEmptyTitle = "暂无改动"
+// 改动面板空态与非 Git 状态标题。
+const (
+	diffEmptyTitle  = "暂无改动"
+	diffNotGitTitle = "当前工作区不是 Git 仓库"
+)
 
 // 改动面板的固定尺寸：标题栏高度、状态卡片图标与副标题宽度、轮次菜单尺寸。
 const (
@@ -435,7 +438,7 @@ func renderDiffPanelWithHeader(c *ui.Context, s *chatState, showHeader bool) {
 							return
 						case "not-git":
 							renderDiffStatusState(c, "diff-not-git-state", IconGitBranch(),
-								"当前工作区不是 Git 仓库", "初始化 Git 仓库后即可查看本会话的改动", nil)
+								diffNotGitTitle, "初始化 Git 仓库后即可查看本会话的改动", nil)
 							return
 						}
 						if data.FailureReason != "" {

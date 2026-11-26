@@ -376,3 +376,25 @@ func TestReviewLanguageAstro(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewGetNotRepoUnavailableText(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+	hub := NewStreamHub(StreamHubOptions{Interval: 10 * time.Millisecond})
+	t.Cleanup(hub.Close)
+	b := NewMemoryBackend(hub)
+	t.Cleanup(b.Close)
+	pid := newUUID()
+	b.AddProject(wire.ProjectSummary{ID: pid, Name: "non-git", Path: t.TempDir()})
+	thread, err := b.CreateThread(ctx, wire.ThreadCreateParams{ProjectID: pid, ActionID: newUUID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := b.ReviewGet(ctx, wire.ThreadsReviewGetParams{ThreadID: thread.ThreadID, Scope: wire.ReviewScopeTurn, TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Unavailable != "not a git repository" {
+		t.Fatalf("Unavailable = %q, want %q", res.Unavailable, "not a git repository")
+	}
+}

@@ -385,7 +385,7 @@ func renderTurnFileRow(c *ui.Context, s *chatState, threadID, workDir, turnID st
 		Cursor(ui.CursorPointer).
 		Tooltip(f.abs).
 		OnClick(func() {
-			if rel := turnFilePreviewPath(workDir, f); turnID != "" && rel != "" {
+			if rel := turnFilePreviewPath(workDir, f); turnID != "" && rel != "" && !getChatHeaderState(s).isNotGitRepo(threadID) {
 				openReviewPath(s, turnID, rel)
 			} else {
 				openTurnFile(s, threadID, workDir, f)

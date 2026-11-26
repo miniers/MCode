@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -99,6 +100,9 @@ func (b *MemoryBackend) ReviewGet(ctx context.Context, p wire.ThreadsReviewGetPa
 	}
 	root, err := state.git.RepoRoot(ctx, state.workDir)
 	if err != nil {
+		if errors.Is(err, git.ErrNotRepo) {
+			return unavailable(git.ErrNotRepo.Error())
+		}
 		return unavailable("not a git repository: " + err.Error())
 	}
 	var base, head string

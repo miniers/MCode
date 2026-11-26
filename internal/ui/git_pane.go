@@ -1047,7 +1047,7 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 					if errMsg != "" {
 						return errMsg
 					}
-					return snapshot.Unavailable
+					return reviewUnavailableText(snapshot.Unavailable)
 				case row >= filesOffset && row < filesOffset+fileRowCount:
 					rel := row - filesOffset
 					if rel%2 == 0 {
@@ -1086,7 +1086,7 @@ func renderGitPaneAllScope(c *ui.Context, s *chatState, ps *gitPaneState, dp *di
 							if errMsg != "" {
 								renderDiffStatusState(c, "review-error", IconOctagonAlert(), errMsg, "", func() { s.loadDiff(tid, "") })
 							} else {
-								renderDiffStatusState(c, "review-unavailable", iconFileSearch, snapshot.Unavailable, "", nil)
+								renderDiffStatusState(c, "review-unavailable", iconFileSearch, reviewUnavailableText(snapshot.Unavailable), "", nil)
 							}
 						})
 					})

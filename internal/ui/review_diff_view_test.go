@@ -487,3 +487,12 @@ func TestTimelineReviewFallsBackToToolInput(t *testing.T) {
 		t.Fatalf("应显示入参合成的改动: %q", tt.Texts())
 	}
 }
+
+func TestReviewBodyShowsNotGitText(t *testing.T) {
+	fake := NewFakeClient()
+	fake.SetReviewSnapshot("t1", "turn", "", "", ReviewSnapshot{Unavailable: "not a git repository"})
+	_, tt, _ := newReviewTester(t, fake)
+	if !tt.HasText(diffNotGitTitle) || tt.HasText("not a git repository") {
+		t.Fatalf("非 Git 仓库应显示中文文案且隐藏原始错误: texts=%q", tt.Texts())
+	}
+}

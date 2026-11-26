@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"mcode/internal/git"
 )
 
 // turnFileTool 构造一条编辑类工具消息：tool 名称、状态与输入里的 file_path。
@@ -450,6 +451,34 @@ func TestTurnFilesCardOpensTurnDiff(t *testing.T) {
 	diffPanelMu.Unlock()
 	if scope != "turn" || turn != "turn-1" || (path != "first.go" && selected != "first.go") {
 		t.Fatalf("范围=%q 回合=%q 路径=%q 已选=%q", scope, turn, path, selected)
+	}
+}
+
+func TestTurnFilesCardOpensFileWhenNotGitRepo(t *testing.T) {
+	fake := setupTurnFilesDiffFake(t, []string{"first.go"}, "")
+	fake.mu.Lock()
+	fake.gitErr = git.ErrNotRepo
+	fake.mu.Unlock()
+	s, root := buildRoot(fake)
+	t.Cleanup(s.close)
+	tt := ui.NewTester(root, 1000, 700)
+	waitFor(t, tt, func() bool {
+		return tt.HasText("first.go") && getChatHeaderState(s).isNotGitRepo("t1")
+	})
+	if err := tt.Click("first.go"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool { return isFileManagerOpen(s) })
+	_, active, _, _, _, _ := fileManagerTabsForTest(s)
+	if active != "first.go" {
+		t.Fatalf("文件面板当前 tab = %q, want %q", active, "first.go")
+	}
+	dp := getDiffPanelState(s)
+	diffPanelMu.Lock()
+	scope := dp.scope
+	diffPanelMu.Unlock()
+	if scope == "turn" {
+		t.Fatalf("非 Git 目录点击文件不应把 diff 面板 scope 设为 %q", scope)
 	}
 }
 

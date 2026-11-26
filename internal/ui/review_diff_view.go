@@ -259,6 +259,13 @@ type reviewHost struct {
 	dialog bool
 }
 
+func reviewUnavailableText(reason string) string {
+	if diffPanelViewState(false, reason, 0) == "not-git" {
+		return diffNotGitTitle
+	}
+	return reason
+}
+
 func renderReviewBody(c *ui.Context, s *chatState, dp *diffPanelState, host ui.Element, tid string, rh reviewHost) {
 	diffPanelMu.Lock()
 	snapshot, loading, errMsg := dp.snapshot, dp.loading, dp.err
@@ -275,7 +282,7 @@ func renderReviewBody(c *ui.Context, s *chatState, dp *diffPanelState, host ui.E
 		case errMsg != "":
 			renderDiffStatusState(c, "review-error", IconOctagonAlert(), errMsg, "", func() { s.loadDiff(tid, turn) })
 		case snapshot.Unavailable != "":
-			renderDiffStatusState(c, "review-unavailable", iconFileSearch, snapshot.Unavailable, "", nil)
+			renderDiffStatusState(c, "review-unavailable", iconFileSearch, reviewUnavailableText(snapshot.Unavailable), "", nil)
 		case len(snapshot.Files) == 0:
 			if !loading {
 				renderDiffEmptyState(c)
