@@ -22,7 +22,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"mcode/internal/agent/shell"
 	"mcode/internal/procattr"
 )
 
@@ -40,14 +39,6 @@ const (
 	workspaceOutlineMaxPaths     = 20
 	workspaceOutlineMaxFileBytes = 2 << 20 // 2MB
 	workspaceOutlineLineRunes    = 160
-
-	workspaceChecksMaxCmds    = 8
-	workspaceChecksDefTimeout = 120
-	workspaceChecksMinTimeout = 1
-	workspaceChecksMaxTimeout = 600
-	workspaceChecksMaxLines   = 80
-	workspaceChecksHeadLines  = 20
-	workspaceChecksTailLines  = 60
 )
 
 var (
@@ -134,32 +125,6 @@ func (r *Registry) registerWorkspaceTools(s *Server) {
 		},
 		IsWrite: false,
 		Handler: handleWorkspaceOutline,
-	})
-
-	r.Register(ToolDefinition{
-		Name:        "workspace_run_checks",
-		Description: "Run multiple shell commands concurrently in the workspace root and return compact status and failure output. Executes shell commands.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"commands": map[string]any{
-					"type":        "array",
-					"description": "1 to 8 shell commands to run concurrently.",
-					"minItems":    1,
-					"maxItems":    workspaceChecksMaxCmds,
-					"items": map[string]any{
-						"type": "string",
-					},
-				},
-				"timeout_seconds": map[string]any{
-					"type":        "integer",
-					"description": "Per-command timeout in seconds, default 120, clamped to 1-600.",
-				},
-			},
-			"required": []string{"commands"},
-		},
-		IsWrite: true,
-		Handler: handleWorkspaceRunChecks,
 	})
 }
 
@@ -887,115 +852,4 @@ func outlineRegexFile(data []byte) []string {
 		}
 	}
 	return lines
-}
-
-type workspaceCheckResult struct {
-	cmd     string
-	elapsed time.Duration
-	res     shell.Result
-	runErr  error
-	output  string
-}
-
-func handleWorkspaceRunChecks(tc ToolContext, args map[string]any) ToolResult {
-	realRoot, errRes := resolveWorkspaceRoot(tc)
-	if errRes != nil {
-		return *errRes
-	}
-
-	rawCmds, ok := args["commands"].([]any)
-	if !ok || len(rawCmds) < 1 || len(rawCmds) > workspaceChecksMaxCmds {
-		return toolError(CodeInvalidArguments, fmt.Sprintf("Argument 'commands' must contain 1 to %d items.", workspaceChecksMaxCmds), false)
-	}
-	commands := make([]string, 0, len(rawCmds))
-	for i, item := range rawCmds {
-		cmdStr, ok := item.(string)
-		if !ok || strings.TrimSpace(cmdStr) == "" {
-			return toolError(CodeInvalidArguments, fmt.Sprintf("commands[%d] must be a non-empty string.", i), false)
-		}
-		commands = append(commands, cmdStr)
-	}
-
-	timeoutSec := clampIntArg(args["timeout_seconds"], workspaceChecksDefTimeout, workspaceChecksMinTimeout, workspaceChecksMaxTimeout)
-	timeout := time.Duration(timeoutSec) * time.Second
-	baseCtx := tc.Context
-	if baseCtx == nil {
-		baseCtx = context.Background()
-	}
-
-	results := make([]workspaceCheckResult, len(commands))
-	var wg sync.WaitGroup
-	for i, cmdStr := range commands {
-		wg.Add(1)
-		go func(idx int, command string) {
-			defer wg.Done()
-			start := time.Now()
-			res, runErr := shell.Run(baseCtx, shell.Options{
-				Command: command,
-				WorkDir: realRoot,
-				Timeout: timeout,
-			}, nil)
-			elapsed := time.Since(start)
-			out := res.Output
-			if res.FullOutputPath != "" {
-				if fullBytes, err := os.ReadFile(res.FullOutputPath); err == nil {
-					out = string(fullBytes)
-				}
-				_ = os.Remove(res.FullOutputPath)
-			}
-			results[idx] = workspaceCheckResult{
-				cmd:     command,
-				elapsed: elapsed,
-				res:     res,
-				runErr:  runErr,
-				output:  out,
-			}
-		}(i, cmdStr)
-	}
-	wg.Wait()
-
-	var b strings.Builder
-	for _, r := range results {
-		switch {
-		case r.res.TimedOut:
-			fmt.Fprintf(&b, "$ %s → timeout (%.1fs)\n", r.cmd, r.elapsed.Seconds())
-		case r.res.Cancelled:
-			fmt.Fprintf(&b, "$ %s → cancelled (%.1fs)\n", r.cmd, r.elapsed.Seconds())
-		default:
-			fmt.Fprintf(&b, "$ %s → exit %d (%.1fs)\n", r.cmd, r.res.ExitCode, r.elapsed.Seconds())
-		}
-
-		if !r.res.TimedOut && !r.res.Cancelled && r.runErr == nil && r.res.ExitCode == 0 {
-			continue
-		}
-
-		outText := strings.TrimRight(r.output, "\r\n")
-		if outText == "" && r.runErr != nil {
-			outText = r.runErr.Error()
-		}
-		if outText == "" {
-			continue
-		}
-		lines := strings.Split(outText, "\n")
-		for i := range lines {
-			lines[i] = strings.TrimRight(lines[i], "\r")
-		}
-		if len(lines) <= workspaceChecksMaxLines {
-			for _, line := range lines {
-				b.WriteString(line)
-				b.WriteByte('\n')
-			}
-		} else {
-			for _, line := range lines[:workspaceChecksHeadLines] {
-				b.WriteString(line)
-				b.WriteByte('\n')
-			}
-			fmt.Fprintf(&b, "… %d lines omitted …\n", len(lines)-workspaceChecksMaxLines)
-			for _, line := range lines[len(lines)-workspaceChecksTailLines:] {
-				b.WriteString(line)
-				b.WriteByte('\n')
-			}
-		}
-	}
-	return toolSuccess(truncateWorkspaceOutput(strings.TrimRight(b.String(), "\n"), workspaceInlineMaxBytes))
 }

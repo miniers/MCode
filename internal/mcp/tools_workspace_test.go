@@ -242,59 +242,16 @@ func TestWorkspaceOutlineGoAndMarkdown(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRunChecksSuccessAndFoldedFailure(t *testing.T) {
+func TestWorkspaceRunChecksNotRegistered(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 上跳过 POSIX shell 命令测试")
-	}
-	dir := t.TempDir()
 	srv, _, _ := setupTestMCP(t)
-	failCmd := `i=1; while [ "$i" -le 200 ]; do echo "line-$i"; i=$((i+1)); done; exit 1`
-	res := callWorkspaceHandler(t, srv, "workspace_run_checks", ToolContext{WorkDir: dir}, map[string]any{
-		"commands": []any{"true", failCmd},
-	})
-	if res.IsError {
-		t.Fatalf("workspace_run_checks 不应返回工具错误: %s", res.Text)
+	if _, ok := srv.registry.Get("workspace_run_checks"); ok {
+		t.Fatal("workspace_run_checks 不应再被注册")
 	}
-	lines := strings.Split(res.Text, "\n")
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], "$ true → exit 0 (") {
-		t.Fatalf("成功命令应紧接失败命令状态行且无额外输出:\n%s", res.Text)
-	}
-	if !strings.HasPrefix(lines[1], "$ "+failCmd+" → exit 1 (") {
-		t.Fatalf("成功命令后应紧接失败命令状态行:\n%s", res.Text)
-	}
-	for _, want := range []string{
-		"line-1",
-		"line-20",
-		"… 120 lines omitted …",
-		"line-141",
-		"line-200",
-	} {
-		if !strings.Contains(res.Text, want) {
-			t.Fatalf("折叠输出缺少 %q:\n%s", want, res.Text)
+	for _, name := range []string{"workspace_search", "workspace_outline"} {
+		if _, ok := srv.registry.Get(name); !ok {
+			t.Fatalf("工具 %s 应保持注册", name)
 		}
-	}
-	if strings.Contains(res.Text, "\nline-21\n") || strings.Contains(res.Text, "\nline-140\n") {
-		t.Fatalf("中间行应被折叠:\n%s", res.Text)
-	}
-}
-
-func TestWorkspaceRunChecksTimeout(t *testing.T) {
-	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 上跳过 sleep 超时测试")
-	}
-	dir := t.TempDir()
-	srv, _, _ := setupTestMCP(t)
-	res := callWorkspaceHandler(t, srv, "workspace_run_checks", ToolContext{WorkDir: dir}, map[string]any{
-		"commands":        []any{"sleep 5"},
-		"timeout_seconds": float64(1),
-	})
-	if res.IsError {
-		t.Fatalf("超时命令应返回文本状态而非工具错误: %s", res.Text)
-	}
-	if !strings.Contains(res.Text, "$ sleep 5 → timeout (") {
-		t.Fatalf("超时命令输出缺少 timeout 状态:\n%s", res.Text)
 	}
 }
 
@@ -340,9 +297,6 @@ func TestWorkspaceReadOnlyTool(t *testing.T) {
 		{tool: "mcp__mcode__workspace_outline", want: true},
 		{tool: "mcp_mcode_workspace_outline", want: true},
 		{tool: "mcode/workspace_outline", want: true},
-		{tool: "mcp__mcode__workspace_run_checks", want: false},
-		{tool: "mcp_mcode_workspace_run_checks", want: false},
-		{tool: "mcode/workspace_run_checks", want: false},
 		{tool: "workspace_search", want: false},
 	}
 	for _, tc := range tests {
