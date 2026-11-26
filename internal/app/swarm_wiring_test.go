@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,13 @@ import (
 	"mcode/internal/swarm"
 	"mcode/internal/testenv"
 )
+
+var workspaceSnapshotRe = regexp.MustCompile(`(?s)<workspace_snapshot>.*?</workspace_snapshot>\s*`)
+
+// stripWorkspaceSnapshot 去掉首轮注入的 <workspace_snapshot> 段落及其后紧跟的空白换行。
+func stripWorkspaceSnapshot(s string) string {
+	return workspaceSnapshotRe.ReplaceAllString(s, "")
+}
 
 type swarmFlowHarness struct {
 	leadStarted chan struct{}
@@ -40,7 +48,7 @@ func (h *swarmFlowHarness) Run(ctx context.Context, turn harness.Turn, emit func
 		reply = "```swarm\n" + `[{"prompt":"HEAD_WORK","bee":"Ives"}]` + "\n```"
 		close(h.leadStarted)
 		release = h.leadRelease
-	case swarm.IsBeePrompt(turn.Prompt) && strings.Contains(turn.Prompt, "HEAD_WORK"):
+	case swarm.IsBeePrompt(stripWorkspaceSnapshot(turn.Prompt)) && strings.Contains(turn.Prompt, "HEAD_WORK"):
 		reply = "bee done"
 		if err := os.WriteFile(filepath.Join(turn.WorkDir, "bee-result.txt"), []byte("landed"), 0600); err != nil {
 			return err
@@ -519,6 +527,7 @@ func TestSwarmLeadPrefaceDecoratorAppendsTierSection(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("等待 lead-1 捕获 prompt 超时")
 	}
+	captured = stripWorkspaceSnapshot(captured)
 
 	sec := swarm.TierPromptSection(mgr.Settings().Tiers, mgr.Settings().DefaultTier, nil)
 	if !strings.Contains(captured, swarm.LeadPolicy(false, "off", false)) {
@@ -550,6 +559,7 @@ func TestSwarmLeadPrefaceDecoratorAppendsTierSection(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("等待 lead-2 捕获 prompt 超时")
 	}
+	capturedNoTiers = stripWorkspaceSnapshot(capturedNoTiers)
 
 	if !strings.Contains(capturedNoTiers, swarm.LeadPolicy(false, "off", false)) {
 		t.Fatalf("无档位时前言未包含 LeadPolicy:\ngot:\n%s\nwant:\n%s", capturedNoTiers, swarm.LeadPolicy(false, "off", false))
@@ -826,11 +836,11 @@ func TestSwarmPromptDecoratorSkipsUnregisteredHelperThread(t *testing.T) {
 	}
 
 	const text = "helper first prompt"
-	if got := capture("helper", text); got != text {
+	if got := stripWorkspaceSnapshot(capture("helper", text)); got != text {
 		t.Fatalf("未登记的辅助会话 prompt 应保持原文，实际:\n%s", got)
 	}
 
-	got := capture("plain", "plain first prompt")
+	got := stripWorkspaceSnapshot(capture("plain", "plain first prompt"))
 	if !strings.HasPrefix(got, swarm.NativeSubagentRule) {
 		t.Fatalf("普通线程应带 NativeSubagentRule 前缀:\n%s", got)
 	}
@@ -1898,7 +1908,7 @@ type turnInteractionModeHarness struct {
 func (*turnInteractionModeHarness) Kind() harness.Kind { return "turn-interaction-mode" }
 
 func (h *turnInteractionModeHarness) Run(_ context.Context, turn harness.Turn, emit func(harness.Event)) error {
-	if swarm.IsBeePrompt(turn.Prompt) {
+	if swarm.IsBeePrompt(stripWorkspaceSnapshot(turn.Prompt)) {
 		emit(harness.Event{Type: harness.EventText, Text: "bee ok"})
 		return nil
 	}

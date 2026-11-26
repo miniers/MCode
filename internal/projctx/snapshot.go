@@ -117,7 +117,7 @@ func collectWorkspaceGit(ctx context.Context, dir string) []string {
 	if branch == "" {
 		branch = "(detached)"
 	}
-	status, err := snapshotGitRunner.Status(ctx, root)
+	status, err := snapshotGitRunner.ReadOnlyStatus(ctx, root)
 	if err != nil || ctx.Err() != nil {
 		return nil
 	}

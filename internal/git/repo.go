@@ -79,9 +79,21 @@ func (r *Runner) Status(ctx context.Context, root string) ([]StatusEntry, error)
 	if err != nil {
 		return nil, err
 	}
+	return parseStatusZ(out), nil
+}
 
+// ReadOnlyStatus 获取工作区当前的文件变更状态列表；不拿 index.lock，可以安全地被超时中断；未跟踪目录折叠显示。
+func (r *Runner) ReadOnlyStatus(ctx context.Context, root string) ([]StatusEntry, error) {
+	out, err := r.run(ctx, root, []string{"GIT_OPTIONAL_LOCKS=0"}, "status", "--porcelain=v1", "-z", "-unormal")
+	if err != nil {
+		return nil, err
+	}
+	return parseStatusZ(out), nil
+}
+
+func parseStatusZ(out []byte) []StatusEntry {
 	if len(out) == 0 {
-		return []StatusEntry{}, nil
+		return []StatusEntry{}
 	}
 
 	records := bytes.Split(out, []byte{0})
@@ -114,7 +126,7 @@ func (r *Runner) Status(ctx context.Context, root string) ([]StatusEntry, error)
 		})
 	}
 
-	return entries, nil
+	return entries
 }
 
 // Checkout 在指定仓库根目录切换本地分支，不猜测远端分支或回退为文件恢复。
