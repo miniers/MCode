@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -412,6 +413,18 @@ func (c *Client) DistillThreadMemories(projectPath, threadID string) (int, error
 	return added, nil
 }
 
+func nmemToMemoryItem(m nmem.Memory) mcodeui.MemoryItem {
+	return mcodeui.MemoryItem{
+		ID:         m.ID,
+		Title:      m.Title,
+		Content:    m.Content,
+		UnitType:   m.UnitType,
+		Importance: m.Importance,
+		Labels:     append([]string(nil), m.Labels...),
+		CreatedAt:  m.CreatedAt,
+	}
+}
+
 // SearchMemories 在项目对应的空间里语义检索记忆。
 func (c *Client) SearchMemories(projectPath, query string) ([]mcodeui.MemoryItem, error) {
 	query = strings.TrimSpace(query)
@@ -427,7 +440,7 @@ func (c *Client) SearchMemories(projectPath, query string) ([]mcodeui.MemoryItem
 		}
 		out := make([]mcodeui.MemoryItem, 0, len(mems))
 		for _, m := range mems {
-			out = append(out, mcodeui.MemoryItem{ID: m.ID, Title: m.Title, Content: m.Content, UnitType: m.UnitType, Importance: m.Importance, Labels: append([]string(nil), m.Labels...), CreatedAt: m.CreatedAt})
+			out = append(out, nmemToMemoryItem(m))
 		}
 		return out, nil
 	}
@@ -447,16 +460,27 @@ func (c *Client) SearchMemories(projectPath, query string) ([]mcodeui.MemoryItem
 		if nmem.IsDeprecated(m) {
 			continue
 		}
-		out = append(out, mcodeui.MemoryItem{
-			ID:         m.ID,
-			Title:      m.Title,
-			Content:    m.Content,
-			UnitType:   m.UnitType,
-			Importance: m.Importance,
-			Labels:     append([]string(nil), m.Labels...),
-			CreatedAt:  m.CreatedAt,
-		})
+		out = append(out, nmemToMemoryItem(m))
 	}
+	return out, nil
+}
+
+// ListMemories 列出项目全部未废弃记忆，按创建时间倒序。
+func (c *Client) ListMemories(projectPath string) ([]mcodeui.MemoryItem, error) {
+	_, mems, _, err := c.fetchProjectMemories(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcodeui.MemoryItem, 0, len(mems))
+	for _, m := range mems {
+		if nmem.IsDeprecated(m) {
+			continue
+		}
+		out = append(out, nmemToMemoryItem(m))
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
 	return out, nil
 }
 
@@ -520,18 +544,58 @@ func (c *Client) removePendingProposalsForMemory(ctx context.Context, projectPat
 	return removed
 }
 
-// ExportMemories 把项目空间的全部记忆导出成 Markdown（跳过已废弃的记忆）。
-// 开头写导出时间与条数；本地文档后端一次读完（不设条数上限），Nowledge Mem 后端
-// 每页 100 条分页读取，最多读 5000 条。
-func (c *Client) ExportMemories(projectPath string) (string, error) {
+// fetchProjectMemories 读取项目空间的全部记忆：local 用 localmem Search 全量读，
+// nmem 每页 100 条分页读取（最多 5000 条）并跳过已废弃记忆。
+func (c *Client) fetchProjectMemories(projectPath string) (space string, mems []nmem.Memory, isLocal bool, err error) {
 	if getMemoryBackend() == config.MemoryBackendLocal {
 		ctx, cancel := memoryTimeoutCtx()
 		defer cancel()
 		// 本地文档按小节直接在磁盘上读，不带上限（Search 只对正数 Limit 截断）。
-		mems, err := localmem.New("").Search(ctx, projectPath, nmem.SearchQuery{Limit: math.MaxInt32})
+		mems, err = localmem.New("").Search(ctx, projectPath, nmem.SearchQuery{Limit: math.MaxInt32})
 		if err != nil {
-			return "", err
+			return "", nil, true, err
 		}
+		return "", mems, true, nil
+	}
+	cl, err := c.nmemClient()
+	if err != nil {
+		return "", nil, false, err
+	}
+	const (
+		pageSize    = 100
+		maxMemories = 5000
+	)
+	space = c.memorySpace(projectPath)
+	all := make([]nmem.Memory, 0, pageSize)
+	for offset := 0; offset < maxMemories; offset += pageSize {
+		ctx, cancel := memoryTimeoutCtx()
+		page, err := cl.ListMemories(ctx, space, pageSize, offset)
+		cancel()
+		if err != nil {
+			return "", nil, false, memoryReadError(err)
+		}
+		for _, m := range page {
+			if nmem.IsDeprecated(m) {
+				continue
+			}
+			all = append(all, m)
+		}
+		if len(page) < pageSize {
+			break
+		}
+	}
+	return space, all, false, nil
+}
+
+// ExportMemories 把项目空间的全部记忆导出成 Markdown（跳过已废弃的记忆）。
+// 开头写导出时间与条数；本地文档后端一次读完（不设条数上限），Nowledge Mem 后端
+// 每页 100 条分页读取，最多读 5000 条。
+func (c *Client) ExportMemories(projectPath string) (string, error) {
+	space, mems, isLocal, err := c.fetchProjectMemories(projectPath)
+	if err != nil {
+		return "", err
+	}
+	if isLocal {
 		var b strings.Builder
 		fmt.Fprintf(&b, "# %s\n\n", memoryExportTitle)
 		fmt.Fprintf(&b, "空间：本地文档 · 导出时间：%s · 共 %d 条\n",
@@ -550,34 +614,7 @@ func (c *Client) ExportMemories(projectPath string) (string, error) {
 		}
 		return b.String(), nil
 	}
-	cl, err := c.nmemClient()
-	if err != nil {
-		return "", err
-	}
-	const (
-		pageSize    = 100
-		maxMemories = 5000
-	)
-	space := c.memorySpace(projectPath)
-	all := make([]nmem.Memory, 0, pageSize)
-	for offset := 0; offset < maxMemories; offset += pageSize {
-		ctx, cancel := memoryTimeoutCtx()
-		page, err := cl.ListMemories(ctx, space, pageSize, offset)
-		cancel()
-		if err != nil {
-			return "", memoryReadError(err)
-		}
-		for _, m := range page {
-			if nmem.IsDeprecated(m) {
-				continue
-			}
-			all = append(all, m)
-		}
-		if len(page) < pageSize {
-			break
-		}
-	}
-	return renderMemoryExport(space, time.Now(), all), nil
+	return renderMemoryExport(space, time.Now(), mems), nil
 }
 
 // WorkingMemory 读取项目对应空间的今日 Working Memory 正文。

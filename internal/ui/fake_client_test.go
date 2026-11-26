@@ -441,6 +441,7 @@ type FakeClient struct {
 	memoryBackend   string
 	memoryProposals []MemoryProposal
 	memoryItems     []MemoryItem
+	memoryListItems []MemoryItem
 	memoryWorking   string
 	// memorySpaces 是设置页「项目记忆空间」可选的 Nowledge 空间列表。
 	memorySpaces       []MemorySpace
@@ -453,12 +454,14 @@ type FakeClient struct {
 	memoryDistillCount int
 	memoryDistillErr   error
 	memorySearchErr    error
+	memoryListErr      error
 	memoryUpdateCalls  []MemoryProposal
 	memoryAcceptCalls  []string
 	memoryRejectCalls  []string
 	memoryCreateCalls  [][4]string
 	memoryDistillCalls [][2]string
 	memorySearchCalls  [][2]string
+	memoryListCalls    []string
 	memoryTargetCalls  [][2]string
 	// memoryForget* / memoryExport* 是 ForgetMemory 与 ExportMemories 的预设结果。
 	memoryForgetDeleted bool
@@ -5248,6 +5251,17 @@ func (f *FakeClient) SearchMemories(projectPath, query string) ([]MemoryItem, er
 	return append([]MemoryItem(nil), f.memoryItems...), nil
 }
 
+// ListMemories 记录调用并返回预置的项目全部记忆列表。
+func (f *FakeClient) ListMemories(projectPath string) ([]MemoryItem, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.memoryListCalls = append(f.memoryListCalls, projectPath)
+	if f.memoryListErr != nil {
+		return nil, f.memoryListErr
+	}
+	return append([]MemoryItem(nil), f.memoryListItems...), nil
+}
+
 // ForgetMemory 记录调用并返回预置的删除结果与错误。
 func (f *FakeClient) ForgetMemory(projectPath, id string) (bool, error) {
 	f.mu.Lock()
@@ -5411,6 +5425,20 @@ func (f *FakeClient) SetMemorySearchResults(items []MemoryItem) {
 	f.memoryItems = append([]MemoryItem(nil), items...)
 }
 
+// SetMemoryListResults 设置 ListMemories 的返回结果。
+func (f *FakeClient) SetMemoryListResults(items []MemoryItem) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.memoryListItems = append([]MemoryItem(nil), items...)
+}
+
+// SetMemoryListError 设置 ListMemories 的注入错误。
+func (f *FakeClient) SetMemoryListError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.memoryListErr = err
+}
+
 // SetWorkingMemory 设置 WorkingMemory 的返回正文。
 func (f *FakeClient) SetWorkingMemory(text string) {
 	f.mu.Lock()
@@ -5452,6 +5480,13 @@ func (f *FakeClient) MemorySearchCalls() [][2]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([][2]string(nil), f.memorySearchCalls...)
+}
+
+// MemoryListCalls 返回 ListMemories 的调用参数（项目路径）。
+func (f *FakeClient) MemoryListCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.memoryListCalls...)
 }
 
 // MemoryTargetCalls 返回 SetMemoryProposalTarget 的调用参数（提议 ID、目标记忆 ID）。

@@ -1409,6 +1409,8 @@ type Client interface {
 	DistillThreadMemories(projectPath, threadID string) (int, error)
 	// SearchMemories 在项目对应的空间里语义检索记忆。
 	SearchMemories(projectPath, query string) ([]MemoryItem, error)
+	// ListMemories 列出项目全部未废弃记忆，按创建时间倒序。
+	ListMemories(projectPath string) ([]MemoryItem, error)
 	// ForgetMemory 忘掉一条记忆：服务端支持删除时直接删除；deleted 为 false 表示服务端不支持删除，
 	// 已改为给标题打上“已废弃”前缀。
 	ForgetMemory(projectPath, id string) (deleted bool, err error)

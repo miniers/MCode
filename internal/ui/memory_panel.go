@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,11 +75,18 @@ type memoryPanelState struct {
 	newContent  string
 	newUnitType string
 
-	searchQuery   string
-	searchResults []MemoryItem
-	searchLoading bool
-	searchErr     string
-	searched      bool
+	searchQuery      string
+	searchResults    []MemoryItem
+	searchLoading    bool
+	searchErr        string
+	searched         bool
+	searchGeneration uint64
+
+	allMemories   []MemoryItem
+	allLoading    bool
+	allErr        string
+	allLoaded     bool
+	allGeneration uint64
 
 	// 忘掉：第一次点击只进入确认态（forgetConfirmID），再点同一行才真正请求（forgettingID）。
 	forgetConfirmID string
@@ -172,10 +180,14 @@ func (s *chatState) toggleMemoryPanel() {
 	}
 	st.open = true
 	st.err = ""
+	needAll := st.tab == memoryTabSearch && strings.TrimSpace(st.searchQuery) == ""
 	memoryPanelMu.Unlock()
 	s.invalidate()
 	s.reloadMemoryProposals()
 	s.refreshPendingMemoryCount(false)
+	if needAll {
+		s.reloadAllMemories()
+	}
 }
 
 // closeMemoryPanel 关闭面板（状态保留，下次打开仍在原标签页）。
@@ -191,7 +203,7 @@ func (s *chatState) closeMemoryPanel() {
 	s.invalidate()
 }
 
-// switchMemoryTab 切换标签页；Working Memory 首次进入时才拉取正文。
+// switchMemoryTab 切换标签页；切到「全部记忆」且查询为空时重载列表，Working Memory 首次进入时才拉取正文。
 func (s *chatState) switchMemoryTab(tab int) {
 	st := getMemoryPanelState(s)
 	if st == nil {
@@ -204,13 +216,73 @@ func (s *chatState) switchMemoryTab(tab int) {
 		st.forgetConfirmID = ""
 		st.searchNotice = ""
 	}
+	needAll := tab == memoryTabSearch && strings.TrimSpace(st.searchQuery) == ""
 	needWM := tab == memoryTabWorking && !st.wmLoaded && !st.wmLoading
 	memoryPanelMu.Unlock()
+	if needAll {
+		s.reloadAllMemories()
+		return
+	}
 	if needWM {
 		s.reloadWorkingMemory()
 		return
 	}
 	s.invalidate()
+}
+
+// resetMemoryProjectCachesLocked 在切换项目时清理旧项目的记忆缓存并标记列表滚动复位。
+func resetMemoryProjectCachesLocked(st *memoryPanelState) {
+	st.resetPendingList = true
+	st.resetSearchList = true
+	st.allMemories = nil
+	st.allLoaded = false
+	st.allLoading = false
+	st.allErr = ""
+	st.allGeneration++
+	st.searchResults = nil
+	st.searched = false
+	st.searchLoading = false
+	st.searchErr = ""
+	st.searchGeneration++
+	st.forgetConfirmID = ""
+	st.searchNotice = ""
+	st.wmText = ""
+	st.wmLoaded = false
+	st.wmErr = ""
+}
+
+// syncMemoryPanelProject 在切换会话/项目后同步记忆面板项目路径并刷新可见数据。
+func (s *chatState) syncMemoryPanelProject() {
+	if s == nil {
+		return
+	}
+	memoryPanelMu.Lock()
+	st := memoryPanelStates[s]
+	memoryPanelMu.Unlock()
+	if st == nil {
+		return
+	}
+	path := s.getSelectedProjectPath()
+	memoryPanelMu.Lock()
+	if st.projectPath == "" || st.projectPath == path {
+		memoryPanelMu.Unlock()
+		return
+	}
+	resetMemoryProjectCachesLocked(st)
+	st.projectPath = path
+	needPending := st.open
+	needAll := st.open && st.tab == memoryTabSearch && strings.TrimSpace(st.searchQuery) == ""
+	needWM := st.open && st.tab == memoryTabWorking
+	memoryPanelMu.Unlock()
+	if needPending {
+		s.reloadMemoryProposals()
+	}
+	if needAll {
+		s.reloadAllMemories()
+	}
+	if needWM {
+		s.reloadWorkingMemory()
+	}
 }
 
 // reloadMemoryProposals 异步刷新当前项目的待审提议列表。
@@ -222,7 +294,7 @@ func (s *chatState) reloadMemoryProposals() {
 	path := s.getSelectedProjectPath()
 	memoryPanelMu.Lock()
 	if st.projectPath != "" && st.projectPath != path {
-		st.resetPendingList = true
+		resetMemoryProjectCachesLocked(st)
 	}
 	st.projectPath = path
 	st.generation++
@@ -623,7 +695,11 @@ func (s *chatState) acceptMemoryProposal(id string) {
 			}
 			st.pendingCountAt = time.Now()
 		}
+		reloadAll := err == nil && (st.allLoaded || st.tab == memoryTabSearch)
 		memoryPanelMu.Unlock()
+		if reloadAll {
+			s.reloadAllMemories()
+		}
 		s.invalidate()
 	}()
 }
@@ -828,18 +904,88 @@ func (s *chatState) createMemoryProposal() {
 	}()
 }
 
-// editMemorySearchQuery 记录搜索关键字。
+// sortMemoryItemsDesc 按创建时间倒序排列记忆条目（稳定排序，时间相同时保留原顺序）。
+func sortMemoryItemsDesc(items []MemoryItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+}
+
+// reloadAllMemories 异步加载当前项目的全部未废弃记忆。
+func (s *chatState) reloadAllMemories() {
+	st := getMemoryPanelState(s)
+	if st == nil || s.client == nil {
+		return
+	}
+	path := s.getSelectedProjectPath()
+	memoryPanelMu.Lock()
+	if st.projectPath != "" && st.projectPath != path {
+		resetMemoryProjectCachesLocked(st)
+	}
+	if path != "" {
+		st.projectPath = path
+	}
+	st.allGeneration++
+	gen := st.allGeneration
+	st.allLoading = path != ""
+	st.allErr = ""
+	if path == "" {
+		st.allMemories = nil
+		st.allLoaded = false
+	}
+	memoryPanelMu.Unlock()
+	s.invalidate()
+	if path == "" {
+		return
+	}
+
+	go func(p string, g uint64) {
+		items, err := s.client.ListMemories(p)
+		if err == nil {
+			sortMemoryItemsDesc(items)
+		}
+		memoryPanelMu.Lock()
+		if st.allGeneration == g {
+			st.allLoading = false
+			if err != nil {
+				st.allErr = err.Error()
+			} else {
+				st.allMemories = items
+				st.allLoaded = true
+			}
+		}
+		memoryPanelMu.Unlock()
+		s.invalidate()
+	}(path, gen)
+}
+
+// editMemorySearchQuery 记录搜索关键字；清空后自动回到并重载全部记忆列表。
 func (s *chatState) editMemorySearchQuery(query string) {
 	st := getMemoryPanelState(s)
 	if st == nil {
 		return
 	}
 	memoryPanelMu.Lock()
+	prev := st.searchQuery
 	st.searchQuery = query
+	cleared := strings.TrimSpace(prev) != "" && strings.TrimSpace(query) == ""
+	if cleared {
+		st.searchGeneration++
+		st.searchLoading = false
+		st.searchErr = ""
+		st.searchResults = nil
+		st.searched = false
+		st.forgetConfirmID = ""
+		st.searchNotice = ""
+		st.resetSearchList = true
+	}
 	memoryPanelMu.Unlock()
+	if cleared {
+		s.reloadAllMemories()
+	}
 }
 
-// searchMemories 异步检索记忆；结果写入面板状态后回到 UI 线程重绘。
+// searchMemories 异步检索记忆；查询为空时重载全部记忆列表，非空时走后端语义检索。
 func (s *chatState) searchMemories() {
 	st := getMemoryPanelState(s)
 	if st == nil || s.client == nil {
@@ -852,13 +998,18 @@ func (s *chatState) searchMemories() {
 	query := strings.TrimSpace(st.searchQuery)
 	path := st.projectPath
 	if query == "" {
-		st.searchErr = "请输入搜索内容"
+		st.searchGeneration++
+		st.searchErr = ""
+		st.searchLoading = false
+		st.searched = false
 		st.searchResults = nil
 		st.resetSearchList = true
 		memoryPanelMu.Unlock()
-		s.invalidate()
+		s.reloadAllMemories()
 		return
 	}
+	st.searchGeneration++
+	gen := st.searchGeneration
 	st.searchErr = ""
 	st.searchLoading = true
 	st.searched = true
@@ -872,19 +1023,21 @@ func (s *chatState) searchMemories() {
 	}
 	s.invalidate()
 
-	go func(p, q string) {
+	go func(p, q string, g uint64) {
 		items, err := s.client.SearchMemories(p, q)
 		memoryPanelMu.Lock()
-		st.searchLoading = false
-		if err != nil {
-			st.searchErr = err.Error()
-			st.searchResults = nil
-		} else {
-			st.searchResults = items
+		if st.searchGeneration == g {
+			st.searchLoading = false
+			if err != nil {
+				st.searchErr = err.Error()
+				st.searchResults = nil
+			} else {
+				st.searchResults = items
+			}
 		}
 		memoryPanelMu.Unlock()
 		s.invalidate()
-	}(path, query)
+	}(path, query, gen)
 }
 
 // requestForgetMemory 处理搜索结果行里「忘掉」的点击：第一次只进入确认态，
@@ -963,6 +1116,13 @@ func (s *chatState) confirmForgetMemory(id string) {
 				}
 			}
 			st.searchResults = items
+			allItems := st.allMemories[:0]
+			for _, item := range st.allMemories {
+				if item.ID != target {
+					allItems = append(allItems, item)
+				}
+			}
+			st.allMemories = allItems
 			if deleted {
 				st.searchNotice = "已删除这条记忆"
 			} else {
@@ -1110,6 +1270,9 @@ func (s *chatState) dismissMemoryPanelError() {
 	}
 	memoryPanelMu.Lock()
 	st.err = ""
+	st.allErr = ""
+	st.searchErr = ""
+	st.wmErr = ""
 	memoryPanelMu.Unlock()
 	s.invalidate()
 }

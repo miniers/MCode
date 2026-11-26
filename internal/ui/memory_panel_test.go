@@ -233,7 +233,7 @@ func TestMemoryPanelSearch(t *testing.T) {
 		Importance: 0.6,
 	}})
 	s.switchMemoryTab(memoryTabSearch)
-	waitFor(t, tt, func() bool { return tt.HasText("输入关键字后按「搜索」") })
+	waitFor(t, tt, func() bool { return tt.HasText("当前项目还没有记忆") })
 
 	if err := tt.Click("搜索记忆"); err != nil {
 		t.Fatalf("focus 搜索记忆 input failed: %v", err)
@@ -386,7 +386,7 @@ func openMemorySearchResults(t *testing.T, fake *FakeClient, s *chatState, tt *u
 	t.Helper()
 	fake.SetMemorySearchResults(items)
 	s.switchMemoryTab(memoryTabSearch)
-	waitFor(t, tt, func() bool { return tt.HasText("输入关键字后按「搜索」") })
+	waitFor(t, tt, func() bool { return tt.HasText("当前项目还没有记忆") })
 	s.editMemorySearchQuery("部署")
 	if err := tt.Click("执行搜索"); err != nil {
 		t.Fatalf("click 执行搜索 failed: %v", err)
@@ -563,8 +563,8 @@ func TestMemoryPanelBackendTabs(t *testing.T) {
 			st := getMemoryPanelState(s)
 			st.tab = memoryTabWorking
 			tt := ui.NewTester(func(c *ui.Context) { renderMemoryTabs(c, s) }, 800, 200)
-			if !tt.HasText("待审") || !tt.HasText("搜索") {
-				t.Fatal("缺少待审或搜索标签")
+			if !tt.HasText("待审") || !tt.HasText("全部记忆") {
+				t.Fatal("缺少待审或全部记忆标签")
 			}
 			if got := tt.HasText("Working Memory"); got != (backend == "nmem") {
 				t.Fatalf("Working Memory 标签显示状态错误: %v", got)
@@ -690,7 +690,7 @@ func TestMemoryPanelVirtualListP1(t *testing.T) {
 
 		s.toggleMemoryPanel()
 		s.switchMemoryTab(memoryTabSearch)
-		waitFor(t, tt, func() bool { return tt.HasText("输入关键字后按「搜索」") })
+		waitFor(t, tt, func() bool { return tt.HasText("当前项目还没有记忆") })
 		s.editMemorySearchQuery("搜索")
 		if err := tt.Click("执行搜索"); err != nil {
 			t.Fatalf("click 执行搜索 failed: %v", err)
@@ -723,4 +723,90 @@ func TestMemoryPanelVirtualListP1(t *testing.T) {
 			t.Fatalf("远在视口外的第 115 条搜索结果不应被渲染")
 		}
 	})
+}
+
+// 切到「全部记忆」免搜索自动列出当前项目全部记忆，搜索后显示搜索结果，清空回到全部列表，空项目显示空态。
+func TestMemoryPanelListsProjectMemoriesWithoutQuery(t *testing.T) {
+	fake := NewFakeClient()
+	s, view := buildRoot(fake)
+	t.Cleanup(s.close)
+
+	olderTime := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	newerTime := time.Date(2026, 11, 25, 16, 40, 0, 0, time.UTC)
+	fake.SetMemoryListResults([]MemoryItem{
+		{
+			ID:         "mem-old",
+			Title:      "较早的项目约定",
+			Content:    "提交前先运行全量校验。",
+			UnitType:   "fact",
+			Importance: 0.7,
+			CreatedAt:  olderTime,
+		},
+		{
+			ID:         "mem-new",
+			Title:      "最新的设计规范",
+			Content:    "弹窗外层必须使用 DialogBase。",
+			UnitType:   "decision",
+			Importance: 0.9,
+			CreatedAt:  newerTime,
+		},
+	})
+	fake.SetMemorySearchResults([]MemoryItem{
+		{
+			ID:         "mem-search-hit",
+			Title:      "语义命中结果",
+			Content:    "只出现在搜索结果中的记忆。",
+			UnitType:   "insight",
+			Importance: 0.8,
+		},
+	})
+
+	tt, path := openMemoryPanel(t, fake, s, view)
+	waitFor(t, tt, func() bool { return tt.HasText("全部记忆") })
+	if err := tt.Click("全部记忆"); err != nil {
+		t.Fatalf("click 全部记忆 failed: %v", err)
+	}
+
+	waitFor(t, tt, func() bool {
+		return tt.HasText("最新的设计规范") && tt.HasText("较早的项目约定")
+	})
+	listCalls := fake.MemoryListCalls()
+	if len(listCalls) != 1 || listCalls[0] != path {
+		t.Fatalf("ListMemories calls = %v, want [%q]", listCalls, path)
+	}
+	if searchCalls := fake.MemorySearchCalls(); len(searchCalls) != 0 {
+		t.Fatalf("未搜索时不应调用 SearchMemories，实际 %v", searchCalls)
+	}
+	texts := strings.Join(tt.Texts(), "\n")
+	if strings.Index(texts, "最新的设计规范") > strings.Index(texts, "较早的项目约定") {
+		t.Fatalf("全部记忆未按创建时间倒序排列：%v", tt.Texts())
+	}
+
+	if err := tt.Click("搜索记忆"); err != nil {
+		t.Fatalf("focus 搜索记忆 input failed: %v", err)
+	}
+	tt.Type("语义")
+	if err := tt.Click("执行搜索"); err != nil {
+		t.Fatalf("click 执行搜索 failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("语义命中结果") && !tt.HasText("最新的设计规范")
+	})
+
+	if err := tt.Click("清空"); err != nil {
+		t.Fatalf("click 清空 failed: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("最新的设计规范") && tt.HasText("较早的项目约定") && !tt.HasText("语义命中结果")
+	})
+	if listCalls := fake.MemoryListCalls(); len(listCalls) < 2 {
+		t.Fatalf("清空搜索框后应重载 ListMemories，实际调用 %v", listCalls)
+	}
+
+	// 项目没有记忆时显示空态。
+	fake.SetMemoryListResults(nil)
+	if err := tt.Click("刷新"); err != nil {
+		t.Fatalf("click 刷新 failed: %v", err)
+	}
+	waitFor(t, tt, func() bool { return tt.HasText("当前项目还没有记忆") })
 }

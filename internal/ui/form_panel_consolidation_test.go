@@ -64,11 +64,11 @@ func TestMemoryTabsAndPendingBadge(t *testing.T) {
 	if _, ok := tt.Find("17"); !ok {
 		t.Fatal("待审数量非零时缺少徽标")
 	}
-	if err := tt.Click("搜索"); err != nil {
+	if err := tt.Click("全部记忆"); err != nil {
 		t.Fatal(err)
 	}
 	if snapshotMemoryPanel(s).tab != memoryTabSearch {
-		t.Fatal("点击搜索后没有切换标签")
+		t.Fatal("点击全部记忆后没有切换标签")
 	}
 	if err := tt.Click("待审"); err != nil {
 		t.Fatal(err)

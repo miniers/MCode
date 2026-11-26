@@ -1546,6 +1546,7 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 	s.mu.Unlock()
 	if oldThreadID != threadID {
 		inspectorSwitchThread(s, oldThreadID)
+		s.syncMemoryPanelProject()
 	}
 	if readProjectID != "" {
 		go func() {

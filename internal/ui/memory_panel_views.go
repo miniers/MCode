@@ -59,6 +59,11 @@ type memoryPanelSnapshot struct {
 	searchErr     string
 	searched      bool
 
+	allMemories []MemoryItem
+	allLoading  bool
+	allErr      string
+	allLoaded   bool
+
 	// 忘掉：forgetConfirmID 是已进入确认态的记忆 ID，forgettingID 是正在请求的那一条。
 	forgetConfirmID string
 	forgettingID    string
@@ -120,6 +125,10 @@ func snapshotMemoryPanel(s *chatState) memoryPanelSnapshot {
 		searchLoading:   st.searchLoading,
 		searchErr:       st.searchErr,
 		searched:        st.searched,
+		allMemories:     append([]MemoryItem(nil), st.allMemories...),
+		allLoading:      st.allLoading,
+		allErr:          st.allErr,
+		allLoaded:       st.allLoaded,
 		forgetConfirmID: st.forgetConfirmID,
 		forgettingID:    st.forgettingID,
 		searchNotice:    st.searchNotice,
@@ -141,6 +150,8 @@ func renderMemoryModal(c *ui.Context, s *chatState) {
 	memoryPanelMu.Lock()
 	open := st.open
 	loadedPath := st.projectPath
+	tab := st.tab
+	emptyQuery := strings.TrimSpace(st.searchQuery) == ""
 	memoryPanelMu.Unlock()
 	if !open {
 		modalDragReset(modalDragMemoryPanel)
@@ -150,6 +161,9 @@ func renderMemoryModal(c *ui.Context, s *chatState) {
 	if loadedPath == "" {
 		if path := s.getSelectedProjectPath(); path != "" {
 			s.reloadMemoryProposals()
+			if tab == memoryTabSearch && emptyQuery {
+				s.reloadAllMemories()
+			}
 		}
 	}
 
@@ -206,7 +220,13 @@ func renderMemoryHeader(c *ui.Context, s *chatState) {
 				OnClick: func() {
 					s.reloadMemoryProposals()
 					s.refreshPendingMemoryCount(true)
-					if snap.tab == memoryTabWorking {
+					if snap.tab == memoryTabSearch {
+						if strings.TrimSpace(snap.searchQuery) != "" {
+							s.searchMemories()
+						} else {
+							s.reloadAllMemories()
+						}
+					} else if snap.tab == memoryTabWorking {
 						s.reloadWorkingMemory()
 					}
 				},
@@ -221,9 +241,13 @@ func renderMemoryHeader(c *ui.Context, s *chatState) {
 		}))
 }
 
-// renderMemoryTabs 渲染三个标签页：待审、搜索、Working Memory。
+// renderMemoryTabs 渲染三个标签页：待审、全部记忆、Working Memory。
 func renderMemoryTabs(c *ui.Context, s *chatState) {
 	snap := snapshotMemoryPanel(s)
+	allCount := 0
+	if snap.allLoaded && !snap.allLoading {
+		allCount = len(snap.allMemories)
+	}
 	ui.Row(c.Key("memory-modal-tabs")).
 		FillWidth().
 		Padding(Space3, memoryModalPadding).
@@ -233,7 +257,7 @@ func renderMemoryTabs(c *ui.Context, s *chatState) {
 		BorderColor(ThemeBorder(c)).
 		Children(func() {
 			renderMemoryTabButton(c, s, memoryTabPending, "待审", snap.tab == memoryTabPending, snap.pendingCount)
-			renderMemoryTabButton(c, s, memoryTabSearch, "搜索", snap.tab == memoryTabSearch, 0)
+			renderMemoryTabButton(c, s, memoryTabSearch, "全部记忆", snap.tab == memoryTabSearch, allCount)
 			if snap.backend != "local" {
 				renderMemoryTabButton(c, s, memoryTabWorking, "Working Memory", snap.tab == memoryTabWorking, 0)
 			}
@@ -257,7 +281,11 @@ func renderMemoryTabButton(c *ui.Context, s *chatState, tab int, label string, a
 			if active {
 				tone = ToneAccent
 			}
-			Badge(c, "memory-pending-count", strconv.Itoa(count), tone)
+			badgeKey := "memory-tab-count-" + strconv.Itoa(tab)
+			if tab == memoryTabPending {
+				badgeKey = "memory-pending-count"
+			}
+			Badge(c, badgeKey, strconv.Itoa(count), tone)
 		}
 	}).Height(memoryTabHeight).Gap(Space2).AlignItems(ui.Center).OnClick(func() { s.switchMemoryTab(tab) })
 }
@@ -577,7 +605,7 @@ func renderMemoryProposalCard(c *ui.Context, s *chatState, snap memoryPanelSnaps
 						ui.Text(c, p.Content).
 							FontSize(uiFont(TypeCaption)).
 							Font("monospace").
-							MaxLines(3).
+							MaxLines(2).
 							FillWidth().
 							TextColor(ThemeSecondaryText(c))
 					})
@@ -883,7 +911,7 @@ func renderMemoryCreateDialog(c *ui.Context, s *chatState, snap memoryPanelSnaps
 	}
 }
 
-// renderMemorySearchTab 渲染搜索页：输入框、搜索按钮与结果列表。
+// renderMemorySearchTab 渲染全部记忆/搜索页：搜索框、导出按钮与列表（查询为空时按创建时间倒序列出全部记忆）。
 func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot) {
 	ms := getMemoryPanelState(s)
 	if ms != nil && takeMemoryListReset(ms, true) {
@@ -897,12 +925,22 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 			Gap(Space3).
 			AlignItems(ui.Center).
 			Children(func() {
-				SearchField(c, TextFieldProps{Key: "memory-search-input", Value: &query, Label: "搜索记忆", Placeholder: "例如：部署流程、测试约定", Grow: true, OnChange: func(value string) { s.editMemorySearchQuery(value) }})
+				SearchField(c, TextFieldProps{
+					Key:         "memory-search-input",
+					Value:       &query,
+					Label:       "搜索记忆",
+					Placeholder: "过滤或搜索记忆（默认按日期倒序列出全部）",
+					Clearable:   true,
+					ClearLabel:  "清空",
+					Grow:        true,
+					OnChange:    func(value string) { s.editMemorySearchQuery(value) },
+					OnSubmit:    func(string) { s.searchMemories() },
+				})
 				Button(c.Key("memory-search-btn"), ButtonOpts{
 					Icon:    IconSearch(),
 					Text:    "搜索",
 					Label:   "执行搜索",
-					Variant: ButtonPrimary,
+					Variant: ButtonSecondary,
 					OnClick: func() { s.searchMemories() },
 				})
 				exportText := "导出"
@@ -919,8 +957,12 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 				}).Shrink(0)
 			})
 
-		if snap.searchErr != "" {
-			renderMemoryErrorBanner(c, s, "search", snap.searchErr)
+		errMsg := snap.allErr
+		if snap.searched {
+			errMsg = snap.searchErr
+		}
+		if errMsg != "" {
+			renderMemoryErrorBanner(c, s, "search", errMsg)
 		}
 
 		if snap.searchNotice != "" {
@@ -940,14 +982,31 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 				})
 		}
 
-		if snap.searchLoading {
-			ui.Row(c.Key("memory-search-loading")).FillWidth().Padding(memoryModalPadding).Gap(Space3).AlignItems(ui.Center).Children(func() {
-				LoadingIndicator(c, nil, "正在检索…", IconSM)
-			})
+		isLoading := snap.allLoading
+		loadingText := "正在加载记忆…"
+		if snap.searched {
+			isLoading = snap.searchLoading
+			loadingText = "正在检索…"
+		}
+		if isLoading {
+			ui.Column(c.Key("memory-search-loading")).
+				Grow(1).
+				FillWidth().
+				Justify(ui.Center).
+				AlignItems(ui.Center).
+				Gap(Space3).
+				Children(func() {
+					LoadingIndicator(c, "memory-search-spinner", loadingText, IconMD)
+				})
 			return
 		}
 
-		if len(snap.searchResults) == 0 {
+		items := snap.allMemories
+		if snap.searched {
+			items = snap.searchResults
+		}
+
+		if len(items) == 0 {
 			ui.Column(c.Key("memory-search-empty")).
 				Grow(1).
 				FillWidth().
@@ -955,11 +1014,7 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 				AlignItems(ui.Center).
 				Gap(Space3).
 				Children(func() {
-					hint := "搜索当前项目对应空间中的记忆，结果只读。"
-					if snap.backend == "local" {
-						hint = "搜索当前项目的记忆，结果只读。"
-					}
-					EmptyState(c, EmptyStateProps{Icon: IconSearch(), Title: memorySearchEmptyTitle(snap), Description: hint})
+					EmptyState(c, EmptyStateProps{Icon: IconSearch(), Title: memorySearchEmptyTitle(snap), Description: memorySearchEmptyDesc(snap)})
 				})
 			return
 		}
@@ -967,9 +1022,19 @@ func renderMemorySearchTab(c *ui.Context, s *chatState, snap memoryPanelSnapshot
 		if ms == nil {
 			return
 		}
-		ms.searchList.Key = func(i int) any { return snap.searchResults[i].ID }
-		ui.List(c.Key("memory-search-list"), &ms.searchList, len(snap.searchResults), func(i int) {
-			renderMemoryItemCard(c, s, snap, snap.searchResults[i])
+		countText := "共 " + strconv.Itoa(len(items)) + " 条 · 按日期倒序"
+		if snap.searched {
+			countText = "匹配 " + strconv.Itoa(len(items)) + " 条"
+		}
+		ui.Row(c.Key("memory-search-count")).
+			FillWidth().
+			Padding(Space2, memoryModalPadding, 0, memoryModalPadding).
+			Children(func() {
+				ui.Text(c, countText).FontSize(uiFont(TypeCaption)).TextColor(ThemeSecondaryText(c))
+			})
+		ms.searchList.Key = func(i int) any { return items[i].ID }
+		ui.List(c.Key("memory-search-list"), &ms.searchList, len(items), func(i int) {
+			renderMemoryItemCard(c, s, snap, items[i])
 		}).
 			Grow(1).
 			MinHeight(0).
@@ -984,10 +1049,21 @@ func memorySearchEmptyTitle(snap memoryPanelSnapshot) string {
 	if snap.searched {
 		return "没有找到匹配的记忆"
 	}
-	return "输入关键字后按「搜索」"
+	return "当前项目还没有记忆"
 }
 
-// renderMemoryItemCard 渲染一条搜索结果；行内可以直接两步确认「忘掉」这条记忆。
+// memorySearchEmptyDesc 按是否已搜索与后端类型给出空态说明。
+func memorySearchEmptyDesc(snap memoryPanelSnapshot) string {
+	if snap.searched {
+		return "清空关键字即可恢复按日期倒序查看全部记忆。"
+	}
+	if snap.backend == "local" {
+		return "当前项目下暂无已写入的记忆。"
+	}
+	return "当前项目对应空间下暂无已写入的记忆。"
+}
+
+// renderMemoryItemCard 渲染一条记忆卡片：标题、元信息与两行正文预览，支持两步确认「忘掉」。
 func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot, item MemoryItem) {
 	confirming := snap.forgetConfirmID == item.ID
 	forgetting := snap.forgettingID == item.ID
@@ -1007,7 +1083,7 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 				Gap(Space3).
 				AlignItems(ui.Center).
 				Children(func() {
-					ui.Icon(c, IconNote()).Size(IconSM, IconSM).TextColor(ThemeAccent(c))
+					ui.Icon(c, IconNote()).Size(IconSM, IconSM).Shrink(0).TextColor(ThemeAccent(c))
 					ui.Text(c, item.Title).
 						FontSize(uiFont(TypeFootnote)).
 						FontWeight(600).
@@ -1016,14 +1092,6 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 						Shrink(1).
 						MinWidth(0).
 						TextColor(ThemePrimaryText(c))
-					memoryChip(c, memoryUnitTypeLabel(item.UnitType))
-					memoryChip(c, "重要度 "+formatImportance(item.Importance))
-					if !item.CreatedAt.IsZero() {
-						ui.Text(c, item.CreatedAt.Format("2006-01-02 15:04")).
-							FontSize(uiFont(TypeCaption)).
-							Shrink(0).
-							TextColor(ThemeSecondaryText(c))
-					}
 					if forgetting {
 						LoadingIndicator(c, nil, "", IconSM)
 					}
@@ -1047,10 +1115,26 @@ func renderMemoryItemCard(c *ui.Context, s *chatState, snap memoryPanelSnapshot,
 						OnClick:  func() { s.requestForgetMemory(item.ID) },
 					}).Shrink(0)
 				})
+			ui.Row(c.Key("memory-item-meta-" + item.ID)).
+				FillWidth().
+				Wrap().
+				Gap(Space2).
+				GapY(Space1).
+				AlignItems(ui.Center).
+				Children(func() {
+					memoryChip(c, memoryUnitTypeLabel(item.UnitType))
+					memoryChip(c, "重要度 "+formatImportance(item.Importance))
+					if !item.CreatedAt.IsZero() {
+						ui.Text(c, item.CreatedAt.Format("2006-01-02 15:04")).
+							FontSize(uiFont(TypeCaption)).
+							Shrink(0).
+							TextColor(ThemeSecondaryText(c))
+					}
+				})
 			ui.Text(c, item.Content).
 				FontSize(uiFont(TypeCaption)).
 				Font("monospace").
-				MaxLines(4).
+				MaxLines(2).
 				FillWidth().
 				TextColor(ThemeSecondaryText(c))
 		})
