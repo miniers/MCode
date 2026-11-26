@@ -676,9 +676,11 @@ func planApprovalResponse(resp approvalResponse) harness.ApprovalResponse {
 	return out
 }
 
-// switchToBuild 在计划获批后把会话交互模式从 plan 切回 build，并写穿到 store、推送新摘要。
+// switchToBuild 在计划获批后把本轮和会话交互模式从 plan 切回 build，
+// 让获批后同一回合里的编排门禁放行，并写穿到 store、推送新摘要。
 // 用独立上下文：本次请求的 ctx 可能随审批投递结束而被取消。
 func (a *threadApprover) switchToBuild() {
+	a.b.setActiveTurnInteractionMode(a.threadID, "build")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	th, err := a.b.GetThread(ctx, a.threadID)

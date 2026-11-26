@@ -141,7 +141,10 @@ type memoryThread struct {
 	pending        map[string]*pendingRequest
 	alwaysAllow    map[string]bool
 	runTurnID      string
-	runCancel      context.CancelFunc
+	// activeTurn 记录当前尚未结束的回合状态（从 startTurnLocked 到 setIdleLocked），
+	// 供 TurnInteractionMode 等在回合运行及收尾钩子期间读取本轮固定偏好。
+	activeTurn *startedTurn
+	runCancel  context.CancelFunc
 	// stewardBusy 在前台处理主会话消息期间为真，不是执行轮次。
 	stewardBusy bool
 	// runStartedAt 是本轮开始运行的时刻，「终止运行中的命令」在缺少工具消息时间时用它兜底。
@@ -221,6 +224,7 @@ func (td *memoryThread) isPriorityFollowUpLocked(fu wire.FollowUp) bool {
 func (td *memoryThread) setIdleLocked() {
 	td.summary.IsRunning = false
 	td.phase = phaseIdle
+	td.activeTurn = nil
 	for _, ch := range td.idleWaiters {
 		close(ch)
 	}

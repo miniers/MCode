@@ -980,7 +980,7 @@ func (b *MemoryBackend) startTurnLocked(td *memoryThread, text string, kind ...s
 		}
 	}
 
-	return &startedTurn{
+	st := &startedTurn{
 		userMsg:         userMsg,
 		turnID:          turnID,
 		runCtx:          runCtx,
@@ -991,6 +991,34 @@ func (b *MemoryBackend) startTurnLocked(td *memoryThread, text string, kind ...s
 		interactionMode: normalizeInteractionMode(td.summary.InteractionMode),
 		effort:          derefString(td.summary.Effort),
 	}
+	td.activeTurn = st
+	return st
+}
+
+// TurnInteractionMode 返回会话本轮生效的交互模式：有进行中的回合且其交互模式非空时，
+// 返回规范化后的本轮交互模式；否则返回规范化后的会话摘要交互模式；会话不存在返回 "build"。
+func (b *MemoryBackend) TurnInteractionMode(threadID string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	td, ok := b.threads[threadID]
+	if !ok {
+		return "build"
+	}
+	if td.activeTurn != nil && td.activeTurn.interactionMode != "" {
+		return normalizeInteractionMode(td.activeTurn.interactionMode)
+	}
+	return normalizeInteractionMode(td.summary.InteractionMode)
+}
+
+// setActiveTurnInteractionMode 在回合进行中更新本轮的交互模式；会话不存在或无进行中回合时不操作。
+func (b *MemoryBackend) setActiveTurnInteractionMode(threadID, mode string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	td, ok := b.threads[threadID]
+	if !ok || td.activeTurn == nil {
+		return
+	}
+	td.activeTurn.interactionMode = mode
 }
 
 // launchTurnRun 为刚开始的执行轮启动后台 harness/模拟回复 goroutine。

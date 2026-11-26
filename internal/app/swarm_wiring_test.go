@@ -1890,3 +1890,145 @@ func TestSwarmSettingsFromConfigMapsReviewFunnel(t *testing.T) {
 		t.Fatalf("零值应原样保留: %+v", zero)
 	}
 }
+
+type turnInteractionModeHarness struct {
+	turns chan harness.Turn
+}
+
+func (*turnInteractionModeHarness) Kind() harness.Kind { return "turn-interaction-mode" }
+
+func (h *turnInteractionModeHarness) Run(_ context.Context, turn harness.Turn, emit func(harness.Event)) error {
+	if swarm.IsBeePrompt(turn.Prompt) {
+		emit(harness.Event{Type: harness.EventText, Text: "bee ok"})
+		return nil
+	}
+	h.turns <- turn
+	emit(harness.Event{
+		Type: harness.EventText,
+		Text: "```swarm\n" + `[{"prompt":"edit task","tier":"edit"}]` + "\n```",
+	})
+	return nil
+}
+
+type turnInteractionModeSystemHarness struct {
+	*turnInteractionModeHarness
+}
+
+func (*turnInteractionModeSystemHarness) CarriesSystemPolicy(string) bool { return true }
+
+func TestTurnInteractionMode_PlanGateAndStaticPolicy(t *testing.T) {
+	const planPolicyMarker = "[Swarm · plan mode]"
+	for _, tc := range []struct {
+		name         string
+		systemPolicy bool
+	}{
+		{name: "system_policy", systemPolicy: true},
+		{name: "prompt_decorator", systemPolicy: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testenv.TempHome(t)
+			ctx := context.Background()
+			dir := swarmRepo(t)
+			hub := remote.NewStreamHub(remote.StreamHubOptions{})
+			defer hub.Close()
+			backend := remote.NewMemoryBackend(hub)
+			defer backend.Close()
+			off := false
+			backend.SetGeneralSettingsFunc(func() config.Config {
+				return config.Config{Session: config.SessionConfig{ConciseRepliesEnabled: &off}}
+			})
+
+			base := &turnInteractionModeHarness{turns: make(chan harness.Turn, 4)}
+			var h harness.Harness = base
+			if tc.systemPolicy {
+				h = &turnInteractionModeSystemHarness{base}
+			}
+			backend.SetHarness(h, dir, harness.ModeFullAccess)
+			backend.AddProject(wire.ProjectSummary{ID: "p", Name: "Proj", Path: dir})
+			backend.AddThread(wire.ThreadSummary{
+				ID:              "lead",
+				ProjectID:       "p",
+				Provider:        "turn-interaction-mode",
+				InteractionMode: "plan",
+			}, nil)
+
+			mgr := swarm.NewManager(swarm.Options{
+				Git:          git.NewRunner("", 4),
+				Driver:       backend,
+				WorktreeDir:  t.TempDir(),
+				PollInterval: testSwarmPollInterval,
+			})
+			mgr.SetSettingsFunc(func() swarm.Settings {
+				return swarm.Settings{
+					Enabled:       true,
+					AutoDelegate:  true,
+					WorkspaceMode: "worktree",
+					DefaultTier:   "edit",
+					Tiers: []swarm.Tier{
+						{ID: "edit", Description: "编辑"},
+						{ID: "read", Description: "只读", ReadOnly: true},
+					},
+				}
+			})
+			mgr.SetEnabled("lead", true)
+			wireSwarm(ctx, mgr, backend, false)
+
+			// 1. 会话偏好为 plan，本轮 Options.InteractionMode=build：planGate 放行非只读档条目，staticPolicy 不含 plan 提示。
+			build := "build"
+			if _, err := backend.SendMessage(ctx, wire.SendMessageParams{
+				ThreadID: "lead",
+				Text:     "build turn",
+				Options:  &wire.ComposerOptions{InteractionMode: &build},
+			}); err != nil {
+				t.Fatalf("发送 build 回合失败: %v", err)
+			}
+			var turn1 harness.Turn
+			select {
+			case turn1 = <-base.turns:
+			case <-time.After(5 * time.Second):
+				t.Fatal("等待 turn1 超时")
+			}
+			policyText1 := turn1.Prompt
+			if tc.systemPolicy {
+				policyText1 = turn1.SystemPolicy
+			}
+			if strings.Contains(policyText1, planPolicyMarker) {
+				t.Fatalf("本轮 build 不应包含 %q，实际: %s", planPolicyMarker, policyText1)
+			}
+			waitSwarm(t, func() bool {
+				th, _ := backend.GetThread(ctx, "lead")
+				return !th.IsRunning && len(mgr.State("lead").Bees) == 1
+			})
+			if got := mgr.State("lead").Bees[0].Tier; got != "edit" {
+				t.Fatalf("本轮 build 应放行 edit 档 bee，实际 tier=%q", got)
+			}
+			waitSwarm(t, func() bool {
+				th, _ := backend.GetThread(ctx, mgr.State("lead").Bees[0].ThreadID)
+				return !th.IsRunning
+			})
+
+			// 2. 不带 Options 时沿用会话偏好 plan：planGate 拒绝非只读档条目，staticPolicy 包含 plan 提示。
+			sendSwarmMessage(t, ctx, backend, "lead", "plan turn")
+			var turn2 harness.Turn
+			select {
+			case turn2 = <-base.turns:
+			case <-time.After(5 * time.Second):
+				t.Fatal("等待 turn2 超时")
+			}
+			policyText2 := turn2.Prompt
+			if tc.systemPolicy {
+				policyText2 = turn2.SystemPolicy
+			}
+			if !strings.Contains(policyText2, planPolicyMarker) {
+				t.Fatalf("本轮 plan 应包含 %q，实际: %s", planPolicyMarker, policyText2)
+			}
+			waitSwarm(t, func() bool {
+				th, _ := backend.GetThread(ctx, "lead")
+				return !th.IsRunning
+			})
+			if got := len(mgr.State("lead").Bees); got != 1 {
+				t.Fatalf("本轮 plan 应拒绝新增 edit 档 bee，期望总数 1，实际 %d", got)
+			}
+		})
+	}
+}

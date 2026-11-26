@@ -1396,8 +1396,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 	// 单个 swarm 块的条目数硬上限取用户设置的并发上限：超出的条目不入队，回合末回送主代理另发一块。
 	dispatcher.maxEntries = mgr.MaxBeesLimit
 	dispatcher.planGate = func(threadID string, entry swarm.Delegation) (swarm.Delegation, bool) {
-		thread, err := backend.GetThread(ctx, threadID)
-		if err != nil || thread.InteractionMode != "plan" {
+		if backend.TurnInteractionMode(threadID) != "plan" {
 			return entry, true
 		}
 		return swarmPlanGate(mgr.Settings(), entry)
@@ -1446,7 +1445,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 		plansOnly = effectiveMode(threadID) == swarm.ModeLeadPlansOnly
 		delegateTool = settings.DelegateTool
 		leadPolicy = swarm.LeadPolicy(plansOnly, settings.ReviewMode, delegateTool)
-		if thread, err := backend.GetThread(ctx, threadID); err == nil && thread.InteractionMode == "plan" {
+		if backend.TurnInteractionMode(threadID) == "plan" {
 			leadPolicy += "\n\n[Swarm · plan mode] This turn is in plan mode: only read-only tier bees may be dispatched; entries for other tiers are refused. Send editing bees after the plan is approved."
 		}
 		tiers = swarm.TierPromptSection(settings.Tiers, settings.DefaultTier, mgr.TierPreview(threadID))
@@ -1584,7 +1583,7 @@ func wireSwarmWithModes(ctx context.Context, mgr *swarm.Manager, backend *remote
 			if err != nil {
 				return "", err
 			}
-			if thread.InteractionMode == "plan" {
+			if backend.TurnInteractionMode(threadID) == "plan" {
 				return "", nil
 			}
 			dir, _ := backend.ThreadWorkDir(threadID)
