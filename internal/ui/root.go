@@ -74,6 +74,7 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 		}
 		applyAppTheme(c)
 		state.init(c)
+		popoverOpen := takePopoverOpen(c)
 		state.applyWorkspaceUpdates()
 		// 后台建好的总管会话每帧在这里跳到前台，侧栏折叠时也不会漏跳。
 		consumeStewardPendingThread(state)
@@ -174,18 +175,6 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 			winW, _ := c.Size()
 			state.sidebarWidth = clampSidebarWidthForWindow(winW, state.sidebarWidth)
 
-			// 命令面板与设置窗口互不遮挡。
-			// 终端聚焦时不注册也不消费命令面板快捷键，让按键直达终端视图（例如 ⌘K 清屏）。
-			if !terminalFocused(state) {
-				if mods, key, ok := shortcutBindingFor("command-palette"); ok && c.Shortcut(mods, key) {
-					togglePalette(state)
-				}
-			}
-			if mods, key, ok := shortcutBindingFor("toggle-sidebar"); ok && c.Shortcut(mods, key) {
-				toggleSidebarPersisted(state)
-			}
-
-			// 主界面快捷键处理（仅在设置面板未打开时生效）
 			ws := getWorkspaceState(state)
 			view := "chat"
 			if ws != nil {
@@ -193,19 +182,42 @@ func buildRoot(client Client, opts ...Option) (*chatState, func(c *ui.Context)) 
 				view = ws.view
 				workspaceMu.Unlock()
 			}
-			if (view == "attention" || view == "tasks" || view == "automations") && c.Shortcut(ui.Cmd, ui.KeyF) {
-				kanbanKeyboardSearchFocus(state, true)
-			}
 
-			if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
-				// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
-				if (view != "attention" && view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || ((view == "tasks" || view == "attention") && !consumeKanbanEscape(state)) {
-					state.closeWorkspace()
-					view = "chat"
+			var (
+				scID  string
+				scIdx int
+				ok    bool
+			)
+			// 浮层（PopoverBase）不像 DialogBase 会拦截弹窗外的 c.Shortcut，
+			// 因此本帧渲染前检测到上一帧有浮层打开时，全局键盘快捷键全部让路给浮层；
+			// 原生菜单派发的 state.popPendingAction() 仍照常执行。
+			if !popoverOpen {
+				// 命令面板与设置窗口互不遮挡。
+				// 终端聚焦时不注册也不消费命令面板快捷键，让按键直达终端视图（例如 ⌘K 清屏）。
+				if !terminalFocused(state) {
+					if mods, key, ok := shortcutBindingFor("command-palette"); ok && c.Shortcut(mods, key) {
+						togglePalette(state)
+					}
 				}
-			}
+				if mods, key, ok := shortcutBindingFor("toggle-sidebar"); ok && c.Shortcut(mods, key) {
+					toggleSidebarPersisted(state)
+				}
 
-			scID, scIdx, ok := dispatchActiveShortcut(c)
+				// 主界面快捷键处理（仅在设置面板未打开时生效）
+				if (view == "attention" || view == "tasks" || view == "automations") && c.Shortcut(ui.Cmd, ui.KeyF) {
+					kanbanKeyboardSearchFocus(state, true)
+				}
+
+				if view != "chat" && c.Shortcut(0, ui.KeyEscape) {
+					// 看板的快速添加与搜索框先消费 Esc（取消输入或清空搜索），工作区保持打开。
+					if (view != "attention" && view != "tasks" && view != "automations") || (view == "automations" && !handleAutomationEscape(state) && !consumeKanbanEscape(state)) || ((view == "tasks" || view == "attention") && !consumeKanbanEscape(state)) {
+						state.closeWorkspace()
+						view = "chat"
+					}
+				}
+
+				scID, scIdx, ok = dispatchActiveShortcut(c)
+			}
 			if !ok {
 				scID, scIdx, ok = state.popPendingAction()
 			}

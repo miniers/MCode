@@ -1226,6 +1226,9 @@ func renderModelPicker(c *ui.Context, p ModelPickerProps) {
 
 				renderModelPickerMenuBody(c, p, state)
 			})
+			if state.MenuOpen {
+				markPopoverOpen(c)
+			}
 		})
 	}
 

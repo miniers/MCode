@@ -616,12 +616,12 @@ type PermissionsConfig struct {
 
 // NotificationsConfig 通知与提示音设置。
 type NotificationsConfig struct {
-	NotifyWhenFinished       bool  `json:"notify_when_finished"`                  // 轮次结束通知
-	NotifyWhenForeground     bool  `json:"notify_when_foreground"`                // 前台也发送通知，默认 false
-	NotifyOnApproval         bool  `json:"notify_on_approval"`                    // 待审批时发系统通知
-	PlayFinishSound          bool  `json:"play_finish_sound"`                     // 播放完成提示音
-	ChimeWhenAttentionNeeded *bool `json:"chime_when_attention_needed,omitempty"` // 需要用户介入时播放提示音，nil 视为开启
-	DormantSound             *bool `json:"dormant_sound,omitempty"`               // 会话休眠时播放提示音，nil 视为开启
+	NotifyWhenFinished       bool   `json:"notify_when_finished"`                  // 轮次结束通知
+	NotifyWhenForeground     bool   `json:"notify_when_foreground"`                // 前台也发送通知，默认 false
+	NotifyOnApproval         bool   `json:"notify_on_approval"`                    // 待审批时发系统通知
+	PlayFinishSound          bool   `json:"play_finish_sound"`                     // 播放完成提示音
+	ChimeWhenAttentionNeeded *bool  `json:"chime_when_attention_needed,omitempty"` // 需要用户介入时播放提示音，nil 视为开启
+	DormantSound             *bool  `json:"dormant_sound,omitempty"`               // 会话休眠时播放提示音，nil 视为开启
 	NotifyWhenStalled        *bool  `json:"notify_when_stalled,omitempty"`         // 会话长时间没有进展时提醒，nil 视为开启
 	StalledAlertMinutes      int    `json:"stalled_alert_minutes,omitempty"`       // 卡住提醒的无进展阈值（分钟），0 或负数视为默认 10
 	WebhookURL               string `json:"webhook_url,omitempty"`                 // 通知 Webhook 地址，空字符串表示关闭

@@ -38,6 +38,43 @@ var (
 	popoverAnchorDismissed = make(map[*bool]struct{})
 )
 
+type popoverOpenMarkerKey struct{}
+
+type popoverOpenMarker struct {
+	open bool
+}
+
+// popoverOpenState 返回当前窗口根元素上的浮层打开标记。
+// mcode 可通过 OpenThreadWindow 同时打开多个独立聊天窗口，因此不能用包级变量；
+// ui.Context 虽不直接暴露 *mygo.Window，但 c.Root() 指向当前窗口唯一的根节点，
+// 用 ui.Local(c.Root(), ...) 即可按窗口隔离存储并在关闭窗口时随引擎释放。
+func popoverOpenState(c *ui.Context) *popoverOpenMarker {
+	if c == nil {
+		return nil
+	}
+	return ui.Local(c.Root(), popoverOpenMarkerKey{}, func() popoverOpenMarker {
+		return popoverOpenMarker{}
+	})
+}
+
+// markPopoverOpen 在当前窗口记录「本帧有浮层保持打开」。
+func markPopoverOpen(c *ui.Context) {
+	if st := popoverOpenState(c); st != nil {
+		st.open = true
+	}
+}
+
+// takePopoverOpen 取出当前窗口上一帧是否有浮层打开，并清零以便本帧重新置位。
+func takePopoverOpen(c *ui.Context) bool {
+	st := popoverOpenState(c)
+	if st == nil {
+		return false
+	}
+	wasOpen := st.open
+	st.open = false
+	return wasOpen
+}
+
 // togglePopoverOpen 统一切换浮层开合状态并防止锚点二次点击「先关后开」：
 // 若当前已打开则置为 false；若刚因交互锚点被 PopoverBase 关闭则消费该标记并保持 false；
 // 其余情况置为 true。返回值表示调用后浮层是否处于打开状态。
@@ -131,6 +168,9 @@ func anchoredPopover(c *ui.Context, anchor ui.Element, p anchoredPopoverProps, c
 		if p.OnDismiss != nil {
 			p.OnDismiss()
 		}
+	}
+	if *p.Open {
+		markPopoverOpen(c)
 	}
 	return panel
 }
