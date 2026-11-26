@@ -34,6 +34,7 @@ func (s *chatState) applyWorkspaceUpdates() {
 	for _, fn := range updates {
 		fn()
 	}
+	s.applyFileManagerUpdates()
 }
 
 func getWorkspaceState(s *chatState) *workspaceState {

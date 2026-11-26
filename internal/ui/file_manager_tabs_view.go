@@ -18,6 +18,8 @@ type fileManagerTabSnapshot struct {
 	totalSize    int64
 	hasMore      bool
 	limitReached bool
+	dirty        bool
+	saving       bool
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
 	svg          *ui.SVG
@@ -60,6 +62,8 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			totalSize:    tab.totalSize,
 			hasMore:      tab.hasMore,
 			limitReached: tab.limitReached,
+			dirty:        tab.dirty,
+			saving:       tab.saving,
 			imageBmp:     tab.imageBmp,
 			mdPreview:    tab.mdPreview,
 			svg:          tab.svg,
@@ -339,6 +343,14 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 						TextColor(color)
 					if tab.temporary {
 						text.Italic()
+					}
+					if tab.dirty {
+						ui.Box(c.Key("file-manager-tab-dirty-"+tab.path)).
+							Size(6, 6).
+							Radius(RadiusPill).
+							Background(ThemeSecondaryText(c)).
+							Shrink(0).
+							Label("未保存")
 					}
 
 					closeBtn := ui.ButtonBase(c.Key("file-manager-tab-close-"+tab.path)).

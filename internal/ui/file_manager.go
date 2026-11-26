@@ -77,6 +77,11 @@ type fileManagerState struct {
 	// opsSeq 是弹窗的代数计数器，只增不减：关掉再开时旧请求不会撞上新弹窗。
 	opsSeq int
 
+	// discardConfirm 是关闭未保存标签页时的丢弃确认弹窗状态。
+	discardConfirm fileManagerDiscardConfirm
+	// updates 保存后台文件保存等操作完成后待在 UI 线程执行的回调。
+	updates []func()
+
 	width float32 // 内容的实际布局宽度；偏好宽度只存于 Inspector。
 	gen   int
 }
@@ -208,6 +213,8 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 	st.splitAnchor = ""
 	st.splitSide = ""
 	st.ops = fileManagerOpsDialog{}
+	st.discardConfirm = fileManagerDiscardConfirm{}
+	st.updates = nil
 	st.query = ""
 	st.searchResults = nil
 	st.searchTruncated = false
@@ -313,12 +320,15 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 		return
 	}
 
+	s.applyFileManagerUpdates()
+
 	threadID, workDir := getSelectedThreadWorkDir(s)
 	if threadID != "" && workDir != "" {
 		s.prepareFileManagerTree(threadID)
 	}
 
 	fileManagerMu.Lock()
+	syncFileManagerDirtyLocked(st)
 	width := st.width
 	navOpen := st.treeNavOpen
 	snap := fileManagerSnapshotLocked(st)
@@ -376,8 +386,9 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 			}
 		})
 
-	// 写操作弹窗挂在面板末尾：DialogBase 自己挂到 overlay root，不受面板裁剪影响。
+	// 写操作弹窗与未保存丢弃确认弹窗挂在面板末尾：DialogBase 自己挂到 overlay root，不受面板裁剪影响。
 	renderFileManagerOpsDialog(c, s)
+	renderFileManagerDiscardDialog(c, s)
 }
 
 // fileManagerThreadID 返回面板当前绑定的会话 ID（面包屑跳转等即时操作使用）。

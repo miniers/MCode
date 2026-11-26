@@ -75,13 +75,15 @@ type composerPrefsCall struct {
 }
 
 // FileOpCall 记录 FakeClient 的一次文件写操作调用。
-// Op 取值 create / rename / trash / duplicate。
+// Op 取值 create / rename / trash / duplicate / write。
 type FileOpCall struct {
-	Op       string
-	ThreadID string
-	Path     string
-	NewPath  string
-	Dir      bool
+	Op           string
+	ThreadID     string
+	Path         string
+	NewPath      string
+	Dir          bool
+	Content      string
+	ExpectedHash string
 }
 
 // FastModeCall 记录 SetThreadFastMode 调用参数。
@@ -348,6 +350,7 @@ type FakeClient struct {
 	filesListErr        error
 	fileOpCalls         []FileOpCall
 	fileOpsErr          error
+	fileWriteErr        error
 	threadWorkDir       string
 	scripts             []Script
 	scriptsErr          error
@@ -1086,6 +1089,46 @@ func (f *FakeClient) FilesTrash(ctx context.Context, threadID, path string) erro
 	defer f.mu.Unlock()
 	f.fileOpCalls = append(f.fileOpCalls, FileOpCall{Op: "trash", ThreadID: threadID, Path: path})
 	return f.fileOpsErr
+}
+
+// SetFileWriteError 设置后仅 FilesWrite 返回该错误。
+func (f *FakeClient) SetFileWriteError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fileWriteErr = err
+}
+
+func fakeFileSHA256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func (f *FakeClient) FilesWrite(ctx context.Context, threadID, path, content, expectedHash string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fileOpCalls = append(f.fileOpCalls, FileOpCall{
+		Op:           "write",
+		ThreadID:     threadID,
+		Path:         path,
+		Content:      content,
+		ExpectedHash: expectedHash,
+	})
+	if f.fileWriteErr != nil {
+		return "", f.fileWriteErr
+	}
+	if f.fileOpsErr != nil {
+		return "", f.fileOpsErr
+	}
+	if cur, ok := f.fileContents[path]; ok {
+		if expectedHash != "" && fakeFileSHA256Hex(cur.Text) != expectedHash {
+			return "", fmt.Errorf("%w: %s", ErrFileVersionConflict, path)
+		}
+		cur.Text = content
+		cur.TotalSize = int64(len(content))
+		cur.HasMore = false
+		f.fileContents[path] = cur
+	}
+	return fakeFileSHA256Hex(content), nil
 }
 
 func (f *FakeClient) SetFiles(files []FileMatch) {

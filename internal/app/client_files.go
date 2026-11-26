@@ -129,6 +129,24 @@ func (c *Client) FilesCreate(ctx context.Context, threadID, path string, dir boo
 	return res.Path, nil
 }
 
+// FilesWrite 原子覆盖工作区内已存在的文本文件，返回写入后整文件的 SHA-256 小写十六进制摘要。
+func (c *Client) FilesWrite(ctx context.Context, threadID, path, content, expectedHash string) (string, error) {
+	res, err := c.backend.FilesWrite(ctx, wire.FilesWriteExtParams{
+		ThreadID:     threadID,
+		Path:         path,
+		Content:      content,
+		ExpectedHash: expectedHash,
+	})
+	if err != nil {
+		var rpcErr *wire.RPCError
+		if errors.As(err, &rpcErr) && rpcErr.Code == wire.ErrCodeVersionConflict {
+			return "", fmt.Errorf("%w: %w", mcodeui.ErrFileVersionConflict, err)
+		}
+		return "", err
+	}
+	return res.Hash, nil
+}
+
 // FilesRename 重命名或移动工作区内的条目，返回新的相对路径。
 func (c *Client) FilesRename(ctx context.Context, threadID, path, newPath string) (string, error) {
 	res, err := c.backend.FilesRename(ctx, wire.FilesRenameParams{

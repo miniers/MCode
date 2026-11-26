@@ -1,14 +1,22 @@
 package mcodeui
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
 
-const fileManagerRevealMaxRetries = 3
+const (
+	fileManagerRevealMaxRetries = 3
+	fileManagerSaveTimeout      = 30 * time.Second
+)
 
 // fileManagerCodePreview 是某一栏代码预览缓存的编辑器状态：state 跨帧保留选区与滚动位置，
 // content / fontSize 记录上次同步进去的文本与字号，用来判断这一帧是否需要更新；
@@ -19,6 +27,11 @@ type fileManagerCodePreview struct {
 	fontSize         float32
 	revealSeq        int
 	revealRetryCount int
+}
+
+// fileManagerTabEditable 报告该 tab 是否允许就地编辑：仅完整加载的文本文件可编辑。
+func fileManagerTabEditable(tab fileManagerTabSnapshot) bool {
+	return tab.kind == "text" && !tab.hasMore && !tab.limitReached && tab.fileErr == ""
 }
 
 // fileManagerCodePreviewTab 报告该 tab 的预览是否由代码编辑器直接占满一栏。
@@ -69,21 +82,23 @@ func fileManagerCodeViewFor(st *fileManagerState, key, filePath, content string,
 		return view.state
 	}
 	if view.content != content {
-		if strings.HasPrefix(content, view.content) {
-			// Buffer.Edit 的坐标是编辑前文本的字节偏移，追加就是「末尾到末尾」插入。
-			buffer := view.state.Buffer
-			if rest := content[len(view.content):]; rest != "" {
-				end := buffer.Len()
-				buffer.Edit(editor.Edit{Start: end, End: end, Text: rest})
-				// 预览是只读快照，追加不该把缓冲区标成「已修改」。
-				// 撤销历史会留下一步（Buffer 没有单独清历史的公开方法），
-				// 但只读编辑器不响应 Undo，用户碰不到。
-				buffer.MarkSaved()
+		if !view.state.Buffer.Modified() {
+			if strings.HasPrefix(content, view.content) {
+				// Buffer.Edit 的坐标是编辑前文本的字节偏移，追加就是「末尾到末尾」插入。
+				buffer := view.state.Buffer
+				if rest := content[len(view.content):]; rest != "" {
+					end := buffer.Len()
+					buffer.Edit(editor.Edit{Start: end, End: end, Text: rest})
+					// 预览是只读快照，追加不该把缓冲区标成「已修改」。
+					// 撤销历史会留下一步（Buffer 没有单独清历史的公开方法），
+					// 但只读编辑器不响应 Undo，用户碰不到。
+					buffer.MarkSaved()
+				}
+			} else {
+				view.state.Buffer.Reset(content)
 			}
-		} else {
-			view.state.Buffer.Reset(content)
+			view.content = content
 		}
-		view.content = content
 	}
 	if view.fontSize != size {
 		// Theme 留空：DefaultTheme 会跟随当前窗口的浅色 / 深色主题。
@@ -93,12 +108,16 @@ func fileManagerCodeViewFor(st *fileManagerState, key, filePath, content string,
 	return view.state
 }
 
-// renderFileManagerCodePreview 渲染只读代码编辑器：按文件名识别语言做语法高亮，显示行号，
-// 可选中复制，滚动与选区都由编辑器自己管理。字号跟随设置里的编辑器字号。
+// renderFileManagerCodePreview 渲染代码编辑器：按文件名识别语言做语法高亮，显示行号，
+// 完整加载的文本文件可直接编辑并按 Cmd/Ctrl+S 保存，未完整加载或非文本保持只读。
 func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTabSnapshot, keyPrefix string) ui.Element {
+	s.applyFileManagerUpdates()
 	manager := getFileManagerState(s)
 	key := keyPrefix + tab.path
 	st := fileManagerCodeViewFor(manager, key, tab.path, tab.content, fileManagerPreviewFontSize(s))
+	editable := fileManagerTabEditable(tab)
+	st.ReadOnly = !editable
+	st.NoActiveLine = !editable
 	e := ui.Column(c.Key(keyPrefix + "code-view-container")).
 		Grow(1).
 		FillWidth().
@@ -143,14 +162,173 @@ func renderFileManagerCodePreview(c *ui.Context, s *chatState, tab fileManagerTa
 	} else {
 		st.LineBackgrounds = nil
 	}
+	var edEl ui.Element
 	e.Children(func() {
-		editor.View(c.Key(keyPrefix+"code-view"), st).
+		edEl = editor.View(c.Key(keyPrefix+"code-view"), st).
 			Grow(1).
 			FillWidth().
 			MinWidth(0).
 			MinHeight(0)
 	})
+	if editable && edEl.Valid() && edEl.Focused() && edEl.Shortcut(ui.Cmd, ui.KeyS) {
+		s.saveFileManagerTab(tab.path, keyPrefix)
+	}
 	return e
+}
+
+func (s *chatState) updateFileManager(fn func()) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	st.updates = append(st.updates, fn)
+	fileManagerMu.Unlock()
+	s.invalidate()
+}
+
+func (s *chatState) applyFileManagerUpdates() {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	updates := st.updates
+	st.updates = nil
+	fileManagerMu.Unlock()
+	for _, fn := range updates {
+		fn()
+	}
+}
+
+func syncFileManagerDirtyLocked(st *fileManagerState) {
+	if st == nil || st.codeViews == nil {
+		return
+	}
+	for _, tab := range st.tabs {
+		hasView := false
+		dirty := false
+		for _, prefix := range []string{"file-manager-pane-0-", "file-manager-pane-1-"} {
+			if preview := st.codeViews[prefix+tab.path]; preview != nil && preview.state != nil && preview.state.Buffer != nil {
+				hasView = true
+				if preview.state.Buffer.Modified() {
+					dirty = true
+					break
+				}
+			}
+		}
+		if hasView {
+			tab.dirty = dirty
+		}
+	}
+}
+
+func fileManagerSHA256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func isFileWriteVersionConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrFileVersionConflict) || strings.Contains(err.Error(), "-32009")
+}
+
+func (s *chatState) saveFileManagerTab(filePath, keyPrefix string) {
+	if s == nil || filePath == "" {
+		return
+	}
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	client, ok := fileOpsClient(s)
+	if !ok {
+		return
+	}
+
+	viewKey := keyPrefix + filePath
+	var preview *fileManagerCodePreview
+	if st.codeViews != nil {
+		preview = st.codeViews[viewKey]
+	}
+	if preview == nil || preview.state == nil || preview.state.Buffer == nil {
+		return
+	}
+
+	var buf strings.Builder
+	_, _ = preview.state.Buffer.WriteTo(&buf)
+	newContent := buf.String()
+	savedVersion := preview.state.Buffer.Version()
+	expectedContent := preview.content
+
+	fileManagerMu.Lock()
+	tab := st.findTabLocked(filePath)
+	if tab == nil || tab.saving || tab.kind != "text" || tab.hasMore || tab.limitReached || tab.fileErr != "" {
+		fileManagerMu.Unlock()
+		return
+	}
+	if expectedContent == "" {
+		expectedContent = tab.content
+	}
+	threadID := st.threadID
+	if threadID == "" {
+		fileManagerMu.Unlock()
+		return
+	}
+	tab.saving = true
+	tab.saveGen++
+	saveGen := tab.saveGen
+	tabGen := tab.gen
+	fileManagerMu.Unlock()
+
+	expectedHash := fileManagerSHA256Hex(expectedContent)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), fileManagerSaveTimeout)
+		defer cancel()
+		_, err := client.FilesWrite(ctx, threadID, filePath, newContent, expectedHash)
+		s.updateFileManager(func() {
+			s.finishFileManagerSave(st, tab, threadID, filePath, viewKey, newContent, savedVersion, tabGen, saveGen, err)
+		})
+	}()
+}
+
+func (s *chatState) finishFileManagerSave(st *fileManagerState, tab *fileManagerTab, threadID, filePath, viewKey, savedContent string, savedVersion uint64, tabGen, saveGen int, err error) {
+	fileManagerMu.Lock()
+	if st.threadID != threadID || !st.tabLiveLocked(tab, tabGen) || tab.saveGen != saveGen {
+		fileManagerMu.Unlock()
+		return
+	}
+	tab.saving = false
+	if err != nil {
+		fileManagerMu.Unlock()
+		if isFileWriteVersionConflict(err) {
+			s.setToast("文件已在磁盘上变化，未保存")
+		} else {
+			s.setToast("保存失败: " + err.Error())
+		}
+		return
+	}
+	tab.content = savedContent
+	tab.totalSize = int64(len(savedContent))
+	tab.temporary = false
+	fileManagerMu.Unlock()
+
+	if st.codeViews != nil {
+		if preview := st.codeViews[viewKey]; preview != nil && preview.state != nil && preview.state.Buffer != nil {
+			preview.content = savedContent
+			if preview.state.Buffer.Version() == savedVersion {
+				preview.state.Buffer.MarkSaved()
+			}
+			dirty := preview.state.Buffer.Modified()
+			fileManagerMu.Lock()
+			if st.tabLiveLocked(tab, tabGen) {
+				tab.dirty = dirty
+			}
+			fileManagerMu.Unlock()
+		}
+	}
 }
 
 // fileManagerLineHighlightColor 按淡入进度缩放高亮透明度；base 已是柔和透明色，这里只做线性缩放。

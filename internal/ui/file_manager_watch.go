@@ -276,6 +276,9 @@ func fileTreeWatchCheck(s *chatState, st *fileManagerState, client workspaceGene
 	var refreshes []fileManagerTabRefresh
 	if changed {
 		for _, tab := range st.tabs {
+			if tab.dirty || tab.saving {
+				continue
+			}
 			tab.gen++
 			tab.fileLoading = true
 			tab.fileErr = ""

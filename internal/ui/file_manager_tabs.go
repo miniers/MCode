@@ -28,6 +28,9 @@ type fileManagerTab struct {
 	nextOffset   int64
 	hasMore      bool
 	limitReached bool
+	dirty        bool
+	saving       bool
+	saveGen      int
 	imageData    []byte
 	imageBmp     *ui.Bitmap
 	mdPreview    bool
@@ -49,12 +52,12 @@ func (st *fileManagerState) findTabLocked(path string) *fileManagerTab {
 	return nil
 }
 
-// temporaryTabLocked 返回一个可以原地复用的临时 tab：最近的、且不是拆分固定栏的那个。
+// temporaryTabLocked 返回一个可以原地复用的临时 tab：最近的、未修改且不是拆分固定栏的那个。
 // 调用方持 fileManagerMu。
 func (st *fileManagerState) temporaryTabLocked() *fileManagerTab {
 	for i := len(st.tabs) - 1; i >= 0; i-- {
 		tab := st.tabs[i]
-		if tab.temporary && tab.path != st.splitAnchor {
+		if tab.temporary && !tab.dirty && !tab.saving && tab.path != st.splitAnchor {
 			return tab
 		}
 	}
@@ -97,6 +100,9 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 	tab.nextOffset = 0
 	tab.hasMore = false
 	tab.limitReached = false
+	tab.dirty = false
+	tab.saving = false
+	tab.saveGen++
 	tab.imageData = nil
 	tab.imageBmp = nil
 	tab.mdPreview = isMarkdownPath(path)
@@ -256,6 +262,11 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 			return
 		}
 		tab.fileLoading = false
+		if tab.dirty || tab.saving {
+			fileManagerMu.Unlock()
+			s.invalidate()
+			return
+		}
 		if err != nil {
 			tab.fileErr = err.Error()
 			tab.reveal = false
@@ -401,6 +412,11 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 			return
 		}
 		tab.fileLoading = false
+		if tab.dirty || tab.saving {
+			fileManagerMu.Unlock()
+			s.invalidate()
+			return
+		}
 		if err != nil {
 			fallback := tab.reveal && tab.content != ""
 			if fallback {
@@ -451,8 +467,8 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 	}()
 }
 
-// closeFileManagerTab 关闭某个 tab：关掉当前 tab 时切到相邻 tab，
-// 关掉拆分固定栏时取消拆分。tab 全部关完时回到文件树，面板保持打开。
+// closeFileManagerTab 关闭某个 tab：有未保存修改时先弹出丢弃确认，否则立即关闭；
+// 关掉当前 tab 时切到相邻 tab，关掉拆分固定栏时取消拆分。tab 全部关完时回到文件树，面板保持打开。
 func (s *chatState) closeFileManagerTab(path string) {
 	st := getFileManagerState(s)
 	if st == nil {
@@ -460,6 +476,28 @@ func (s *chatState) closeFileManagerTab(path string) {
 	}
 
 	fileManagerMu.Lock()
+	tab := st.findTabLocked(path)
+	if tab == nil {
+		fileManagerMu.Unlock()
+		return
+	}
+	if tab.dirty {
+		st.discardConfirm = fileManagerDiscardConfirm{open: true, mode: "single", path: path}
+		fileManagerMu.Unlock()
+		s.invalidate()
+		return
+	}
+	empty, wasActive := st.closeFileManagerTabLocked(path)
+	fileManagerMu.Unlock()
+
+	if empty || wasActive {
+		inspectorRemember(s)
+	}
+	s.invalidate()
+}
+
+// closeFileManagerTabLocked 在持有 fileManagerMu 时强制关闭单个 tab，不检查 dirty。
+func (st *fileManagerState) closeFileManagerTabLocked(path string) (empty, wasActive bool) {
 	idx := -1
 	for i, tab := range st.tabs {
 		if tab.path == path {
@@ -468,11 +506,10 @@ func (s *chatState) closeFileManagerTab(path string) {
 		}
 	}
 	if idx < 0 {
-		fileManagerMu.Unlock()
-		return
+		return len(st.tabs) == 0, false
 	}
 
-	wasActive := st.active == path
+	wasActive = st.active == path
 	wasAnchor := st.splitAnchor == path
 	wasSide := st.splitSide == path
 	oldSide := st.splitSide
@@ -517,19 +554,14 @@ func (s *chatState) closeFileManagerTab(path string) {
 		}
 	}
 
-	empty := len(st.tabs) == 0
+	empty = len(st.tabs) == 0
 	if empty {
 		st.active = ""
 		st.splitAnchor = ""
 		st.splitSide = ""
 		st.showList = true
 	}
-	fileManagerMu.Unlock()
-
-	if empty || wasActive {
-		inspectorRemember(s)
-	}
-	s.invalidate()
+	return empty, wasActive
 }
 
 // pinFileManagerTab 把临时预览 tab 固定下来（双击 tab 或从聊天卡片打开）。
@@ -693,27 +725,45 @@ func (s *chatState) closeOtherFileManagerTabs(path string) {
 	}
 	fileManagerMu.Lock()
 	var keep *fileManagerTab
+	hasDirty := false
 	for _, tab := range st.tabs {
 		if tab.path == path {
 			keep = tab
-			break
+			continue
+		}
+		if tab.dirty {
+			hasDirty = true
 		}
 	}
 	if keep == nil {
 		fileManagerMu.Unlock()
 		return
 	}
-	st.tabs = []*fileManagerTab{keep}
-	st.active = path
-	st.splitAnchor = ""
-	st.splitSide = ""
+	if hasDirty {
+		st.discardConfirm = fileManagerDiscardConfirm{open: true, mode: "other", path: path}
+		fileManagerMu.Unlock()
+		s.invalidate()
+		return
+	}
+	st.closeOtherFileManagerTabsLocked(path)
 	fileManagerMu.Unlock()
 	inspectorRemember(s)
 	s.invalidate()
 }
 
+func (st *fileManagerState) closeOtherFileManagerTabsLocked(path string) {
+	keep := st.findTabLocked(path)
+	if keep == nil {
+		return
+	}
+	st.tabs = []*fileManagerTab{keep}
+	st.active = path
+	st.splitAnchor = ""
+	st.splitSide = ""
+}
+
 // closeFileManagerTabsRightOf 关闭 path 右侧的所有 tab。
-// 逐个走 closeFileManagerTab，沿用它的相邻 tab 回退与拆分处理规则。
+// 逐个走强制关闭逻辑，沿用相邻 tab 回退与拆分处理规则。
 func (s *chatState) closeFileManagerTabsRightOf(path string) {
 	st := getFileManagerState(s)
 	if st == nil {
@@ -727,17 +777,54 @@ func (s *chatState) closeFileManagerTabsRightOf(path string) {
 			break
 		}
 	}
-	victims := make([]string, 0, len(st.tabs))
-	if idx >= 0 {
-		for _, tab := range st.tabs[idx+1:] {
-			victims = append(victims, tab.path)
+	if idx < 0 {
+		fileManagerMu.Unlock()
+		return
+	}
+	hasDirty := false
+	for _, tab := range st.tabs[idx+1:] {
+		if tab.dirty {
+			hasDirty = true
+			break
 		}
 	}
-	fileManagerMu.Unlock()
-
-	for _, p := range victims {
-		s.closeFileManagerTab(p)
+	if hasDirty {
+		st.discardConfirm = fileManagerDiscardConfirm{open: true, mode: "right", path: path}
+		fileManagerMu.Unlock()
+		s.invalidate()
+		return
 	}
+	needRemember := st.closeFileManagerTabsRightOfLocked(path)
+	fileManagerMu.Unlock()
+	if needRemember {
+		inspectorRemember(s)
+	}
+	s.invalidate()
+}
+
+func (st *fileManagerState) closeFileManagerTabsRightOfLocked(path string) bool {
+	idx := -1
+	for i, tab := range st.tabs {
+		if tab.path == path {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	victims := make([]string, 0, len(st.tabs)-idx-1)
+	for _, tab := range st.tabs[idx+1:] {
+		victims = append(victims, tab.path)
+	}
+	needRemember := false
+	for _, p := range victims {
+		empty, wasActive := st.closeFileManagerTabLocked(p)
+		if empty || wasActive {
+			needRemember = true
+		}
+	}
+	return needRemember
 }
 
 // closeAllFileManagerTabs 清空 tabs 并取消拆分，回到目录列表；
@@ -748,14 +835,110 @@ func (s *chatState) closeAllFileManagerTabs() {
 		return
 	}
 	fileManagerMu.Lock()
+	for _, tab := range st.tabs {
+		if tab.dirty {
+			st.discardConfirm = fileManagerDiscardConfirm{open: true, mode: "all"}
+			fileManagerMu.Unlock()
+			s.invalidate()
+			return
+		}
+	}
+	st.closeAllFileManagerTabsLocked()
+	fileManagerMu.Unlock()
+	inspectorRemember(s)
+	s.invalidate()
+}
+
+func (st *fileManagerState) closeAllFileManagerTabsLocked() {
 	st.tabs = nil
 	st.active = ""
 	st.splitAnchor = ""
 	st.splitSide = ""
 	st.showList = true
+}
+
+const modalDragFileManagerDiscard = "modal-drag-file-manager-discard"
+
+type fileManagerDiscardConfirm struct {
+	open bool
+	mode string // "single", "other", "right", "all"
+	path string
+}
+
+func (s *chatState) confirmDiscardFileManagerTabs() {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	dc := st.discardConfirm
+	st.discardConfirm = fileManagerDiscardConfirm{}
+	needRemember := false
+	switch dc.mode {
+	case "single":
+		empty, wasActive := st.closeFileManagerTabLocked(dc.path)
+		needRemember = empty || wasActive
+	case "other":
+		st.closeOtherFileManagerTabsLocked(dc.path)
+		needRemember = true
+	case "right":
+		needRemember = st.closeFileManagerTabsRightOfLocked(dc.path)
+	case "all":
+		st.closeAllFileManagerTabsLocked()
+		needRemember = true
+	}
 	fileManagerMu.Unlock()
-	inspectorRemember(s)
+	modalDragReset(modalDragFileManagerDiscard)
+	if needRemember {
+		inspectorRemember(s)
+	}
 	s.invalidate()
+}
+
+func (s *chatState) cancelDiscardFileManagerTabs() {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	st.discardConfirm = fileManagerDiscardConfirm{}
+	fileManagerMu.Unlock()
+	modalDragReset(modalDragFileManagerDiscard)
+	s.invalidate()
+}
+
+func renderFileManagerDiscardDialog(c *ui.Context, s *chatState) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	dc := st.discardConfirm
+	body := ""
+	if dc.open {
+		if dc.mode == "single" {
+			body = fileManagerTabName(dc.path) + " 有未保存的修改，关闭将丢失这些修改。"
+		} else {
+			body = "有文件存在未保存的修改，关闭将丢失这些修改。"
+		}
+	}
+	fileManagerMu.Unlock()
+	if !dc.open {
+		RenderConfirmDialog(c, ConfirmDialog{Key: modalDragFileManagerDiscard, Open: false})
+		return
+	}
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             modalDragFileManagerDiscard,
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           "放弃未保存的修改？",
+		Body:            body,
+		ConfirmLabel:    "放弃并关闭",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		OnConfirm:       func() { s.confirmDiscardFileManagerTabs() },
+		OnCancel:        func() { s.cancelDiscardFileManagerTabs() },
+	})
 }
 
 // renameFileManagerTabPaths 把等于 oldPath 或位于 oldPath 目录下的 tab 路径整体改到
@@ -818,9 +1001,19 @@ func (s *chatState) closeFileManagerTabsUnder(path string) {
 			victims = append(victims, tab.path)
 		}
 	}
+	needRemember := false
+	for _, p := range victims {
+		empty, wasActive := st.closeFileManagerTabLocked(p)
+		if empty || wasActive {
+			needRemember = true
+		}
+	}
 	fileManagerMu.Unlock()
 
-	for _, p := range victims {
-		s.closeFileManagerTab(p)
+	if needRemember {
+		inspectorRemember(s)
+	}
+	if len(victims) > 0 {
+		s.invalidate()
 	}
 }
