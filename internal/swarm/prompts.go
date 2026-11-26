@@ -13,7 +13,7 @@ const autoMergeRule = `Merging is automatic: as soon as a bee reports, mcode mer
 const reviewMergeRule = `Merging waits for review: when a bee finishes, its changes are reviewed (by a review model or by the user) before mcode merges them, and the bee's report reaches you only after that decision. Each bee's merge result says what happened: merged after review, review rejected with the reviewer's reason and the path of the saved patch, or discarded. Rejected or discarded changes are not in the checkout: do not build on them; send a bee to redo the work if it is still needed, pointing it at the saved patch and the reviewer's reason. Do not run git merge, git cherry-pick, git commit or any other git command to bring a bee's work in, and do not ask the user to do it.`
 
 // reportStyleRule 约束主代理的汇报文案：每个子代理一行结果说明，不要审计腔。
-const reportStyleRule = `When you report back, give each bee one line: its name, what it changed and where. No audit-style sections, no restated briefs, no scores or verdicts; beyond that line, add at most one short clause per bee, and only for a failure or an open risk.`
+const reportStyleRule = `When you report back, give each bee one line: its name and what it changed and where, or, for a bee that changed nothing, what it found. No audit-style sections, no restated briefs, no scores or verdicts; beyond that line, add at most one short clause per bee, and only for a failure or an open risk.`
 
 // 补丁另存与 swarm-answer 块两条规则不再常驻主策略，已随事件消息下发：
 // 补丁处理指引随编排汇报下发，见 internal/swarm/manager.go 的 BuildReport；
@@ -103,14 +103,14 @@ then stop: no waiting or polling after it.%s`, aloneClause, noBlockClause)
 
 // LeadNoticeReminder 是在子代理汇报等通知轮次注入的精简规则提醒常量：
 // 还有工作就继续用 swarm 块派发并收尾，没有了就跑检查并汇报，不再强制继续派发。
-const LeadNoticeReminder = `[Swarm mode] The swarm rules injected at the start of this request are identical and remain in effect. If work remains, dispatch it as before (the ` + "```swarm" + ` block ends your reply) and stop; if none remains, run your checks and report.`
+const LeadNoticeReminder = `[Swarm mode] The swarm rules injected at the start of this request are identical and remain in effect. First tell the user, in one or two plain sentences per newly reported bee, what it found or changed and what you will do next; then, if work remains, dispatch it as before (the ` + "```swarm" + ` block ends your reply) and stop; if none remains, run your checks and report.`
 
 // LeadNoticePolicy 返回编排主代理会话在通知轮次的精简提示文本；
 // plansOnly 为 true 时追加主导只规划模式的精简约束。
 func LeadNoticePolicy(plansOnly bool, delegateTool bool) string {
 	reminder := LeadNoticeReminder
 	if delegateTool {
-		reminder = "[Swarm mode] The swarm rules injected at the start of this request remain in effect. If work remains, call swarm_delegate to dispatch it and stop; if none remains, run your checks and report."
+		reminder = "[Swarm mode] The swarm rules injected at the start of this request remain in effect. First tell the user, in one or two plain sentences per newly reported bee, what it found or changed and what you will do next; then, if work remains, call swarm_delegate to dispatch it and stop; if none remains, run your checks and report."
 	}
 	if plansOnly {
 		reminder += " You only plan, every code change goes to a bee."

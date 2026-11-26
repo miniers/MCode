@@ -1,6 +1,6 @@
 import React from 'react';
 import type { RemoteSwarmBee, RemoteSwarmState } from '../types/swarm';
-import type { SwarmEntryParsed, SwarmReportSection } from '../utils/markdown';
+import { swarmReportHeadline, type SwarmEntryParsed, type SwarmReportSection } from '../utils/markdown';
 import { MarkdownView } from './MarkdownView';
 import { SwarmAvatar, pickByHash } from './swarmAvatar';
 
@@ -149,12 +149,12 @@ export interface SwarmDispatchReportIndex {
   consumedReports: Record<string, boolean>;
 }
 
-/** 汇报胶囊的标题文字：`## 名字：任务 (状态)` 里的名字与状态组合成一句中文 */
+/** 汇报胶囊的标题文字：`## 名字：任务 (状态)` 里的名字与状态组合成一句中文，已完成且带结论时优先显示结论首行 */
 function reportLabel(report: SwarmReportSection): string {
   const name = report.name?.trim() || '子代理';
   switch (report.status.trim()) {
     case '已完成':
-      return `${name} 已完成工作`;
+      return swarmReportHeadline(report.body) || `${name} 已完成工作`;
     case '失败':
       return `${name} 失败`;
     case '已停止':
@@ -264,6 +264,10 @@ export const SwarmDispatchCapsules: React.FC<SwarmDispatchCapsulesProps> = ({
         const duration = durationMs === null ? '' : formatDuration(durationMs);
         const waiting = !bee && queued > 0;
         const latestReport = reports.length > 0 ? reports[reports.length - 1] : null;
+        const reportHeadline =
+          latestReport && latestReport.status.trim() === '已完成'
+            ? swarmReportHeadline(latestReport.body)
+            : '';
         const expandable = latestReport !== null;
         const isOpen = expandable && Boolean(expandedReports[index]);
         // 有了汇报就以汇报里的终态为准（bee 可能已被清理），没汇报时看 bee 当前状态
@@ -307,7 +311,9 @@ export const SwarmDispatchCapsules: React.FC<SwarmDispatchCapsulesProps> = ({
               <SwarmAvatar name={tintSeed} tint={tint} />
               <span className="shrink-0 font-medium">{displayName}</span>
               <StatusMark status={dotStatus} />
-              <span className="min-w-0 truncate text-[var(--foreground-muted)]">{truncateTask(entry.task)}</span>
+              <span className="min-w-0 truncate text-[var(--foreground-muted)]">
+                {reportHeadline || truncateTask(entry.task)}
+              </span>
               {waiting && <span className="shrink-0 text-mc-caption text-[var(--foreground-muted)]">排队中</span>}
               {tier && (
                 <span

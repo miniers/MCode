@@ -773,8 +773,69 @@ export interface SwarmReportSection {
   body: string;
 }
 
+const SWARM_REPORT_SUMMARY_PREFIX = /^- 汇报总结[：:]/;
+
+function trimOrderedListPrefix(value: string): string | null {
+  let index = 0;
+  while (index < value.length && value[index] >= '0' && value[index] <= '9') {
+    index += 1;
+  }
+  if (index === 0 || index + 1 >= value.length || value[index] !== '.' || value[index + 1] !== ' ') {
+    return null;
+  }
+  return value.slice(index + 2);
+}
+
+/**
+ * 提取汇报结论的第一个非空行，去掉常见 Markdown 标记后返回纯文本；
+ * 没有「## 结论」或结论为空时返回空串。
+ */
+export function swarmReportHeadline(body: string): string {
+  const lines = String(body ?? '').replace(/\r\n/g, '\n').split('\n');
+  let summaryLines = lines;
+  const summaryIndex = lines.findIndex((line) => SWARM_REPORT_SUMMARY_PREFIX.test(line.trim()));
+  if (summaryIndex >= 0) {
+    const firstLine = lines[summaryIndex].trim().replace(SWARM_REPORT_SUMMARY_PREFIX, '');
+    summaryLines = [firstLine, ...lines.slice(summaryIndex + 1)];
+  }
+
+  const conclusionIndex = summaryLines.findIndex((line) => line.trim() === '## 结论');
+  if (conclusionIndex < 0) return '';
+
+  let detailIndex = summaryLines.length;
+  for (let i = conclusionIndex + 1; i < summaryLines.length; i += 1) {
+    if (summaryLines[i].trim() === '## 详情') {
+      detailIndex = i;
+      break;
+    }
+  }
+
+  for (let i = conclusionIndex + 1; i < detailIndex; i += 1) {
+    let line = summaryLines[i].trim();
+    if (!line) continue;
+    while (true) {
+      const prev = line;
+      if (line.startsWith('#')) {
+        line = line.replace(/^#+/, '').trim();
+      }
+      if (line.startsWith('- ') || line.startsWith('* ')) {
+        line = line.slice(2).trim();
+      } else {
+        const rest = trimOrderedListPrefix(line);
+        if (rest !== null) {
+          line = rest.trim();
+        }
+      }
+      if (line === prev) break;
+    }
+    return line.replace(/\*\*/g, '').replace(/`/g, '').trim();
+  }
+  return '';
+}
+
 const SWARM_REPORT_PREFIXES = ['[编排] 子代理汇报：', '[Swarm]', '[Hydra]'];
 const SWARM_REPORT_HEADING = /^ {0,3}##[ \t]+(.*)$/;
+const SWARM_REPORT_META_PREFIX = /^- (?:合并结果|档位|可信度|越权写入|改动文件)[：:]/;
 const SWARM_REPORT_STATUS = /[（(]([^()（）]*)[)）][ \t]*$/;
 
 /** 把 `## 名字：任务 (状态)` 拆成名字、任务和状态 */
@@ -793,12 +854,21 @@ function parseReportHeading(raw: string): { name: string; task: string; status: 
 }
 
 /**
- * 解析子代理汇报消息：正文以 `[编排] 子代理汇报：`（或旧的 `[Swarm]`、`[Hydra]`）开头时按 `## ` 标题切段，
+ * 解析子代理汇报消息：正文以 `[编排] 子代理汇报：`（或旧的 `[Swarm]`、`[Hydra]`）开头时，
+ * 仅把下一行是元数据行的 `## ` 标题当作新 bee 段（无元数据行时退回按全部 `## ` 标题切段），
  * 其他消息返回 null，交给普通消息渲染。
  */
 export function parseSwarmReport(text: string): SwarmReportSection[] | null {
   const source = String(text ?? '').trimStart();
   if (!SWARM_REPORT_PREFIXES.some((prefix) => source.startsWith(prefix))) return null;
+
+  const lines = source.split(/\r?\n/);
+  const hasMetaHeading = lines.some(
+    (line, index) =>
+      SWARM_REPORT_HEADING.test(line) &&
+      index + 1 < lines.length &&
+      SWARM_REPORT_META_PREFIX.test(lines[index + 1].trim())
+  );
 
   const sections: SwarmReportSection[] = [];
   let current: { name: string; task: string; status: string; lines: string[] } | null = null;
@@ -814,9 +884,14 @@ export function parseSwarmReport(text: string): SwarmReportSection[] | null {
     current = null;
   };
 
-  for (const line of source.split(/\r?\n/)) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const heading = SWARM_REPORT_HEADING.exec(line);
-    if (heading) {
+    const isSectionStart =
+      heading !== null &&
+      (!hasMetaHeading ||
+        (index + 1 < lines.length && SWARM_REPORT_META_PREFIX.test(lines[index + 1].trim())));
+    if (isSectionStart) {
       flush();
       current = { ...parseReportHeading(heading[1]), lines: [] };
       continue;

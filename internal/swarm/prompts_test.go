@@ -394,6 +394,9 @@ func TestLeadNoticePolicy(t *testing.T) {
 	if !strings.Contains(defaultGot, "if none remains, run your checks and report") {
 		t.Fatalf("默认通知提示词应允许没有剩余工作时检查并汇报:\n%s", defaultGot)
 	}
+	if !strings.Contains(defaultGot, "what it found or changed and what you will do next") {
+		t.Fatalf("默认通知提示词应要求先向用户转述汇报并说明下一步:\n%s", defaultGot)
+	}
 	if strings.Contains(defaultGot, "Continue to dispatch") {
 		t.Fatalf("默认通知提示词不应再强制继续派发:\n%s", defaultGot)
 	}
@@ -469,6 +472,9 @@ func TestLeadNoticePolicyDelegateTool(t *testing.T) {
 		if !strings.Contains(got, "call swarm_delegate to dispatch it and stop") || !strings.Contains(got, "if none remains, run your checks and report") {
 			t.Fatalf("工具提醒不正确: %s", got)
 		}
+		if !strings.Contains(got, "what it found or changed and what you will do next") {
+			t.Fatalf("工具提醒应要求先向用户转述汇报并说明下一步 (plansOnly=%v): %s", plansOnly, got)
+		}
 		if strings.Contains(got, "You only plan") != plansOnly {
 			t.Fatalf("规划约束不正确: %s", got)
 		}
@@ -531,6 +537,20 @@ func TestLeadPolicyMentionsFiles(t *testing.T) {
 		}
 		if delegateTool && !strings.Contains(got, "Use the same entry fields: task, prompt, bee, tier, skills, project, files, replaces and acceptance.") {
 			t.Fatalf("delegateTool=true 策略未在字段列表包含 files:\n%s", got)
+		}
+	}
+}
+
+func TestLeadPolicyReportStyleCoversFindings(t *testing.T) {
+	t.Parallel()
+	for _, plansOnly := range []bool{false, true} {
+		for _, mode := range []string{"off", "ai", "human"} {
+			for _, delegateTool := range []bool{false, true} {
+				got := LeadPolicy(plansOnly, mode, delegateTool)
+				if !strings.Contains(got, "for a bee that changed nothing, what it found") {
+					t.Fatalf("plansOnly=%v mode=%s delegateTool=%v 策略缺少无改动 bee 的汇报要求:\n%s", plansOnly, mode, delegateTool, got)
+				}
+			}
 		}
 	}
 }
