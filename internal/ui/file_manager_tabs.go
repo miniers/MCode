@@ -250,7 +250,7 @@ func (s *chatState) readFileManagerChunk(threadID, filePath string, offset, limi
 // readFileManagerTab 异步读取某个 tab 的首块内容；图片再按更大分块拼接后解码。
 func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab, threadID, filePath string, gen int) {
 	go func() {
-		content, err := s.readFileManagerChunk(threadID, filePath, 0, fileManagerTextChunkSize)
+		content, err := s.readFileManagerChunk(threadID, filePath, 0, int64(fileManagerTextMaxBytes))
 		var binaryLocal bool
 		if err == nil && content.Kind == "binary" {
 			binaryLocal = fileManagerLocalPath(fileManagerWorkspacePath(s, threadID, filePath))
@@ -283,6 +283,12 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 			tab.totalSize = content.TotalSize
 			tab.nextOffset = content.NextOffset
 			tab.hasMore = content.HasMore
+			tab.limitReached = false
+			if tab.hasMore && len(tab.content) >= fileManagerTextMaxBytes {
+				// 首块已达到预览上限：停止继续加载，并提示已达上限。
+				tab.hasMore = false
+				tab.limitReached = true
+			}
 			tab.svg = svg
 			if isInspectorSVGPath(filePath) {
 				// 解析失败/超限/外链时没有可预览的内容，默认停在源码。

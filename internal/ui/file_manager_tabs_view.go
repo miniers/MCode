@@ -192,6 +192,20 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 		})
 }
 
+// fileManagerModifiedPaneKeyPrefix 返回包含未保存修改的栏位前缀，
+// 确保头部保存按钮在拆分视图下定位到实际被编辑的缓冲区；都未修改时回退到第 0 栏。
+func fileManagerModifiedPaneKeyPrefix(st *fileManagerState, path string) string {
+	if st == nil || st.codeViews == nil {
+		return "file-manager-pane-0-"
+	}
+	for _, prefix := range []string{"file-manager-pane-0-", "file-manager-pane-1-"} {
+		if preview := st.codeViews[prefix+path]; preview != nil && preview.state != nil && preview.state.Buffer != nil && preview.state.Buffer.Modified() {
+			return prefix
+		}
+	}
+	return "file-manager-pane-0-"
+}
+
 // renderFileManagerHeaderActions 渲染内容头部右侧动作组，作用于当前激活标签。
 func renderFileManagerHeaderActions(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, activeTab fileManagerTabSnapshot, narrow bool) {
 	threadID := fileManagerThreadID(s)
@@ -224,6 +238,22 @@ func renderFileManagerHeaderActions(c *ui.Context, s *chatState, snap fileManage
 							renderFileManagerBrowserOpenButton(c, s, activeTab, "file-manager-header-")
 						}
 					})
+			}
+
+			if activeTab.dirty {
+				IconButton(c, IconButtonProps{
+					Key:      "file-manager-header-save",
+					Icon:     IconCheck(),
+					Label:    "保存",
+					Tooltip:  "保存",
+					Size:     ControlSM,
+					Variant:  ButtonGhost,
+					Disabled: activeTab.saving,
+					OnClick: func() {
+						prefix := fileManagerModifiedPaneKeyPrefix(getFileManagerState(s), activeTab.path)
+						s.saveFileManagerTab(activeTab.path, prefix)
+					},
+				}).Transition(motionCapsule(c))
 			}
 
 			IconButton(c, IconButtonProps{
