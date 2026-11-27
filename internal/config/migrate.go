@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"mcode/internal/fsutil"
 )
 
 // MigrationFunc 表示单个版本的配置数据迁移函数。
@@ -805,7 +806,7 @@ func migrateRaw(dataDir string, raw []byte) ([]byte, error) {
 
 	// fileVer < Version：执行迁移链前备份为 config.json.bak
 	bakPath := filepath.Join(dataDir, "config.json.bak")
-	if err := os.WriteFile(bakPath, raw, 0o600); err != nil {
+	if err := fsutil.WriteFileAtomic(bakPath, raw, 0o600); err != nil {
 		return nil, fmt.Errorf("create config backup before migration: %w", err)
 	}
 

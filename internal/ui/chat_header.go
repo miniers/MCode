@@ -143,7 +143,11 @@ func renderChatHeaderTitle(c *ui.Context, s *chatState, th Thread) {
 			MinWidth(0).
 			AutoFocus()
 
+		composing := in.Composing()
 		in.OnTextKey(func(k ui.TextKey) bool {
+			if composing || s.isComposing {
+				return false
+			}
 			if k.Key == ui.KeyEnter && k.Mods == 0 {
 				hs.editTitle = k.Text()
 				s.commitHeaderTitle(hs)

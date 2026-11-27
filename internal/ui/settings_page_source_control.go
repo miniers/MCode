@@ -87,7 +87,7 @@ var pageSourceControl = settingsPage{
 							catalog := settingsModelPickerCatalog(st)
 							providers := catalog.Providers
 							sel := modelSelectionFromConfig(st.cfg.SourceControl.CommitMessageModel)
-							sel = resolveModelPickerSelection(providers, sel)
+							sel = resolveModelPickerSelection(providers, sel, st.invalidate)
 							renderModelPicker(c, catalog.apply(ModelPickerProps{
 								Mode:         ModelPickerSimple,
 								KeyPrefix:    "sc-commit-",

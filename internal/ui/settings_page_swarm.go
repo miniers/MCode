@@ -57,14 +57,27 @@ func cloneSwarmPair(p config.SwarmPair) config.SwarmPair {
 	return p
 }
 
-// swarmPairSave 保存草稿配对。新建时保存调用 AddPair，编辑时保存调用 UpdatePair，然后 st.save() 并返回配对项。
-func swarmPairSave(st *SettingsState, draft config.SwarmPair, isNew bool) config.SwarmPair {
+func cloneSwarmPairsSlice(pairs []config.SwarmPair) []config.SwarmPair {
+	if pairs == nil {
+		return nil
+	}
+	cloned := make([]config.SwarmPair, len(pairs))
+	for i, p := range pairs {
+		cloned[i] = cloneSwarmPair(p)
+	}
+	return cloned
+}
+
+// saveSwarmPair 保存草稿配对。新建时保存调用 AddPair，编辑时保存调用 UpdatePair，然后持久化；
+// 保存失败时回滚 st.cfg.Orchestration.Pairs 并返回 false。
+func saveSwarmPair(st *SettingsState, draft config.SwarmPair, isNew bool) (config.SwarmPair, bool) {
 	if st == nil {
-		return draft
+		return draft, false
 	}
 	var res config.SwarmPair
 	st.mu.Lock()
 	st.cfgMu.Lock()
+	oldPairs := cloneSwarmPairsSlice(st.cfg.Orchestration.Pairs)
 	if isNew {
 		res = st.cfg.Orchestration.AddPair(draft)
 	} else {
@@ -76,24 +89,46 @@ func swarmPairSave(st *SettingsState, draft config.SwarmPair, isNew bool) config
 	}
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-	st.save()
+	if !st.save() {
+		st.mu.Lock()
+		st.cfgMu.Lock()
+		st.cfg.Orchestration.Pairs = oldPairs
+		st.cfgMu.Unlock()
+		st.mu.Unlock()
+		return draft, false
+	}
+	return res, true
+}
+
+// swarmPairSave 保存草稿配对。新建时保存调用 AddPair，编辑时保存调用 UpdatePair，然后 st.save() 并返回配对项。
+func swarmPairSave(st *SettingsState, draft config.SwarmPair, isNew bool) config.SwarmPair {
+	res, _ := saveSwarmPair(st, draft, isNew)
 	return res
 }
 
-// swarmPairDelete 按 ID 删除配对项并持久化保存。
+// swarmPairDelete 按 ID 删除配对项并持久化保存；保存失败时回滚并返回 false。
 func swarmPairDelete(st *SettingsState, id string) bool {
 	if st == nil {
 		return false
 	}
 	st.mu.Lock()
 	st.cfgMu.Lock()
+	oldPairs := cloneSwarmPairsSlice(st.cfg.Orchestration.Pairs)
 	ok := st.cfg.Orchestration.RemovePair(id)
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-	if ok {
-		st.save()
+	if !ok {
+		return false
 	}
-	return ok
+	if !st.save() {
+		st.mu.Lock()
+		st.cfgMu.Lock()
+		st.cfg.Orchestration.Pairs = oldPairs
+		st.cfgMu.Unlock()
+		st.mu.Unlock()
+		return false
+	}
+	return true
 }
 
 // swarmPairTitle 计算配对标题。未指定自定义名称时显示“主导模型短名 + 执行模型短名”；
@@ -272,8 +307,14 @@ func renderSwarmPairResetSlot(c *ui.Context, key, label string, visible bool, on
 	if b.Pressed() {
 		pressTarget = 1
 	}
-	hover := b.AnimateTo("hover", hoverTarget, ui.Animation{Duration: animateDuration(c, DurSnap), Ease: EaseSnap})
-	press := b.AnimateTo("press", pressTarget, ui.Animation{Duration: animateDuration(c, DurFast), Ease: EaseSnap})
+	var hover, press float32
+	if reduceMotion(c) {
+		hover = b.Jump("hover", hoverTarget)
+		press = b.Jump("press", pressTarget)
+	} else {
+		hover = b.AnimateTo("hover", hoverTarget, ui.Animation{Duration: DurSnap, Ease: EaseSnap})
+		press = b.AnimateTo("press", pressTarget, ui.Animation{Duration: DurFast, Ease: EaseSnap})
+	}
 	bg := ui.Transparent.Mix(ThemeOverlayHover(c), hover).Mix(ThemeOverlayPressed(c), press)
 	b.Background(bg)
 	focusRing(c, b)
@@ -538,8 +579,9 @@ func renderSwarmPairEditorPopover(c *ui.Context, st *SettingsState, uiSt *swarmP
 							Variant: ButtonPrimary,
 							Size:    ControlMD,
 							OnClick: func() {
-								swarmPairSave(st, uiSt.draft, uiSt.isNew)
-								uiSt.openPopoverKey = ""
+								if _, ok := saveSwarmPair(st, uiSt.draft, uiSt.isNew); ok {
+									uiSt.openPopoverKey = ""
+								}
 								st.invalidate()
 							},
 						})

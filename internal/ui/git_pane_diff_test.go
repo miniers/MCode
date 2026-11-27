@@ -229,6 +229,12 @@ func TestGitDiffHunkStageAndDiscard(t *testing.T) {
 			if err := tt.Click(label); err != nil {
 				t.Fatal(err)
 			}
+			if discard {
+				waitFor(t, tt, func() bool {
+					return tt.HasText("丢弃此块改动？") && tt.HasText("确认丢弃")
+				})
+				clickWhenSettled(t, tt, "确认丢弃")
+			}
 			waitFor(t, tt, func() bool {
 				f.diffMu.Lock()
 				defer f.diffMu.Unlock()

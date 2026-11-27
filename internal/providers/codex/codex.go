@@ -400,6 +400,7 @@ type residentProcess struct {
 
 	deadCh   chan struct{}
 	deadOnce sync.Once
+	waitOnce sync.Once
 
 	cachedMu      sync.Mutex
 	cachedThreads map[string]harness.PermissionMode
@@ -481,32 +482,40 @@ func (p *residentProcess) isDead() bool {
 	}
 }
 
+func (p *residentProcess) waitAndCleanup() {
+	p.waitOnce.Do(func() {
+		if p.cmd != nil {
+			_ = p.cmd.Wait()
+		}
+		if p.cleanup != nil {
+			p.cleanup()
+			p.cleanup = nil
+		}
+	})
+}
+
 func (p *residentProcess) kill() {
 	p.deadOnce.Do(func() {
-		_ = p.stdin.Close()
+		if p.stdin != nil {
+			_ = p.stdin.Close()
+		}
 		_ = killProcessGroup(p.cmd, syscall.SIGKILL)
 		close(p.deadCh)
 	})
-	if p.cmd != nil {
-		_ = p.cmd.Wait()
-	}
-	if p.cleanup != nil {
-		p.cleanup()
-		p.cleanup = nil
-	}
+	p.waitAndCleanup()
 }
 
 func (p *residentProcess) close() error {
 	p.deadOnce.Do(func() {
-		_ = p.stdin.Close()
+		if p.stdin != nil {
+			_ = p.stdin.Close()
+		}
 		close(p.deadCh)
 	})
 
 	waitDone := make(chan struct{})
 	go func() {
-		if p.cmd != nil {
-			_ = p.cmd.Wait()
-		}
+		p.waitAndCleanup()
 		close(waitDone)
 	}()
 
@@ -517,10 +526,6 @@ func (p *residentProcess) close() error {
 		<-waitDone
 	}
 
-	if p.cleanup != nil {
-		p.cleanup()
-		p.cleanup = nil
-	}
 	return nil
 }
 

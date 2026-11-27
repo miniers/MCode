@@ -378,21 +378,32 @@ export const SwarmBeesSheetBody = forwardRef<ThreadMenuPageHandle, SwarmBeesShee
                   >
                     {/* 头部：名称与状态 */}
                     <div className="flex items-center justify-between gap-2 text-xs">
-                      <div
-                        onClick={bee.canOpen ? () => handleOpenThread(bee.threadID) : undefined}
-                        className={`flex items-center gap-1.5 min-w-0 font-semibold text-slate-800 dark:text-slate-100 ${
-                          bee.canOpen ? 'cursor-pointer hover:underline' : ''
-                        }`}
-                        title={bee.canOpen ? '点击打开会话时间线' : undefined}
-                      >
-                        <span className="w-2 h-2 rounded-full shrink-0 bg-sky-500" />
-                        <span className="truncate">{bee.name || `子代理 #${bee.index}`}</span>
-                        {bee.model && (
-                          <span className="px-1.5 py-0.5 rounded text-mc-caption font-normal bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 shrink-0">
-                            {modelDisplayName(providers, bee.provider, bee.model)}
-                          </span>
-                        )}
-                      </div>
+                      {bee.canOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenThread(bee.threadID)}
+                          className="flex items-center gap-1.5 min-w-0 font-semibold text-slate-800 dark:text-slate-100 cursor-pointer hover:underline text-left"
+                          title="点击打开会话时间线"
+                        >
+                          <span className="w-2 h-2 rounded-full shrink-0 bg-sky-500" />
+                          <span className="truncate">{bee.name || `子代理 #${bee.index}`}</span>
+                          {bee.model && (
+                            <span className="px-1.5 py-0.5 rounded text-mc-caption font-normal bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 shrink-0">
+                              {modelDisplayName(providers, bee.provider, bee.model)}
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1.5 min-w-0 font-semibold text-slate-800 dark:text-slate-100">
+                          <span className="w-2 h-2 rounded-full shrink-0 bg-sky-500" />
+                          <span className="truncate">{bee.name || `子代理 #${bee.index}`}</span>
+                          {bee.model && (
+                            <span className="px-1.5 py-0.5 rounded text-mc-caption font-normal bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 shrink-0">
+                              {modelDisplayName(providers, bee.provider, bee.model)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <span className={`text-mc-caption shrink-0 ${statusInfo.className}`}>
                         {statusInfo.label}
                       </span>

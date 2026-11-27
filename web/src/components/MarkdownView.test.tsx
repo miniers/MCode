@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Root as MdastRoot } from 'mdast';
 import { RemoteProvider } from '../context/RemoteContext';
 import { resolveMarkdownImageSource } from './MarkdownImage';
-import { extractImagesFromHtml, MarkdownView, remarkHtmlImages } from './MarkdownView';
+import { extractImagesFromHtml, MarkdownView, mentionSafeUrlTransform, remarkHtmlImages } from './MarkdownView';
 
 function assertEqual<T>(actual: T, expected: T, message: string): void {
   const actualJson = JSON.stringify(actual);
@@ -182,5 +182,31 @@ if (plainHtml.includes('aria-label="复制代码"')) {
     resolveMarkdownImageSource('#anchor', '/repo/docs'),
     { kind: 'remote', src: '#anchor' },
     '以 # 开头的锚点不应拼 baseDir'
+  );
+}
+
+// (e) urlTransform 只在图片 img.src 上下文保留 file:，链接 href 走默认清洗（thread mention 保留）
+{
+  const linkHtml = renderMarkdown('[x](file:///etc/passwd)');
+  assertEqual(linkHtml.includes('file:///etc/passwd'), false, '[x](file:///etc/passwd) 的 href 应被清除');
+  assertMatch(linkHtml, /<a\b[^>]*href=""[^>]*>x<\/a>/, '[x](file:///etc/passwd) 应清掉 href');
+
+  const imageHtml = renderMarkdown('![](file:///tmp/a.png)');
+  assertEqual(imageHtml.includes('file:///tmp/a.png'), true, '![](file:///tmp/a.png) 的 src 应保留');
+
+  assertEqual(
+    mentionSafeUrlTransform('file:///etc/passwd', 'href', { type: 'element', tagName: 'a', properties: {}, children: [] }),
+    '',
+    'a.href 的 file: URL 应被清掉'
+  );
+  assertEqual(
+    mentionSafeUrlTransform('file:///tmp/a.png', 'src', { type: 'element', tagName: 'img', properties: {}, children: [] }),
+    'file:///tmp/a.png',
+    'img.src 的 file: URL 应保留'
+  );
+  assertEqual(
+    mentionSafeUrlTransform('mcode://thread/t-1', 'href', { type: 'element', tagName: 'a', properties: {}, children: [] }),
+    'mcode://thread/t-1',
+    'a.href 的 mcode:// 会话引用应保留'
   );
 }

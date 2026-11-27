@@ -44,17 +44,17 @@ func preserveBackupUI(t *testing.T) {
 	working, operation, cancel := backupUI.working, backupUI.operation, backupUI.cancel
 	message, messageErr, restoreMessage := backupUI.message, backupUI.messageErr, backupUI.restoreMessage
 	confirm, relaunching := backupUI.confirm, backupUI.relaunching
-	mode, password, repeat := backupUI.mode, backupUI.password, backupUI.repeat
-	history, source := backupUI.history, backupUI.source
+	mode, source := backupUI.mode, backupUI.source
 	backupUI.mu.Unlock()
+	password, repeat, history := backupPasswordDraft.password, backupPasswordDraft.repeat, backupPasswordDraft.history
 	t.Cleanup(func() {
 		backupUI.mu.Lock()
 		backupUI.working, backupUI.operation, backupUI.cancel = working, operation, cancel
 		backupUI.message, backupUI.messageErr, backupUI.restoreMessage = message, messageErr, restoreMessage
 		backupUI.confirm, backupUI.relaunching = confirm, relaunching
-		backupUI.mode, backupUI.password, backupUI.repeat = mode, password, repeat
-		backupUI.history, backupUI.source = history, source
+		backupUI.mode, backupUI.source = mode, source
 		backupUI.mu.Unlock()
+		backupPasswordDraft.password, backupPasswordDraft.repeat, backupPasswordDraft.history = password, repeat, history
 	})
 }
 
@@ -359,8 +359,9 @@ func TestUIReview14_BackupRestoreConfirmAndPasswordDialog(t *testing.T) {
 
 	backupUI.mu.Lock()
 	backupUI.confirm = false
-	backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
+	backupUI.mode = "backup"
 	backupUI.mu.Unlock()
+	backupPasswordDraft.password, backupPasswordDraft.repeat = "", ""
 
 	saveCalls := 0
 	backupSaveDialog = func(string) (string, error) {
@@ -414,8 +415,9 @@ func TestUIReview14_BackupRestoreConfirmAndPasswordDialog(t *testing.T) {
 	}
 
 	backupUI.mu.Lock()
-	backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
+	backupUI.mode = "backup"
 	backupUI.mu.Unlock()
+	backupPasswordDraft.password, backupPasswordDraft.repeat = "", ""
 	ttBackup.Frame()
 	ttBackup.Key(0, ui.KeyEscape)
 	ttBackup.Frame()

@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -174,6 +175,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 	detailTaskID := ks.detailTaskID
 	goalDetailOpen := ks.goalDetailOpen
 	detailDecisionID := ks.detailDecisionID
+	detailWidth := ks.detailWidth
 	kanbanMu.Unlock()
 	if p.destination != "automations" {
 		kanbanKeyboardMu.Lock()
@@ -195,7 +197,7 @@ func renderTasksShell(c *ui.Context, s *chatState) {
 		width, _ := modalResizeSize(modalDragKanbanWorkspace, max(0, winWidth-kanbanModalInset*2), max(0, winHeight-kanbanModalInset*2), min(360, max(0, winWidth-modalDragPanelInset)), min(240, max(0, winHeight-modalDragPanelInset)), winWidth, winHeight)
 		contentWidth = width - TasksSidebarWidth
 	}
-	pane, _, _ := kanbanDetailLayout(contentWidth, ks.detailWidth)
+	pane, _, _ := kanbanDetailLayout(contentWidth, detailWidth)
 	hasDetail := detailTaskID != "" || goalDetailOpen || detailDecisionID != ""
 	wideDetail := pane && p.destination != "automations" && hasDetail
 	if wideDetail && detailDecisionID != "" && detailTaskID == "" && !goalDetailOpen && c.Shortcut(0, ui.KeyEscape) {
@@ -365,8 +367,11 @@ func renderTasksAutomationCreate(c *ui.Context, s *chatState, scopeID string) {
 	}})
 	host := c.Services()
 	appPopover(c, button, &as.chooseProjectOpen, nil, func() {
-		items := make([]searchListItem, 0, len(s.projects))
-		for _, project := range s.projects {
+		s.mu.Lock()
+		projects := slices.Clone(s.projects)
+		s.mu.Unlock()
+		items := make([]searchListItem, 0, len(projects))
+		for _, project := range projects {
 			items = append(items, searchListItem{ID: project.ID, Title: project.Name})
 		}
 		popoverCard(c, ui.Column(c.Key("tasks-automation-project-menu"))).

@@ -100,10 +100,14 @@ var backupUI struct {
 	confirm        bool
 	relaunching    bool
 	mode           string
-	password       string
-	repeat         string
-	history        bool
 	source         string
+}
+
+// backupPasswordDraft 保存备份密码弹窗的输入草稿与选项，只在 UI 线程读写，后台不碰。
+var backupPasswordDraft struct {
+	password string
+	repeat   string
+	history  bool
 }
 
 func backupError(err error) string {
@@ -255,8 +259,9 @@ func renderBackupControl(c *ui.Context, st *SettingsState) {
 		}
 		Button(c.Key("backup-open"), ButtonOpts{Text: label, Variant: ButtonSecondary, Disabled: working, Loading: operation == "backup", OnClick: func() {
 			backupUI.mu.Lock()
-			backupUI.mode, backupUI.password, backupUI.repeat = "backup", "", ""
+			backupUI.mode = "backup"
 			backupUI.mu.Unlock()
+			backupPasswordDraft.password, backupPasswordDraft.repeat = "", ""
 			st.invalidate()
 		}})
 	})
@@ -289,12 +294,16 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 	}
 	open := true
 	submit := func() {
-		if !backupPasswordValid(mode, backupUI.password, backupUI.repeat) {
+		if !backupPasswordValid(mode, backupPasswordDraft.password, backupPasswordDraft.repeat) {
 			return
 		}
-		password := []byte(backupUI.password)
-		source, history := backupUI.source, backupUI.history
-		backupUI.mode, backupUI.password, backupUI.repeat = "", "", ""
+		password := []byte(backupPasswordDraft.password)
+		history := backupPasswordDraft.history
+		backupPasswordDraft.password, backupPasswordDraft.repeat = "", ""
+		backupUI.mu.Lock()
+		source := backupUI.source
+		backupUI.mode = ""
+		backupUI.mu.Unlock()
 		if mode == "backup" {
 			startBackup(st, password, history)
 		} else {
@@ -308,18 +317,18 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 				title = "输入备份密码"
 			}
 			modalDragHandle(c, "backup-password", ui.Row(c.Key("backup-password-title")).FillWidth().Children(func() { ui.Text(c, title).FontSize(uiFont(TypeTitle)).FontWeight(600).TextColor(ThemePrimaryText(c)) }))
-			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupUI.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true, OnSubmit: func(string) { submit() }})
+			TextField(c, TextFieldProps{Key: "backup-password-input", Value: &backupPasswordDraft.password, Placeholder: "密码", Password: true, FillWidth: true, AutoFocus: true, OnSubmit: func(string) { submit() }})
 			if mode == "backup" {
-				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupUI.repeat, Placeholder: "确认密码", Password: true, FillWidth: true, OnSubmit: func(string) { submit() }})
-				if backupUI.repeat != "" && backupUI.password != backupUI.repeat {
+				TextField(c, TextFieldProps{Key: "backup-password-repeat", Value: &backupPasswordDraft.repeat, Placeholder: "确认密码", Password: true, FillWidth: true, OnSubmit: func(string) { submit() }})
+				if backupPasswordDraft.repeat != "" && backupPasswordDraft.password != backupPasswordDraft.repeat {
 					ui.Text(c, "两次密码不一致").FontSize(uiFont(TypeFootnote)).TextColor(ThemeDanger(c))
 				}
 				ui.Row(c.Key("backup-history-row")).FillWidth().AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "包含会话历史").Grow(1).TextColor(ThemePrimaryText(c)).Tooltip(settingHint("backup-include-history"))
-					Switch(c, "backup-history", &backupUI.history, "包含会话历史", nil)
+					Switch(c, "backup-history", &backupPasswordDraft.history, "包含会话历史", nil)
 				})
 			}
-			valid := backupPasswordValid(mode, backupUI.password, backupUI.repeat)
+			valid := backupPasswordValid(mode, backupPasswordDraft.password, backupPasswordDraft.repeat)
 			ui.Row(c.Key("backup-password-actions")).FillWidth().Justify(ui.End).Gap(Space3).Children(func() {
 				Button(c.Key("backup-password-cancel"), ButtonOpts{Text: "取消", Variant: ButtonSecondary, OnClick: func() { open = false }})
 				Button(c.Key("backup-password-confirm"), ButtonOpts{Text: "确认", Variant: ButtonPrimary, Disabled: !valid, OnClick: submit})
@@ -327,8 +336,9 @@ func renderBackupPasswordDialog(c *ui.Context, st *SettingsState) {
 		})
 	})
 	if !open {
+		backupPasswordDraft.password, backupPasswordDraft.repeat = "", ""
 		backupUI.mu.Lock()
-		backupUI.mode, backupUI.password, backupUI.repeat = "", "", ""
+		backupUI.mode = ""
 		backupUI.mu.Unlock()
 		st.invalidate()
 	}

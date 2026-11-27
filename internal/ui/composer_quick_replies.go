@@ -3,7 +3,7 @@ package mcodeui
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -25,18 +25,17 @@ const quickReplyMaxLabelRunes = 40
 const composerQuickReplyMaxWidth float32 = 240
 
 // quickRepliesFromConfig 读取配置里的快捷回复列表并做基础清洗。
-// 配置字段 config.Config.QuickReplies（[]config.QuickReply{Label, Message}）由设置页那批改动新增；
-// 这里按字段名反射读取、再按 JSON 字段名（大小写不敏感）解码，配置里还没有该字段时视为未配置：
-// 这样本文件在字段落地前后都能编译，落地后自动生效，不需要再改这里。
-func quickRepliesFromConfig(cfg *config.Config) []quickReplyItem {
-	if cfg == nil {
+func quickRepliesFromConfig(raw []config.QuickReply) []quickReplyItem {
+	if len(raw) == 0 {
 		return nil
 	}
-	field := reflect.ValueOf(cfg).Elem().FieldByName("QuickReplies")
-	if !field.IsValid() || field.Kind() != reflect.Slice || field.Len() == 0 {
-		return nil
+	items := make([]quickReplyItem, 0, len(raw))
+	for _, item := range raw {
+		if normalized, ok := normalizeQuickReplyItem(item.Label, item.Message); ok {
+			items = append(items, normalized)
+		}
 	}
-	return decodeQuickReplies(field.Interface())
+	return items
 }
 
 // decodeQuickReplies 把配置里的快捷回复列表解成渲染项并做基础清洗。
@@ -52,19 +51,25 @@ func decodeQuickReplies(value any) []quickReplyItem {
 	}
 	items := make([]quickReplyItem, 0, len(raw))
 	for _, item := range raw {
-		message := strings.TrimSpace(item.Message)
-		if message == "" {
-			continue
+		if normalized, ok := normalizeQuickReplyItem(item.Label, item.Message); ok {
+			items = append(items, normalized)
 		}
-		label := strings.TrimSpace(item.Label)
-		if label == "" {
-			// 没填标签时退回正文首行，保证按钮上总有一句话可读。
-			label = firstLineLabel(message)
-		}
-		label = truncateReplyLabel(label, quickReplyMaxLabelRunes)
-		items = append(items, quickReplyItem{Label: label, Message: message})
 	}
 	return items
+}
+
+func normalizeQuickReplyItem(label, message string) (quickReplyItem, bool) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return quickReplyItem{}, false
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		// 没填标签时退回正文首行，保证按钮上总有一句话可读。
+		label = firstLineLabel(message)
+	}
+	label = truncateReplyLabel(label, quickReplyMaxLabelRunes)
+	return quickReplyItem{Label: label, Message: message}, true
 }
 
 // truncateReplyLabel 按字符裁到 n 个，超出时补省略号。
@@ -140,7 +145,10 @@ var quickReplyItemsFor = func(s *chatState) []quickReplyItem {
 	if settings == nil {
 		return nil
 	}
-	return quickRepliesFromConfig(&settings.cfg)
+	settings.cfgMu.Lock()
+	replies := slices.Clone(settings.cfg.QuickReplies)
+	settings.cfgMu.Unlock()
+	return quickRepliesFromConfig(replies)
 }
 
 // renderQuickReplies 渲染输入卡片上方的快捷回复行；配置为空或当前不该显示时什么都不画。

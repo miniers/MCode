@@ -1973,15 +1973,31 @@ func Normalize(cfg Config) Config {
 	if _, ok := landingTierIDs[cfg.Orchestration.DefaultTier]; !ok {
 		if _, ok := landingTierIDs[DefaultSwarmTierID]; ok {
 			cfg.Orchestration.DefaultTier = DefaultSwarmTierID
-		} else {
-			firstLandingTier := ""
+		} else if len(landingTierIDs) > 0 {
 			for _, t := range cfg.Orchestration.Tiers {
 				if t.ID != "" && IsLandingTier(t) {
-					firstLandingTier = t.ID
+					cfg.Orchestration.DefaultTier = t.ID
 					break
 				}
 			}
-			cfg.Orchestration.DefaultTier = firstLandingTier
+		} else if _, ok := tierIDs[cfg.Orchestration.DefaultTier]; !ok {
+			// 所有可写档位都限定了 WritePaths（无落地档位）时，保留合法的默认档位以免 Validate 失败。
+			fallbackTier := ""
+			for _, t := range cfg.Orchestration.Tiers {
+				if t.ID != "" && !t.ReadOnly {
+					fallbackTier = t.ID
+					break
+				}
+			}
+			if fallbackTier == "" {
+				for _, t := range cfg.Orchestration.Tiers {
+					if t.ID != "" {
+						fallbackTier = t.ID
+						break
+					}
+				}
+			}
+			cfg.Orchestration.DefaultTier = fallbackTier
 		}
 	}
 

@@ -572,9 +572,9 @@ func (a *threadApprover) Interact(ctx context.Context, req harness.ApprovalReque
 		}
 	}
 
-	// 「始终允许」按项目落盘：非送达确认模式下的内存记账在下面清理块里完成，送达确认模式在
-	// RespondRequest 里完成，两条路径都经过这里，所以统一在这里持久化。失败只记日志，不放宽也不影响本次放行。
-	if shouldPersistAlwaysAllow(kind, canceled, interactive, resp.optionID, pr.allowKey) {
+	// 「始终允许」按项目落盘：非送达确认模式直接在这里持久化；送达确认模式必须在
+	// RespondRequest 收到送达确认成功后才写入，避免送达失败后规则仍生效。失败只记日志，不放宽也不影响本次放行。
+	if !a.confirmsDelivery && shouldPersistAlwaysAllow(kind, canceled, interactive, resp.optionID, pr.allowKey) {
 		if err := store.Add(project, pr.allowKey); err != nil {
 			log.Printf("persist always-allow key for %s failed: %v", project, err)
 		}

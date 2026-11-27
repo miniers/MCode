@@ -107,7 +107,7 @@ func (b *MemoryBackend) FilesRename(ctx context.Context, p wire.FilesRenameParam
 	}
 
 	rel := strings.TrimSpace(p.Path)
-	source, err := resolveWorkspacePath(root, rel)
+	source, err := resolveWorkspaceEntryPath(root, rel)
 	if err != nil {
 		return wire.FilesRenameResult{}, err
 	}
@@ -175,7 +175,7 @@ func (b *MemoryBackend) FilesTrash(ctx context.Context, p wire.FilesTrashParams)
 	}
 
 	rel := strings.TrimSpace(p.Path)
-	source, err := resolveWorkspacePath(root, rel)
+	source, err := resolveWorkspaceEntryPath(root, rel)
 	if err != nil {
 		return wire.FilesTrashResult{}, err
 	}
@@ -286,38 +286,89 @@ func (b *MemoryBackend) FilesDuplicate(ctx context.Context, p wire.FilesDuplicat
 	return wire.FilesDuplicateResult{Path: workspaceRelPath(root, target)}, nil
 }
 
-// resolveWorkspaceNewPath 解析一个尚不存在的目标路径。
-// resolveWorkspacePath 要求目标已经存在，这里改为先解析父目录：父目录同样走
-// resolveWorkspacePath，因此绝对路径、~、".."、越界与指向工作区外的符号链接都在这里被拒绝；
-// 目标本身已存在时再按真实路径校验一次，避免通过符号链接落到工作区外。
-func resolveWorkspaceNewPath(root, rel string) (string, error) {
+// resolveWorkspaceParentAndBase 校验相对路径并解析父目录，保证父目录仍在工作区内。
+func resolveWorkspaceParentAndBase(root, rel string) (parent, base string, isRoot bool, err error) {
 	trimmed := strings.TrimSpace(rel)
 	if strings.Contains(trimmed, "\x00") ||
 		strings.HasPrefix(trimmed, "~") ||
 		filepath.IsAbs(trimmed) ||
 		strings.HasPrefix(trimmed, "/") ||
 		strings.HasPrefix(trimmed, "\\") {
-		return "", &wire.RPCError{
+		return "", "", false, &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "invalid relative path",
+		}
+	}
+
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	for _, p := range parts {
+		if p == ".." {
+			return "", "", false, &wire.RPCError{
+				Code:    wire.InvalidParams,
+				Message: "path contains parent directory traversal",
+			}
 		}
 	}
 
 	cleanRel := filepath.Clean(trimmed)
 	if cleanRel == "." || cleanRel == "" {
-		return root, nil
+		return root, "", true, nil
 	}
 
-	parent, err := resolveWorkspacePath(root, filepath.Dir(cleanRel))
+	parent, err = resolveWorkspacePath(root, filepath.Dir(cleanRel))
 	if err != nil {
-		return "", err
+		return "", "", false, err
 	}
-	base := filepath.Base(cleanRel)
+	base = filepath.Base(cleanRel)
 	if base == "." || base == ".." || base == "" || strings.ContainsAny(base, `/\`) {
-		return "", &wire.RPCError{
+		return "", "", false, &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "invalid relative path",
 		}
+	}
+	return parent, base, false, nil
+}
+
+// resolveWorkspaceEntryPath 解析工作区内已存在条目的路径，只解析父目录并在最后一级使用 os.Lstat，
+// 使重命名、移到废纸篓等路径本身的操作作用于符号链接本身，而不跟随到目标路径。
+func resolveWorkspaceEntryPath(root, rel string) (string, error) {
+	parent, base, isRoot, err := resolveWorkspaceParentAndBase(root, rel)
+	if err != nil {
+		return "", err
+	}
+	if isRoot {
+		return root, nil
+	}
+
+	entry := filepath.Join(parent, base)
+	if _, err := os.Lstat(entry); err != nil {
+		if os.IsNotExist(err) {
+			return "", &wire.RPCError{
+				Code:    wire.ErrCodeFileNotFound,
+				Message: fmt.Sprintf("file or directory not found: %s", rel),
+			}
+		}
+		return "", &wire.RPCError{
+			Code:    wire.InvalidParams,
+			Message: fmt.Sprintf("failed to resolve path: %v", err),
+		}
+	}
+	return entry, nil
+}
+
+// resolveWorkspaceNewPath 解析一个尚不存在的目标路径。
+// resolveWorkspacePath 要求目标已经存在，这里改为先解析父目录：父目录同样走
+// resolveWorkspacePath，因此绝对路径、~、".."、越界与指向工作区外的符号链接都在这里被拒绝；
+// 目标本身已存在时再按真实路径校验一次，避免通过符号链接落到工作区外。
+func resolveWorkspaceNewPath(root, rel string) (string, error) {
+	parent, base, isRoot, err := resolveWorkspaceParentAndBase(root, rel)
+	if err != nil {
+		return "", err
+	}
+	if isRoot {
+		return root, nil
 	}
 
 	target := filepath.Join(parent, base)

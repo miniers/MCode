@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,10 @@ const (
 	receiptSummaryLimit = 500
 	// receiptBlockedPrefix 是执行会话求助时卡片活动文本的前缀。
 	receiptBlockedPrefix = "执行会话求助："
+	// taskMetaPendingReceiptKey 是任务 Meta 中持久化待消费回执的键名。
+	taskMetaPendingReceiptKey = "pending_receipt"
+	// taskMetaPendingDoneKey 是任务 Meta 中持久化待自动接受完成摘要的键名。
+	taskMetaPendingDoneKey = "pending_done"
 )
 
 // taskReceiptPrompt 是执行会话停止却没有提交回执时发送的追问文案。
@@ -41,11 +46,11 @@ func taskResumePrompt(taskID string) string {
 
 // TaskReceipt 是任务执行会话在结束这一轮前提交的结果回执。
 type TaskReceipt struct {
-	ThreadID string
-	Outcome  string
-	Summary  string
-	At       time.Time
-	Result   ExecutorResult
+	ThreadID string         `json:"thread_id"`
+	Outcome  string         `json:"outcome"`
+	Summary  string         `json:"summary"`
+	At       time.Time      `json:"at"`
+	Result   ExecutorResult `json:"result"`
 }
 
 // receiptAsk 记录某张卡片已追问回执的次数与最近一次时间。
@@ -202,16 +207,17 @@ func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThread
 		task = updated
 	}
 
-	rs := &s.receipts
-	rs.mu.Lock()
-	rs.init()
-	rs.receipts[taskID] = TaskReceipt{
+	receipt := TaskReceipt{
 		ThreadID: callerThreadID,
 		Outcome:  string(res.Status),
 		Summary:  res.Summary,
 		Result:   res,
 		At:       s.nowTime(),
 	}
+	rs := &s.receipts
+	rs.mu.Lock()
+	rs.init()
+	rs.receipts[taskID] = receipt
 	// 新回执替代上一轮留给调度器的完成摘要
 	delete(rs.pendingDone, taskID)
 	// 执行会话既然交出了结果，就不再处于求助/待回执状态
@@ -219,9 +225,114 @@ func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThread
 	delete(rs.asks, taskID)
 	rs.mu.Unlock()
 
+	if err := s.setTaskMetaKeys(ctx, taskID, map[string]any{
+		taskMetaPendingReceiptKey: receipt,
+		taskMetaPendingDoneKey:    nil,
+	}); err != nil {
+		log.Printf("kanban: 持久化任务 %s 回执失败: %v", taskID, err)
+	}
+
 	s.revision.Add(1)
 	s.notifyChange()
 	return nil
+}
+
+func (s *Service) parseTaskMetaMap(ctx context.Context, taskID string) (store.Task, map[string]any, error) {
+	task, err := s.opts.Store.GetTask(ctx, taskID)
+	if err != nil {
+		return store.Task{}, nil, err
+	}
+	raw := map[string]any{}
+	if strings.TrimSpace(task.Meta) != "" {
+		if err := json.Unmarshal([]byte(task.Meta), &raw); err != nil {
+			return store.Task{}, nil, err
+		}
+		if raw == nil {
+			raw = map[string]any{}
+		}
+	}
+	return task, raw, nil
+}
+
+// setTaskMetaKeys 原子更新或删除任务 Meta 中的若干键（value 为 nil 表示删键），遇版本冲突自动重试。
+// 调用方不得持有 receiptState.mu；本方法不锁 Service.mu，避免与已持锁的调用路径死锁。
+func (s *Service) setTaskMetaKeys(ctx context.Context, taskID string, updates map[string]any) error {
+	if s == nil || s.opts.Store == nil || taskID == "" || len(updates) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		task, raw, err := s.parseTaskMetaMap(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		changed := false
+		for k, v := range updates {
+			if v == nil {
+				if _, exists := raw[k]; exists {
+					delete(raw, k)
+					changed = true
+				}
+				continue
+			}
+			raw[k] = v
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		if len(raw) == 0 {
+			task.Meta = "{}"
+		} else {
+			encoded, err := json.Marshal(raw)
+			if err != nil {
+				return err
+			}
+			task.Meta = string(encoded)
+		}
+		if _, err := s.opts.Store.UpdateTask(ctx, task, task.Revision); err == nil {
+			return nil
+		} else if !errors.Is(err, store.ErrRevisionConflict) {
+			return err
+		}
+	}
+	return store.ErrRevisionConflict
+}
+
+func (s *Service) setTaskMetaKey(ctx context.Context, taskID, key string, value any) error {
+	return s.setTaskMetaKeys(ctx, taskID, map[string]any{key: value})
+}
+
+func (s *Service) loadPendingReceipt(ctx context.Context, taskID string) (TaskReceipt, bool) {
+	if s == nil || s.opts.Store == nil || taskID == "" {
+		return TaskReceipt{}, false
+	}
+	task, err := s.opts.Store.GetTask(ctx, taskID)
+	if err != nil {
+		return TaskReceipt{}, false
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.PendingReceipt == nil {
+		return TaskReceipt{}, false
+	}
+	return *meta.PendingReceipt, true
+}
+
+func (s *Service) loadPendingDone(ctx context.Context, taskID string) (string, bool) {
+	if s == nil || s.opts.Store == nil || taskID == "" {
+		return "", false
+	}
+	task, err := s.opts.Store.GetTask(ctx, taskID)
+	if err != nil {
+		return "", false
+	}
+	meta, err := ParseTaskMeta(task.Meta)
+	if err != nil || meta.PendingDone == nil {
+		return "", false
+	}
+	return *meta.PendingDone, true
 }
 
 // takeReceipt 取走并消费任务回执，保证同一条回执只被处理一次。
@@ -229,15 +340,34 @@ func (s *Service) SubmitExecutorResult(ctx context.Context, taskID, callerThread
 func (s *Service) takeReceipt(taskID, threadID string) (TaskReceipt, bool) {
 	rs := &s.receipts
 	rs.mu.Lock()
-	defer rs.mu.Unlock()
 	rs.init()
 	receipt, ok := rs.receipts[taskID]
-	if !ok {
-		return TaskReceipt{}, false
+	if ok {
+		delete(rs.receipts, taskID)
+		// 新回执开始新一轮，旧的追问计数作废
+		delete(rs.asks, taskID)
 	}
-	delete(rs.receipts, taskID)
-	// 新回执开始新一轮，旧的追问计数作废
-	delete(rs.asks, taskID)
+	rs.mu.Unlock()
+
+	if !ok {
+		loaded, found := s.loadPendingReceipt(context.Background(), taskID)
+		if !found {
+			return TaskReceipt{}, false
+		}
+		receipt = loaded
+		rs.mu.Lock()
+		rs.init()
+		delete(rs.asks, taskID)
+		if newer, exists := rs.receipts[taskID]; exists {
+			receipt = newer
+			delete(rs.receipts, taskID)
+		}
+		rs.mu.Unlock()
+	}
+
+	if err := s.setTaskMetaKey(context.Background(), taskID, taskMetaPendingReceiptKey, nil); err != nil {
+		log.Printf("kanban: 清除任务 %s 回执元数据失败: %v", taskID, err)
+	}
 	if threadID == "" || receipt.ThreadID != threadID {
 		return TaskReceipt{}, false
 	}
@@ -248,9 +378,24 @@ func (s *Service) takeReceipt(taskID, threadID string) (TaskReceipt, bool) {
 func (s *Service) hasReceipt(taskID, threadID string) bool {
 	rs := &s.receipts
 	rs.mu.Lock()
-	defer rs.mu.Unlock()
 	receipt, ok := rs.receipts[taskID]
-	return ok && threadID != "" && receipt.ThreadID == threadID
+	rs.mu.Unlock()
+	if !ok {
+		loaded, found := s.loadPendingReceipt(context.Background(), taskID)
+		if !found {
+			return false
+		}
+		rs.mu.Lock()
+		rs.init()
+		if existing, exists := rs.receipts[taskID]; exists {
+			receipt = existing
+		} else {
+			rs.receipts[taskID] = loaded
+			receipt = loaded
+		}
+		rs.mu.Unlock()
+	}
+	return threadID != "" && receipt.ThreadID == threadID
 }
 
 // markReceiptBlocked 记录任务因执行会话求助而停在 needs_approval。
@@ -288,6 +433,13 @@ func (s *Service) clearReceiptRound(taskID string) {
 	delete(rs.receipts, taskID)
 	delete(rs.pendingDone, taskID)
 	rs.mu.Unlock()
+
+	if err := s.setTaskMetaKeys(context.Background(), taskID, map[string]any{
+		taskMetaPendingReceiptKey: nil,
+		taskMetaPendingDoneKey:    nil,
+	}); err != nil {
+		log.Printf("kanban: 清除任务 %s 回执轮次元数据失败: %v", taskID, err)
+	}
 }
 
 // stashPendingDone 保存 watchdog 已消费、但要留给调度器自动接受的完成摘要。
@@ -297,18 +449,40 @@ func (s *Service) stashPendingDone(taskID, summary string) {
 	rs.init()
 	rs.pendingDone[taskID] = summary
 	rs.mu.Unlock()
+
+	if err := s.setTaskMetaKey(context.Background(), taskID, taskMetaPendingDoneKey, summary); err != nil {
+		log.Printf("kanban: 持久化任务 %s pending_done 失败: %v", taskID, err)
+	}
 }
 
 // takePendingDone 取出 watchdog 留给调度器的完成摘要。
 func (s *Service) takePendingDone(taskID string) (string, bool) {
 	rs := &s.receipts
 	rs.mu.Lock()
-	defer rs.mu.Unlock()
 	summary, ok := rs.pendingDone[taskID]
 	if ok {
 		delete(rs.pendingDone, taskID)
 	}
-	return summary, ok
+	rs.mu.Unlock()
+
+	if !ok {
+		loaded, found := s.loadPendingDone(context.Background(), taskID)
+		if !found {
+			return "", false
+		}
+		summary = loaded
+		rs.mu.Lock()
+		if newer, exists := rs.pendingDone[taskID]; exists {
+			summary = newer
+			delete(rs.pendingDone, taskID)
+		}
+		rs.mu.Unlock()
+	}
+
+	if err := s.setTaskMetaKey(context.Background(), taskID, taskMetaPendingDoneKey, nil); err != nil {
+		log.Printf("kanban: 清除任务 %s pending_done 元数据失败: %v", taskID, err)
+	}
+	return summary, true
 }
 
 // receiptAskAction 是缺回执时追问决策的结果。

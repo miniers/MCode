@@ -182,26 +182,20 @@ func deleteTier(st *SettingsState, id string) bool {
 	}
 
 	oldTiers, oldPairs := st.cfg.Orchestration.Tiers, st.cfg.Orchestration.Pairs
-	prevErr := st.errorMessage
 	st.cfg.Orchestration.Tiers = newTiers
 	st.cfg.Orchestration.Pairs = newPairs
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-	st.save()
-	// st.errorMessage 与 cfg 共用 cfgMu，回滚判断与回滚写入都要在它下面做。
-	st.mu.Lock()
-	st.cfgMu.Lock()
-	saveErr := st.errorMessage
-	if saveErr != "" && saveErr != prevErr {
+	if !st.save() {
 		// 落盘失败时回滚，内存里不留「已经删掉」的档位列表。
+		st.mu.Lock()
+		st.cfgMu.Lock()
 		st.cfg.Orchestration.Tiers = oldTiers
 		st.cfg.Orchestration.Pairs = oldPairs
 		st.cfgMu.Unlock()
 		st.mu.Unlock()
 		return false
 	}
-	st.cfgMu.Unlock()
-	st.mu.Unlock()
 	disposeSwarmTierEditorIfEditing(st, id)
 	return true
 }

@@ -284,7 +284,9 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 							FillWidth().
 							AutoFocus()
 						if input.Changed() {
+							kanbanMu.Lock()
 							ks.newTaskVersion++
+							kanbanMu.Unlock()
 						}
 					})
 
@@ -308,7 +310,9 @@ func renderKanbanNewTaskSheet(c *ui.Context, s *chatState) {
 							Lines(4, 6).
 							FillWidth()
 						if input.Changed() {
+							kanbanMu.Lock()
 							ks.newTaskVersion++
+							kanbanMu.Unlock()
 						}
 					})
 

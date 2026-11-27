@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"mcode/internal/config"
 	"mcode/internal/harness"
 	"mcode/internal/providers/acp"
@@ -330,6 +331,7 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 
 	// 送达成功：维持现有成功路径，从 td.pending 中移除卡片，更新 summary，发布广播并返回 accepted
 	interactive := kind == string(harness.RequestKindPlan) || kind == string(harness.RequestKindQuestion)
+	var persistAllowKey string
 	b.mu.Lock()
 	if pr.done != done || pr.deliveryAck != deliveryAck {
 		b.mu.Unlock()
@@ -362,6 +364,9 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 			}
 			td.alwaysAllow[pr.allowKey] = true
 		}
+		if shouldPersistAlwaysAllow(harness.RequestKind(kind), false, interactive, optID, pr.allowKey) {
+			persistAllowKey = pr.allowKey
+		}
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		td.summary.UpdatedAt = now
 		cleanupSummary = b.summaryForPublishLocked(td)
@@ -372,6 +377,13 @@ func (b *MemoryBackend) RespondRequest(ctx context.Context, params wire.Requests
 		}
 	}
 	b.mu.Unlock()
+
+	if persistAllowKey != "" {
+		project := b.alwaysAllowProjectKey(params.ThreadID)
+		if err := b.alwaysAllowStore().Add(project, persistAllowKey); err != nil {
+			log.Printf("persist always-allow key for %s failed: %v", project, err)
+		}
+	}
 
 	if cleanupSummary.ID != "" {
 		b.hub.Publish(params.ThreadID, nil, nil, cleanupSummary)

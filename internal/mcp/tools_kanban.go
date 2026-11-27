@@ -896,8 +896,15 @@ func handleKanbanCreateTask(tc ToolContext, args map[string]any) ToolResult {
 		return toolError(CodeInternal, "Failed to create task: "+err.Error(), true)
 	}
 
-	// 依赖未完成时只建卡、不启动，与前端禁用“开始”的行为一致。
-	if blocked, blockedErr := taskBlocked(tc, created.ID); blockedErr == nil && blocked {
+	// 依赖检查失败或依赖未完成时只建卡、不启动，避免在状态不明时启动卡片。
+	if blocked, blockedErr := taskBlocked(tc, created.ID); blockedErr != nil {
+		return toolError(
+			CodePartialFailure,
+			fmt.Sprintf("The card was added, but it has not started because checking its prerequisites failed: %v", blockedErr),
+			false,
+			fmt.Sprintf("Don't create the card again; it already exists (task_id %s). Check it with kanban_read_card before starting it.", created.ID),
+		)
+	} else if blocked {
 		return toolError(
 			CodePartialFailure,
 			"The card was added, but it has not started because its prerequisites are still open.",

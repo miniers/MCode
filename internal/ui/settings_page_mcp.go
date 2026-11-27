@@ -832,16 +832,37 @@ func parseMCPHeaderLines(raw string) map[string]string {
 func setMCPToolFlag(uiSt *mcpPageUIState, flags map[string]map[string]bool, server, tool string, on bool) {
 	uiSt.mu.Lock()
 	defer uiSt.mu.Unlock()
-	setMCPToolFlagsLocked(uiSt, flags, server, []string{tool}, on)
-	saveMCPToolPolicyLocked(uiSt)
+	applyMCPToolFlagsLocked(uiSt, flags, server, []string{tool}, on)
 }
 
 // setMCPToolFlags 批量更新某服务下一组工具的开关状态，只持久化一次整份策略。
 func setMCPToolFlags(uiSt *mcpPageUIState, flags map[string]map[string]bool, server string, toolNames []string, on bool) {
 	uiSt.mu.Lock()
 	defer uiSt.mu.Unlock()
+	applyMCPToolFlagsLocked(uiSt, flags, server, toolNames, on)
+}
+
+func cloneMCPServerFlags(src map[string]bool) (map[string]bool, bool) {
+	if src == nil {
+		return nil, false
+	}
+	dst := make(map[string]bool, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst, true
+}
+
+func applyMCPToolFlagsLocked(uiSt *mcpPageUIState, flags map[string]map[string]bool, server string, toolNames []string, on bool) {
+	prev, hadServer := cloneMCPServerFlags(flags[server])
 	setMCPToolFlagsLocked(uiSt, flags, server, toolNames, on)
-	saveMCPToolPolicyLocked(uiSt)
+	if !saveMCPToolPolicyLocked(uiSt) {
+		if !hadServer {
+			delete(flags, server)
+		} else {
+			flags[server] = prev
+		}
+	}
 }
 
 // setMCPToolFlagsLocked 在已持锁的前提下写入开关状态，不触碰锁与持久化。
@@ -859,9 +880,9 @@ func setMCPToolFlagsLocked(uiSt *mcpPageUIState, flags map[string]map[string]boo
 }
 
 // saveMCPToolPolicyLocked 在已持锁的前提下把整份工具策略写回文件，并记录失败提示。
-func saveMCPToolPolicyLocked(uiSt *mcpPageUIState) {
+func saveMCPToolPolicyLocked(uiSt *mcpPageUIState) bool {
 	if uiSt.policyPath == "" {
-		return
+		return true
 	}
 	policy := agentconf.MCPToolPolicy{
 		Disabled:    uiSt.disabledTools,
@@ -871,14 +892,15 @@ func saveMCPToolPolicyLocked(uiSt *mcpPageUIState) {
 	}
 	if err := agentconf.SaveMCPToolPolicy(uiSt.policyPath, policy); err != nil {
 		uiSt.policyError = fmt.Sprintf("保存 MCP 工具策略失败：%v", err)
-		return
+		return false
 	}
 	uiSt.policyError = ""
+	return true
 }
 
 // saveMCPNewThreadDisabledLocked 在已持锁的前提下把「新会话默认停用」名单写回全局 MCP 配置，
 // 并记录失败提示；opts 由调用方在锁外构造（构造时要读 SettingsState 的锁）。
-func saveMCPNewThreadDisabledLocked(uiSt *mcpPageUIState, opts agentconf.Options) {
+func saveMCPNewThreadDisabledLocked(uiSt *mcpPageUIState, opts agentconf.Options) bool {
 	keys := make([]string, 0, len(uiSt.newThreadDisabled))
 	for k, off := range uiSt.newThreadDisabled {
 		if off {
@@ -887,9 +909,10 @@ func saveMCPNewThreadDisabledLocked(uiSt *mcpPageUIState, opts agentconf.Options
 	}
 	if err := agentconf.SetNewThreadDisabledServers(opts, keys); err != nil {
 		uiSt.newThreadDisabledErr = fmt.Sprintf("保存新会话默认停用名单失败：%v", err)
-		return
+		return false
 	}
 	uiSt.newThreadDisabledErr = ""
+	return true
 }
 
 // startMCPAuth 串行化同一远程服务的授权操作，避免重复行同时触发登录和退出。

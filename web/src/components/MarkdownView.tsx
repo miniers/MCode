@@ -54,10 +54,12 @@ export const HEADING_SIZE: Record<1 | 2 | 3 | 4, string> = {
 
 /**
  * mcode:// 会话引用不是 http(s) 链接，默认 urlTransform 会把它清成空串；其余 URL 仍走默认清洗。
- * file:// 本地图片同理：默认清洗会把它清空，导致 MarkdownImage 拿不到路径。
+ * file:// 仅在图片（img src）上下文保留以便 MarkdownImage 读取本地图片，链接 href 仍走默认清洗。
  */
-function mentionSafeUrlTransform(url: string): string {
-  return isThreadMentionHref(url) || /^file:/i.test(url) ? url : defaultUrlTransform(url);
+export function mentionSafeUrlTransform(url: string, key: string, node: Readonly<Element>): string {
+  if (key === 'href' && isThreadMentionHref(url)) return url;
+  if (key === 'src' && node.tagName === 'img' && /^file:/i.test(url)) return url;
+  return defaultUrlTransform(url);
 }
 
 export const CodeBlock = React.memo(function CodeBlock({ content, language, children }: { content: string; language: string; children?: React.ReactNode }) {

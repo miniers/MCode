@@ -384,9 +384,14 @@ func SaveMCPServer(opts Options, srv MCPServer) error {
 	// 先把同名旧记录读出来，空值一律沿用凭据库里的旧值。
 	oldRec := cfg.MCPServers[srv.Name]
 
-	// 显式声明的敏感变量优先，其次按变量名推断（TOKEN/KEY/SECRET 等）。
-	explicitEnvSecrets := make(map[string]bool, len(srv.SecretEnvKeys))
+	// 显式声明的敏感变量与旧记录已托管的敏感变量优先，其次按变量名推断（TOKEN/KEY/SECRET 等）。
+	// 列表扫描不带 SecretEnvKeys，编辑提交空值时必须保留 oldRec.SecretEnvKeys 中的键（如非典型命名的 DSN）；
+	// 循环仅遍历 srv.Env，因此已被用户删掉的变量不会重新写入 secretEnvKeys。
+	explicitEnvSecrets := make(map[string]bool, len(srv.SecretEnvKeys)+len(oldRec.SecretEnvKeys))
 	for _, k := range srv.SecretEnvKeys {
+		explicitEnvSecrets[k] = true
+	}
+	for _, k := range oldRec.SecretEnvKeys {
 		explicitEnvSecrets[k] = true
 	}
 

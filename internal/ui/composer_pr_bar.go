@@ -204,8 +204,12 @@ func startPRThreadStateRefreshLocked(s *chatState, flowClient gitPRFlowClient, e
 		defer cancel()
 		state, ok, err := flowClient.GitPRThreadState(ctx, threadID)
 
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+
 		composerPRBarMu.Lock()
-		if s.closed || entry.seq != seq {
+		if closed || entry.seq != seq {
 			composerPRBarMu.Unlock()
 			return
 		}
@@ -552,10 +556,15 @@ func renderComposerPRBar(c *ui.Context, s *chatState, threadID string) {
 	if !visible {
 		show = 0
 	}
-	k := wrap.AnimateTo("composer-pr-bar/show", show, ui.Animation{
-		Duration: animateDuration(c, DurBase),
-		Ease:     motionEaseStandard,
-	})
+	var k float32
+	if reduceMotion(c) {
+		k = wrap.Jump("composer-pr-bar/show", show)
+	} else {
+		k = wrap.AnimateTo("composer-pr-bar/show", show, ui.Animation{
+			Duration: animateDuration(c, DurBase),
+			Ease:     motionEaseStandard,
+		})
+	}
 	if !visible && k == 0 {
 		wrap.Hidden(true)
 		v.prBarShown = false

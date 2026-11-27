@@ -50,14 +50,24 @@ func (st *SettingsState) openInAppsDraft() []config.OpenInAppConfig {
 }
 
 // saveOpenInApps 写回打开方式列表并保存配置；列表清空时保存为空，恢复“未配置即默认”的行为。
-func (st *SettingsState) saveOpenInApps(apps []config.OpenInAppConfig) {
+// 保存失败时回滚内存中的列表并返回 false。
+func (st *SettingsState) saveOpenInApps(apps []config.OpenInAppConfig) bool {
 	// 改 cfg 要同时持有 mu 与 cfgMu（顺序 mu → cfgMu），save 在两把锁之外调。
 	st.mu.Lock()
 	st.cfgMu.Lock()
+	oldApps := st.cfg.Workbench.OpenInApps
 	st.cfg.Workbench.OpenInApps = apps
 	st.cfgMu.Unlock()
 	st.mu.Unlock()
-	st.save()
+	if !st.save() {
+		st.mu.Lock()
+		st.cfgMu.Lock()
+		st.cfg.Workbench.OpenInApps = oldApps
+		st.cfgMu.Unlock()
+		st.mu.Unlock()
+		return false
+	}
+	return true
 }
 
 // pickOpenInAppDialog 唤起系统原生选择器挑一个应用；测试中可替换。
@@ -430,13 +440,21 @@ func renderOpenInAddApp(c *ui.Context, st *SettingsState, ps *openInPageState) {
 								Enabled:  true,
 							}
 							next := append(st.openInAppsDraft(), app)
-							st.saveOpenInApps(next)
-							st.mu.Lock()
-							ps.adding = false
-							ps.draftName = ""
-							ps.draftPath = ""
-							ps.err = ""
-							st.mu.Unlock()
+							if st.saveOpenInApps(next) {
+								st.mu.Lock()
+								ps.adding = false
+								ps.draftName = ""
+								ps.draftPath = ""
+								ps.err = ""
+								st.mu.Unlock()
+							} else {
+								st.cfgMu.Lock()
+								saveErr := st.errorMessage
+								st.cfgMu.Unlock()
+								st.mu.Lock()
+								ps.err = saveErr
+								st.mu.Unlock()
+							}
 							st.invalidate()
 						}
 					}

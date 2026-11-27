@@ -177,7 +177,7 @@ func TestNormalizeDefaultTierLanding(t *testing.T) {
 		{name: "no landing tier", tiers: []SwarmTier{
 			{ID: "read", ReadOnly: true},
 			{ID: "limited", WritePaths: []string{"docs/**"}},
-		}, input: "limited", want: ""},
+		}, input: "limited", want: "limited"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

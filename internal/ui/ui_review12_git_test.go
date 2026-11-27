@@ -71,6 +71,10 @@ func TestUIReview12ReviewDetailShowsUndo(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {
+		return tt.HasText("丢弃此块改动？") && tt.HasText("确认丢弃")
+	})
+	clickWhenSettled(t, tt, "确认丢弃")
+	waitFor(t, tt, func() bool {
 		return tt.HasText("已丢弃 1 块 ·") && tt.HasText("撤销")
 	})
 }

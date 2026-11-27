@@ -138,7 +138,7 @@ func renderAutomationEditor(c *ui.Context, s *chatState, as *automationState, is
 										Provider: as.provider,
 										Model:    as.model,
 										Effort:   as.effort,
-									})
+									}, s.invalidate)
 									capsule := "跟随默认"
 									if !followsDefault {
 										capsule = modelShortDisplayName(providers, resolved.Provider, resolved.Model)

@@ -285,9 +285,18 @@ func (w *Watchdog) Check(ctx context.Context) error {
 					if decision.kind == finishWait {
 						return
 					}
+					// decideFinished 可能已从任务 Meta 清理 pending_receipt 或 pending_done 并推进版本号，
+					// 重读最新版本以同步 Revision 与 Meta，避免后续 UpdateTask 冲突或回写旧键。
+					if latest, gerr := w.svc.opts.Store.GetTask(ctx, t.ID); gerr == nil {
+						if latest.Status != t.Status {
+							return
+						}
+						t = latest
+					}
 					if err := w.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
 						return
 					}
+					pendingDone := false
 					text := decision.summary
 					switch decision.kind {
 					case finishBlocked:
@@ -310,8 +319,9 @@ func (w *Watchdog) Check(ctx context.Context) error {
 								t.Status = string(TaskStatusReview)
 							}
 						case w.autoAcceptEnabled(ctx, t):
-							// 自动接受由目标调度器按策略处理：把回执摘要留给它，避免它误判为缺回执
-							w.svc.stashPendingDone(t.ID, decision.summary)
+							// 自动接受由目标调度器按策略处理：在 UpdateTask 成功后再写入 pending_done，
+							// 避免提前推进 Revision 导致本次落库冲突。
+							pendingDone = true
 						default:
 							// 自动接受与自动评审都关闭：迁到 review 等人工处理，不能把任务留在 in_progress
 							if CanTransition(TaskStatus(t.Status), TaskStatusReview) {
@@ -331,6 +341,9 @@ func (w *Watchdog) Check(ctx context.Context) error {
 						changed = true
 					}
 					w.svc.mu.Unlock()
+					if updateErr == nil && pendingDone {
+						w.svc.stashPendingDone(t.ID, decision.summary)
+					}
 				}()
 				if decision.kind != finishWait && updateErr == nil && up.ID != "" {
 					if up.Status == string(TaskStatusReview) && len(ParseAcceptanceCommands(up.AcceptanceCriteria)) > 0 {

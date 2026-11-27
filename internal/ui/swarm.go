@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -2269,8 +2270,11 @@ func renderSwarmNormal(c *ui.Context, s *chatState, st SwarmState) {
 func swarmTierName(s *chatState, tierID string) string {
 	st := getChatSettings(s)
 	if st != nil {
+		st.cfgMu.Lock()
+		tiers := slices.Clone(st.cfg.Orchestration.Tiers)
+		st.cfgMu.Unlock()
 		id := strings.TrimSpace(tierID)
-		for _, t := range st.cfg.Orchestration.Tiers {
+		for _, t := range tiers {
 			if strings.TrimSpace(t.ID) == id {
 				if strings.TrimSpace(t.Name) != "" {
 					return t.Name

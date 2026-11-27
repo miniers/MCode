@@ -663,7 +663,7 @@ func removeQuickCheckMarker(filePath string) {
 // writeQuickCheckMarker 写入标记文件，让下次启动走同步检查与自愈；内容只作诊断用，读取时只判断存在性。
 func writeQuickCheckMarker(filePath string) {
 	content := time.Now().UTC().Format(time.RFC3339) + "\n"
-	if err := os.WriteFile(quickCheckMarkerPath(filePath), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(quickCheckMarkerPath(filePath), []byte(content), 0o600); err != nil {
 		log.Printf("store: failed to write quick_check marker %s: %v", quickCheckMarkerPath(filePath), err)
 	}
 }
@@ -786,7 +786,7 @@ func OpenWithOptions(path string, opts OpenOptions) (opened *Store, err error) {
 	if strings.Contains(cleanPath, "?") {
 		sep = "&"
 	}
-	dsn := fmt.Sprintf("file:%s%s_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)", cleanPath, sep)
+	dsn := fmt.Sprintf("file:%s%s_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_txlock=immediate", cleanPath, sep)
 	if opts.FastSync {
 		dsn += "&_pragma=synchronous(OFF)"
 	}

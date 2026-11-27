@@ -476,6 +476,18 @@ func Open(opts Options) (*App, error) {
 	modelsCtx, modelsCancel := context.WithCancel(context.Background())
 	modelsDone := modelsdev.Start(modelsCtx, opts.DataDir)
 	modelsOwned := true
+	stopStartupBackground := func() {
+		if modelsOwned {
+			modelsOwned = false
+			modelsCancel()
+			waitBackground(modelsDone)
+		}
+		if migrateOwned {
+			migrateOwned = false
+			migrateCancel()
+			<-migrateDone
+		}
+	}
 	defer func() {
 		if modelsOwned {
 			modelsCancel()
@@ -485,6 +497,7 @@ func Open(opts Options) (*App, error) {
 	startuptrace.Mark("modelsdev started")
 
 	if err := backend.AttachStore(context.Background(), dbStore); err != nil {
+		stopStartupBackground()
 		_ = dbStore.Close()
 		return nil, fmt.Errorf("attach store: %w", err)
 	}
@@ -801,6 +814,7 @@ func Open(opts Options) (*App, error) {
 		}
 		hub.Close()
 		backend.Close()
+		stopStartupBackground()
 		_ = dbStore.Close()
 	}
 

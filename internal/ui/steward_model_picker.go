@@ -45,8 +45,12 @@ func (st *SettingsState) stewardAutoLabel(catalog modelPickerCatalog, sel ModelS
 	}
 	var key strings.Builder
 	add := func(value string) { key.WriteString(strconv.Quote(value)) }
-	add(st.cfg.Orchestration.Steward.Provider)
-	add(st.cfg.Orchestration.Steward.Model)
+	st.cfgMu.Lock()
+	stewardProvider := st.cfg.Orchestration.Steward.Provider
+	stewardModel := st.cfg.Orchestration.Steward.Model
+	st.cfgMu.Unlock()
+	add(stewardProvider)
+	add(stewardModel)
 	for _, provider := range catalog.Providers {
 		add(provider.ID)
 		for _, model := range provider.Models {

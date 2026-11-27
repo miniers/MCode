@@ -42,7 +42,10 @@ func getQuickRepliesPage(st *SettingsState) *quickRepliesPageState {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.quickRepliesPage == nil {
-		st.quickRepliesPage = newQuickRepliesPageState(st.cfg.QuickReplies)
+		st.cfgMu.Lock()
+		items := slices.Clone(st.cfg.QuickReplies)
+		st.cfgMu.Unlock()
+		st.quickRepliesPage = newQuickRepliesPageState(items)
 	}
 	return st.quickRepliesPage
 }
@@ -70,7 +73,9 @@ func quickReplyRowsFromConfig(items []config.QuickReply) []*quickReplyRow {
 // syncQuickRepliesPage 渲染前把草稿与配置对齐：配置里的内容变了（别的窗口保存过），
 // 就以配置为准重建草稿，免得多年前打开的页面把别人的修改静默盖回去。
 func syncQuickRepliesPage(st *SettingsState, page *quickRepliesPageState) {
-	current := st.cfg.QuickReplies
+	st.cfgMu.Lock()
+	current := slices.Clone(st.cfg.QuickReplies)
+	st.cfgMu.Unlock()
 	page.mu.Lock()
 	same := slices.Equal(page.synced, current)
 	page.mu.Unlock()

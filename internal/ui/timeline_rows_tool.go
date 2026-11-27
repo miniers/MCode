@@ -9,8 +9,10 @@ import (
 	"mcode/internal/git"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // afterNextSecond 对齐整秒，避免中间重建推迟计时刷新。
@@ -735,11 +737,16 @@ func timelineGutter(c *ui.Context, e ui.Element, marginLeft float32) ui.Element 
 // （超过 300 字符时默认折叠，用户可就地展开全文）。
 // 工具组里的胶囊详情与未分组的单条工具共用这套渲染。
 func renderToolDetail(c *ui.Context, s *chatState, m Message) {
-	lines := strings.Split(m.Text, "\n")
 	// 被 hook 拦截/改道的结果末尾会跟一行 [failed]，它只是改道的标记，详情区不显示这一行
-	blockedByHook := isToolBlockedByHook(m)
-	if blockedByHook && len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "[failed]" {
-		lines = lines[:len(lines)-1]
+	text := m.Text
+	if isToolBlockedByHook(m) {
+		if idx := strings.LastIndexByte(text, '\n'); idx >= 0 {
+			if strings.TrimSpace(text[idx+1:]) == "[failed]" {
+				text = text[:idx]
+			}
+		} else if strings.TrimSpace(text) == "[failed]" {
+			text = ""
+		}
 	}
 	diffOpen := isFileEditTool(m) && s.isToolDiffOpen(m.ID)
 
@@ -794,17 +801,15 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 					if strings.TrimSpace(m.Text) != "" {
 						// 输出正文：等宽小号字，超长时保留前 300 个字符；
 						// 正文区限高后可滚动，运行中默认贴底跟随新输出，用户上滚则停止跟随。
-						// 拦截标记那行已从 lines 去掉，正文按处理后的行拼回
-						text := strings.Join(lines, "\n")
+						// 拦截标记那行已从 text 去掉；展开全部时仍限制最大字节与行数，避免单次渲染超大文本卡顿。
 						foldKey := "tool-output-fold-" + m.ID
 						s.mu.Lock()
 						expanded := s.expandedTool[foldKey]
 						s.mu.Unlock()
-						runes := []rune(text)
-						folded := len(runes) > foldRunThreshold && !expanded
-						preview := text
-						if folded {
-							preview = string(runes[:foldRunThreshold])
+						preview, overFold := truncateFoldPrefix(text, foldRunThreshold)
+						folded := overFold && !expanded
+						if !folded {
+							preview, _ = truncateExpandedToolOutput(text, toolOutputExpandedMaxBytes, toolOutputExpandedMaxLines)
 						}
 						st := s.toolOutputScrollStateFor(m.ID)
 						if !folded && isToolRunning(m) && (st.MaxY <= 0 || st.Y >= st.MaxY-toolOutputFollowThreshold) {
@@ -837,13 +842,124 @@ func renderToolDetail(c *ui.Context, s *chatState, m Message) {
 		})
 }
 
+const (
+	toolOutputExpandedMaxBytes = 200_000
+	toolOutputExpandedMaxLines = 4000
+	toolOutputTruncatedNotice  = "输出过长，已截断"
+	toolDiffStatCacheMax       = 1024
+)
+
+type toolDiffStatCacheKey struct {
+	id      string
+	textLen int
+}
+
+type toolDiffStatCacheEntry struct {
+	toolName  string
+	toolInput string
+	adds      int
+	dels      int
+}
+
+var (
+	toolDiffStatCacheMu sync.Mutex
+	toolDiffStatCache   = make(map[toolDiffStatCacheKey]toolDiffStatCacheEntry, 128)
+	// toolCallDiffStatCompute 供测试计数，验证同一消息连续渲染时 diff 解析只执行一次。
+	toolCallDiffStatCompute = toolCallDiffStatUncached
+)
+
+// truncateFoldPrefix 在未展开时截取前 maxRunes 个字符，避免把整段超长输出转为 []rune。
+func truncateFoldPrefix(text string, maxRunes int) (string, bool) {
+	if maxRunes <= 0 {
+		return "", text != ""
+	}
+	count := 0
+	for i := range text {
+		if count == maxRunes {
+			return text[:i], true
+		}
+		count++
+	}
+	return text, false
+}
+
+// truncateExpandedToolOutput 把展开后的工具输出限制在 maxBytes 字节与 maxLines 行以内（按 UTF-8 字符边界截断），
+// 超出时在末尾追加一行「输出过长，已截断」。
+func truncateExpandedToolOutput(text string, maxBytes, maxLines int) (string, bool) {
+	if maxBytes <= 0 || maxLines <= 0 {
+		return toolOutputTruncatedNotice, true
+	}
+	noticeSuffix := "\n" + toolOutputTruncatedNotice
+	if len(text) <= maxBytes && strings.Count(text, "\n")+1 <= maxLines {
+		return text, false
+	}
+
+	bodyMaxBytes := maxBytes - len(noticeSuffix)
+	if bodyMaxBytes <= 0 {
+		return toolOutputTruncatedNotice, true
+	}
+
+	cut := len(text)
+	if cut > bodyMaxBytes {
+		cut = bodyMaxBytes
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+	}
+
+	maxBodyLines := maxLines - 1
+	if maxBodyLines <= 0 {
+		return toolOutputTruncatedNotice, true
+	}
+	lines := 1
+	for i := 0; i < cut; i++ {
+		if text[i] == '\n' {
+			if lines >= maxBodyLines {
+				cut = i
+				break
+			}
+			lines++
+		}
+	}
+	return text[:cut] + noticeSuffix, true
+}
+
 // toolCallDiffStat 返回「这一次」工具调用自身的增删行数，供工具行右侧的差异角标使用。
-//
+// 按 m.ID + len(m.Text) 缓存结果（上限 toolDiffStatCacheMax 条），避免每帧重复解析 diff。
+func toolCallDiffStat(m Message) (adds, dels int) {
+	if m.ID == "" {
+		return toolCallDiffStatCompute(m)
+	}
+	key := toolDiffStatCacheKey{id: m.ID, textLen: len(m.Text)}
+	toolDiffStatCacheMu.Lock()
+	if e, ok := toolDiffStatCache[key]; ok && e.toolName == m.ToolName && e.toolInput == m.ToolInput {
+		toolDiffStatCacheMu.Unlock()
+		return e.adds, e.dels
+	}
+	toolDiffStatCacheMu.Unlock()
+
+	adds, dels = toolCallDiffStatCompute(m)
+
+	toolDiffStatCacheMu.Lock()
+	if _, exists := toolDiffStatCache[key]; !exists && len(toolDiffStatCache) >= toolDiffStatCacheMax {
+		toolDiffStatCache = make(map[toolDiffStatCacheKey]toolDiffStatCacheEntry, 128)
+	}
+	toolDiffStatCache[key] = toolDiffStatCacheEntry{
+		toolName:  m.ToolName,
+		toolInput: m.ToolInput,
+		adds:      adds,
+		dels:      dels,
+	}
+	toolDiffStatCacheMu.Unlock()
+	return adds, dels
+}
+
+// toolCallDiffStatUncached 执行单次工具调用差异统计：
 // 只看这次调用的输入（编辑的 old/new 文本、写入内容、补丁正文），或这次调用输出里自带的
 // unified diff。取不到就返回 0（不显示），绝不回退到整轮汇总：整轮 diff 是之前所有 edit 行
 // 都显示同一对数字（如 +596 −106）的根因——同一文件在一轮里被改多次时，每行拿到的都是
 // 该文件在本轮的累计改动；路径提取失败时（例如输入字段写作 "Path"）更是整轮所有文件的合计。
-func toolCallDiffStat(m Message) (adds, dels int) {
+func toolCallDiffStatUncached(m Message) (adds, dels int) {
 	if !isFileEditTool(m) {
 		return 0, 0
 	}

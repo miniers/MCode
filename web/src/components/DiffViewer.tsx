@@ -329,18 +329,25 @@ export const DiffViewer = React.memo(function DiffViewer({
   const effectiveTruncated = isTaskMode ? taskTruncated : Boolean(propTruncated);
   const effectiveMetadataTruncated = !isTaskMode && Boolean(propMetadataTruncated);
 
+  const fetchSeqRef = useRef(0);
+
   const fetchTaskDiff = async () => {
     if (!taskID) return;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const res = await getDiff(taskID);
+      if (fetchSeqRef.current !== seq) return;
       setTaskDiffText(res.diff || '');
       setTaskTruncated(Boolean(res.truncated));
     } catch (err) {
+      if (fetchSeqRef.current !== seq) return;
       setError(err instanceof Error ? err.message : '获取代码差异失败');
     } finally {
-      setLoading(false);
+      if (fetchSeqRef.current === seq) {
+        setLoading(false);
+      }
     }
   };
 
@@ -348,6 +355,9 @@ export const DiffViewer = React.memo(function DiffViewer({
     if (taskID) {
       void fetchTaskDiff();
     }
+    return () => {
+      fetchSeqRef.current += 1;
+    };
   }, [taskID]);
 
   useEffect(() => {
@@ -621,9 +631,11 @@ export const DiffViewer = React.memo(function DiffViewer({
               className="rounded-xl border border-[var(--border)] overflow-hidden bg-[var(--card)] text-[var(--foreground)] font-mono shadow-inner w-full min-w-0 max-w-full"
             >
               {/* 文件标题栏（可点击折叠/展开） */}
-              <div
+              <button
+                type="button"
+                aria-expanded={!isCollapsed}
                 onClick={() => toggleFileCollapse(file.id)}
-                className="flex items-center justify-between px-3 py-2 bg-[var(--card-alt)] border-b border-[var(--border)] cursor-pointer select-none hover:bg-[var(--mc-overlay-hover)] transition"
+                className="w-full flex items-center justify-between px-3 py-2 bg-[var(--card-alt)] border-b border-[var(--border)] cursor-pointer select-none hover:bg-[var(--mc-overlay-hover)] transition text-left"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-[var(--foreground-muted)] shrink-0">
@@ -667,7 +679,7 @@ export const DiffViewer = React.memo(function DiffViewer({
                   )}
                   <span>{isCollapsed ? '展开' : '折叠'}</span>
                 </div>
-              </div>
+              </button>
 
               {/* 文件内容展示（仅展开时挂载与渲染） */}
               {!isCollapsed && (

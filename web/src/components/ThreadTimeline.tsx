@@ -1088,32 +1088,28 @@ export const TimelineEntry = React.memo<TimelineEntryProps>((props) => {
       >
         {checklist ? (
           <div className="min-w-0">
-            <div
-              onClick={() => onToggleWorkRecord(item.turnID)}
-              className="w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition cursor-pointer"
-            >
+            <div className="relative w-full flex items-center justify-between gap-2 text-left min-h-[38px] rounded-xl px-1 hover:bg-[var(--card-alt,var(--card))] transition">
               <div className="flex items-center gap-1 min-w-0 flex-1">
                 <button
                   type="button"
                   data-work-record-id={item.turnID}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleWorkRecord(item.turnID);
-                  }}
+                  onClick={() => onToggleWorkRecord(item.turnID)}
                   aria-expanded={isExpanded}
                   aria-label={isExpanded ? `收起第 ${item.turnIndex} 轮工作记录` : `展开第 ${item.turnIndex} 轮工作记录`}
                   title={`${workStatusLabel} · ${workSummary}`}
-                  className="flex items-center gap-2 min-w-0 text-left py-1.5 text-mc-body text-[var(--foreground-muted)]"
+                  className="flex items-center gap-2 min-w-0 text-left py-1.5 text-mc-body text-[var(--foreground-muted)] after:absolute after:inset-0 after:content-['']"
                 >
                   {headerLead}
                 </button>
-                <TurnChecklistTrigger
-                  checklist={checklist}
-                  open={isChecklistOpen}
-                  onToggle={handleToggleChecklist}
-                />
+                <div className="relative z-10 shrink-0">
+                  <TurnChecklistTrigger
+                    checklist={checklist}
+                    open={isChecklistOpen}
+                    onToggle={handleToggleChecklist}
+                  />
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
+              <div className="pointer-events-none flex items-center gap-1.5 shrink-0 text-[var(--foreground-muted)] text-mc-footnote">
                 <ChevronRightIcon
                   className={`w-3.5 h-3.5 transition-transform duration-200 ${
                     isExpanded ? 'rotate-90' : ''

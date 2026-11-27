@@ -23,12 +23,15 @@ func mcpFoldEnabled(st *SettingsState) (bool, bool) {
 func setMCPFoldEnabled(st *SettingsState, on bool) {
 	uiSt := getMCPUIState(st)
 	uiSt.mu.Lock()
+	prevThreshold := uiSt.foldThreshold
 	if on {
 		uiSt.foldThreshold = 0
 	} else {
 		uiSt.foldThreshold = -1
 	}
-	saveMCPToolPolicyLocked(uiSt)
+	if !saveMCPToolPolicyLocked(uiSt) {
+		uiSt.foldThreshold = prevThreshold
+	}
 	uiSt.mu.Unlock()
 	st.invalidate()
 }
@@ -74,6 +77,8 @@ func renderMCPNewThreadDefaultRow(c *ui.Context, st *SettingsState, uiSt *mcpPag
 			func(st *SettingsState, on bool) {
 				opts := st.agentConfWriteOptions()
 				uiSt.mu.Lock()
+				prevOff, hadKey := uiSt.newThreadDisabled[key]
+				hadMap := uiSt.newThreadDisabled != nil
 				if on {
 					delete(uiSt.newThreadDisabled, key)
 				} else {
@@ -82,7 +87,15 @@ func renderMCPNewThreadDefaultRow(c *ui.Context, st *SettingsState, uiSt *mcpPag
 					}
 					uiSt.newThreadDisabled[key] = true
 				}
-				saveMCPNewThreadDisabledLocked(uiSt, opts)
+				if !saveMCPNewThreadDisabledLocked(uiSt, opts) {
+					if !hadMap {
+						uiSt.newThreadDisabled = nil
+					} else if hadKey {
+						uiSt.newThreadDisabled[key] = prevOff
+					} else {
+						delete(uiSt.newThreadDisabled, key)
+					}
+				}
 				uiSt.mu.Unlock()
 				st.invalidate()
 			},

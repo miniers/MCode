@@ -65,8 +65,16 @@ func probeModels(ctx context.Context, agent Agent, binary string, disableLaunchS
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, err
 	}
+	started := false
+	defer func() {
+		if !started {
+			_ = stdin.Close()
+			_ = stdout.Close()
+		}
+	}()
 	if !disableLaunchSpacing {
 		if err := waitLaunchSlot(ctx); err != nil {
 			return nil, err
@@ -75,6 +83,7 @@ func probeModels(ctx context.Context, agent Agent, binary string, disableLaunchS
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
+	started = true
 	conn := NewConn(stdout, stdin)
 	defer func() {
 		_ = conn.Close()

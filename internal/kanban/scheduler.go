@@ -485,6 +485,14 @@ func (g *GoalScheduler) tickGoal(ctx context.Context, goal store.Goal) error {
 				if decision.kind == finishWait {
 					return
 				}
+				// decideFinished 可能已从任务 Meta 清理 pending_receipt 或 pending_done 并推进版本号，
+				// 重读最新版本以同步 Revision 与 Meta，避免后续 UpdateTask 冲突或回写旧键。
+				if latest, gerr := g.svc.opts.Store.GetTask(ctx, t.ID); gerr == nil {
+					if latest.Status != t.Status {
+						return
+					}
+					t = latest
+				}
 				if err := g.svc.applyExecutorResult(ctx, &t, decision.result, now); err != nil {
 					applyErr = err
 					return

@@ -27,6 +27,7 @@ type chatFindState struct {
 	cursor        int      // 当前命中在 matches 中的下标
 	dirty         bool     // 查询串或大小写开关变化后待重算命中
 	focusPending  bool     // 下一帧给输入框要一次焦点
+	composing     bool     // 输入框当前是否处于输入法组字中
 	threadID      string   // 命中列表所属的会话 ID，切换会话时作废重算
 	rev           uint64   // 命中列表对应的消息版本号，新消息落地后重算
 }
@@ -666,8 +667,8 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 		f.dirty = true
 	}
 
-	// 输入框失焦时 Esc 也能关掉查找条。
-	if c.Shortcut(0, ui.KeyEscape) {
+	// 输入框失焦时 Esc 也能关掉查找条；组字中不触发。
+	if !f.composing && !s.isComposing && c.Shortcut(0, ui.KeyEscape) {
 		s.closeChatFind()
 		return
 	}
@@ -729,7 +730,12 @@ func renderChatFindBar(c *ui.Context, s *chatState, threadID string, rev uint64,
 				}
 			}
 
+			composing := in.Composing()
+			f.composing = composing
 			in.OnTextKey(func(k ui.TextKey) bool {
+				if composing || s.isComposing {
+					return false
+				}
 				switch k.Key {
 				case ui.KeyEnter:
 					if k.Mods&ui.Shift != 0 {

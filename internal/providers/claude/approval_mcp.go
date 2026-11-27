@@ -22,11 +22,13 @@ import (
 var approvalKeepaliveInterval = 15 * time.Second
 
 type approvalServer struct {
-	listener  net.Listener
-	server    *http.Server
-	serverURL string
-	tokenStr  string
-	closeOnce sync.Once
+	listener    net.Listener
+	server      *http.Server
+	serverURL   string
+	tokenStr    string
+	closeOnce   sync.Once
+	done        chan struct{}
+	watcherDone chan struct{}
 
 	// mu 保护 approver：常驻进程的审批服务与进程同生共死，每一轮开始/结束各自替换审批方，
 	// 而 HTTP 处理协程可能并发读取它。
@@ -114,10 +116,12 @@ func startApprovalServer(ctx context.Context, approver harness.Approver) (*appro
 	serverURL := fmt.Sprintf("http://127.0.0.1:%d/mcp", tcpAddr.Port)
 
 	s := &approvalServer{
-		listener:  ln,
-		serverURL: serverURL,
-		tokenStr:  token,
-		approver:  approver,
+		listener:    ln,
+		serverURL:   serverURL,
+		tokenStr:    token,
+		approver:    approver,
+		done:        make(chan struct{}),
+		watcherDone: make(chan struct{}),
 	}
 
 	mux := http.NewServeMux()
@@ -131,8 +135,12 @@ func startApprovalServer(ctx context.Context, approver harness.Approver) (*appro
 	}()
 
 	go func() {
-		<-ctx.Done()
-		_ = s.close()
+		defer close(s.watcherDone)
+		select {
+		case <-ctx.Done():
+			_ = s.close()
+		case <-s.done:
+		}
 	}()
 
 	return s, nil
@@ -149,6 +157,9 @@ func (s *approvalServer) token() string {
 func (s *approvalServer) close() error {
 	var err error
 	s.closeOnce.Do(func() {
+		if s.done != nil {
+			close(s.done)
+		}
 		err = s.server.Close()
 	})
 	return err

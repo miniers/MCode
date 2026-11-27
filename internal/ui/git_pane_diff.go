@@ -43,6 +43,13 @@ type gitDiffResult struct {
 	large    bool
 }
 
+type gitDiffDiscardConfirm struct {
+	key   gitDiffKey
+	sels  []git.LineSel
+	hunk  bool
+	count int
+}
+
 type gitDiffViewState struct {
 	mu                                   sync.Mutex
 	key                                  gitDiffKey
@@ -53,6 +60,7 @@ type gitDiffViewState struct {
 	cancel                               context.CancelFunc
 	result                               *gitDiffResult
 	clearSelection                       bool
+	confirmDiscard                       *gitDiffDiscardConfirm
 	// editor 与浮层状态只由 UI 线程读写；后台只发布不可变的加载结果。
 	applied         *gitDiffResult
 	appliedKey      gitDiffKey
@@ -434,6 +442,7 @@ func renderGitPaneDiff(c *ui.Context, s *chatState, threadID string, ps *gitPane
 				renderGitSelectionBar(c, s, ps, st, client, key, f, selection, sels, selection.End-selection.Start+1, loading || pending)
 			}
 		}
+		renderGitDiffDiscardConfirm(c, s, ps, st, client, key, loading || pending)
 	})
 }
 
@@ -525,8 +534,67 @@ func renderGitHunkActions(c *ui.Context, bar ui.Element, s *chatState, ps *gitPa
 			if busy {
 				tip = "Agent 正在修改此工作区"
 			}
-			Button(c, ButtonOpts{Text: "↺", Label: "丢弃此块", Tooltip: tip, Size: ControlSM, Disabled: disabled || busy, OnClick: func() { applyGitSelections(s, ps, st, client, key, sels, true, true) }})
+			Button(c, ButtonOpts{Text: "↺", Label: "丢弃此块", Tooltip: tip, Size: ControlSM, Disabled: disabled || busy, OnClick: func() {
+				st.mu.Lock()
+				st.confirmDiscard = &gitDiffDiscardConfirm{
+					key:  key,
+					sels: append([]git.LineSel(nil), sels...),
+					hunk: true,
+				}
+				st.mu.Unlock()
+				s.invalidate()
+			}})
 		}
+	})
+}
+
+func renderGitDiffDiscardConfirm(c *ui.Context, s *chatState, ps *gitPaneState, st *gitDiffViewState, client gitDiffClient, key gitDiffKey, disabled bool) {
+	st.mu.Lock()
+	pending := st.confirmDiscard
+	if pending != nil && pending.key != key {
+		st.confirmDiscard = nil
+		pending = nil
+	}
+	st.mu.Unlock()
+	if pending == nil {
+		RenderConfirmDialog(c, ConfirmDialog{Key: "git-diff-discard-confirm", Open: false})
+		return
+	}
+	clear := func() {
+		st.mu.Lock()
+		st.confirmDiscard = nil
+		st.mu.Unlock()
+		s.invalidate()
+	}
+	busy := gitPaneAgentBusy(s, key.threadID)
+	tip := ""
+	if busy {
+		tip = "Agent 正在修改此工作区"
+	}
+	title := "丢弃选中行改动？"
+	body := fmt.Sprintf("将丢弃文件 %s 中所选 %d 行的未暂存改动。", key.path, pending.count)
+	if pending.hunk {
+		title = "丢弃此块改动？"
+		body = fmt.Sprintf("将丢弃文件 %s 中此块的未暂存改动。", key.path)
+	}
+	sels := append([]git.LineSel(nil), pending.sels...)
+	hunk := pending.hunk
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "git-diff-discard-confirm",
+		Open:            true,
+		Tone:            ConfirmDanger,
+		Title:           title,
+		Body:            body,
+		ConfirmLabel:    "确认丢弃",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		ConfirmDisabled: disabled || busy,
+		ConfirmTooltip:  tip,
+		OnConfirm: func() {
+			clear()
+			applyGitSelections(s, ps, st, client, key, sels, true, hunk)
+		},
+		OnCancel: clear,
 	})
 }
 
@@ -619,7 +687,16 @@ func renderGitSelectionBar(c *ui.Context, s *chatState, ps *gitPaneState, st *gi
 			if busy {
 				tip = "Agent 正在修改此工作区"
 			}
-			Button(c, ButtonOpts{Text: "丢弃", Size: ControlSM, Disabled: disabled || busy || n == 0, Tooltip: tip, OnClick: func() { applyGitSelections(s, ps, st, client, key, sels, true, false) }})
+			Button(c, ButtonOpts{Text: "丢弃", Size: ControlSM, Disabled: disabled || busy || n == 0, Tooltip: tip, OnClick: func() {
+				st.mu.Lock()
+				st.confirmDiscard = &gitDiffDiscardConfirm{
+					key:   key,
+					sels:  append([]git.LineSel(nil), sels...),
+					count: n,
+				}
+				st.mu.Unlock()
+				s.invalidate()
+			}})
 		}
 		Button(c, ButtonOpts{Text: "esc", Size: ControlSM, Variant: ButtonGhost, OnClick: func() { st.view.SetSelectedLines(editor.DiffLineRange{}, false) }})
 	})

@@ -1058,6 +1058,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 
 	s.mu.Lock()
 	selectedID := s.selectedThreadID
+	bulkPopoverProjID := s.bulkPopoverProjectID
 	if s.newThreadProvider == "" {
 		s.newThreadProvider = defaultNewThreadProvider(s.providers, newThreadProviderContext{threads: s.threads, stewardThreadID: s.stewardThreadID()})
 	}
@@ -1462,7 +1463,8 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				})
 
 				// 挂载整理浮窗 Popover（锚定在 headerRow）；弹窗被点外部/按 Esc 关闭时一并清掉项目标记。
-				bulkPopoverOpen := s.bulkPopoverProjectID == pVal.ID
+				wasBulkPopoverOpen := bulkPopoverProjID == pVal.ID
+				bulkPopoverOpen := wasBulkPopoverOpen
 				appPopover(c.Key("bulk-popover-"+pVal.ID), headerRow, &bulkPopoverOpen, func() {
 					s.mu.Lock()
 					if s.bulkPopoverProjectID == pVal.ID {
@@ -1472,7 +1474,7 @@ func renderSidebar(c *ui.Context, s *chatState) {
 				}, func() {
 					renderBulkPopover(c, s, pVal.ID)
 				})
-				if bulkPopoverOpen != (s.bulkPopoverProjectID == pVal.ID) {
+				if bulkPopoverOpen != wasBulkPopoverOpen {
 					s.mu.Lock()
 					if s.bulkPopoverProjectID == pVal.ID {
 						s.bulkPopoverProjectID = ""

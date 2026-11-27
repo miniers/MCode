@@ -1612,7 +1612,9 @@ func renderAgyTerminalLoginBody(c *ui.Context, st *SettingsState) {
 	terminalLoginArgs := append([]string(nil), st.agy.terminalLoginArgs...)
 	terminalLoginBusy := st.agy.terminalLoginBusy
 	terminalLoginErr := st.agy.terminalLoginErr
+	st.cfgMu.Lock()
 	terminalBinary := st.cfg.Providers.Agy.Bin
+	st.cfgMu.Unlock()
 	st.mu.Unlock()
 	client := st.agyClient()
 

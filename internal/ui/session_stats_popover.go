@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -149,6 +150,47 @@ type sessionStatsSummary struct {
 	beeCostUSD float64
 }
 
+func cloneTokenUsage(u TokenUsage) TokenUsage {
+	u.Requests = slices.Clone(u.Requests)
+	return u
+}
+
+func cloneThreadUsage(u ThreadUsage) ThreadUsage {
+	out := u
+	out.Total = cloneTokenUsage(u.Total)
+	out.TopTools = slices.Clone(u.TopTools)
+	if u.Turns != nil {
+		out.Turns = make(map[int]TokenUsage, len(u.Turns))
+		for k, v := range u.Turns {
+			out.Turns[k] = cloneTokenUsage(v)
+		}
+	}
+	return out
+}
+
+func cloneProviders(providers []ProviderInfo) []ProviderInfo {
+	if providers == nil {
+		return nil
+	}
+	out := make([]ProviderInfo, len(providers))
+	for i, p := range providers {
+		if p.Models != nil {
+			models := make([]ModelInfo, len(p.Models))
+			for j, m := range p.Models {
+				m.Efforts = slices.Clone(m.Efforts)
+				if m.Cost != nil {
+					cost := *m.Cost
+					m.Cost = &cost
+				}
+				models[j] = m
+			}
+			p.Models = models
+		}
+		out[i] = p
+	}
+	return out
+}
+
 // collectSessionStats 汇总会话统计：用量来自 ThreadUsage，时长优先取后端记录的每轮耗时、
 // 缺失时用消息时间戳推导，速度优先用各轮的逐请求样本，改动取改动统计缓存，
 // 子代理取 Swarm 面板状态，费用按模型参考价估算。
@@ -158,10 +200,10 @@ func collectSessionStats(s *chatState, threadID string, now time.Time) sessionSt
 		return st
 	}
 	s.mu.Lock()
-	st.usage = s.threadUsage
+	st.usage = cloneThreadUsage(s.threadUsage)
 	provider, model := threadAgentLocked(s, threadID)
-	providers := s.providers
-	st.totalDuration = sessionDurationForTurns(s.messages, s.threadUsage.Turns)
+	providers := cloneProviders(s.providers)
+	st.totalDuration = sessionDurationForTurns(s.messages, st.usage.Turns)
 	start, running := sessionLiveTurnLocked(s, threadID)
 	if running {
 		// 当前轮的贡献整体换成实时值：先从副本里去掉这一轮的消息与用量再累计，
@@ -173,8 +215,8 @@ func collectSessionStats(s *chatState, threadID string, now time.Time) sessionSt
 			}
 			msgs = append(msgs, m)
 		}
-		usage := make(map[int]TokenUsage, len(s.threadUsage.Turns))
-		for index, u := range s.threadUsage.Turns {
+		usage := make(map[int]TokenUsage, len(st.usage.Turns))
+		for index, u := range st.usage.Turns {
 			if index != start.index {
 				usage[index] = u
 			}

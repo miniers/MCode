@@ -809,7 +809,17 @@ func (s *Service) runWorktreeSetup(ctx context.Context, projectID, projectRoot, 
 	if !ok || runner == nil {
 		return
 	}
-	go runner.RunWorktreeSetupScripts(context.WithoutCancel(ctx), projectID, projectRoot, worktreePath)
+	s.acceptanceMu.Lock()
+	if s.ctx != nil && s.ctx.Err() != nil {
+		s.acceptanceMu.Unlock()
+		return
+	}
+	s.wg.Add(1)
+	s.acceptanceMu.Unlock()
+	go func() {
+		defer s.wg.Done()
+		runner.RunWorktreeSetupScripts(context.WithoutCancel(ctx), projectID, projectRoot, worktreePath)
+	}()
 }
 
 // buildStartPrompt 组装任务启动提示词：任务本身与目标、评审反馈，以及已完成依赖的上下文、
@@ -1174,9 +1184,15 @@ func (s *Service) autoMergeTaskLocked(ctx context.Context, task *store.Task) boo
 		shouldCleanup = s.opts.AutoCleanupMergedWorktrees()
 	}
 	if shouldCleanup {
-		_ = s.opts.Git.WorktreeRemove(ctx, repoRoot, wtPath, true)
-		_ = s.opts.Git.BranchDelete(ctx, repoRoot, branch, true)
-		_ = os.RemoveAll(wtPath)
+		if err := s.opts.Git.WorktreeRemove(ctx, repoRoot, wtPath, true); err != nil {
+			log.Printf("kanban: 清理任务 %s worktree %s 失败: %v", taskID, wtPath, err)
+		}
+		if err := s.opts.Git.BranchDelete(ctx, repoRoot, branch, true); err != nil {
+			log.Printf("kanban: 删除任务 %s 分支 %s 失败: %v", taskID, branch, err)
+		}
+		if err := os.RemoveAll(wtPath); err != nil {
+			log.Printf("kanban: 删除任务 %s worktree 目录 %s 失败: %v", taskID, wtPath, err)
+		}
 	}
 	return true
 }
@@ -1780,7 +1796,8 @@ func (s *Service) runPlan(goal store.Goal, retainedTaskIDs []string, feedback st
 	}()
 	for _, t := range newTasks {
 		if err := s.opts.Store.CreateTask(context.Background(), t); err != nil {
-			continue
+			s.failGoalPlan(goal.ID, fmt.Errorf("创建规划任务失败：%w", err))
+			return
 		}
 		createdTaskIDs = append(createdTaskIDs, t.ID)
 	}
@@ -1804,6 +1821,7 @@ func (s *Service) runPlan(goal store.Goal, retainedTaskIDs []string, feedback st
 			if errors.Is(errSet, store.ErrRevisionConflict) {
 				continue
 			}
+			s.failGoalPlan(goal.ID, fmt.Errorf("关联规划任务失败：%w", errSet))
 			return
 		}
 
@@ -1849,6 +1867,7 @@ func (s *Service) runPlan(goal store.Goal, retainedTaskIDs []string, feedback st
 		}
 		s.mu.Unlock()
 		if !errors.Is(errUp, store.ErrRevisionConflict) {
+			s.failGoalPlan(goal.ID, fmt.Errorf("更新目标状态失败：%w", errUp))
 			return
 		}
 	}

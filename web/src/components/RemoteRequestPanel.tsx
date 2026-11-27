@@ -229,14 +229,21 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
     }
   };
 
-  useEffect(() => {
-    const request = requests.find((candidate) => candidate.requestID === activeRequestID);
-    if (!request || (request.kind !== 'command' && request.kind !== 'fileChange')) return;
-    const allow = request.options.filter((option) => option.role === 'approve');
-    const reject = request.options.filter((option) => option.role === 'decline');
-    if (allow.length !== 1 || reject.length !== 1) return;
+  const activeRequest = requests.find((candidate) => candidate.requestID === activeRequestID);
+  const canUseApprovalShortcut = Boolean(
+    activeRequest &&
+      (activeRequest.kind === 'command' || activeRequest.kind === 'fileChange') &&
+      activeRequest.options.filter((option) => option.role === 'approve').length === 1 &&
+      activeRequest.options.filter((option) => option.role === 'decline').length === 1
+  );
 
-    const onKeyDown = (event: KeyboardEvent): void => {
+  const approvalKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    approvalKeyDownRef.current = (event: KeyboardEvent): void => {
+      if (!activeRequest || (activeRequest.kind !== 'command' && activeRequest.kind !== 'fileChange')) return;
+      const allow = activeRequest.options.filter((option) => option.role === 'approve');
+      const reject = activeRequest.options.filter((option) => option.role === 'decline');
+      if (allow.length !== 1 || reject.length !== 1) return;
       const target = event.target instanceof Element ? event.target : null;
       const editable = target instanceof HTMLElement && target.isContentEditable;
       const control = target?.closest('input, textarea, select, button, a[href], summary, [role="button"], [role="menuitem"], [role="option"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"]');
@@ -247,11 +254,18 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
       const action = approvalShortcut(event, control?.tagName ?? target?.tagName ?? '', editable, hasOtherDialog, !!control);
       if (!action) return;
       event.preventDefault();
-      void submit(request, { optionID: action === 'allow' ? allow[0].id : reject[0].id });
+      void submit(activeRequest, { optionID: action === 'allow' ? allow[0].id : reject[0].id });
+    };
+  });
+
+  useEffect(() => {
+    if (!canUseApprovalShortcut) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      approvalKeyDownRef.current(event);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  });
+  }, [canUseApprovalShortcut]);
 
   const toggleQuestion = (requestID: string, questionID: string): void => {
     setOpenQuestionKeys((previous) => ({ ...previous, [requestID]: previous[requestID] === questionID ? '' : questionID }));
@@ -283,16 +297,26 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
     }
   };
 
-  useEffect(() => {
-    const request = requests.find((candidate) => candidate.requestID === activeRequestID);
-    const question = request?.kind === 'question'
-      ? request.questions.find((candidate) => candidate.id === openQuestionKeys[request.requestID])
-      : undefined;
-    if (!request || !question || busyRequestID || !isConnected || !request.turnID ||
-        staleRequestIDs.has(request.requestID) || handledRequestIDs.has(request.requestID) ||
-        (window.location.protocol !== 'https:' && request.questions.some((item) => item.isSecret))) return;
+  const activeQuestion = activeRequest?.kind === 'question'
+    ? activeRequest.questions.find((candidate) => candidate.id === openQuestionKeys[activeRequest.requestID])
+    : undefined;
+  const canUseQuestionShortcut = Boolean(
+    activeRequest &&
+      activeQuestion &&
+      !busyRequestID &&
+      isConnected &&
+      activeRequest.turnID &&
+      !staleRequestIDs.has(activeRequest.requestID) &&
+      !handledRequestIDs.has(activeRequest.requestID) &&
+      (typeof window === 'undefined' || window.location.protocol === 'https:' || !activeRequest.questions.some((item) => item.isSecret))
+  );
 
-    const onKeyDown = (event: KeyboardEvent): void => {
+  const questionKeyDownRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    questionKeyDownRef.current = (event: KeyboardEvent): void => {
+      if (!activeRequest || !activeQuestion || busyRequestID || !isConnected || !activeRequest.turnID ||
+          staleRequestIDs.has(activeRequest.requestID) || handledRequestIDs.has(activeRequest.requestID) ||
+          (window.location.protocol !== 'https:' && activeRequest.questions.some((item) => item.isSecret))) return;
       const panel = scrollAreaRef.current;
       if (!panel || panel.getClientRects().length === 0 || event.defaultPrevented || event.repeat) return;
       const target = event.target instanceof Element ? event.target : null;
@@ -301,14 +325,21 @@ export const RemoteRequestPanel: React.FC<RemoteRequestPanelProps> = ({
         (dialog) => !panel.contains(dialog) && !dialog.contains(panel)
       );
       if (hasOtherDialog) return;
-      const index = questionShortcut(event, isImeComposing(event), editable, question.choices.length);
+      const index = questionShortcut(event, isImeComposing(event), editable, activeQuestion.choices.length);
       if (index === null) return;
       event.preventDefault();
-      setChoice(request.requestID, question.id, question.choices[index].label, question.allowsMultiple);
+      setChoice(activeRequest.requestID, activeQuestion.id, activeQuestion.choices[index].label, activeQuestion.allowsMultiple);
+    };
+  });
+
+  useEffect(() => {
+    if (!canUseQuestionShortcut) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      questionKeyDownRef.current(event);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  });
+  }, [canUseQuestionShortcut]);
 
   const setOther = (requestID: string, questionID: string, value: string): void => {
     setOtherAnswers((previous) => ({

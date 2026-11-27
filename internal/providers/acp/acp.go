@@ -558,6 +558,11 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn) (*acpProc
 	if err != nil {
 		return nil, fmt.Errorf("acp: stdin pipe: %w", err)
 	}
+	defer func() {
+		if !started {
+			_ = stdinPipe.Close()
+		}
+	}()
 	var stdoutPipe io.ReadCloser
 	if h.opts.HoldBackgroundTasks {
 		// 常驻进程由独立协程 Wait；管道由 Conn 关闭，避免 Wait 抢先丢掉末尾响应。
@@ -577,6 +582,11 @@ func (h *Harness) startProcess(ctx context.Context, turn harness.Turn) (*acpProc
 		if err != nil {
 			return nil, fmt.Errorf("acp: stdout pipe: %w", err)
 		}
+		defer func() {
+			if !started {
+				_ = stdoutPipe.Close()
+			}
+		}()
 	}
 
 	if err := h.waitLaunchSlot(ctx); err != nil {

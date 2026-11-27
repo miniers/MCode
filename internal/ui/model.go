@@ -412,6 +412,7 @@ type chatState struct {
 	initialized          bool
 	closed               bool
 	watchSeq             uint64
+	resyncSeq            uint64
 	respondingApproval   int                           // 在途审批响应数，归零才解锁批量/单卡按钮
 	questionDrafts       map[string]*questionDraft     // 提问卡片草稿，以 RequestID 为键
 	composerFocused      bool                          // composer 输入框是否聚焦，由 composer 渲染时写入，供 ⌘Return 判定
@@ -590,7 +591,8 @@ type chatState struct {
 	mentionPreviewCache    map[string]*mentionItemPreview
 	// draftThreadMentions 是草稿上方的会话引用胶囊，与正文分离；发送时按 ThreadID 展开为引用块。
 	// 由 s.mu 保护。
-	draftThreadMentions []ThreadMention
+	draftThreadMentions   []ThreadMention
+	sendingThreadMentions []ThreadMention
 
 	// 附件状态
 	attachments []composerAttachment
@@ -1457,6 +1459,7 @@ func (s *chatState) selectThreadState(threadID string, knownEmpty bool, expected
 		resetComposerModelPickerState(oldThreadID)
 	}
 	s.watchSeq++
+	s.resyncSeq++
 	seq := s.watchSeq
 	if s.watchStop != nil {
 		s.watchStop()
@@ -1956,16 +1959,29 @@ func (s *chatState) reloadMessagesAfterResync(threadID string) {
 	if threadID == "" {
 		return
 	}
-	go func(tid string) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return
+	}
+	s.resyncSeq++
+	seq := s.resyncSeq
+	s.mu.Unlock()
+	go func(tid string, seq uint64) {
 		ctx := context.Background()
 		history, err := s.client.History(ctx, tid)
 		if err != nil {
-			s.setToast("重新同步消息失败: " + err.Error())
+			s.mu.Lock()
+			stale := s.closed || s.resyncSeq != seq || s.selectedThreadID != tid
+			s.mu.Unlock()
+			if !stale {
+				s.setToast("重新同步消息失败: " + err.Error())
+			}
 			return
 		}
 		s.mu.Lock()
-		// 拉取期间用户可能已切到别的会话，那边的消息不能被子线程覆盖。
-		if s.closed || s.selectedThreadID != tid {
+		// 拉取期间用户可能已切到别的会话，或有更新的 resync 请求已发出，旧结果必须丢弃。
+		if s.closed || s.resyncSeq != seq || s.selectedThreadID != tid {
 			s.mu.Unlock()
 			return
 		}
@@ -1976,7 +1992,7 @@ func (s *chatState) reloadMessagesAfterResync(threadID string) {
 		s.toolDiff = toolDiffState{generation: s.toolDiff.generation + 1}
 		s.mu.Unlock()
 		s.invalidate()
-	}(threadID)
+	}(threadID, seq)
 }
 
 // onWatchApprovals 在收到审批变化时安全更新本地审批列表。
@@ -2366,6 +2382,7 @@ func (s *chatState) finishOutgoingMessageLocked(tid, text string, attachmentIDs 
 		}
 		// 发送成功后清掉该会话草稿，重启不再回填已发送的内容。
 		s.clearDraftLocked(tid)
+		s.sendingThreadMentions = nil
 		for _, id := range attachmentIDs {
 			for i, att := range s.attachments {
 				if att.ID == id {
@@ -2379,6 +2396,16 @@ func (s *chatState) finishOutgoingMessageLocked(tid, text string, attachmentIDs 
 		s.clearThreadRunningOptimisticallyLocked(tid, true)
 		// 首条消息没发出去：撤掉透视标记，布局退回居中的 Hero（反向翻转为瞬时，不播动画）。
 		s.disarmComposerDockPromote(tid)
+		if len(s.sendingThreadMentions) > 0 {
+			if s.selectedThreadID == tid {
+				existing := s.draftThreadMentions
+				s.draftThreadMentions = append([]ThreadMention(nil), s.sendingThreadMentions...)
+				for _, m := range existing {
+					s.addDraftThreadMention(m.ThreadID, m.Title)
+				}
+			}
+			s.sendingThreadMentions = nil
+		}
 		s.toastMessage = failPrefix + ": " + err.Error()
 	}
 }
@@ -2391,7 +2418,8 @@ func (s *chatState) sendMessage(text string) {
 	tid, attachmentIDs, ok := s.prepareOutgoingMessageLocked(outgoing)
 	mentions := append([]ThreadMention(nil), s.draftThreadMentions...)
 	if ok {
-		// 引用胶囊只消费一次；发送被拒绝时保留，供下次重试使用。
+		// 引用胶囊只消费一次；发送被拒绝时保留，发送失败时随草稿一起回滚。
+		s.sendingThreadMentions = mentions
 		s.draftThreadMentions = nil
 		// 发出前先记下“刚发出”的窗口：发送请求可能比渲染帧还快（见 chat_anchor.go）。
 		s.armChatAnchor(tid)

@@ -1019,8 +1019,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 							noteEmbeddedComposerFocus(s, focused)
 							s.invalidate()
 						}
-						if s.isComposing != in.Composing() {
-							s.isComposing = in.Composing()
+						composing := in.Composing()
+						if s.isComposing != composing {
+							s.isComposing = composing
 							s.invalidate()
 						}
 						start, end := in.TextSelection()
@@ -1042,6 +1043,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 						s.updateCompletion(currentThreadID)
 
 						in.OnTextKey(func(k ui.TextKey) bool {
+							isComposing := func() bool {
+								return composing || s.isComposing
+							}
 							// TextKey 的文本可能领先于上一帧绑定的草稿，不能用旧候选覆盖新输入。
 							s.draft = k.Text()
 							s.syncDraftTags()
@@ -1051,12 +1055,12 @@ func renderComposer(c *ui.Context, s *chatState) {
 							}
 							// 光标在起始处按 Backspace：正文没东西可删时删最后一颗引用胶囊。
 							// start/end 取上一帧的光标位置。
-							if !s.isComposing && k.Key == ui.KeyBackspace && k.Mods == 0 && start == 0 && end == 0 {
+							if !isComposing() && k.Key == ui.KeyBackspace && k.Mods == 0 && start == 0 && end == 0 {
 								if s.removeLastDraftThreadMention() {
 									return true
 								}
 							}
-							if !s.isComposing && k.Mods == 0 && start == end && (k.Key == ui.KeyBackspace || k.Key == ui.KeyDelete) {
+							if !isComposing() && k.Mods == 0 && start == end && (k.Key == ui.KeyBackspace || k.Key == ui.KeyDelete) {
 								if draft, newCaret, ok := s.deleteTagRunAt(end, k.Key == ui.KeyDelete); ok {
 									k.SetText(draft)
 									s.completionCaretToEnd = true
@@ -1086,7 +1090,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							}
 
 							// 补全按键处理：Up/Down/Tab/Enter/Esc（组字中跳过）
-							if !s.isComposing {
+							if !isComposing() {
 								if newText, handled := s.handleCompletionKey(k.Key, k.Mods); handled {
 									if newText != "" {
 										k.SetText(newText)
@@ -1101,7 +1105,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 							// 方向键历史导航：首行 ↑ 翻更旧、末行 ↓ 翻更新。
 							// ⌘⌥↑/↓ 的会话切换与补全菜单的上下键已在上方被处理，不会走到这里。
-							if !s.isComposing && k.Mods == 0 && start == end && s.editingQueuedID() == "" {
+							if !isComposing() && k.Mods == 0 && start == end && s.editingQueuedID() == "" {
 								switch {
 								case k.Key == ui.KeyUp && caretOnFirstLine(k.Text(), start):
 									if text, ok := s.composerView.history.prev(historyEntries, k.Text()); ok {
@@ -1120,20 +1124,21 @@ func renderComposer(c *ui.Context, s *chatState) {
 								}
 							}
 
-							// Esc 处理：正在编辑排队项时取消编辑；历史导航中恢复草稿；运行中按 Esc 停止当前回合
+							// Esc 处理：组字中交给输入法；正在编辑排队项时取消编辑；历史导航中恢复草稿；运行中按 Esc 停止当前回合
 							if k.Key == ui.KeyEscape && k.Mods == 0 {
+								if isComposing() {
+									return false
+								}
 								if s.editingQueuedID() != "" {
 									s.cancelQueuedEdit()
 									return true
 								}
 								// 补全打开时 Esc 已在上方被补全处理消费，这里只处理历史导航
-								if !s.isComposing {
-									if text, ok := s.composerView.history.restore(); ok {
-										k.SetText(text)
-										s.completionCaretToEnd = true
-										s.invalidate()
-										return true
-									}
+								if text, ok := s.composerView.history.restore(); ok {
+									k.SetText(text)
+									s.completionCaretToEnd = true
+									s.invalidate()
+									return true
 								}
 								// 待办清单展开时 Esc 先收起清单，由待办条处理。
 								if isRunning && !s.composerView.planPillOpen {
@@ -1145,7 +1150,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							// ⌘Return / ⌘Enter 快捷键
 							if k.Key == ui.KeyEnter && (k.Mods == ui.Cmd || k.Mods == ui.Super || (k.Mods&ui.Cmd != 0) || (k.Mods&ui.Super != 0)) {
 								// 组字中返回 false
-								if s.isComposing {
+								if isComposing() {
 									return false
 								}
 								if planFeedbackMode {
@@ -1194,7 +1199,7 @@ func renderComposer(c *ui.Context, s *chatState) {
 							// 普通 Enter 快捷键：按设置匹配发送键（默认 Enter 发送，Shift+Enter 换行）
 							if k.Key == ui.KeyEnter && k.Mods == composerSendMods(sendKey) {
 								// 组字中按 Enter 不发送
-								if s.isComposing {
+								if isComposing() {
 									return false
 								}
 								text := k.Text()
@@ -2134,7 +2139,7 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 
 	// 主导侧：会话未指定模型时优先使用上次记录的模型（先按会话所属项目，其次全局），
 	// 其次使用该 provider 模型列表的第一个。
-	leadSelection := resolveModelPickerSelectionForProject(providers, ModelSelection{Provider: currentProvider, Model: currentThread.Model}, currentThread.ProjectID, pinnedModelPins(s))
+	leadSelection := resolveModelPickerSelectionForProject(providers, ModelSelection{Provider: currentProvider, Model: currentThread.Model}, currentThread.ProjectID, pinnedModelPins(s), s.invalidate)
 	leadSelection.Effort = currentThread.Effort
 	leadInfo := modelPickerModelInfo(providers, currentProvider, leadSelection.Model)
 	leadPin := modelPreferencePin(currentProvider, leadInfo.ID)

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"mcode/internal/config"
@@ -632,6 +633,9 @@ var lastSelectionPendingSidebar pendingUISidebarState
 // 测试里设为 0，让写文件后立刻读取仍能发现改动。
 var lastSelectionStatInterval = time.Second
 
+// lastSelectionCheckInFlight 保证后台检查 ui-state.json 变更同时只有一个协程在飞。
+var lastSelectionCheckInFlight atomic.Bool
+
 // errUIStateFileCorrupt 表示 ui-state.json 存在但无法解析；此时写盘会放弃本次写入，绝不写零值。
 var errUIStateFileCorrupt = errors.New("ui-state.json 内容无法解析")
 
@@ -650,6 +654,51 @@ func ensureLastSelectionLoadedLocked() {
 		}
 	}
 	reloadLastSelectionLocked(path)
+}
+
+// ensureLastSelectionLoadedAsyncLocked 供渲染路径使用：绝不阻塞在 os.Stat 或读盘上。
+// 缓存过期或路径变化时最多启动一个后台协程检查并在必要时重载，重载完成后调用 onReload 请求重绘。
+// 调用方持有 lastModelSelectionMu。
+func ensureLastSelectionLoadedAsyncLocked(onReload func()) {
+	path := uiStatePath()
+	if path == "" {
+		return
+	}
+	if lastModelSelectionLoaded && lastModelSelectionPath == path &&
+		time.Since(lastModelSelectionCheckedAt) < lastSelectionStatInterval {
+		return
+	}
+	if !lastSelectionCheckInFlight.CompareAndSwap(false, true) {
+		return
+	}
+	lastSelectionWriteWG.Add(1)
+	go func(targetPath string, reloadNotify func()) {
+		defer lastSelectionWriteWG.Done()
+		defer lastSelectionCheckInFlight.Store(false)
+
+		info, statErr := os.Stat(targetPath)
+		lastModelSelectionMu.Lock()
+		if uiStatePath() != targetPath {
+			lastModelSelectionMu.Unlock()
+			return
+		}
+		needReload := !lastModelSelectionLoaded || lastModelSelectionPath != targetPath
+		if !needReload {
+			lastModelSelectionCheckedAt = time.Now()
+			if statErr != nil {
+				lastModelSelectionModTime = time.Time{}
+			} else if !info.ModTime().Equal(lastModelSelectionModTime) {
+				needReload = true
+			}
+		}
+		if needReload {
+			reloadLastSelectionLocked(targetPath)
+		}
+		lastModelSelectionMu.Unlock()
+		if needReload && reloadNotify != nil {
+			reloadNotify()
+		}
+	}(path, onReload)
 }
 
 // lastSelectionFileChangedLocked 判断 ui-state.json 的修改时间是否与记录的不同（即被外部改写）。
@@ -859,6 +908,21 @@ func finishLastSelectionWrite(modTime time.Time, writeErr error) {
 	lastModelSelectionModTime = modTime
 }
 
+// loadLastModelSelectionCached 供渲染路径只读获取最近一次模型选择，并在后台异步检查磁盘变更。
+func loadLastModelSelectionCached(onReload func()) (ModelSelection, bool) {
+	lastModelSelectionMu.Lock()
+	defer lastModelSelectionMu.Unlock()
+	ensureLastSelectionLoadedAsyncLocked(onReload)
+	if !lastModelSelectionLoaded || lastModelSelectionPath != uiStatePath() || lastModelSelectionCache == nil {
+		return ModelSelection{}, false
+	}
+	sel := *lastModelSelectionCache
+	if sel.Provider == "" && sel.Model == "" {
+		return ModelSelection{}, false
+	}
+	return sel, true
+}
+
 // loadLastModelSelection 读取项目场景最近一次模型选择：优先使用进程内缓存，未命中时从 ui-state.json 读取；
 // 没有记录时返回零值与 false。
 func loadLastModelSelection() (ModelSelection, bool) {
@@ -919,6 +983,21 @@ func projectSelectionKey(projectID string) string {
 		return id
 	}
 	return projectSelectionNoneKey
+}
+
+// loadProjectModelSelectionCached 供渲染路径只读获取项目记住的模型选择，并在后台异步检查磁盘变更。
+func loadProjectModelSelectionCached(projectID string, onReload func()) (ProjectModelSelection, bool) {
+	lastModelSelectionMu.Lock()
+	defer lastModelSelectionMu.Unlock()
+	ensureLastSelectionLoadedAsyncLocked(onReload)
+	if !lastModelSelectionLoaded || lastModelSelectionPath != uiStatePath() {
+		return ProjectModelSelection{}, false
+	}
+	sel, ok := projectModelCache[projectSelectionKey(projectID)]
+	if !ok || (sel.Provider == "" && sel.Model == "") {
+		return ProjectModelSelection{}, false
+	}
+	return sel, true
 }
 
 // loadProjectModelSelection 读取某个项目记住的模型选择；没有记录时返回零值与 false。
@@ -1521,9 +1600,6 @@ type chatUIState struct {
 	compactDismissed map[string]bool
 	// forwardSuggestDismissed 记录已忽略转发到新会话建议的会话，本会话不再提示。
 	forwardSuggestDismissed map[string]bool
-	// compactSuggestSessionCache/compactSuggestSessionCachedAt 缓存回退读取的压缩建议会话配置。
-	compactSuggestSessionCache    config.SessionConfig
-	compactSuggestSessionCachedAt time.Time
 	// projectOrder 是侧边栏项目拖拽重排后的顺序（项目 ID 列表），随 ui-state.json 持久化。
 	projectOrder []string
 	// projectActivation 是项目激活状态的覆盖表（项目 ID -> 是否激活），随 ui-state.json 持久化。
@@ -1677,9 +1753,65 @@ func copySessionConfigForCompact(s config.SessionConfig) config.SessionConfig {
 	return s
 }
 
+const fallbackConfigCacheTTL = 2 * time.Second
+
+type fallbackConfigSnapshot struct {
+	dataDir  string
+	cfg      config.Config
+	loaded   bool
+	cachedAt time.Time
+}
+
+var (
+	fallbackConfigCache    atomic.Pointer[fallbackConfigSnapshot]
+	fallbackConfigInFlight atomic.Bool
+	// loadFallbackConfigFunc 供测试替换持久化配置加载，默认调用 config.Load。
+	loadFallbackConfigFunc = config.Load
+	// fallbackConfigNow 供测试推进异步配置缓存时钟，默认返回 time.Now。
+	fallbackConfigNow = time.Now
+)
+
+// cachedFallbackConfig 在 getChatSettings(s) 为 nil 时只读进程内缓存的持久化配置；
+// 缓存缺失或超过 2 秒时最多启动一个后台协程加载，加载完成后写入缓存并触发重绘。
+func cachedFallbackConfig(s *chatState) (config.Config, bool) {
+	dataDir := resolveDataDirFallback()
+	snap := fallbackConfigCache.Load()
+	sameDir := snap != nil && snap.dataDir == dataDir
+	fresh := sameDir && !snap.cachedAt.IsZero() && fallbackConfigNow().Sub(snap.cachedAt) < fallbackConfigCacheTTL
+	if !fresh && dataDir != "" {
+		startFallbackConfigLoad(s, dataDir)
+	}
+	if sameDir && snap.loaded {
+		return snap.cfg, true
+	}
+	return config.Config{}, false
+}
+
+func startFallbackConfigLoad(s *chatState, dataDir string) {
+	if dataDir == "" || !fallbackConfigInFlight.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer fallbackConfigInFlight.Store(false)
+		cfg, err := loadFallbackConfigFunc(dataDir)
+		next := &fallbackConfigSnapshot{
+			dataDir:  dataDir,
+			cachedAt: fallbackConfigNow(),
+		}
+		if err == nil {
+			next.cfg = cfg
+			next.loaded = true
+		}
+		fallbackConfigCache.Store(next)
+		if s != nil {
+			s.invalidate()
+		}
+	}()
+}
+
 // compactSuggestSession 读取压缩建议所需的会话配置。
-// 与 model.go 的 queueWhileRunningEnabled 一致：优先读内存中的设置面板配置，
-// 缺失时回退读取持久化配置并在 chatUIState 上缓存 2 秒。
+// 与 composerSendKey 一致：优先读内存中的设置面板配置，
+// 缺失时通过后台缓存读取持久化配置，缓存未就绪时返回禁用默认配置。
 func (s *chatState) compactSuggestSession() config.SessionConfig {
 	if s == nil {
 		return compactSuggestDisabledSession()
@@ -1689,31 +1821,10 @@ func (s *chatState) compactSuggestSession() config.SessionConfig {
 		defer st.mu.Unlock()
 		return copySessionConfigForCompact(st.cfg.Session)
 	}
-
-	ui := getChatUIState(s)
-	if ui == nil {
-		return compactSuggestDisabledSession()
+	if cfg, ok := cachedFallbackConfig(s); ok {
+		return copySessionConfigForCompact(cfg.Session)
 	}
-	chatUIMu.Lock()
-	fresh := !ui.compactSuggestSessionCachedAt.IsZero() && time.Since(ui.compactSuggestSessionCachedAt) < 2*time.Second
-	cached := ui.compactSuggestSessionCache
-	chatUIMu.Unlock()
-	if fresh {
-		return cached
-	}
-
-	session := compactSuggestDisabledSession()
-	if dataDir := resolveDataDirFallback(); dataDir != "" {
-		if cfg, err := config.Load(dataDir); err == nil {
-			session = copySessionConfigForCompact(cfg.Session)
-		}
-	}
-
-	chatUIMu.Lock()
-	ui.compactSuggestSessionCache = session
-	ui.compactSuggestSessionCachedAt = time.Now()
-	chatUIMu.Unlock()
-	return session
+	return compactSuggestDisabledSession()
 }
 
 // sidebarProjectOrder 返回当前窗口保存的项目顺序副本。

@@ -474,25 +474,43 @@ func modelPickerModelInfo(providers []ProviderInfo, providerID, modelID string) 
 // resolveModelPickerSelection 解析组件实际使用的模型选择：已指定模型时原样返回；
 // 未指定时优先使用上次记录的模型（provider 与模型都仍可用），其次使用该 provider 模型列表的第一个。
 // provider 也为空时同样优先采用上次记录的 provider。
-func resolveModelPickerSelection(providers []ProviderInfo, sel ModelSelection) ModelSelection {
-	last, hasLast := loadLastModelSelection()
+// 渲染期只读内存缓存并在后台检查磁盘变更，避免每帧 os.Stat。
+func resolveModelPickerSelection(providers []ProviderInfo, sel ModelSelection, onReload ...func()) ModelSelection {
+	var reload func()
+	if len(onReload) > 0 {
+		reload = onReload[0]
+	}
+	last, hasLast := loadLastModelSelectionCached(reload)
 	return resolveModelPickerSelectionWith(providers, sel, last, hasLast, nil)
 }
 
 // resolveModelPickerSelectionForProject 在 resolveModelPickerSelection 的基础上按项目恢复：
 // 项目桶里有记录时以它作为「上次使用」，没有记录时退回全局记忆（行为与旧版完全一致）。
-func resolveModelPickerSelectionForProject(providers []ProviderInfo, sel ModelSelection, projectID string, pins []ModelPin) ModelSelection {
-	last, hasLast := lastSelectionForProject(projectID)
+// 渲染期只读内存缓存并在后台检查磁盘变更，避免每帧 os.Stat。
+func resolveModelPickerSelectionForProject(providers []ProviderInfo, sel ModelSelection, projectID string, pins []ModelPin, onReload ...func()) ModelSelection {
+	var reload func()
+	if len(onReload) > 0 {
+		reload = onReload[0]
+	}
+	last, hasLast := lastSelectionForProjectCached(projectID, reload)
 	return resolveModelPickerSelectionWith(providers, sel, last, hasLast, pins)
 }
 
 // lastSelectionForProject 返回某个项目上次使用的模型选择：项目桶优先，
-// 项目桶里没有完整的 provider+model 时退回全局最近一次选择。
+// 项目桶里没有完整的 provider+model 时退回全局最近一次选择（非渲染路径用，允许同步检查磁盘）。
 func lastSelectionForProject(projectID string) (ModelSelection, bool) {
 	if proj, ok := loadProjectModelSelection(projectID); ok && proj.Provider != "" && proj.Model != "" {
 		return ModelSelection{Provider: proj.Provider, Model: proj.Model, Effort: proj.Effort, Fast: proj.Fast}, true
 	}
 	return loadLastModelSelection()
+}
+
+// lastSelectionForProjectCached 供渲染路径只读获取项目上次使用的模型选择，并在后台异步检查磁盘变更。
+func lastSelectionForProjectCached(projectID string, onReload func()) (ModelSelection, bool) {
+	if proj, ok := loadProjectModelSelectionCached(projectID, onReload); ok && proj.Provider != "" && proj.Model != "" {
+		return ModelSelection{Provider: proj.Provider, Model: proj.Model, Effort: proj.Effort, Fast: proj.Fast}, true
+	}
+	return loadLastModelSelectionCached(onReload)
 }
 
 // resolveModelPickerSelectionWith 是 resolveModelPickerSelection 的实现体：

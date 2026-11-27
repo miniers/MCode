@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 var ErrInvalidDeviceName = errors.New("remote: invalid device name")
@@ -131,11 +132,8 @@ func (p *PairingAuth) Pair(token, deviceName string, info ClientInfo) (PairResul
 	p.codeExpiresAt = time.Time{}
 	p.codeUsed = true
 
-	// 处理设备名称：去除前后空白，超过 64 字符截断
-	name := strings.TrimSpace(deviceName)
-	if len(name) > 64 {
-		name = name[:64]
-	}
+	// 处理设备名称：去除前后空白，按 rune 截断到不超过 64 字节且保持合法 UTF-8
+	name := truncateUTF8Bytes(strings.TrimSpace(deviceName), 64)
 	if name == "" {
 		name = "Web Client"
 	}
@@ -379,6 +377,30 @@ func (p *PairingAuth) makePairingInfo(code, shortCode string, expiresAt time.Tim
 		ShortCode:           shortCode,
 		ExpiresAt:           expiresAt,
 	}
+}
+
+func truncateUTF8Bytes(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes && utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(min(len(s), maxBytes))
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError && size == 1 {
+			s = s[size:]
+			continue
+		}
+		if b.Len()+size > maxBytes {
+			break
+		}
+		b.WriteRune(r)
+		s = s[size:]
+	}
+	return b.String()
 }
 
 func generateToken(r io.Reader) (string, error) {

@@ -49,6 +49,10 @@ func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSe
 	empty := swarmEmptySelection(sel)
 	var capsuleLabel string
 	var capsuleTooltip string
+	var invalidate func()
+	if st != nil {
+		invalidate = st.invalidate
+	}
 	if empty {
 		capsuleLabel = emptyLabel
 		if capsuleLabel == "" {
@@ -56,18 +60,13 @@ func swarmModelCapsuleProps(st *SettingsState, key, scopeKey string, sel ModelSe
 		}
 		capsuleTooltip = capsuleLabel
 	} else {
-		sel = resolveModelPickerSelection(providers, sel)
+		sel = resolveModelPickerSelection(providers, sel, invalidate)
 		capsuleLabel = modelShortDisplayName(providers, sel.Provider, sel.Model)
 		// 胶囊只显示短名，完整模型名与强度放在悬停提示里。
 		capsuleTooltip = modelCapsuleLabel(modelPickerDisplayName(providers, sel.Provider, sel.Model), sel.Effort)
 	}
 
 	state := modelPickerStateFor(keyPrefix + scopeKey)
-
-	var invalidate func()
-	if st != nil {
-		invalidate = st.invalidate
-	}
 
 	disabled := false
 	if st != nil && (st.isLocked(key) || st.isLocked(scopeKey)) {

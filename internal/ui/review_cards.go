@@ -497,7 +497,10 @@ func (g *reviewGit) renderFileAction(c *ui.Context, s *chatState, dp *diffPanelS
 	}
 	key := "discard:" + p
 	b := IconButton(c, IconButtonProps{Key: "review-discard-" + p, Icon: iconRotateCcw, Label: "撤销文件改动", Tooltip: tip, Variant: ButtonGhost, Size: ControlXS, Disabled: g.busy || agentBusy, Loading: g.pending == key && g.pendingShown, OnClick: func() {
-		gitChangesDiscard(g.ps, g.st, g.client, g.ps.threadID, []string{p})
+		g.st.mu.Lock()
+		g.st.confirmDiscardPath = p
+		g.st.mu.Unlock()
+		s.invalidate()
 	}})
 	if !hovered && !b.Focused() && !(g.pending == key && g.pendingShown) {
 		b.Opacity(0)

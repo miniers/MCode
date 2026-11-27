@@ -31,6 +31,7 @@ var gitPaneDiffView func(c *ui.Context, s *chatState, threadID string, ps *gitPa
 type gitChangesState struct {
 	mu                                    sync.Mutex
 	amend, pushed, busy, confirm          bool
+	confirmDiscardPath                    string
 	draft                                 string
 	root                                  string
 	cancel                                context.CancelFunc
@@ -612,10 +613,10 @@ func renderGitCommitComposerBody(c *ui.Context, s *chatState, threadID string, p
 	})
 }
 
-// renderGitChangesDialogs 渲染「全部撤销」与「Agent 仍在修改时提交」两个确认弹窗。
+// renderGitChangesDialogs 渲染「全部撤销」、「单文件撤销」与「Agent 仍在修改时提交」确认弹窗。
 func renderGitChangesDialogs(c *ui.Context, ps *gitPaneState, st *gitChangesState, client gitChangesClient, threadID string, groups [3]gitChangesGroup) {
 	st.mu.Lock()
-	confirm, pendingCommit := st.confirm, st.confirmCommit
+	confirm, confirmPath, pendingCommit := st.confirm, st.confirmDiscardPath, st.confirmCommit
 	st.mu.Unlock()
 	RenderConfirmDialog(c, ConfirmDialog{
 		Key:             "git-changes-discard-confirm",
@@ -635,6 +636,46 @@ func renderGitChangesDialogs(c *ui.Context, ps *gitPaneState, st *gitChangesStat
 			st.mu.Lock()
 			st.confirm = false
 			st.mu.Unlock()
+		},
+	})
+	discardTitle := ""
+	discardBody := ""
+	if confirmPath != "" {
+		discardTitle = fmt.Sprintf("撤销 %s 的改动？", path.Base(confirmPath))
+		discardBody = fmt.Sprintf("将丢弃整个文件 %s 中暂存区以外的改动。", confirmPath)
+	}
+	busy := gitPaneAgentBusy(ps.owner, threadID)
+	tip := ""
+	if busy {
+		tip = "Agent 正在修改此工作区"
+	}
+	RenderConfirmDialog(c, ConfirmDialog{
+		Key:             "git-changes-discard-file-confirm",
+		Open:            confirmPath != "",
+		Tone:            ConfirmDanger,
+		Title:           discardTitle,
+		Body:            discardBody,
+		ConfirmLabel:    "确认撤销",
+		CancelLabel:     "取消",
+		CancelAutoFocus: true,
+		ConfirmDisabled: busy,
+		ConfirmTooltip:  tip,
+		OnConfirm: func() {
+			st.mu.Lock()
+			st.confirmDiscardPath = ""
+			st.mu.Unlock()
+			if ps.owner != nil {
+				ps.owner.invalidate()
+			}
+			gitChangesDiscard(ps, st, client, threadID, []string{confirmPath})
+		},
+		OnCancel: func() {
+			st.mu.Lock()
+			st.confirmDiscardPath = ""
+			st.mu.Unlock()
+			if ps.owner != nil {
+				ps.owner.invalidate()
+			}
 		},
 	})
 	RenderConfirmDialog(c, ConfirmDialog{
