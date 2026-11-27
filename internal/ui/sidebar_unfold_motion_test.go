@@ -267,20 +267,20 @@ func TestUnfoldMotionSidebarQuickChats(t *testing.T) {
 	})
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("快速对话") && tt.HasText("闲聊一号") && tt.HasText("普通项目")
+		return tt.HasText("临时会话") && tt.HasText("闲聊一号") && tt.HasText("普通项目")
 	})
 	settleSidebarUnfoldMotion(tt)
 
-	if err := tt.Click("收起快速对话"); err != nil {
-		t.Fatalf("点击收起快速对话失败: %v", err)
+	if err := tt.Click("收起临时会话"); err != nil {
+		t.Fatalf("点击收起临时会话失败: %v", err)
 	}
 	settleSidebarUnfoldMotion(tt)
 	if _, ok := tt.Find("打开会话 闲聊一号"); ok {
-		t.Fatalf("收起快速对话后不应渲染会话: %q", tt.Texts())
+		t.Fatalf("收起临时会话后不应渲染会话: %q", tt.Texts())
 	}
 
-	if err := tt.Click("展开快速对话"); err != nil {
-		t.Fatalf("点击展开快速对话失败: %v", err)
+	if err := tt.Click("展开临时会话"); err != nil {
+		t.Fatalf("点击展开临时会话失败: %v", err)
 	}
 	tt.Frame()
 	tt.Frame()
@@ -302,7 +302,7 @@ func TestUnfoldMotionSidebarQuickChats(t *testing.T) {
 		t.Fatalf("结束找不到普通项目标题行: %q", tt.Texts())
 	}
 
-	assertUnfoldProgressBetween(t, "快速对话区", pStart.Y, pMid.Y, pEnd.Y, tt)
+	assertUnfoldProgressBetween(t, "临时会话区", pStart.Y, pMid.Y, pEnd.Y, tt)
 }
 
 func TestUnfoldMotionSidebarReducedMotion(t *testing.T) {

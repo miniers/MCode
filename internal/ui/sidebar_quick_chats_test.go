@@ -37,12 +37,12 @@ func buildSidebarQuickChatsFixture(t *testing.T, chats []Thread, projThreads []T
 	t.Cleanup(state.close)
 	tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: true}})
 	waitFor(t, tt, func() bool {
-		return tt.HasText("快速对话") && tt.HasText("普通项目")
+		return tt.HasText("临时会话") && tt.HasText("普通项目")
 	})
 	return tt, state
 }
 
-// TestSidebarQuickChatsTitleAndNoLegacyLabel 验证标题文字为「快速对话」、显示计数，且不再出现旧的「对话」标签。
+// TestSidebarQuickChatsTitleAndNoLegacyLabel 验证标题文字为「临时会话」、显示计数，且不再出现旧的「对话」标签。
 func TestSidebarQuickChatsTitleAndNoLegacyLabel(t *testing.T) {
 	now := time.Now()
 	tt, _ := buildSidebarQuickChatsFixture(t,
@@ -55,18 +55,18 @@ func TestSidebarQuickChatsTitleAndNoLegacyLabel(t *testing.T) {
 		},
 	)
 
-	if _, ok := tt.Find("快速对话"); !ok {
-		t.Fatalf("找不到「快速对话」标题: %q", tt.Texts())
+	if _, ok := tt.Find("临时会话"); !ok {
+		t.Fatalf("找不到「临时会话」标题: %q", tt.Texts())
 	}
 	if n := countExactSidebarText(tt, "对话"); n != 0 {
 		t.Fatalf("不应再出现旧的「对话」段标签: got %d, texts=%q", n, tt.Texts())
 	}
 	if n := countExactSidebarText(tt, "(2)"); n != 1 {
-		t.Fatalf("快速对话段应显示顶层会话计数 (2): got %d, texts=%q", n, tt.Texts())
+		t.Fatalf("临时会话段应显示顶层会话计数 (2): got %d, texts=%q", n, tt.Texts())
 	}
 }
 
-// TestSidebarQuickChatsAddButtonsAlwaysVisible 验证「快速对话」与项目标题行的两个「+」在未悬停时也可见且尺寸一致。
+// TestSidebarQuickChatsAddButtonsAlwaysVisible 验证「临时会话」与项目标题行的两个「+」在未悬停时也可见且尺寸一致。
 func TestSidebarQuickChatsAddButtonsAlwaysVisible(t *testing.T) {
 	now := time.Now()
 	tt, _ := buildSidebarQuickChatsFixture(t,
@@ -91,7 +91,7 @@ func TestSidebarQuickChatsAddButtonsAlwaysVisible(t *testing.T) {
 		t.Fatalf("找不到「在此项目中新建会话」按钮: %q", tt.Texts())
 	}
 	if chatsAdd.W != ControlMD || chatsAdd.H != ControlMD {
-		t.Fatalf("快速对话「+」尺寸应为 ControlMD(%v): got %+v", ControlMD, chatsAdd)
+		t.Fatalf("临时会话「+」尺寸应为 ControlMD(%v): got %+v", ControlMD, chatsAdd)
 	}
 	if projAdd.W != ControlMD || projAdd.H != ControlMD {
 		t.Fatalf("项目行「+」尺寸应为 ControlMD(%v): got %+v", ControlMD, projAdd)
@@ -99,14 +99,14 @@ func TestSidebarQuickChatsAddButtonsAlwaysVisible(t *testing.T) {
 
 	img := tt.Image()
 	if d := rectMaxChannelDelta(t, img, chatsAdd); d <= 10 {
-		t.Fatalf("未悬停时快速对话「+」应可见，像素差=%d", d)
+		t.Fatalf("未悬停时临时会话「+」应可见，像素差=%d", d)
 	}
 	if d := rectMaxChannelDelta(t, img, projAdd); d <= 10 {
 		t.Fatalf("未悬停时项目行「+」应可见，像素差=%d", d)
 	}
 }
 
-// TestSidebarQuickChatsCollapseAndSearchExpand 验证点击标题行折叠/展开「快速对话」，
+// TestSidebarQuickChatsCollapseAndSearchExpand 验证点击标题行折叠/展开「临时会话」，
 // 且输入搜索词时折叠态也能展示命中的会话。
 func TestSidebarQuickChatsCollapseAndSearchExpand(t *testing.T) {
 	now := time.Now()
@@ -125,8 +125,8 @@ func TestSidebarQuickChatsCollapseAndSearchExpand(t *testing.T) {
 	}
 
 	// 点击标题行折叠，段内会话不再渲染，标题行与计数仍保留。
-	if err := tt.Click("收起快速对话"); err != nil {
-		t.Fatalf("点击收起快速对话失败: %v", err)
+	if err := tt.Click("收起临时会话"); err != nil {
+		t.Fatalf("点击收起临时会话失败: %v", err)
 	}
 	tt.Frame()
 
@@ -134,10 +134,10 @@ func TestSidebarQuickChatsCollapseAndSearchExpand(t *testing.T) {
 	collapsed := state.collapsedProj["chats-builtin"]
 	state.mu.Unlock()
 	if !collapsed {
-		t.Fatal("点击「快速对话」标题行后应写入 collapsedProj[chatsProjID]")
+		t.Fatal("点击「临时会话」标题行后应写入 collapsedProj[chatsProjID]")
 	}
-	if _, ok := tt.Find("展开快速对话"); !ok {
-		t.Fatalf("折叠后标题行标签应切为「展开快速对话」: %q", tt.Texts())
+	if _, ok := tt.Find("展开临时会话"); !ok {
+		t.Fatalf("折叠后标题行标签应切为「展开临时会话」: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("打开会话 闲聊一号"); ok {
 		t.Fatalf("折叠后不应渲染段内会话「闲聊一号」: %q", tt.Texts())
@@ -166,8 +166,8 @@ func TestSidebarQuickChatsCollapseAndSearchExpand(t *testing.T) {
 		t.Fatalf("清空搜索后应恢复折叠态: %q", tt.Texts())
 	}
 
-	if err := tt.Click("展开快速对话"); err != nil {
-		t.Fatalf("点击展开快速对话失败: %v", err)
+	if err := tt.Click("展开临时会话"); err != nil {
+		t.Fatalf("点击展开临时会话失败: %v", err)
 	}
 	tt.Frame()
 	if _, ok := tt.Find("打开会话 闲聊一号"); !ok {
@@ -178,7 +178,7 @@ func TestSidebarQuickChatsCollapseAndSearchExpand(t *testing.T) {
 	}
 }
 
-// TestSidebarQuickChatsThreadTextLeftAlignedWithProject 验证快速对话段内会话行与项目内会话行文字左缘对齐。
+// TestSidebarQuickChatsThreadTextLeftAlignedWithProject 验证临时会话段内会话行与项目内会话行文字左缘对齐。
 func TestSidebarQuickChatsThreadTextLeftAlignedWithProject(t *testing.T) {
 	now := time.Now()
 	tt, _ := buildSidebarQuickChatsFixture(t,
@@ -206,16 +206,16 @@ func TestSidebarQuickChatsThreadTextLeftAlignedWithProject(t *testing.T) {
 	if !ok {
 		t.Fatalf("找不到会话标题「项目对齐」: %q", tt.Texts())
 	}
-	headerText, ok := tt.Find("快速对话")
+	headerText, ok := tt.Find("临时会话")
 	if !ok {
-		t.Fatalf("找不到「快速对话」标题: %q", tt.Texts())
+		t.Fatalf("找不到「临时会话」标题: %q", tt.Texts())
 	}
 
 	if chatRow.X != projRow.X {
-		t.Fatalf("快速对话行与项目会话行左缘应一致: chatRow=%v, projRow=%v", chatRow.X, projRow.X)
+		t.Fatalf("临时会话行与项目会话行左缘应一致: chatRow=%v, projRow=%v", chatRow.X, projRow.X)
 	}
 	if chatText.X != projText.X {
-		t.Fatalf("快速对话行与项目会话行文字左缘应一致: chatText=%v, projText=%v", chatText.X, projText.X)
+		t.Fatalf("临时会话行与项目会话行文字左缘应一致: chatText=%v, projText=%v", chatText.X, projText.X)
 	}
 	if chatText.X <= headerText.X {
 		t.Fatalf("段内会话文字应相对一级标题文字缩进: chatText=%v, headerText=%v", chatText.X, headerText.X)
@@ -238,9 +238,9 @@ func TestSidebarQuickChatsHeaderVisibleWhenAllFocused(t *testing.T) {
 	if !ok {
 		t.Fatalf("找不到聚焦区会话「对话待处理」: %q", tt.Texts())
 	}
-	chatsHeader, ok := tt.Find("快速对话")
+	chatsHeader, ok := tt.Find("临时会话")
 	if !ok {
-		t.Fatalf("会话全进聚焦区时仍应渲染「快速对话」标题行: %q", tt.Texts())
+		t.Fatalf("会话全进聚焦区时仍应渲染「临时会话」标题行: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("新建对话"); !ok {
 		t.Fatalf("会话全进聚焦区时仍应保留「新建对话」按钮: %q", tt.Texts())
@@ -250,14 +250,14 @@ func TestSidebarQuickChatsHeaderVisibleWhenAllFocused(t *testing.T) {
 		t.Fatalf("找不到项目标题行: %q", tt.Texts())
 	}
 	if focusRow.Y >= chatsHeader.Y || chatsHeader.Y >= projHeader.Y {
-		t.Fatalf("位置关系应为 聚焦区(%v) < 快速对话(%v) < 普通项目(%v)", focusRow.Y, chatsHeader.Y, projHeader.Y)
+		t.Fatalf("位置关系应为 聚焦区(%v) < 临时会话(%v) < 普通项目(%v)", focusRow.Y, chatsHeader.Y, projHeader.Y)
 	}
 	if n := countExactSidebarText(tt, "(0)"); n != 0 {
 		t.Fatalf("段内无剩余会话时不应对外显示 (0): %q", tt.Texts())
 	}
 }
 
-// TestSidebarQuickChatsHiddenWhenFilterEmpty 验证过滤非「全部」且段内无命中时，「快速对话」标题行不渲染。
+// TestSidebarQuickChatsHiddenWhenFilterEmpty 验证过滤非「全部」且段内无命中时，「临时会话」标题行不渲染。
 func TestSidebarQuickChatsHiddenWhenFilterEmpty(t *testing.T) {
 	now := time.Now()
 	tt, _ := buildSidebarQuickChatsFixture(t,
@@ -278,11 +278,11 @@ func TestSidebarQuickChatsHiddenWhenFilterEmpty(t *testing.T) {
 	}
 	tt.Frame()
 
-	if _, ok := tt.Find("快速对话"); ok {
-		t.Fatalf("过滤非「全部」且快速对话无命中时不应渲染标题行: %q", tt.Texts())
+	if _, ok := tt.Find("临时会话"); ok {
+		t.Fatalf("过滤非「全部」且临时会话无命中时不应渲染标题行: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("新建对话"); ok {
-		t.Fatalf("过滤非「全部」且快速对话无命中时不应渲染新建对话按钮: %q", tt.Texts())
+		t.Fatalf("过滤非「全部」且临时会话无命中时不应渲染新建对话按钮: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("打开会话 项目运行"); !ok {
 		t.Fatalf("普通项目命中的「项目运行」仍应显示: %q", tt.Texts())

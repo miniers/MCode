@@ -155,7 +155,7 @@ func TestChatsSidebarSectionAddAndFilter(t *testing.T) {
 	tt := ui.NewTester(view, 1000, 700)
 
 	waitFor(t, tt, func() bool {
-		return tt.HasText("快速对话") && tt.HasText("闲聊一号") && tt.HasText("项目会话")
+		return tt.HasText("临时会话") && tt.HasText("闲聊一号") && tt.HasText("项目会话")
 	})
 
 	if _, ok := tt.Find("收起项目 内置对话"); ok {
@@ -304,10 +304,10 @@ func TestChatsSidebarSectionHiddenInActivityAndSearch(t *testing.T) {
 	t.Cleanup(state.close)
 	tt := ui.NewTester(view, 1000, 700)
 
-	// (a) 默认树视图下显示「快速对话」段。
+	// (a) 默认树视图下显示「临时会话」段。
 	waitFor(t, tt, func() bool {
 		_, hasNewChat := tt.Find("新建对话")
-		return hasNewChat && tt.HasText("快速对话") && tt.HasText("闲聊一号") && tt.HasText("项目会话")
+		return hasNewChat && tt.HasText("临时会话") && tt.HasText("闲聊一号") && tt.HasText("项目会话")
 	})
 
 	// (b) 打开动态视图后，「对话」段不再渲染。

@@ -163,7 +163,7 @@ func (s *chatState) filterSidebarThreads(threads []Thread, filter sidebarThreadF
 	return filtered
 }
 
-// renderSidebarChatsSection 渲染侧栏的「快速对话」一级行：气泡图标、标题、计数与常驻「+」按钮，
+// renderSidebarChatsSection 渲染侧栏的「临时会话」一级行：气泡图标、标题、计数与常驻「+」按钮，
 // 下方按最近活动平铺该项目的顶层会话；threadsFilter 非 nil 时只列传入的会话（搜索态过滤结果），
 // 为 nil 时直接复用侧栏快照里算好的对话会话；focusZoneActive 为真时剔除已进入顶部聚焦区的会话。
 // 非「全部」过滤且无命中会话时整段不渲染；聚焦区开启且本段会话全进聚焦区时仍保留标题行与分隔线。
@@ -226,7 +226,7 @@ func renderSidebarChatsSection(
 	canCollapse := !isSearching && filter == sidebarFilterAll
 	isCollapsed := snap.collapsed[chatsProjID] && canCollapse
 
-	// 一级标题行：气泡图标 + 「快速对话」（与项目标题行同字号字重），右侧是会话计数与常驻「+」图标按钮，不挂载项目右键菜单。
+	// 一级标题行：气泡图标 + 「临时会话」（与项目标题行同字号字重），右侧是会话计数与常驻「+」图标按钮，不挂载项目右键菜单。
 	headerRow := ui.Row(c.Key("chats-section-header")).
 		Height(m.rowHeight).
 		Padding(0, m.padX).
@@ -239,9 +239,9 @@ func renderSidebarChatsSection(
 	}
 
 	headerRow.Children(func() {
-		toggleLabel := "展开快速对话"
+		toggleLabel := "展开临时会话"
 		if !isCollapsed {
-			toggleLabel = "收起快速对话"
+			toggleLabel = "收起临时会话"
 		}
 		titleArea := ui.Row(c.Key("chats-section-toggle")).
 			AlignItems(ui.Center).
@@ -268,7 +268,7 @@ func renderSidebarChatsSection(
 				Size(12, 12).
 				TextColor(ThemeSecondaryText(c))
 
-			ui.Text(c, "快速对话").
+			ui.Text(c, "临时会话").
 				FontSize(sidebarFont(FontSizeThreadTitle)).
 				FontWeight(500).
 				TextColor(ThemePrimaryText(c)).

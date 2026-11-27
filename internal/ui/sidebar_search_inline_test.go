@@ -44,7 +44,7 @@ func buildSidebarInlineTestFixture(t *testing.T, reduceMotion bool) (*ui.Tester,
 	t.Cleanup(state.close)
 	tt := ui.NewTesterWith(view, 1000, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceMotion: reduceMotion}})
 	waitFor(t, tt, func() bool {
-		return tt.HasText("快速对话") && tt.HasText("测试项目") && tt.HasText("项目会话")
+		return tt.HasText("临时会话") && tt.HasText("测试项目") && tt.HasText("项目会话")
 	})
 	return tt, state
 }
