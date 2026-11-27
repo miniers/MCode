@@ -6,7 +6,7 @@ import (
 	"mcode/internal/testenv"
 )
 
-// 上传中的图片卡片在底部进度条上显示百分比：Progress 0.4 时出现「40%」。
+// 上传中的图片卡片在底部 3px 进度条上标记进度：Progress 0.4 时出现「上传进度 40%」且填充宽约 40%。
 func TestAttachmentUploadProgressShowsPercent(t *testing.T) {
 	testenv.TempHome(t)
 	s := newChatState(NewFakeClient())
@@ -19,7 +19,18 @@ func TestAttachmentUploadProgressShowsPercent(t *testing.T) {
 	}}
 
 	tt := composerTester(s)
-	waitFor(t, tt, func() bool { return tt.HasText("40%") })
+	waitFor(t, tt, func() bool {
+		track, ok := tt.Find("上传进度 40%")
+		if !ok || track.H != 3 {
+			return false
+		}
+		fill, ok := tt.Find("上传进度 填充")
+		if !ok {
+			return false
+		}
+		ratio := fill.W / track.W
+		return ratio >= 0.35 && ratio <= 0.45
+	})
 }
 
 // 上传失败时卡片上有「重试上传 文件名」按钮，点击后复用现有上传路径重新上传。

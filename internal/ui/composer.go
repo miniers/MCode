@@ -74,6 +74,14 @@ type composerViewState struct {
 	lastCompletionKind completionKind
 	// lastArtifactGrid 记录上一次可见时是否处于交付物类型网格，供关闭动画继续渲染网格。
 	lastArtifactGrid bool
+	// attachManageOpen 表示附件超过两行时打开的「全部附件」管理弹窗是否打开。
+	attachManageOpen     bool
+	attachManageThreadID string
+	attachManageScroll   ui.ScrollState
+	// attachChipWidths 缓存附件条条目最近一次测量到的宽度，避免收纳计算每帧抖动。
+	attachChipWidths map[string]float32
+	// dismissedTokenNotice 记录用户手动关闭的上下文 token 超限提示文案。
+	dismissedTokenNotice string
 }
 
 var (
@@ -723,8 +731,12 @@ func renderComposer(c *ui.Context, s *chatState) {
 
 	hasUploadedAttachment := false
 	hasUploadingAttachment := false
+	hasFailedAttachment := false
 	for _, att := range s.attachments {
-		if att.Uploading || att.Err != "" || att.ID == "" {
+		if att.Err != "" {
+			hasFailedAttachment = true
+			hasUploadingAttachment = true
+		} else if att.Uploading || att.ID == "" {
 			hasUploadingAttachment = true
 		}
 		if att.ID != "" {
@@ -745,6 +757,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 		// MCP 二级页属于上一个会话的服务列表，切换时回到附件浮层一级页。
 		s.composerView.mcpMenuOpen = false
 		s.composerView.mcpPendingDisabled = nil
+		s.composerView.attachManageOpen = false
+		s.composerView.attachManageThreadID = ""
+		s.composerView.dismissedTokenNotice = ""
 		// 引用胶囊不跟草稿一起持久化，切会话时清空，避免把上一个会话的引用带到新会话。
 		s.mu.Lock()
 		s.draftThreadMentions = nil
@@ -878,9 +893,6 @@ func renderComposer(c *ui.Context, s *chatState) {
 				renderComposerCapsuleRow(c, s, capsules)
 			}
 
-			// 附件胶囊行在输入卡片之上。
-			renderAttachments(c, s)
-
 			// 快捷回复行：只在配置了快捷回复、会话已开始、输入框空闲且草稿为空时出现。
 			renderQuickReplies(c, s)
 
@@ -927,6 +939,9 @@ func renderComposer(c *ui.Context, s *chatState) {
 			}
 
 			cardEl.Children(func() {
+				// 附件条内嵌在输入卡片顶部（文本框之上）；没有附件和提示时不占高度。
+				renderAttachments(c, s)
+
 				// 卡片顶部不再堆提示行：运行中提示、编辑排队消息提示都并入输入框占位符或底栏胶囊。
 				// 待审批等禁用原因同理——草稿为空时占位符本身就显示原因，占位符被草稿盖住时才补这一行。
 				// 占位符沿用平时的颜色（框架固定用 TextMuted），不额外高亮。
@@ -1300,6 +1315,33 @@ func renderComposer(c *ui.Context, s *chatState) {
 							}
 							renderModelSelector(c, s, currentThread, providers, newThreadProvider, hasMessages, bottomRow.Bounds().W)
 							renderContextMeter(c, s, currentThread)
+						}
+
+						if sendState != sendStateStop && sendState != sendStateContinue && sendState != sendStateSaveEdit {
+							var blockHint string
+							var blockDanger bool
+							if hasFailedAttachment {
+								blockHint = "有附件上传失败"
+								blockDanger = true
+							} else if hasUploadingAttachment {
+								blockHint = "附件上传中"
+							}
+							if blockHint != "" {
+								hintColor := ThemeWarning(c)
+								if blockDanger {
+									hintColor = ThemeDanger(c)
+								}
+								ui.Row(c.Key("composer-send-block-hint")).
+									Transition(motionCapsule(c)).
+									Padding(0, Space1).
+									AlignItems(ui.Center).
+									Children(func() {
+										ui.Text(c, blockHint).
+											FontSize(uiFont(TypeCaption)).
+											TextColor(hintColor).
+											SingleLine()
+									})
+							}
 						}
 
 						// 5 态主操作按钮：Key 固定（不随状态变），按钮元素跨状态保持同一身份，

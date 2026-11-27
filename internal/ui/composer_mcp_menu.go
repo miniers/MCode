@@ -15,8 +15,12 @@ import (
 // mcpMenuCacheTTL 是单个项目目录 MCP 扫描结果的缓存有效期（与技能扫描一致，1 分钟）。
 const mcpMenuCacheTTL = 60 * time.Second
 
-// mcpMenuSlideDuration 是 MCP 二级页滑入的时长；只取时长常量，不引用 motion.go 里的曲线变量。
-const mcpMenuSlideDuration = 150 * time.Millisecond
+// 附件入口浮层的 Lucide 图标（上传、剪贴板、MCP 服务器）。
+var (
+	iconAttachUpload    = parseLucideSVG(`<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`)
+	iconAttachClipboard = parseLucideSVG(`<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>`)
+	iconAttachServer    = parseLucideSVG(`<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>`)
+)
 
 // mcpMenuCacheEntry 是单个项目目录的 MCP 扫描缓存。
 type mcpMenuCacheEntry struct {
@@ -145,6 +149,7 @@ func (s *chatState) openThreadMCPMenu(threadID string) {
 		}
 	}
 	s.composerView.mcpPendingDisabled = pending
+	setMCPMenuVisited(s, true)
 	s.composerView.mcpMenuOpen = true
 	s.invalidate()
 }
@@ -203,22 +208,141 @@ func (s *chatState) mcpMenuSaving() bool {
 	return s.composerView.mcpSaving
 }
 
-// renderAttachMenuPanel 渲染附件按钮浮层的内容：一级页是「最近下载」面板加一条「MCP 服务器」入口，
-// 点进入口后在同一浮层里切到 MCP 逐会话选择页（二级页），点返回回到一级页。
+// renderAttachMenuPanel 渲染附件按钮浮层的内容：
+// 一级页从上到下依次为「选择文件或文件夹…」「粘贴剪贴板内容」「最近下载」（可折叠，默认展开）与「MCP 服务器」入口；
+// 点「MCP 服务器」后在同一浮层切到二级页，点返回回到一级页。
 func renderAttachMenuPanel(c *ui.Context, s *chatState, threadID string, onClose func()) {
 	if s.composerView.mcpMenuOpen {
 		renderMCPSelectionPanel(c, s, threadID, func() {
 			s.composerView.mcpMenuOpen = false
+			s.invalidate()
 		})
 		return
 	}
-	ui.Column(c.Key("composer-attach-menu")).
+
+	panel := ui.Column(c.Key("composer-attach-menu")).
 		Width(360).
-		Gap(Space3).
-		Children(func() {
-			renderDownloadsPanel(c, s, onClose)
-			renderMCPMenuEntry(c, s, threadID)
+		Padding(Space3).
+		Gap(Space1).
+		OnUnmount(func() {
+			if !s.composerView.mcpMenuOpen {
+				setMCPMenuVisited(s, false)
+			}
 		})
+
+	if mcpMenuVisited(s) {
+		panel.Transition(motionTransition(c, ui.ElementTransition{
+			Duration: DurSnap,
+			Ease:     EaseSnap,
+			Colors:   true,
+			Enter:    &ui.Motion{X: -motionRiseOffset * 2, Opacity: 0},
+		}))
+	}
+
+	if !isAppFlyoutServices(c.Services()) {
+		panel = popoverCard(c, panel)
+	}
+
+	panel.Children(func() {
+		// 主操作：选择文件或文件夹…
+		pickBtn := ui.ButtonBase(c.Key("composer-attach-pick-files")).
+			Label("选择文件或文件夹…").
+			FillWidth().
+			Height(ControlLG).
+			Radius(RadiusSM).
+			Padding(0, Space3).
+			Justify(ui.Start).
+			Background(ui.Transparent).
+			OnClick(func() {
+				promptChooseFiles(s)
+				if onClose != nil {
+					onClose()
+				}
+			})
+		composerHoverBg(c, pickBtn, pickBtn.Hovered())
+		focusRing(c, pickBtn)
+		pickBtn.Children(func() {
+			ui.Row(c.Key("composer-attach-pick-files-row")).
+				FillWidth().
+				AlignItems(ui.Center).
+				Gap(Space3).
+				Children(func() {
+					ui.Icon(c, iconAttachUpload).
+						Size(IconMD, IconMD).
+						TextColor(ThemeAccent(c)).
+						Shrink(0)
+					ui.Text(c, "选择文件或文件夹…").
+						FontSize(uiFont(TypeBody)).
+						FontWeight(weightFor(c, 500)).
+						TextColor(ThemePrimaryText(c)).
+						Grow(1).
+						SingleLine()
+				})
+		})
+
+		// 次操作：粘贴剪贴板内容（与 ⌘V 走相同的剪贴板附件入口）
+		pasteBtn := ui.ButtonBase(c.Key("composer-attach-paste-clipboard")).
+			Label("粘贴剪贴板内容").
+			FillWidth().
+			Height(ControlLG).
+			Radius(RadiusSM).
+			Padding(0, Space3).
+			Justify(ui.Start).
+			Background(ui.Transparent).
+			OnClick(func() {
+				if s != nil {
+					if !s.tryPasteImage() {
+						s.setToast("剪贴板中没有图片或文件")
+					}
+				}
+				if onClose != nil {
+					onClose()
+				}
+			})
+		composerHoverBg(c, pasteBtn, pasteBtn.Hovered())
+		focusRing(c, pasteBtn)
+		pasteBtn.Children(func() {
+			ui.Row(c.Key("composer-attach-paste-clipboard-row")).
+				FillWidth().
+				AlignItems(ui.Center).
+				Gap(Space3).
+				Children(func() {
+					ui.Icon(c, iconAttachClipboard).
+						Size(IconMD, IconMD).
+						TextColor(ThemeSecondaryText(c)).
+						Shrink(0)
+					ui.Text(c, "粘贴剪贴板内容").
+						FontSize(uiFont(TypeBody)).
+						TextColor(ThemePrimaryText(c)).
+						Grow(1).
+						SingleLine()
+					ui.Text(c, shortcutDisplay("⌘V")).
+						FontSize(uiFont(TypeCaption)).
+						TextColor(ThemeTertiaryText(c)).
+						Shrink(0)
+				})
+		})
+
+		// 分隔线
+		ui.Row(c.Key("composer-attach-divider-top")).
+			FillWidth().
+			Height(Hairline).
+			Background(ThemeDivider(c)).
+			Margin(Space1, 0, Space1, 0)
+
+		// 可折叠的「最近下载」分组
+		renderDownloadsPanel(c, s, onClose)
+
+		// 分隔线
+		ui.Row(c.Key("composer-attach-divider-bottom")).
+			FillWidth().
+			Height(Hairline).
+			Background(ThemeDivider(c)).
+			Margin(Space1, 0, Space1, 0)
+
+		// 底部：MCP 服务器二级页入口
+		renderMCPMenuEntry(c, s, threadID)
+	})
 }
 
 // renderMCPMenuEntry 渲染附件浮层里的「MCP 服务器」入口行。
@@ -234,6 +358,7 @@ func renderMCPMenuEntry(c *ui.Context, s *chatState, threadID string) {
 	menuRow(c, menuRowProps{
 		Key:      "composer-mcp-menu-entry",
 		Label:    "MCP 服务器",
+		Icon:     iconAttachServer,
 		Title:    "MCP 服务器",
 		Trailing: trailing,
 		Disabled: !supported,
@@ -262,9 +387,10 @@ func renderMCPSelectionPanel(c *ui.Context, s *chatState, threadID string, onBac
 		Padding(Space4).
 		Gap(Space3).
 		Transition(motionTransition(c, ui.ElementTransition{
-			Duration: mcpMenuSlideDuration,
+			Duration: DurSnap,
+			Ease:     EaseSnap,
 			Colors:   true,
-			Enter:    &ui.Motion{X: 8, Opacity: 0},
+			Enter:    &ui.Motion{X: motionRiseOffset * 2, Opacity: 0},
 		}))
 
 	panel.Children(func() {

@@ -10,10 +10,12 @@ import (
 // iconQueueGrip 是排队消息行首的六点拖拽手柄（lucide grip-vertical）。
 var iconQueueGrip = parseLucideSVG(`<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>`)
 
-// composerPolishState 存放输入区打磨的视图状态（D-9 拖拽覆盖层、D-14 排队区）。
+// composerPolishState 存放输入区打磨的视图状态（D-9 拖拽覆盖层、D-14 排队区、附件浮层折叠与切换）。
 // 这些状态只与渲染有关，因此用包级 map 按 *chatState 存放，不给 chatState 加字段。
 type composerPolishState struct {
-	fileDragOver bool
+	fileDragOver       bool
+	downloadsCollapsed bool
+	mcpMenuVisited     bool
 	// queueExpanded 按会话记住排队区是否展开。
 	queueExpanded map[string]bool
 	// queueDropBefore 按被拖拽项记住最近悬停行的落点（插到哪个 ID 之前）。
@@ -73,6 +75,50 @@ func composerFileDragOver(s *chatState) bool {
 	composerPolishMu.Lock()
 	defer composerPolishMu.Unlock()
 	return st.fileDragOver
+}
+
+// downloadsExpandedFor 返回「最近下载」分组是否展开（默认展开）。
+func downloadsExpandedFor(s *chatState) bool {
+	st := getComposerPolishState(s)
+	if st == nil {
+		return true
+	}
+	composerPolishMu.Lock()
+	defer composerPolishMu.Unlock()
+	return !st.downloadsCollapsed
+}
+
+// toggleDownloadsExpanded 切换「最近下载」分组的展开状态。
+func toggleDownloadsExpanded(s *chatState) {
+	st := getComposerPolishState(s)
+	if st == nil {
+		return
+	}
+	composerPolishMu.Lock()
+	defer composerPolishMu.Unlock()
+	st.downloadsCollapsed = !st.downloadsCollapsed
+}
+
+// setMCPMenuVisited 记录附件浮层是否曾切入 MCP 二级页，供返回一级页时启用回退过渡。
+func setMCPMenuVisited(s *chatState, visited bool) {
+	st := getComposerPolishState(s)
+	if st == nil {
+		return
+	}
+	composerPolishMu.Lock()
+	defer composerPolishMu.Unlock()
+	st.mcpMenuVisited = visited
+}
+
+// mcpMenuVisited 返回附件浮层本轮是否曾切入 MCP 二级页。
+func mcpMenuVisited(s *chatState) bool {
+	st := getComposerPolishState(s)
+	if st == nil {
+		return false
+	}
+	composerPolishMu.Lock()
+	defer composerPolishMu.Unlock()
+	return st.mcpMenuVisited
 }
 
 // queueExpandedFor 返回指定会话的排队区是否展开（默认折叠）。
@@ -152,6 +198,14 @@ const (
 	composerQueueThumbIconSize float32 = 11
 )
 
+// composerDropRulesText 生成拖放覆盖层的规则提示，上限数字直接由附件大小常量格式化。
+func composerDropRulesText() string {
+	return fmt.Sprintf("单文件 %s · 总计 %s · 目录会自动展开为文件",
+		formatFileSize(maxAttachmentBytes),
+		formatFileSize(maxTotalAttachmentBytes),
+	)
+}
+
 // renderComposerDropOverlay 在时间线与输入区整块区域上方铺拖拽提示层。
 // 覆盖层不接收指针（PassThrough + IgnoreInput），文件拖放由聊天区整体处理；
 // mygo 没有虚线描边，这里用 2pt 实线 accent 描边替代。
@@ -172,6 +226,7 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 		Border(composerDropOverlayBorder, ThemeAccent(c).Alpha(composerDropOverlayBorderA)).
 		Justify(ui.Center).
 		AlignItems(ui.Center).
+		Gap(Space3).
 		// 整层包括药丸都不接收指针：拖放事件由聊天区整体处理。
 		PassThrough().
 		IgnoreInput(true)
@@ -198,6 +253,17 @@ func renderComposerDropOverlay(c *ui.Context, s *chatState) {
 				ui.Text(c, "松开以添加附件").
 					FontSize(uiFont(TypeBody)).
 					TextColor(ThemePrimaryText(c))
+			})
+
+		ui.Row(c.Key("composer-drop-overlay-rules")).
+			Padding(Space1, Space3).
+			Radius(RadiusPill).
+			Background(ThemeSurface(c).Alpha(0.85)).
+			Border(Hairline, ThemeHairline(c)).
+			Children(func() {
+				ui.Text(c, composerDropRulesText()).
+					FontSize(uiFont(TypeCaption)).
+					TextColor(ThemeSecondaryText(c))
 			})
 	})
 }

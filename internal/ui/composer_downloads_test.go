@@ -150,12 +150,6 @@ func TestRenderDownloadsPanel_Empty(t *testing.T) {
 	if !tt.HasText("下载目录中没有文件") {
 		t.Fatalf("expected empty note '下载目录中没有文件'")
 	}
-	if !tt.HasText(revealInFileManagerLabel()) {
-		t.Fatalf("expected '在 Finder 中显示'")
-	}
-	if !tt.HasText("选择文件…") {
-		t.Fatalf("expected '选择文件…'")
-	}
 }
 
 func TestComposerDownloadFlyout(t *testing.T) {
@@ -190,7 +184,7 @@ func TestComposerDownloadFlyout(t *testing.T) {
 	}
 }
 
-// 场景 6：renderDownloadsPanel 点击条目添加附件并触发 onDone。
+// 场景 6：renderAttachMenuPanel 点击下载条目与顶部“选择文件或文件夹…”添加附件并触发 onDone。
 func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 	temp := t.TempDir()
 	testenv.SetHome(t, temp)
@@ -215,8 +209,8 @@ func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 	}
 
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderDownloadsPanel(c, s, onDone)
-	}, 400, 400)
+		renderAttachMenuPanel(c, s, "", onDone)
+	}, 400, 500)
 
 	waitFor(t, tt, func() bool { return tt.HasText("snap.png") })
 
@@ -238,7 +232,7 @@ func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 		t.Fatalf("expected attachment to be added to chatState")
 	}
 
-	// 测试底部“选择文件…”按钮与对 pickFilesDialog 的调用
+	// 测试顶部“选择文件或文件夹…”按钮与对 pickFilesDialog 的调用
 	oldPicker := pickFilesDialog
 	defer func() { pickFilesDialog = oldPicker }()
 
@@ -248,8 +242,8 @@ func TestRenderDownloadsPanel_ClickItemAndFooter(t *testing.T) {
 		return []string{testPng}, true, nil
 	}
 
-	if err := tt.Click("选择文件…"); err != nil {
-		t.Fatalf("failed to click '选择文件…': %v", err)
+	if err := tt.Click("选择文件或文件夹…"); err != nil {
+		t.Fatalf("failed to click '选择文件或文件夹…': %v", err)
 	}
 	if doneCalls != 2 {
 		t.Fatalf("expected onDone called twice, got %d", doneCalls)
@@ -325,15 +319,6 @@ func TestDownloadsPanelScroll(t *testing.T) {
 	}
 	if scrollRect.H <= 0 || scrollRect.H > 360 {
 		t.Fatalf("滚动区高度 = %v，期望在 (0, 360] 内", scrollRect.H)
-	}
-
-	finderRect, ok := tt.Find(revealInFileManagerLabel())
-	if !ok || finderRect.H <= 0 || finderRect.Y < scrollRect.Y+scrollRect.H {
-		t.Fatalf("底部按钮 %q 应留在滚动区下方且可见: ok=%v rect=%+v scroll=%+v", revealInFileManagerLabel(), ok, finderRect, scrollRect)
-	}
-	chooseRect, ok := tt.Find("选择文件…")
-	if !ok || chooseRect.H <= 0 || chooseRect.Y < scrollRect.Y+scrollRect.H {
-		t.Fatalf("底部按钮「选择文件…」应留在滚动区下方且可见: ok=%v rect=%+v scroll=%+v", ok, chooseRect, scrollRect)
 	}
 
 	if err := tt.Click("download_14.txt"); err == nil {
