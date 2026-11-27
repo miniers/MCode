@@ -56,3 +56,49 @@ func TestTakeStreamReveal_EmptyIDStreams(t *testing.T) {
 		t.Fatal("缺少消息 ID 时应保持流式渲染")
 	}
 }
+
+// TestTakeStreamReveal_RemountShowsAtOnce 验证流式消息滚出视口被卸载再滚回重新挂载时，
+// 首帧返回 false（走 View 铺满当前全文），下一帧恢复返回 true 继续逐字揭示；
+// 连续每帧渲染时不会触发帧间隔检测。
+func TestTakeStreamReveal_RemountShowsAtOnce(t *testing.T) {
+	s := &chatState{}
+	advanceFrame := func() {
+		s.mu.Lock()
+		s.revealFrame++
+		s.mu.Unlock()
+	}
+
+	msg := Message{ID: "m4", Role: "assistant", Text: "流式"}
+	// 首帧：新消息逐字揭示。
+	advanceFrame()
+	if !s.takeStreamReveal(msg) {
+		t.Fatal("新消息首帧应返回 true")
+	}
+
+	// 连续多帧渲染：一直返回 true，不会误判为重新挂载。
+	for i := 0; i < 10; i++ {
+		advanceFrame()
+		msg.Text += "增量"
+		if !s.takeStreamReveal(msg) {
+			t.Fatalf("第 %d 个连续帧不应误判为重新挂载", i+1)
+		}
+	}
+
+	// 模拟滚出视口：只推进帧计数，不调用 takeStreamReveal。
+	advanceFrame()
+	advanceFrame()
+
+	// 滚回视口重新挂载那一帧：返回 false，由 View 一次铺满当前全文。
+	advanceFrame()
+	msg.Text += "滚出期间新增"
+	if s.takeStreamReveal(msg) {
+		t.Fatal("跳帧后重新挂载首帧应返回 false 以整段铺满")
+	}
+
+	// 再下一帧：恢复返回 true 继续逐字揭示新增内容。
+	advanceFrame()
+	msg.Text += "后续"
+	if !s.takeStreamReveal(msg) {
+		t.Fatal("重新挂载的下一帧应恢复返回 true")
+	}
+}

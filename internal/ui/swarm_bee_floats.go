@@ -1689,6 +1689,7 @@ func renderBeeTimeline(c *ui.Context, s *chatState, bee SwarmBee) {
 	groupsOpenChanged := timelineSettingsChanged(s)
 
 	s.mu.Lock()
+	s.revealFrame++
 	selectedID := s.selectedThreadID
 	s.mu.Unlock()
 	var runningTurnKey int

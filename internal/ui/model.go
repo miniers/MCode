@@ -637,7 +637,8 @@ type chatState struct {
 	// revealProgress 按消息 ID 记录本窗口的逐字揭示进度：打开会话时已存在的正文记为
 	// “已完整显示”；只有打开之后新到达的增量才逐字展示，避免重开会话把整条回答重播一遍。
 	revealProgress map[string]*messageReveal
-	scrollToEnd    bool // 切换会话或发送消息后，下一帧把时间线滚到底并恢复跟随
+	revealFrame    uint64 // 主/子会话时间线每帧渲染计数，受 s.mu 保护
+	scrollToEnd    bool   // 切换会话或发送消息后，下一帧把时间线滚到底并恢复跟随
 	// timelineUnread 按会话记录离开时间线底部那一刻的未读基线，
 	// 供“回到底部”按钮显示未读条数（受 s.mu 保护）。
 	timelineUnread timelineUnreadState
@@ -1689,6 +1690,8 @@ type messageReveal struct {
 	shown int
 	// streaming 为真表示已进入本窗口的逐字揭示阶段，之后的增量逐字显示。
 	streaming bool
+	// lastFrame 是最近一次调用 takeStreamReveal 时的渲染帧号。
+	lastFrame uint64
 }
 
 // markRevealBaselineLocked 把会话原有的消息记为“已完整显示”。打开会话时调用：
@@ -1731,18 +1734,28 @@ func (s *chatState) takeStreamReveal(m Message) bool {
 	st, ok := s.revealProgress[m.ID]
 	if !ok {
 		// 打开会话之后才出现的消息：本来就是本窗口流式生成的，逐字展示。
-		s.revealProgress[m.ID] = &messageReveal{shown: len(m.Text), streaming: true}
+		s.revealProgress[m.ID] = &messageReveal{shown: len(m.Text), streaming: true, lastFrame: s.revealFrame}
 		return true
 	}
 	if st.streaming {
+		// 上一帧未渲染本条消息（虚拟列表滚出视口后被卸载，重新挂载时本地揭示状态已丢失）：
+		// 本帧走 View 把当前全文一次铺满，下一帧起继续逐字揭示新增部分。
+		remounted := st.lastFrame != 0 && st.lastFrame+1 < s.revealFrame
+		st.lastFrame = s.revealFrame
+		if remounted {
+			st.shown = len(m.Text)
+			return false
+		}
 		return true
 	}
 	if len(m.Text) <= st.shown {
+		st.lastFrame = s.revealFrame
 		return false
 	}
 	// 打开之后新到达的增量：本帧把当前正文一次铺满，下一帧起逐字揭示新增部分。
 	st.shown = len(m.Text)
 	st.streaming = true
+	st.lastFrame = s.revealFrame
 	return false
 }
 

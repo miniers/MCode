@@ -68,6 +68,7 @@ func renderChat(c *ui.Context, s *chatState) {
 	pinEnabled := isPinSentMessageEnabled(s)
 
 	s.mu.Lock()
+	s.revealFrame++
 	selectedID := s.selectedThreadID
 	s.mu.Unlock()
 	s.syncStewardBoard(stewardSelected(s, selectedID))
