@@ -931,6 +931,7 @@ func runFakeACPFeatures(mode string) {
 					}
 					descriptionMatch := mode == "feature_hold_task_description"
 					editEcho := mode == "feature_hold_edit_echo"
+					promptTranscript := mode == "feature_hold_prompt_transcript"
 					records := descriptionMatch || mode == "feature_hold_agy_records" || mode == "feature_hold_spontaneous" || mode == "feature_hold_late_spontaneous" || mode == "feature_hold_final_step"
 					recordsDir := fakeACPHoldRecords("antigravity-cli")
 					if editEcho {
@@ -939,7 +940,12 @@ func runFakeACPFeatures(mode string) {
 						echo := fmt.Sprintf("package acp\n\n// Tool is running as a background task with task id: %s/task-1\n", fakeHoldSession)
 						notify(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "edit-echo", "status": "completed", "content": []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": echo}}}})
 					}
-					if descriptionMatch {
+					if promptTranscript {
+						toolID := "prompt-bg-tool"
+						notify(map[string]any{"sessionUpdate": "tool_call", "toolCallId": toolID, "name": "run_command", "rawInput": map[string]any{"CommandLine": "sleep 30"}})
+						notify(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": toolID, "status": "in_progress"})
+						appendFakeACPHoldTask(recordsDir, 1, "")
+					} else if descriptionMatch {
 						notify(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "edit", "name": "edit_file"})
 						for index, command := range []string{"go build ./... && go vet ./...", "go build ./..."} {
 							toolID := fmt.Sprintf("command-%d", index+1)
@@ -962,7 +968,7 @@ func runFakeACPFeatures(mode string) {
 					if mode == "feature_hold_inround" {
 						tasks = 1
 					}
-					if records || editEcho {
+					if records || editEcho || promptTranscript {
 						tasks = 0
 					}
 					for i := 1; i <= tasks; i++ {
@@ -992,6 +998,16 @@ func runFakeACPFeatures(mode string) {
 						}
 						if err := os.WriteFile(path, []byte(fmt.Sprintf(`{"content":%q,"timestamp":"2026-01-01T00:00:00Z"}`, fmt.Sprintf("Task id %q finished with result:\\noutput", fakeHoldSession+"/task-1"))), 0600); err != nil {
 							panic(err)
+						}
+					}
+					if promptTranscript {
+						release := os.Getenv("MCODE_TEST_ACP_COMPLETE") + ".release"
+						deadline := time.Now().Add(10 * time.Second)
+						for time.Now().Before(deadline) {
+							if _, err := os.Stat(release); err == nil {
+								break
+							}
+							time.Sleep(10 * time.Millisecond)
 						}
 					}
 				}
@@ -3429,6 +3445,78 @@ func TestACPHoldAgyTaskDescriptionMatch(t *testing.T) {
 	want := []string{fakeHoldSession + "/task-1=command-1", fakeHoldSession + "/task-2=command-2"}
 	if !reflect.DeepEqual(matched, want) || !ended["edit"] {
 		t.Fatalf("后台任务绑定 = %v, want %v; 工具结束 = %v", matched, want, ended)
+	}
+}
+
+func TestACPAgyPromptTranscriptBackgroundStart(t *testing.T) {
+	f := newACPHoldFixture(t, "feature_hold_prompt_transcript")
+	f.h.opts.AttachIdleTimeout = 40 * time.Millisecond
+	f.h.opts.BackgroundPollInterval = 20 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var mu sync.Mutex
+	var events []harness.Event
+	started := make(chan harness.Event, 4)
+	result := make(chan error, 1)
+	go func() {
+		result <- f.h.Run(ctx, f.turn, func(event harness.Event) {
+			mu.Lock()
+			events = append(events, event)
+			mu.Unlock()
+			if event.Type == harness.EventBackgroundTaskStart {
+				started <- event
+			}
+		})
+	}()
+
+	select {
+	case event := <-started:
+		if event.ToolID != "prompt-bg-tool" || event.TaskID != fakeHoldSession+"/task-1" {
+			t.Fatalf("background start = %+v", event)
+		}
+	case err := <-result:
+		t.Fatalf("session/prompt 在后台任务开始事件到达前返回: %v", err)
+	case <-ctx.Done():
+		t.Fatal("等待 prompt 期间后台任务开始事件超时")
+	}
+
+	select {
+	case err := <-result:
+		t.Fatalf("session/prompt 在放行前已返回: %v", err)
+	default:
+	}
+
+	if err := os.WriteFile(f.control+".release", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("等待 session/prompt 结束超时")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	var startCount int
+	var done bool
+	for _, event := range events {
+		switch event.Type {
+		case harness.EventBackgroundTaskStart:
+			startCount++
+		case harness.EventDone:
+			done = event.StopReason == "end_turn"
+		}
+	}
+	if startCount != 1 || !done {
+		t.Fatalf("startCount = %d, done = %v, events = %+v", startCount, done, events)
+	}
+	if !f.h.HasResidentProcess(f.turn.ThreadID) {
+		t.Fatal("有运行中的后台任务却未保留进程")
 	}
 }
 

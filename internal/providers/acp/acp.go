@@ -1951,6 +1951,38 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 				return conn.callAgyPrompt(ctx, params, &promptResult)
 			}
 
+			var transcriptStop, transcriptDone chan struct{}
+			if h.opts.HoldBackgroundTasks {
+				transcriptStop = make(chan struct{})
+				transcriptDone = make(chan struct{})
+				go func() {
+					defer close(transcriptDone)
+					ticker := time.NewTicker(h.attachPollInterval())
+					defer ticker.Stop()
+					taskPath, taskSize, taskFallback := transcriptPath, transcriptOffset, ""
+					for {
+						select {
+						case <-transcriptStop:
+							return
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							path, size := agyTranscriptPosition(p, sid)
+							toolsMu.Lock()
+							if !toolsFinished {
+								if toolID := lastPendingTool(); toolID != "" {
+									if path != taskPath || size != taskSize || toolID != taskFallback {
+										taskPath, taskSize, taskFallback = path, size, toolID
+										scanTranscript(path, toolID)
+									}
+								}
+							}
+							toolsMu.Unlock()
+						}
+					}
+				}()
+			}
+
 			var totalUsage acpPromptUsage
 			currentItems := promptItems
 			for cont := 0; ; cont++ {
@@ -2032,6 +2064,10 @@ func (h *Harness) runRound(ctx context.Context, turn harness.Turn, emit func(har
 						"text": buildAgyAutoDenyContinuationPrompt(denials),
 					},
 				}
+			}
+			if transcriptStop != nil {
+				close(transcriptStop)
+				<-transcriptDone
 			}
 			promptResult.Usage = totalUsage
 		} else {
