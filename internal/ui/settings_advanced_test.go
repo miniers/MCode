@@ -15,9 +15,7 @@ func newSettingsAdvancedTester(t *testing.T) (*ui.Tester, *SettingsState) {
 		st = getChatSettings(s)
 	}), 1400, 4200)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
-	if err := tt.Click("设置"); err != nil {
-		t.Fatalf("打开设置面板失败: %v", err)
-	}
+	clickWhenSettled(t, tt, "设置")
 	waitFor(t, tt, func() bool { return st != nil })
 	return tt, st
 }
@@ -135,9 +133,7 @@ func TestSettingsModels_SearchExpandsProviderRow(t *testing.T) {
 	if _, ok := tt.Find("调度策略"); !ok {
 		t.Fatalf("没有调度策略搜索结果: %v", tt.Texts())
 	}
-	if err := tt.Click("调度策略"); err != nil {
-		t.Fatalf("点击搜索结果失败: %v", err)
-	}
+	clickWhenSettled(t, tt, "调度策略")
 	tt.Frame()
 	st.mu.Lock()
 	page := st.currentPage
