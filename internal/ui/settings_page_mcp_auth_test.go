@@ -1,8 +1,10 @@
 package mcodeui
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,16 +13,30 @@ import (
 	"mcode/internal/testenv"
 )
 
-// stubMCPAuthScans 打桩技能、MCP 与静态鉴权三个扫描函数，测试结束后恢复。
+// stubMCPAuthScans 打桩技能、MCP 与静态鉴权三个扫描函数，测试结束后先等在途调用结束再恢复。
 func stubMCPAuthScans(t *testing.T, mcpFn func(agentconf.Options) ([]agentconf.MCPServer, error), staticFn func(agentconf.Options) map[string]bool) {
 	t.Helper()
 	origSkills, origMCP, origStatic := scanSkills, scanMCP, scanStaticAuth
+	var wg sync.WaitGroup
 	t.Cleanup(func() {
+		wg.Wait()
 		scanSkills, scanMCP, scanStaticAuth = origSkills, origMCP, origStatic
 	})
-	scanSkills = func(agentconf.Options) ([]agentconf.Skill, error) { return nil, nil }
-	scanMCP = mcpFn
-	scanStaticAuth = staticFn
+	scanSkills = func(opts agentconf.Options) ([]agentconf.Skill, error) {
+		wg.Add(1)
+		defer wg.Done()
+		return nil, nil
+	}
+	scanMCP = func(opts agentconf.Options) ([]agentconf.MCPServer, error) {
+		wg.Add(1)
+		defer wg.Done()
+		return mcpFn(opts)
+	}
+	scanStaticAuth = func(opts agentconf.Options) map[string]bool {
+		wg.Add(1)
+		defer wg.Done()
+		return staticFn(opts)
+	}
 }
 
 // waitAgentConfLoaded 等 loadAgentConf 的后台 goroutine 跑完。
@@ -59,6 +75,9 @@ func TestSettingsMCPAuth_StaticAuthHidesSignInButton(t *testing.T) {
 		URL:       "https://plain.example.com/mcp",
 	}
 
+	useMCPToolLister(t, func(context.Context, agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+		return []agentconf.MCPToolInfo{{Name: "probe-ok"}}, nil
+	})
 	stubMCPAuthScans(t,
 		func(agentconf.Options) ([]agentconf.MCPServer, error) {
 			return []agentconf.MCPServer{staticSrv, plainSrv}, nil
@@ -77,7 +96,7 @@ func TestSettingsMCPAuth_StaticAuthHidesSignInButton(t *testing.T) {
 	})
 
 	openMCPDetail(t, tt, staticSrv.Name)
-	waitFor(t, tt, func() bool { return tt.HasText("请求头认证") })
+	waitFor(t, tt, func() bool { return tt.HasText("请求头认证") && tt.HasText("probe-ok") })
 	// 静态鉴权服务不显示登录按钮，普通远程服务仍显示登录按钮。
 	if !tt.HasText("请求头认证") {
 		t.Fatalf("静态鉴权服务应显示「请求头认证」徽标，实际文本 %v", tt.Texts())
@@ -89,7 +108,7 @@ func TestSettingsMCPAuth_StaticAuthHidesSignInButton(t *testing.T) {
 		t.Fatalf("关闭服务详情失败: %v", err)
 	}
 	openMCPDetail(t, tt, plainSrv.Name)
-	waitFor(t, tt, func() bool { return tt.HasText("登录") })
+	waitFor(t, tt, func() bool { return tt.HasText("登录") && tt.HasText("probe-ok") })
 	if got := countExactText(tt.Texts(), "登录"); got != 1 {
 		t.Fatalf("普通远程服务应显示 1 个登录按钮，实际 %d 个", got)
 	}

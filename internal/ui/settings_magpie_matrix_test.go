@@ -1,13 +1,56 @@
 package mcodeui
 
 import (
+	"context"
 	"math"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 )
+
+// catalogRefreshWatchClient 记录 refreshCatalogAfterPiMagpieSave 发起的 Providers 调用次数；
+// RefreshProviders 不重写，直接透传到内嵌客户端，避免与 st.refreshModels 混淆计数。
+type catalogRefreshWatchClient struct {
+	Client
+	providersCalls atomic.Int32
+}
+
+func (c *catalogRefreshWatchClient) Providers(ctx context.Context) ([]ProviderInfo, error) {
+	c.providersCalls.Add(1)
+	return c.Client.Providers(ctx)
+}
+
+func useTestMagpieCatalogRefreshDelays(t *testing.T) {
+	t.Helper()
+	prev := piMagpieCatalogRefreshDelays
+	// 使用 1 项 0 延迟切片，让后台刷新协程跑完并可被 Providers 调用次数观测到。
+	piMagpieCatalogRefreshDelays = []time.Duration{0}
+	t.Cleanup(func() { piMagpieCatalogRefreshDelays = prev })
+}
+
+func catalogRefreshCount(st *SettingsState) int32 {
+	st.mu.Lock()
+	chat := st.chat
+	st.mu.Unlock()
+	if chat == nil {
+		return 0
+	}
+	if w, ok := chat.client.(*catalogRefreshWatchClient); ok {
+		return w.providersCalls.Load()
+	}
+	return 0
+}
+
+func waitCatalogRefreshCycles(t *testing.T, st *SettingsState, before int32, cycles int32) {
+	t.Helper()
+	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
+	waitMagpie(t, tt, func() bool {
+		return catalogRefreshCount(st) >= before+2*cycles
+	})
+}
 
 func TestMagpieMatrixPiRetryReloadsAgent(t *testing.T) {
 	fake := NewFakeClient()
@@ -33,7 +76,7 @@ func TestMagpieMatrixPiRetryReloadsAgent(t *testing.T) {
 // matrixTestState 构造已加载端点与各智能体设置的设置状态，避免矩阵数据触发异步加载。
 func matrixTestState(t *testing.T, fake *FakeClient, gateways []CustomEndpoint, settings map[string]AgentMagpieSetting) *SettingsState {
 	t.Helper()
-	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&routeTestClient{FakeClient: fake}))
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: &routeTestClient{FakeClient: fake}}))
 	st.mu.Lock()
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = append([]CustomEndpoint(nil), gateways...)
@@ -90,9 +133,7 @@ func waitGatewaySnapshots(t *testing.T, st *SettingsState, want []PiMagpieEndpoi
 }
 
 func TestMagpieGatewaySaveRefreshesLoadedMatrix(t *testing.T) {
-	delays := piMagpieCatalogRefreshDelays
-	piMagpieCatalogRefreshDelays = nil
-	t.Cleanup(func() { piMagpieCatalogRefreshDelays = delays })
+	useTestMagpieCatalogRefreshDelays(t)
 	for _, edit := range []bool{false, true} {
 		t.Run(map[bool]string{false: "新增", true: "编辑"}[edit], func(t *testing.T) {
 			fake := NewFakeClient()
@@ -117,8 +158,10 @@ func TestMagpieGatewaySaveRefreshesLoadedMatrix(t *testing.T) {
 				st.endpoints.editAPIKey = "key"
 			}
 			st.mu.Unlock()
+			beforeRefresh := catalogRefreshCount(st)
 			saveCustomEndpoint(st)
 			waitGatewaySnapshots(t, st, want)
+			waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 			if rows := matrixRows(magpieMatrixData(st, "")); len(rows) != 7 {
 				t.Fatalf("矩阵模型数 = %d，期望 7", len(rows))
 			}
@@ -134,9 +177,7 @@ func TestMagpieGatewaySaveRefreshesLoadedMatrix(t *testing.T) {
 }
 
 func TestMagpieGatewayMutationRefreshesLoadedMatrix(t *testing.T) {
-	delays := piMagpieCatalogRefreshDelays
-	piMagpieCatalogRefreshDelays = nil
-	t.Cleanup(func() { piMagpieCatalogRefreshDelays = delays })
+	useTestMagpieCatalogRefreshDelays(t)
 	for _, action := range []string{"edit", "delete", "disable", "enable"} {
 		t.Run(action, func(t *testing.T) {
 			fake := NewFakeClient()
@@ -154,6 +195,7 @@ func TestMagpieGatewayMutationRefreshesLoadedMatrix(t *testing.T) {
 				want = []PiMagpieEndpoint{{ID: "gw", Models: []PiMagpieModel{{ID: "new"}}}}
 			}
 			setGatewaySnapshotFixture(fake, want)
+			beforeRefresh := catalogRefreshCount(st)
 			switch action {
 			case "edit":
 				st.mu.Lock()
@@ -169,6 +211,7 @@ func TestMagpieGatewayMutationRefreshesLoadedMatrix(t *testing.T) {
 				toggleCustomEndpointEnabled(st, gateway, true)
 			}
 			waitGatewaySnapshots(t, st, want)
+			waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 			rows := matrixRows(magpieMatrixData(st, ""))
 			if len(rows) != len(want) || len(rows) > 0 && rows[0].model.ID != "new" {
 				t.Fatalf("刷新后的矩阵 = %+v", rows)
@@ -290,6 +333,7 @@ func TestMagpieMatrixData_GatewayOrder(t *testing.T) {
 
 // TestSaveMagpieMatrixFamily 覆盖：批量全选一个家族只发一次保存，并保留原有勾选。
 func TestSaveMagpieMatrixFamily(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	models := []PiMagpieModel{
 		{ID: "claude-sonnet", Name: "Claude Sonnet"},
 		{ID: "claude-opus", Name: "Claude Opus"},
@@ -316,6 +360,7 @@ func TestSaveMagpieMatrixFamily(t *testing.T) {
 	if family.title != "Claude" || len(family.models) != 2 {
 		t.Fatalf("Claude 家族 = %+v", family)
 	}
+	beforeRefresh := catalogRefreshCount(st)
 	saveMagpieMatrixFamily(st, "claude", data[0], family, true, "")
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -325,6 +370,7 @@ func TestSaveMagpieMatrixFamily(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	calls := fake.SetAgentMagpieModelsCalls()
 	if len(calls) != 1 {
 		t.Fatalf("保存调用次数 = %d: %+v", len(calls), calls)
@@ -627,6 +673,7 @@ func TestMagpieMatrixAgents_AlwaysIncludesMcode(t *testing.T) {
 // TestMagpieMatrixMcode_OffModeStillCheckable 覆盖：mcode 没有模式，Mode 为 off 时勾选框仍可用，
 // 勾选以 agent 为 mcode 保存。
 func TestMagpieMatrixMcode_OffModeStillCheckable(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	models := []PiMagpieModel{{ID: "model-a", Name: "模型 A"}}
 	fake := NewFakeClient()
 	gateways := []CustomEndpoint{{ID: "gw-a", Name: "甲网关", Magpie: true, Enabled: true, HasAPIKey: true}}
@@ -647,6 +694,7 @@ func TestMagpieMatrixMcode_OffModeStillCheckable(t *testing.T) {
 	if access.Disabled {
 		t.Fatal("Mode 为 off 时 mcode 勾选框不应禁用")
 	}
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("切换 mcode 模型 A"); err != nil {
 		t.Fatalf("点击 mcode 勾选框: %v", err)
 	}
@@ -660,6 +708,7 @@ func TestMagpieMatrixMcode_OffModeStillCheckable(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	if len(calls) != 1 {
 		t.Fatalf("保存调用次数 = %d: %+v", len(calls), calls)
 	}
@@ -670,6 +719,7 @@ func TestMagpieMatrixMcode_OffModeStillCheckable(t *testing.T) {
 
 // TestSaveMagpieMatrixFamily_Mcode 覆盖：家族批量勾选对内置引擎生效。
 func TestSaveMagpieMatrixFamily_Mcode(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	models := []PiMagpieModel{
 		{ID: "claude-sonnet", Name: "Claude Sonnet"},
 		{ID: "claude-opus", Name: "Claude Opus"},
@@ -697,6 +747,7 @@ func TestSaveMagpieMatrixFamily_Mcode(t *testing.T) {
 	if family.title != "Claude" || len(family.models) != 2 {
 		t.Fatalf("Claude 家族 = %+v", family)
 	}
+	beforeRefresh := catalogRefreshCount(st)
 	saveMagpieMatrixFamily(st, magpieBuiltinAgent, data[0], family, true, "")
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -706,6 +757,7 @@ func TestSaveMagpieMatrixFamily_Mcode(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	calls := fake.SetAgentMagpieModelsCalls()
 	if len(calls) != 1 {
 		t.Fatalf("保存调用次数 = %d: %+v", len(calls), calls)

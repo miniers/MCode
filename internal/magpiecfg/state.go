@@ -126,21 +126,7 @@ func writeState(path string, v any) error {
 		return fmt.Errorf("magpiecfg: 编码状态文件 %s: %w", path, err)
 	}
 	data = append(data, '\n')
-	// WriteAtomic 对新文件用 0644，只保留已有文件的权限。先按 0600 建出
-	// 文件，让随后的原子写沿用这个权限。
-	created := false
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	switch {
-	case err == nil:
-		created = true
-		_ = f.Close()
-	case !errors.Is(err, fs.ErrExist):
-		return fmt.Errorf("magpiecfg: 创建状态文件 %s: %w", path, err)
-	}
 	if err := WriteAtomic(path, data); err != nil {
-		if created {
-			_ = os.Remove(path)
-		}
 		return fmt.Errorf("magpiecfg: 写入状态文件 %s: %w", path, err)
 	}
 	// 老版本或用户手动改过权限时可能更宽，写完后收紧。

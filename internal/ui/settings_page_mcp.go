@@ -404,15 +404,11 @@ func confirmMCPServerDelete(st *SettingsState, opts agentconf.Options, srv agent
 		}
 	}
 	if err != nil {
-		st.mu.Lock()
-		st.errorMessage = fmt.Sprintf("删除 MCP 服务 %s 失败：%v", srv.Name, err)
-		st.mu.Unlock()
+		st.noteError(fmt.Sprintf("删除 MCP 服务 %s 失败：%v", srv.Name, err))
 		st.invalidate()
 		return
 	}
-	st.mu.Lock()
-	st.errorMessage = ""
-	st.mu.Unlock()
+	st.noteError("")
 	st.loadAgentConf(st.currentProjectDir())
 }
 
@@ -468,14 +464,12 @@ func toggleMCPServerEnabled(st *SettingsState, uiSt *mcpPageUIState, srv agentco
 	// 写盘失败时保持内存里的旧状态：先乐观改内存会让界面谎报成功，
 	// 而开关下次重建又弹回去，用户看不出到底存了什么。
 	if err := agentconf.SetMCPServerEnabledFor(opts, srv, newEnabled); err != nil {
-		st.mu.Lock()
-		st.errorMessage = fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srv.Name, err)
-		st.mu.Unlock()
+		st.noteError(fmt.Sprintf("更新 MCP 服务 %s 的启用状态失败：%v", srv.Name, err))
 		st.invalidate()
 		return
 	}
+	st.noteError("")
 	st.mu.Lock()
-	st.errorMessage = ""
 	for idx := range st.mcpServers {
 		item := &st.mcpServers[idx]
 		if item.Name != srv.Name {

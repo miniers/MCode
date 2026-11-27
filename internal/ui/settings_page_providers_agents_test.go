@@ -142,9 +142,7 @@ func clickProviderDetailTabForTest(t *testing.T, tt *ui.Tester, id, label string
 	t.Helper()
 	waitFor(t, tt, func() bool { return !tt.HasText("检查中…") })
 	tt.Frame()
-	if err := tt.Click(providerDisplayName(id)); err != nil {
-		t.Fatalf("打开供应商 %q：%v", id, err)
-	}
+	clickWhenSettled(t, tt, providerDisplayName(id))
 	waitFor(t, tt, func() bool { return tt.HasText("关闭供应商") })
 }
 
@@ -168,12 +166,8 @@ func openProvidersPageDataDirTest(t *testing.T, fake *FakeClient) (*ui.Tester, *
 		st = getChatSettings(s)
 	}), 1000, 4000)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
-	if err := tt.Click("设置"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.Click("模型与供应商"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "设置")
+	clickWhenSettled(t, tt, "模型与供应商")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -847,9 +841,7 @@ func TestProviders_CheckUpdateNotImplemented(t *testing.T) {
 	waitFor(t, tt, func() bool { return tt.HasText("检查更新") })
 
 	// 点击“检查更新”
-	if err := tt.Click("检查更新"); err != nil {
-		t.Fatalf("failed to click '检查更新': %v", err)
-	}
+	clickWhenSettled(t, tt, "检查更新")
 
 	// 断言显示“暂不支持检查更新”
 	waitFor(t, tt, func() bool {
@@ -1512,12 +1504,8 @@ func TestProviders_LoadProviderRowsReadsLoginState(t *testing.T) {
 		st = getChatSettings(s)
 	}), 1200, 2400)
 	waitFor(t, tt, func() bool { return tt.HasText("设置") })
-	if err := tt.Click("设置"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.Click("模型与供应商"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "设置")
+	clickWhenSettled(t, tt, "模型与供应商")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -1607,9 +1595,7 @@ func TestProviders_PiTuningRowsSaveValues(t *testing.T) {
 	}
 
 	// 打开长缓存开关：保存的设置里带 PiCacheLong。
-	if err := tt.Click("切换长缓存"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "切换长缓存")
 	waitFor(t, tt, func() bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
@@ -1699,9 +1685,7 @@ func TestSettingsPageProviders_AgentMagpieSettingsLink(t *testing.T) {
 		t.Fatalf("供应商模型节不应显示 Magpie 模式分段：%v", panel.Texts())
 	}
 	// 跳转按钮在行右侧，点按钮内的路由值验证点击穿透到按钮。
-	if err := panel.Click("直连"); err != nil {
-		t.Fatalf("点击 Magpie 接入失败：%v", err)
-	}
+	clickWhenSettled(t, panel, "直连")
 	st.mu.Lock()
 	page := st.currentPage
 	st.mu.Unlock()

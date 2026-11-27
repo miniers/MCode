@@ -218,40 +218,52 @@ func (s *chatState) moveFileTreePaths(threadID string, paths []string, targetDir
 				return
 			}
 			moved = append(moved, renamed)
-			s.applyFileManagerRename(tid, oldPath, renamed)
+			old := oldPath
+			next := renamed
+			s.updateFileManager(func() {
+				fileManagerMu.Lock()
+				stillSame := st.threadID == tid && st.gen == gen
+				fileManagerMu.Unlock()
+				if !stillSame {
+					return
+				}
+				s.applyFileManagerRename(tid, old, next)
+			})
 		}
 
-		needLoadTarget := false
-		fileManagerMu.Lock()
-		if st.threadID == tid && st.gen == gen {
-			tree := ensureFileTreeLocked(st)
-			if dst != "" {
-				for _, anc := range fileTreeAncestors(dst) {
-					if anc != "" {
-						tree.outline.Open.Add(anc)
+		movedCopy := append([]string(nil), moved...)
+		s.updateFileManager(func() {
+			needLoadTarget := false
+			fileManagerMu.Lock()
+			if st.threadID == tid && st.gen == gen {
+				tree := ensureFileTreeLocked(st)
+				if dst != "" {
+					for _, anc := range fileTreeAncestors(dst) {
+						if anc != "" {
+							tree.outline.Open.Add(anc)
+						}
+					}
+					st.dir = dst
+					needLoadTarget = tree.children[dst] == nil && !tree.loading[dst]
+				}
+				tree.selection.Clear()
+				for _, p := range movedCopy {
+					tree.selection.Add(p)
+				}
+				if len(movedCopy) > 0 {
+					tree.selected = fileTreeRowIndexLocked(tree, movedCopy[0])
+					if len(movedCopy) == 1 {
+						tree.revealPath = movedCopy[0]
 					}
 				}
-				st.dir = dst
-				needLoadTarget = tree.children[dst] == nil && !tree.loading[dst]
+				fileTreeBumpOutlineGenLocked(tree)
 			}
-			tree.selection.Clear()
-			for _, p := range moved {
-				tree.selection.Add(p)
-			}
-			if len(moved) > 0 {
-				tree.selected = fileTreeRowIndexLocked(tree, moved[0])
-				if len(moved) == 1 {
-					tree.revealPath = moved[0]
-				}
-			}
-			fileTreeBumpOutlineGenLocked(tree)
-		}
-		fileManagerMu.Unlock()
+			fileManagerMu.Unlock()
 
-		if needLoadTarget {
-			s.fileTreeLoadDir(tid, dst)
-		}
-		inspectorRemember(s)
-		s.invalidate()
+			if needLoadTarget {
+				s.fileTreeLoadDir(tid, dst)
+			}
+			inspectorRemember(s)
+		})
 	}(threadID, sessionGen, moveList, targetDir)
 }

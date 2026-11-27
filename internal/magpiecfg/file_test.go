@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -124,5 +125,39 @@ func TestAtomicallyKeepsAllOnSuccess(t *testing.T) {
 	}
 	if got := readTestFile(t, a); !bytes.Contains([]byte(got), []byte(`"x": 1`)) {
 		t.Fatalf("成功的写入没有保留: %q", got)
+	}
+}
+
+func TestWriteAtomicNewFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 上文件权限位无意义")
+	}
+	dir := t.TempDir()
+	newPath := filepath.Join(dir, "new.json")
+	if err := WriteAtomic(newPath, []byte("{\"a\":1}\n")); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(newPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Fatalf("新建文件权限 = %04o，想要 0600", got)
+	}
+
+	existingPath := filepath.Join(dir, "existing.json")
+	writeTestFile(t, existingPath, "{\"a\":1}\n")
+	if err := os.Chmod(existingPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAtomic(existingPath, []byte("{\"a\":2}\n")); err != nil {
+		t.Fatal(err)
+	}
+	st, err = os.Stat(existingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Mode().Perm(); got != 0o644 {
+		t.Fatalf("已有文件权限 = %04o，想要 0644", got)
 	}
 }

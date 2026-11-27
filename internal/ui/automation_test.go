@@ -526,22 +526,16 @@ func TestAutomationWorkspace_TogglePause(t *testing.T) {
 	tt, s := newWorkspaceTester(t, fake, "automations")
 	waitFor(t, tt, func() bool { return tt.HasText("auto-1") })
 	as := getAutomationState(s)
-	if err := tt.Click("auto-1"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "auto-1")
 
-	if err := tt.Click("启用自动化"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "启用自动化")
 	waitFor(t, tt, func() bool {
 		automationMu.Lock()
 		defer automationMu.Unlock()
 		return !as.enabled
 	})
 
-	if err := tt.Click("启用自动化"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "启用自动化")
 	waitFor(t, tt, func() bool {
 		automationMu.Lock()
 		defer automationMu.Unlock()

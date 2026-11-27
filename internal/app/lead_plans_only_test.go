@@ -6,6 +6,7 @@ import (
 	"mcode/internal/remote"
 	"mcode/internal/remote/wire"
 	"mcode/internal/swarm"
+	"sync"
 	"testing"
 	"time"
 )
@@ -27,10 +28,19 @@ func TestLeadPlansOnlyWiring(t *testing.T) {
 	h := &leadPlansCapture{turns: make(chan harness.Turn, 1)}
 	b.SetHarness(h, t.TempDir(), harness.ModeAgent)
 	mgr := swarm.NewManager(swarm.Options{Driver: b, WorktreeDir: t.TempDir(), PollInterval: testSwarmPollInterval})
+	var mu sync.RWMutex
 	var global bool
 	var mode string
-	mgr.SetSettingsFunc(func() swarm.Settings { return swarm.Settings{Enabled: global} })
-	wireSwarmWithModes(ctx, mgr, b, nil, nil, func(string) string { return mode })
+	mgr.SetSettingsFunc(func() swarm.Settings {
+		mu.RLock()
+		defer mu.RUnlock()
+		return swarm.Settings{Enabled: global}
+	})
+	wireSwarmWithModes(ctx, mgr, b, nil, nil, func(string) string {
+		mu.RLock()
+		defer mu.RUnlock()
+		return mode
+	})
 	for _, tc := range []struct {
 		id              string
 		global, enabled bool
@@ -49,7 +59,9 @@ func TestLeadPlansOnlyWiring(t *testing.T) {
 		{"unregistered-bee", true, true, swarm.ModeLeadPlansOnly, false, "lead", false},
 	} {
 		t.Run(tc.id, func(t *testing.T) {
+			mu.Lock()
 			global, mode = tc.global, tc.mode
+			mu.Unlock()
 			b.AddThread(wire.ThreadSummary{ID: tc.id, ProjectID: "p", Provider: "lead-plans-capture"}, nil)
 			if tc.helper || tc.parent != "" {
 				b.SetThreadRelation(tc.id, tc.parent, tc.helper)

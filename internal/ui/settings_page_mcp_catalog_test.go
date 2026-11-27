@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -10,12 +11,24 @@ import (
 	"mcode/internal/testenv"
 )
 
-// useMCPToolLister 临时替换工具探测钩子，测试结束后恢复。
+// useMCPToolLister 临时替换工具探测钩子，测试结束后先等在途探测返回再恢复。
 func useMCPToolLister(t *testing.T, lister agentconf.ToolListerFunc) {
 	t.Helper()
 	orig := agentconf.DefaultToolLister
-	agentconf.DefaultToolLister = lister
-	t.Cleanup(func() { agentconf.DefaultToolLister = orig })
+	var wg sync.WaitGroup
+	if lister != nil {
+		agentconf.DefaultToolLister = func(ctx context.Context, srv agentconf.MCPServer) ([]agentconf.MCPToolInfo, error) {
+			wg.Add(1)
+			defer wg.Done()
+			return lister(ctx, srv)
+		}
+	} else {
+		agentconf.DefaultToolLister = nil
+	}
+	t.Cleanup(func() {
+		wg.Wait()
+		agentconf.DefaultToolLister = orig
+	})
 }
 
 // installMCPCatalogPreset 让扫描结果里出现预设 fetch，使对应卡片处于已添加状态。

@@ -118,8 +118,8 @@ func swarmPairQuickSaveError(st *SettingsState) string {
 	if st == nil {
 		return ""
 	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	st.cfgMu.Lock()
+	defer st.cfgMu.Unlock()
 	return st.errorMessage
 }
 

@@ -69,6 +69,42 @@ func awaitEffortBranchSettled(t *testing.T, fake *FakeClient, state *chatState) 
 	})
 }
 
+type selectionGenSnapshot struct {
+	projectID string
+	globalGen uint64
+	quickGen  uint64
+	projGen   uint64
+}
+
+func snapshotSelectionGen(state *chatState, threadID string) selectionGenSnapshot {
+	state.mu.Lock()
+	projectID := state.projectIDForRememberLocked(threadID)
+	state.mu.Unlock()
+	lastModelSelectionMu.Lock()
+	defer lastModelSelectionMu.Unlock()
+	return selectionGenSnapshot{
+		projectID: projectID,
+		globalGen: lastModelGeneration,
+		quickGen:  lastModelQuickGeneration,
+		projGen:   projectModelGeneration[projectID],
+	}
+}
+
+// awaitLeadSelectionRecorded 等到 applyModelPickerPick 的后台协程把模型记忆写盘并完成落盘，
+// 避免测试结束清理触发 waitUIStateWrites() 时与 lastSelectionWriteWG.Add(1) 并发。
+func awaitLeadSelectionRecorded(t *testing.T, snap selectionGenSnapshot) {
+	t.Helper()
+	waitUntil(t, "切换模型后记忆写盘完成", func() bool {
+		lastModelSelectionMu.Lock()
+		defer lastModelSelectionMu.Unlock()
+		if snap.projectID != "" {
+			return lastModelGeneration > snap.globalGen && projectModelGeneration[snap.projectID] > snap.projGen && lastSelectionWritesPending == 0
+		}
+		return lastModelQuickGeneration > snap.quickGen && lastSelectionWritesPending == 0
+	})
+	waitUIStateWrites()
+}
+
 // 用例 1：用户在设置里为模型配置的默认强度优先于模型自身默认档（medium），最终生效 high。
 func TestComposerDefaultEffortUserPreferenceWins(t *testing.T) {
 	fake, state := defaultEffortState(t, "low", false)
@@ -265,12 +301,14 @@ func TestComposerDefaultEffortSettingsCopyWins(t *testing.T) {
 	}
 
 	prov := ProviderInfo{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{m}}
+	snap := snapshotSelectionGen(state, "t1")
 	state.applyModelPickerPick("t1", ModelPickerSideLead, "claude", prov, m)
 
 	waitUntil(t, "切换模型后下发设置页副本的强度 high", func() bool {
 		tid, prefs, ok := fake.LastComposerPrefsCall()
 		return ok && tid == "t1" && prefs.Effort == "high"
 	})
+	awaitLeadSelectionRecorded(t, snap)
 	tid, prefs, ok := fake.LastComposerPrefsCall()
 	if !ok || tid != "t1" || prefs.Effort != "high" {
 		t.Fatalf("设置页副本的 high 应优先于模型默认档 medium: 期望 threadID=t1 Effort=high（设置页副本）, 实际 threadID=%q Effort=%q ok=%v", tid, prefs.Effort, ok)
@@ -314,6 +352,7 @@ func TestComposerDefaultEffortFollowsComposerSliderEdit(t *testing.T) {
 	// 先切到一个既无默认档也无偏好的模型（旧强度 medium 仍被支持，不产生下发），再切回来。
 	mz := ModelInfo{ID: "model-z", Name: "Model Z", Efforts: []string{"low", "medium", "high"}}
 	provZ := ProviderInfo{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{mz}}
+	snapZ := snapshotSelectionGen(state, "t1")
 	state.applyModelPickerPick("t1", ModelPickerSideLead, "claude", provZ, mz)
 	waitUntil(t, "切到 model-z 后会话模型落定", func() bool {
 		state.mu.Lock()
@@ -325,14 +364,17 @@ func TestComposerDefaultEffortFollowsComposerSliderEdit(t *testing.T) {
 		}
 		return false
 	})
+	awaitLeadSelectionRecorded(t, snapZ)
 
 	before := fake.ComposerPrefsCallCount()
 	prov := ProviderInfo{ID: "claude", Name: "Claude", Available: true, Models: []ModelInfo{m}}
+	snapBack := snapshotSelectionGen(state, "t1")
 	state.applyModelPickerPick("t1", ModelPickerSideLead, "claude", prov, m)
 	waitUntil(t, "切回目标模型后按滑杆最新值下发 low（不是副本里过期的 high）", func() bool {
 		tid, prefs, ok := fake.LastComposerPrefsCall()
 		return fake.ComposerPrefsCallCount() > before && ok && tid == "t1" && prefs.Effort == "low"
 	})
+	awaitLeadSelectionRecorded(t, snapBack)
 	tid, prefs, ok := fake.LastComposerPrefsCall()
 	if !ok || tid != "t1" || prefs.Effort != "low" {
 		t.Fatalf("切回后应下发滑杆最新值 low（设置页副本里的 high 已过期）: 期望 threadID=t1 Effort=low, 实际 threadID=%q Effort=%q ok=%v", tid, prefs.Effort, ok)

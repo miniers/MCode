@@ -101,6 +101,8 @@ func TestMCP_AddSheet(t *testing.T) {
 		}
 		return false
 	})
+	// 等后台 startMCPToolProbe 跑完再离开当前页，避免清理 DefaultToolLister 时仍在探测。
+	waitFor(t, tt, func() bool { return tt.HasText("已连接 · 0 个工具") })
 	if err := tt.Click("手动填写"); err != nil {
 		t.Fatal(err)
 	}

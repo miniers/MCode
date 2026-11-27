@@ -28,7 +28,7 @@ func magpiePageWithFake(t *testing.T, fake *FakeClient, connected bool) (*ui.Tes
 		fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true}}
 		fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw"}})
 	}
-	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&routeTestClient{FakeClient: fake}))
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: &routeTestClient{FakeClient: fake}}))
 	tt := ui.NewTester(func(c *ui.Context) {
 		id, _ := settingsTreeSheetState(st)
 		switch id {
@@ -284,7 +284,7 @@ func TestSettingsMagpie_AgentAndModelSectionsStayWithBrokenPi(t *testing.T) {
 	fake := NewFakeClient()
 	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "测试网关", Enabled: true, Magpie: true, HasAPIKey: true}}
 	fake.SetPiMagpieEndpoints([]PiMagpieEndpoint{{ID: "gw", Err: "网关不可用"}})
-	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&routeTestClient{FakeClient: fake}))
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: &routeTestClient{FakeClient: fake}}))
 	tt := ui.NewTester(func(c *ui.Context) { renderPageMagpie(c, st) }, 1000, 4000)
 	waitMagpie(t, tt, func() bool {
 		connected, _ := magpieConnected(st)
@@ -361,6 +361,7 @@ func TestSettingsMagpie_GatewayRowsLayout(t *testing.T) {
 }
 
 func TestSettingsMagpie_GatewaySheet(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	tt, st, fake := magpiePageTester(t, true)
 	if err := tt.Click("打开 测试网关"); err != nil {
 		t.Fatal(err)
@@ -373,10 +374,12 @@ func TestSettingsMagpie_GatewaySheet(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Type("新名称")
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("保存"); err != nil {
 		t.Fatal(err)
 	}
 	waitMagpie(t, tt, func() bool { fake.mu.Lock(); defer fake.mu.Unlock(); return len(fake.saveCustomEndpointCalls) == 1 })
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	fake.mu.Lock()
 	saved, key := fake.saveCustomEndpointCalls[0], fake.saveCustomEndpointKeys[0]
 	fake.mu.Unlock()

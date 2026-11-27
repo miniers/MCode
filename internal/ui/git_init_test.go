@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -286,9 +287,9 @@ func TestGitPaneNotRepoEmptyMatchesDesign(t *testing.T) {
 func TestGitInitRefreshesDiffAndToast(t *testing.T) {
 	setAppReduceMotion(t, true)
 	oldRunOnMain := gitInitRunOnMain
-	var runOnMainCalls int
+	var runOnMainCalls atomic.Int32
 	gitInitRunOnMain = func(fn func()) {
-		runOnMainCalls++
+		runOnMainCalls.Add(1)
 		fn()
 	}
 	t.Cleanup(func() { gitInitRunOnMain = oldRunOnMain })
@@ -316,7 +317,7 @@ func TestGitInitRefreshesDiffAndToast(t *testing.T) {
 	startGitInit(s, "git-test")
 
 	gitPaneWait(t, func() bool {
-		if isGitInitBusy(s, "git-test") || runOnMainCalls < 1 {
+		if isGitInitBusy(s, "git-test") || runOnMainCalls.Load() < 1 {
 			return false
 		}
 		if len(client.ReviewGetCalls()) <= beforeCalls || !inspectorPaneOpen(s, sidePaneGitID) {
@@ -340,7 +341,7 @@ func TestGitInitRefreshesDiffAndToast(t *testing.T) {
 	client.paneMu.Unlock()
 	startGitInit(s, "git-test")
 	gitPaneWait(t, func() bool {
-		if isGitInitBusy(s, "git-test") || runOnMainCalls < 2 {
+		if isGitInitBusy(s, "git-test") || runOnMainCalls.Load() < 2 {
 			return false
 		}
 		s.mu.Lock()

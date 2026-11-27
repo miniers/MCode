@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,6 +58,12 @@ func previewBulkThreads(threads []Thread, days int, includePinned, includeDorman
 	return res
 }
 
+// bulkThreadsSnapshotLocked 在持 s.mu 时克隆指定项目的会话列表，
+// 使调用方解锁后读取快照时不与后台原地修改同一底层数组产生数据竞态。
+func bulkThreadsSnapshotLocked(s *chatState, projectID string) []Thread {
+	return slices.Clone(s.threadsByProj[projectID])
+}
+
 // renderBulkPopover 渲染整理会话浮窗，外观按性能模式无毛玻璃设计。
 func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 	primaryText := ThemePrimaryText(c)
@@ -66,7 +73,7 @@ func renderBulkPopover(c *ui.Context, s *chatState, projectID string) {
 	days := s.bulkRangeDays
 	incPinned := s.bulkIncludePinned
 	incDormant := s.bulkIncludeDormant
-	ths := s.threadsByProj[projectID]
+	ths := bulkThreadsSnapshotLocked(s, projectID)
 	s.mu.Unlock()
 
 	preview := previewBulkThreads(ths, days, incPinned, incDormant)

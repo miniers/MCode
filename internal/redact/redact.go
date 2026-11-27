@@ -16,6 +16,11 @@ var rules = []struct {
 	{regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}`), "github_pat_***"},
 	{regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{30,}`), "AIza***"},
 	{regexp.MustCompile(`\b(xox[abp]-)[A-Za-z0-9-]{10,}`), "${1}***"},
+	// PEM 私钥块（含 RSA/EC/OPENSSH/ENCRYPTED 等前缀，跨多行非贪婪）。
+	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`), "-----BEGIN PRIVATE KEY-----***-----END PRIVATE KEY-----"},
+	{regexp.MustCompile(`\b(AKIA|ASIA)[0-9A-Z]{16}\b`), "${1}***"},
+	{regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`), "glpat-***"},
+	{regexp.MustCompile(`\bhf_[A-Za-z0-9]{30,}`), "hf_***"},
 	// 字段赋值（含 JSON 引号形式、query 参数）：只掩掉值。
 	{regexp.MustCompile(`(?i)([A-Za-z0-9_-]*(?:token|password|passwd|secret|api[_-]?key|apikey|credentials?|private[_-]?key)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;"'&]+)`), "${1}***"},
 }

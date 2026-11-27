@@ -90,7 +90,7 @@ func WriteAtomic(path string, data []byte) error {
 			return err
 		}
 	}
-	mode := fs.FileMode(0o644)
+	mode := fs.FileMode(0o600)
 	st, statErr := os.Stat(path)
 	if statErr == nil {
 		mode = st.Mode().Perm()

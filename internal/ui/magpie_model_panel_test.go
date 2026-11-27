@@ -37,9 +37,7 @@ func magpieModelPanelTester(t *testing.T, fake *FakeClient, setting AgentMagpieS
 		magpieOwnModelGroups.Unlock()
 	})
 	testenv.TempHome(t)
-	prevDelays := piMagpieCatalogRefreshDelays
-	piMagpieCatalogRefreshDelays = nil
-	t.Cleanup(func() { piMagpieCatalogRefreshDelays = prevDelays })
+	useTestMagpieCatalogRefreshDelays(t)
 
 	fake.SetAgentMagpie(setting)
 	if setting.Agent == "pi" {
@@ -47,7 +45,7 @@ func magpieModelPanelTester(t *testing.T, fake *FakeClient, setting AgentMagpieS
 	}
 	providers := []ProviderInfo{catalog}
 	fake.SetProviders(providers)
-	chat := newChatState(fake)
+	chat := newChatState(&catalogRefreshWatchClient{Client: fake})
 	chat.providers = providers
 	st := NewSettingsState(settingsTestDir(t), nil, chat)
 	state := observeModelsPageState(t)
@@ -154,14 +152,16 @@ func TestMagpieModelPanelDisableUnchecks(t *testing.T) {
 	setting := agentMagpieTestSetting()
 	setting.Endpoints[0].Selected = []string{"auto/sonnet", "auto/haiku"}
 
-	tt, _ := magpieModelPanelTester(t, fake, setting, ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
+	tt, st := magpieModelPanelTester(t, fake, setting, ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
 	waitFor(t, tt, func() bool { return tt.HasText("停用 JP Haiku") })
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("停用 JP Haiku"); err != nil {
 		t.Fatalf("点击停用按钮失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		return magpieTestHasModelIDs(fake.SetAgentMagpieModelsCalls(), "jp", []string{"auto/sonnet"})
 	})
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 }
 
 // TestMagpieModelPanel_默认模型下拉框保存 覆盖：claude 的默认模型下拉框选择后保存。
@@ -209,19 +209,21 @@ func TestMagpieModelPanelAddPopover(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
 
-	tt, _ := magpieModelPanelTester(t, fake, agentMagpieTestSetting(), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
+	tt, st := magpieModelPanelTester(t, fake, agentMagpieTestSetting(), ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
 	waitFor(t, tt, func() bool { return tt.HasText("已启用（1）") })
 	clickWhenSettled(t, tt, "添加模型")
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("JP Haiku")
 		return ok
 	})
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("JP Haiku"); err != nil {
 		t.Fatalf("勾选 JP Haiku 失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		return magpieTestHasModelIDs(fake.SetAgentMagpieModelsCalls(), "jp", []string{"auto/sonnet", "auto/haiku"})
 	})
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 
 	// 搜索 haiku 后，未勾选的 US Opus 应被过滤掉。
 	if err := tt.Click("input-provider-models-search-magpie-add-claude"); err != nil {
@@ -463,12 +465,13 @@ func TestMagpieModelPanelToggleReloadsTiers(t *testing.T) {
 		{Tier: "fable"},
 	}
 
-	tt, _ := magpieModelPanelTester(t, fake, setting, ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
+	tt, st := magpieModelPanelTester(t, fake, setting, ProviderInfo{ID: "claude", Name: "Claude", Models: []ModelInfo{{ID: "sonnet", Name: "目录 Sonnet"}}})
 	waitFor(t, tt, func() bool { return magpieTestHasExactText(tt, "档位映射") })
 	before := len(fake.AgentMagpieCalls())
 	clickWhenSettled(t, tt, "添加模型")
 	// 档位行已不再显示 Haiku，此时「Haiku 5.5」唯一出现的位置是浮层里的勾选框。
 	waitFor(t, tt, func() bool { return magpieTestCountExactText(tt, "Haiku 5.5") == 1 })
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("Haiku 5.5"); err != nil {
 		t.Fatalf("勾选 Haiku 5.5 失败: %v", err)
 	}
@@ -476,4 +479,5 @@ func TestMagpieModelPanelToggleReloadsTiers(t *testing.T) {
 		return magpieTestHasModelIDs(fake.SetAgentMagpieModelsCalls(), "auto", []string{"claude-sonnet-5-5", "claude-haiku-5-5"})
 	})
 	waitFor(t, tt, func() bool { return len(fake.AgentMagpieCalls()) > before })
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 }

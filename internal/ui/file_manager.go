@@ -75,6 +75,8 @@ type fileManagerState struct {
 
 	// 新建 / 移到废纸篓的弹窗；同一时刻只开一个。
 	ops fileManagerOpsDialog
+	// opsNameDraft 是写操作弹窗输入框绑定的草稿文字，只在 UI 线程读写、后台不碰。
+	opsNameDraft string
 	// opsSeq 是弹窗的代数计数器，只增不减：关掉再开时旧请求不会撞上新弹窗。
 	opsSeq int
 

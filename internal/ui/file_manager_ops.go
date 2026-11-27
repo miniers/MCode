@@ -35,7 +35,6 @@ type fileManagerOpsDialog struct {
 	targets    *fileManagerOpsTargets
 	// threadID 是打开弹窗时的会话：请求回来时会话已经换掉就不再回填结果。
 	threadID string
-	name     string
 	err      string
 	busy     bool
 	// gen 是提交代数：再次提交或关闭弹窗后，旧请求的结果直接丢弃。
@@ -103,6 +102,7 @@ func (s *chatState) openFileManagerOpsDialogTargets(kind, targetPath string, tar
 	if len(targetPaths) > 0 {
 		targets = &fileManagerOpsTargets{paths: append([]string(nil), targetPaths...)}
 	}
+	st.opsNameDraft = name
 	fileManagerMu.Lock()
 	// 代数只增不减：关掉再开时旧请求不会撞上新的弹窗。
 	st.opsSeq++
@@ -112,7 +112,6 @@ func (s *chatState) openFileManagerOpsDialogTargets(kind, targetPath string, tar
 		targetPath: targetPath,
 		targets:    targets,
 		threadID:   st.threadID,
-		name:       name,
 		gen:        st.opsSeq,
 	}
 	fileManagerMu.Unlock()
@@ -221,19 +220,19 @@ func (s *chatState) submitFileManagerOpsDialog() {
 		return
 	}
 
+	name := strings.TrimSpace(st.opsNameDraft)
 	fileManagerMu.Lock()
 	if !st.ops.open || st.ops.busy {
 		fileManagerMu.Unlock()
 		return
 	}
 	op := st.ops
-	op.name = strings.TrimSpace(op.name)
 	// 新建要先校验名字；删除不读输入框。
 	if op.kind == fileManagerOpsNewFile || op.kind == fileManagerOpsNewDir {
-		if msg := fileManagerValidateName(op.name); msg != "" {
-			st.ops.name = op.name
+		if msg := fileManagerValidateName(name); msg != "" {
 			st.ops.err = msg
 			fileManagerMu.Unlock()
+			st.opsNameDraft = name
 			s.invalidate()
 			return
 		}
@@ -248,7 +247,7 @@ func (s *chatState) submitFileManagerOpsDialog() {
 	newPath := ""
 	switch op.kind {
 	case fileManagerOpsNewFile, fileManagerOpsNewDir:
-		newPath = fileManagerJoinPath(target, op.name)
+		newPath = fileManagerJoinPath(target, name)
 	}
 
 	go func(op fileManagerOpsDialog, newPath string) {
@@ -325,10 +324,12 @@ func (s *chatState) finishFileManagerOps(op fileManagerOpsDialog, newPath string
 	modalDragReset(modalDragFileManagerOp)
 
 	dirs := fileManagerUniqueDirs(op.targetPath)
-	fileTreeInvalidate(s, threadID, dirs)
-	if op.kind == fileManagerOpsNewFile {
-		s.openFileManagerFile(op.threadID, newPath, true)
-	}
+	s.updateFileManager(func() {
+		fileTreeInvalidate(s, threadID, dirs)
+		if op.kind == fileManagerOpsNewFile {
+			s.openFileManagerFile(op.threadID, newPath, true)
+		}
+	})
 }
 
 // finishFileManagerTrashOps 处理单个或批量移到废纸篓的结果：
@@ -365,15 +366,28 @@ func (s *chatState) finishFileManagerTrashOps(op fileManagerOpsDialog, targets, 
 			st.ops.err = err.Error()
 		}
 		fileManagerMu.Unlock()
-		s.applyFileManagerTrashedPaths(threadID, succeeded)
-		s.invalidate()
+		if len(succeeded) > 0 {
+			succeededCopy := append([]string(nil), succeeded...)
+			s.updateFileManager(func() {
+				s.applyFileManagerTrashedPaths(threadID, succeededCopy)
+			})
+		} else {
+			s.invalidate()
+		}
 		return
 	}
 	st.ops = fileManagerOpsDialog{}
 	fileManagerMu.Unlock()
 	modalDragReset(modalDragFileManagerOp)
 
-	s.applyFileManagerTrashedPaths(threadID, succeeded)
+	if len(succeeded) > 0 {
+		succeededCopy := append([]string(nil), succeeded...)
+		s.updateFileManager(func() {
+			s.applyFileManagerTrashedPaths(threadID, succeededCopy)
+		})
+	} else {
+		s.invalidate()
+	}
 }
 
 func (s *chatState) applyFileManagerTrashedPaths(threadID string, paths []string) {
@@ -585,14 +599,23 @@ func (s *chatState) submitFileManagerInlineRename(restoreFocus bool) {
 			return
 		}
 		st.rename = fileManagerInlineRename{}
-		if restoreFocus && st.tree != nil {
-			st.tree.focusPending = true
-		}
 		threadID := st.threadID
 		fileManagerMu.Unlock()
 
-		s.applyFileManagerRename(threadID, rn.path, renamed)
-		s.invalidate()
+		oldPath := rn.path
+		nextPath := renamed
+		s.updateFileManager(func() {
+			fileManagerMu.Lock()
+			if st.threadID != threadID {
+				fileManagerMu.Unlock()
+				return
+			}
+			if restoreFocus && st.tree != nil {
+				st.tree.focusPending = true
+			}
+			fileManagerMu.Unlock()
+			s.applyFileManagerRename(threadID, oldPath, nextPath)
+		})
 	}(rn, newPath, restoreFocus)
 }
 
@@ -617,7 +640,9 @@ func (s *chatState) duplicateFileManagerEntry(path string) {
 			s.setToast("复制失败: " + err.Error())
 			return
 		}
-		fileTreeInvalidate(s, threadID, []string{fileManagerParentPath(path)})
+		s.updateFileManager(func() {
+			fileTreeInvalidate(s, threadID, []string{fileManagerParentPath(path)})
+		})
 	}()
 }
 
@@ -719,7 +744,7 @@ func renderFileManagerOpsDialog(c *ui.Context, s *chatState) {
 					FontWeight(600).
 					TextColor(ThemePrimaryText(c))
 
-				TextField(c, TextFieldProps{Key: "file-manager-ops-input", Value: &st.ops.name, Label: inputLabel, Placeholder: placeholder, FillWidth: true, AutoFocus: true, OnKeyDown: func(k ui.TextKey) bool {
+				TextField(c, TextFieldProps{Key: "file-manager-ops-input", Value: &st.opsNameDraft, Label: inputLabel, Placeholder: placeholder, FillWidth: true, AutoFocus: true, OnKeyDown: func(k ui.TextKey) bool {
 					if k.Key == ui.KeyEscape {
 						s.closeFileManagerOpsDialog()
 						return true

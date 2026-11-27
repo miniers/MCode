@@ -85,9 +85,7 @@ func TestSettingsAgy_ManualSubmissionWaitsForExchange(t *testing.T) {
 	fake := NewFakeClient()
 	fake.agyLoginWaitDone = make(chan struct{})
 	tt, st := openAgySettingsTest(t, fake)
-	if err := tt.Click("浏览器登录"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "浏览器登录")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -103,9 +101,7 @@ func TestSettingsAgy_ManualSubmissionWaitsForExchange(t *testing.T) {
 	st.agy.loginInputCode = "mock-code"
 	st.mu.Unlock()
 	tt.Frame()
-	if err := tt.Click("提交"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "提交")
 	waitFor(t, tt, func() bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()
@@ -132,9 +128,7 @@ func TestSettingsAgy_RefreshAndRoutingErrorsVisible(t *testing.T) {
 	fake.agyRoutingErr = fmt.Errorf("routing unreadable")
 	tt, _ := openAgySettingsTest(t, fake)
 	// 首次加载前没有账号快照，手动刷新已加载的账号以触发额度错误。
-	if err := tt.Click("刷新额度"); err != nil {
-		t.Fatal(err)
-	}
+	clickWhenSettled(t, tt, "刷新额度")
 	waitFor(t, tt, func() bool { return tt.HasText("刷新额度失败: quota unavailable") })
 	waitFor(t, tt, func() bool { return tt.HasText("保存路由配置失败: routing unreadable") })
 	// 路由错误挂在开关行下方：行标题与开关都还在，说明错误不是靠副标题撑住的。
@@ -263,9 +257,7 @@ func TestSettingsAgy_DeleteSystemAndNonSystemAccount(t *testing.T) {
 	}
 
 	// 点非系统账号的“删除”按钮进入确认态
-	if err := tt.Click("删除"); err != nil {
-		t.Fatalf("click '删除' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "删除")
 
 	// 验证确认态提示及绑定会话提示
 	waitFor(t, tt, func() bool {
@@ -273,9 +265,7 @@ func TestSettingsAgy_DeleteSystemAndNonSystemAccount(t *testing.T) {
 	})
 
 	// 点击“确认删除”
-	if err := tt.Click("确认删除"); err != nil {
-		t.Fatalf("click '确认删除' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "确认删除")
 
 	// 验证假 Client 记录到 AgyRemove 调用
 	waitFor(t, tt, func() bool {
@@ -313,9 +303,7 @@ func TestSettingsAgy_AccountsErrorAndRetry(t *testing.T) {
 	}
 	fake.mu.Unlock()
 
-	if err := tt.Click("重试"); err != nil {
-		t.Fatalf("click '重试' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "重试")
 
 	waitFor(t, tt, func() bool {
 		return tt.HasText("recovered@example.com")
@@ -413,9 +401,7 @@ func TestSettingsAgy_SystemAccountWithoutLocalLogin(t *testing.T) {
 
 	// 按钮的 Label 是可见文案「刷新额度」，Key（agy-top-refresh-quota-btn）不参与查找，
 	// 所以按文案点击。
-	if err := tt.Click("刷新额度"); err != nil {
-		t.Fatalf("click '刷新额度' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "刷新额度")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -480,9 +466,7 @@ func TestSettingsAgy_WarmupButtonsAndErrorVisible(t *testing.T) {
 	tt, st := openAgySettingsTest(t, fake)
 
 	// 点击批量预热
-	if err := tt.Click("批量预热"); err != nil {
-		t.Fatalf("click '批量预热' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "批量预热")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
@@ -490,9 +474,7 @@ func TestSettingsAgy_WarmupButtonsAndErrorVisible(t *testing.T) {
 	})
 
 	// 点击单账号预热
-	if err := tt.Click("预热"); err != nil {
-		t.Fatalf("click '预热' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "预热")
 	waitFor(t, tt, func() bool {
 		st.mu.Lock()
 		done := !st.agy.warmupBusyIDs["acc-warmup-1"] && st.agy.warmupRowErr["acc-warmup-1"] != ""
@@ -644,9 +626,7 @@ func TestAgyAccountReloginButton(t *testing.T) {
 	if !ok || relogin.Y <= accountRow.Y {
 		t.Fatalf("重新登录按钮不在普通账号卡片上: %v", tt.Texts())
 	}
-	if err := tt.Click("重新登录"); err != nil {
-		t.Fatalf("click '重新登录' failed: %v", err)
-	}
+	clickWhenSettled(t, tt, "重新登录")
 	waitFor(t, tt, func() bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()

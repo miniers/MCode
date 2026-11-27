@@ -1743,8 +1743,12 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 		st.ensureAgentConfCurrent()
 	}
 
+	st.cfgMu.Lock()
+	errMsg := st.errorMessage
+	st.cfgMu.Unlock()
+
 	ui.Column(c.Key("settings-detail-root")).Fill().Children(func() {
-		if st.errorMessage != "" {
+		if errMsg != "" {
 			ui.Row(c.Key("settings-error-outer")).FillWidth().Justify(ui.Center).Padding(Space5, Space7, settingsVerticalPadding, Space7).Children(func() {
 				ui.Row(c.Key("settings-error-banner")).
 					Label("设置错误").
@@ -1754,7 +1758,7 @@ func renderSettingsDetail(c *ui.Context, st *SettingsState) {
 					Radius(RadiusMD).
 					Background(ThemeDanger(c).Alpha(0.15)).
 					Children(func() {
-						ui.Text(c, st.errorMessage).
+						ui.Text(c, errMsg).
 							TextColor(ThemeDanger(c)).
 							FontSize(uiFont(TypeBody))
 					})

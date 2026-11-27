@@ -514,7 +514,7 @@ func TestSettings_AgentMagpie_GlobalModeHidesOwnGroup(t *testing.T) {
 func TestSettings_AgentMagpie_ToggleModel(t *testing.T) {
 	testenv.TempHome(t)
 	fake := NewFakeClient()
-	tt, _ := agentMagpieClaudeTester(t, fake, agentMagpieTestSetting())
+	tt, st := agentMagpieClaudeTester(t, fake, agentMagpieTestSetting())
 
 	waitFor(t, tt, func() bool { return tt.HasText("已启用（1）") })
 	if err := tt.Click("添加模型"); err != nil {
@@ -524,6 +524,7 @@ func TestSettings_AgentMagpie_ToggleModel(t *testing.T) {
 		_, ok := tt.Find("JP Haiku")
 		return ok
 	})
+	beforeRefresh1 := catalogRefreshCount(st)
 	if err := tt.Click("JP Haiku"); err != nil {
 		t.Fatalf("勾选模型失败: %v", err)
 	}
@@ -537,7 +538,9 @@ func TestSettings_AgentMagpie_ToggleModel(t *testing.T) {
 		return c.Agent == "claude" && c.EndpointID == "jp" && len(c.ModelIDs) == 2 &&
 			c.ModelIDs[0] == "auto/sonnet" && c.ModelIDs[1] == "auto/haiku"
 	})
+	waitCatalogRefreshCycles(t, st, beforeRefresh1, 1)
 	// 切换勾选后浮层应保持打开，仍能继续勾选未启用的模型。
+	beforeRefresh2 := catalogRefreshCount(st)
 	if err := tt.Click("US Opus"); err != nil {
 		t.Fatalf("切换勾选后浮层应保持打开，点击 US Opus 失败: %v", err)
 	}
@@ -549,6 +552,7 @@ func TestSettings_AgentMagpie_ToggleModel(t *testing.T) {
 		}
 		return false
 	})
+	waitCatalogRefreshCycles(t, st, beforeRefresh2, 1)
 }
 
 func TestSettings_AgentMagpie_OwnSecondaryModelInPicker(t *testing.T) {

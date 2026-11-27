@@ -93,7 +93,7 @@ func (m *OAuthManager) deviceSignIn(ctx context.Context, serverID string, meta *
 
 	if m.opts.OpenBrowser == nil {
 		log.Printf("%s未配置打开浏览器，等待用户在浏览器手动打开验证地址", logPrefix)
-	} else if err := m.opts.OpenBrowser(browserURL); err != nil {
+	} else if err := m.openBrowser(browserURL); err != nil {
 		log.Printf("%s打开浏览器失败: %v", logPrefix, err)
 	} else {
 		log.Printf("%s已打开浏览器", logPrefix)

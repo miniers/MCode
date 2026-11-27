@@ -41,6 +41,7 @@ func TestSettingsMagpieHub_GatewayStatus(t *testing.T) {
 }
 
 func TestSettingsMagpieHub_PersonaAndQuota(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	fake := NewFakeClient()
 	fake.customEndpoints = []CustomEndpoint{{ID: "gw", Name: "本机网关", BaseURL: "https://example.com/v1", Enabled: true, Magpie: true, HasAPIKey: true, PersonaWebURL: "https://magpie.example.com:3430", PersonasJSON: `[{"id":"coder"}]`, PersonaRules: true, HasWebKey: true, QuotaProviders: []string{"codex"}}}
 	fake.magpieQuotaProviders = []string{"claude", "codex"}
@@ -80,10 +81,12 @@ func TestSettingsMagpieHub_PersonaAndQuota(t *testing.T) {
 			t.Fatalf("额度供应商 %q 不可见: %v", provider, tt.Texts())
 		}
 	}
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("保存"); err != nil {
 		t.Fatal(err)
 	}
 	waitMagpie(t, tt, func() bool { fake.mu.Lock(); defer fake.mu.Unlock(); return len(fake.saveCustomEndpointCalls) == 1 })
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	fake.mu.Lock()
 	saved, webKey := fake.saveCustomEndpointCalls[0], fake.saveCustomEndpointWebKeys[0]
 	fake.mu.Unlock()
@@ -175,6 +178,7 @@ func TestSettingsMagpieHub_ClaudeSnapshot(t *testing.T) {
 }
 
 func TestSettingsMagpieHub_GatewayMoreMenu(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	fake := NewFakeClient()
 	tt, st := magpiePageWithFake(t, fake, true)
 	if err := tt.Click("打开 测试网关"); err != nil {
@@ -191,6 +195,7 @@ func TestSettingsMagpieHub_GatewayMoreMenu(t *testing.T) {
 	if count != 0 {
 		t.Fatal("确认前不能删除")
 	}
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("确认删除"); err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +207,7 @@ func TestSettingsMagpieHub_GatewayMoreMenu(t *testing.T) {
 	if id, _ := settingsTreeSheetState(st); id != "" {
 		t.Fatalf("删除后面板未关闭: %q", id)
 	}
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 }
 
 func TestMagpieModelSource(t *testing.T) {
@@ -248,10 +254,11 @@ func TestMagpieConnected(t *testing.T) {
 }
 
 func TestMagpieGatewaySheetBody_SaveKeepsKey(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	fake := NewFakeClient()
 	gw := CustomEndpoint{ID: "gw", Name: "旧名称", BaseURL: "https://example.com/v1", Magpie: true, Enabled: true, HasAPIKey: true}
 	fake.customEndpoints = []CustomEndpoint{gw}
-	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: fake}))
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = []CustomEndpoint{gw}
 	tt := ui.NewTester(func(c *ui.Context) {
@@ -268,10 +275,12 @@ func TestMagpieGatewaySheetBody_SaveKeepsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Type("magpie-model")
+	beforeRefresh := catalogRefreshCount(st)
 	if err := tt.Click("保存"); err != nil {
 		t.Fatal(err)
 	}
 	waitMagpie(t, tt, func() bool { fake.mu.Lock(); defer fake.mu.Unlock(); return len(fake.saveCustomEndpointCalls) > 0 })
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	if fake.saveCustomEndpointCalls[0].Name == gw.Name || fake.saveCustomEndpointKeys[0] != "" {
@@ -297,6 +306,7 @@ func (c *magpieGatewaySaveErrClient) SaveCustomEndpoint(_ context.Context, _ Cus
 }
 
 func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	for _, tc := range []struct {
 		name            string
 		initial, target bool
@@ -308,7 +318,7 @@ func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
 			fake := NewFakeClient()
 			gw := CustomEndpoint{ID: "gw", Name: "测试网关", BaseURL: "https://example.com/v1", Magpie: true, Enabled: tc.initial, HasAPIKey: true}
 			fake.customEndpoints = []CustomEndpoint{gw}
-			st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+			st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: fake}))
 			st.mu.Lock()
 			st.endpoints.loaded = true
 			st.endpoints.endpoints = []CustomEndpoint{gw}
@@ -331,6 +341,7 @@ func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
 				t.Fatal(err)
 			}
 			tt.Type("draft-model")
+			beforeRefresh1 := catalogRefreshCount(st)
 			if err := tt.Click("切换启用 测试网关"); err != nil {
 				t.Fatal(err)
 			}
@@ -343,12 +354,14 @@ func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
 				return saves == 1 && !st.endpoints.toggling && st.endpoints.editEnabled == tc.target &&
 					len(st.endpoints.endpoints) == 1 && st.endpoints.endpoints[0].Enabled == tc.target
 			})
+			waitCatalogRefreshCycles(t, st, beforeRefresh1, 1)
 			st.mu.Lock()
 			draftName, draftModel := st.endpoints.editName, st.endpoints.editModel
 			st.mu.Unlock()
 			if !strings.Contains(draftName, "草稿") || draftModel != "draft-model" {
 				t.Fatalf("切换重置了草稿: name=%q model=%q", draftName, draftModel)
 			}
+			beforeRefresh2 := catalogRefreshCount(st)
 			if err := tt.Click("保存"); err != nil {
 				t.Fatal(err)
 			}
@@ -360,6 +373,7 @@ func TestMagpieGatewayToggleSave_KeepsToggledEnabled(t *testing.T) {
 				defer st.mu.Unlock()
 				return saves == 2 && !st.endpoints.saving && !st.endpoints.editing
 			})
+			waitCatalogRefreshCycles(t, st, beforeRefresh2, 1)
 			fake.mu.Lock()
 			toggleSaved := fake.saveCustomEndpointCalls[0]
 			formSaved := fake.saveCustomEndpointCalls[1]
@@ -436,11 +450,12 @@ func TestMagpieGatewayToggleSave_RollbackOnFailure(t *testing.T) {
 }
 
 func TestCustomEndpointToggle_LeavesOtherDraftUntouched(t *testing.T) {
+	useTestMagpieCatalogRefreshDelays(t)
 	fake := NewFakeClient()
 	a := CustomEndpoint{ID: "a", Name: "网关 A", Magpie: true, Enabled: true}
 	b := CustomEndpoint{ID: "b", Name: "网关 B", Magpie: true, Enabled: false}
 	fake.customEndpoints = []CustomEndpoint{a, b}
-	st := NewSettingsState(settingsTestDir(t), nil, newChatState(fake))
+	st := NewSettingsState(settingsTestDir(t), nil, newChatState(&catalogRefreshWatchClient{Client: fake}))
 	st.mu.Lock()
 	st.endpoints.loaded = true
 	st.endpoints.endpoints = []CustomEndpoint{a, b}
@@ -448,6 +463,7 @@ func TestCustomEndpointToggle_LeavesOtherDraftUntouched(t *testing.T) {
 	st.endpoints.editName = "B 未保存"
 	st.endpoints.editEnabled = false
 	st.mu.Unlock()
+	beforeRefresh := catalogRefreshCount(st)
 	toggleCustomEndpointEnabled(st, a, false)
 	tt := ui.NewTester(func(c *ui.Context) {}, 100, 100)
 	waitMagpie(t, tt, func() bool {
@@ -458,6 +474,7 @@ func TestCustomEndpointToggle_LeavesOtherDraftUntouched(t *testing.T) {
 		defer st.mu.Unlock()
 		return saves == 1 && !st.endpoints.toggling
 	})
+	waitCatalogRefreshCycles(t, st, beforeRefresh, 1)
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	if st.endpoints.editID != "b" || st.endpoints.editEnabled || st.endpoints.editName != "B 未保存" {

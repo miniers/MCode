@@ -217,6 +217,22 @@ func (m *OAuthManager) httpClient() *http.Client {
 	return defaultOAuthHTTPClient
 }
 
+// openBrowser 校验协议与主机后调用 OpenBrowser，防止恶意授权地址拉起本地文件或危险协议。
+func (m *OAuthManager) openBrowser(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("授权链接协议不被允许或格式无效: %w", err)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if (scheme != "https" && scheme != "http") || u.Host == "" {
+		return fmt.Errorf("授权链接协议不被允许，仅支持 http/https 且需包含主机: %q", u.Scheme)
+	}
+	if m.opts.OpenBrowser == nil {
+		return nil
+	}
+	return m.opts.OpenBrowser(rawURL)
+}
+
 // PendingAuthURL 返回指定服务进行中登录的授权 URL，没有会话时返回空串。
 // 浏览器没能自动打开时，界面可以用它把链接给用户手动打开。
 func (m *OAuthManager) PendingAuthURL(serverID string) string {
@@ -944,7 +960,7 @@ func (m *OAuthManager) signInAttempt(ctx context.Context, serverID, serverURL st
 	// 浏览器打不开时不能把登录流程直接结束：用户还可以用 PendingAuthURL 手动打开链接。
 	if m.opts.OpenBrowser == nil {
 		log.Printf("%s未配置打开浏览器，等待用户手动打开授权链接", logPrefix)
-	} else if err := m.opts.OpenBrowser(authURL); err != nil {
+	} else if err := m.openBrowser(authURL); err != nil {
 		log.Printf("%s打开浏览器失败: %v", logPrefix, err)
 	} else {
 		log.Printf("%s已打开浏览器", logPrefix)
