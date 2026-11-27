@@ -798,3 +798,97 @@ func TestLandBeeCommit_UncommittedConflictTouchedWaits(t *testing.T) {
 		t.Fatalf("主工作区未提交改动被破坏: got=%q want=%q", string(gotBytes), userContent)
 	}
 }
+
+func TestTickRetriesMergeAfterUncommittedConflictCleared(t *testing.T) {
+	t.Parallel()
+	runner, dir := initTestRepo(t)
+	ctx := context.Background()
+	clock := newTestClock()
+	driver := newFakeDriver()
+
+	initial := "line 1\nline 2\nline 3\n"
+	targetFile := filepath.Join(dir, "lines.txt")
+	if err := os.WriteFile(targetFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("写入 lines.txt 失败: %v", err)
+	}
+	gitTestRun(t, dir, "add", "lines.txt")
+	gitTestRun(t, dir, "commit", "-q", "-m", "init lines")
+
+	mgr := NewManager(Options{
+		Git:         runner,
+		Driver:      driver,
+		WorktreeDir: t.TempDir(),
+		Now:         clock.Now,
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{
+			Enabled:       true,
+			AutoDelegate:  true,
+			WorkspaceMode: "worktree",
+			AutoMerge:     true,
+			ReviewMode:    "human",
+		}
+	})
+
+	const leadID = "lead-tick-retry-uncommitted-conflict"
+	bees, err := mgr.Dispatch(ctx, DispatchRequest{
+		LeadThreadID: leadID,
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Bees:         []BeeSpec{{Name: "Aspen", Task: "修改第 2 行", Prompt: "修改第 2 行"}},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch 失败: %v", err)
+	}
+	bee := bees[0]
+
+	beeContent := "line 1\nline 2 from bee\nline 3\n"
+	if err := os.WriteFile(filepath.Join(bee.WorktreePath, "lines.txt"), []byte(beeContent), 0o644); err != nil {
+		t.Fatalf("写入 bee 工作副本失败: %v", err)
+	}
+	driver.setSessionState(bee.ThreadID, kanban.SessionState{Running: false, LastAssistantText: "done"})
+
+	mgr.Tick(ctx)
+	h := beeByThread(t, mgr, leadID, bee.ThreadID)
+	if !h.PendingMerge || h.ReviewState != ReviewNeedsHuman {
+		t.Fatalf("bee 完成后应处于人工待审状态: %+v", h)
+	}
+
+	userContent := "line 1\nline 2 from user\nline 3\n"
+	if err := os.WriteFile(targetFile, []byte(userContent), 0o644); err != nil {
+		t.Fatalf("写入主工作区失败: %v", err)
+	}
+
+	if _, err := mgr.ApproveMerge(ctx, leadID, bee.ThreadID); err == nil {
+		t.Fatalf("主工作区存在未提交冲突时 ApproveMerge 应失败")
+	}
+	h = beeByThread(t, mgr, leadID, bee.ThreadID)
+	if h.ReviewState != ReviewNeedsHuman || !h.PendingMerge || h.Merged {
+		t.Fatalf("未提交冲突后应留在 ReviewNeedsHuman 且 PendingMerge=true: %+v", h)
+	}
+	if !strings.HasPrefix(h.MergeError, uncommittedConflictPrefix) {
+		t.Fatalf("MergeError 应以 %q 开头，实际=%q", uncommittedConflictPrefix, h.MergeError)
+	}
+
+	// 主工作区仍脏时 Tick 不应合入。
+	mgr.Tick(ctx)
+	h = beeByThread(t, mgr, leadID, bee.ThreadID)
+	if h.Merged || !h.PendingMerge || h.ReviewState != ReviewNeedsHuman {
+		t.Fatalf("主工作区仍脏时不应重试合入: %+v", h)
+	}
+
+	// 清理主工作区冲突修改后，Tick 应自动重试合入并成功落地。
+	gitTestRun(t, dir, "checkout", "--", "lines.txt")
+	mgr.Tick(ctx)
+	h = beeByThread(t, mgr, leadID, bee.ThreadID)
+	if !h.Merged || h.PendingMerge || h.MergeError != "" || h.ReviewState != ReviewApproved {
+		t.Fatalf("冲突解除后 Tick 应自动合入成功: %+v", h)
+	}
+	gotBytes, err := os.ReadFile(targetFile)
+	if err != nil {
+		t.Fatalf("读取主工作区文件失败: %v", err)
+	}
+	if string(gotBytes) != beeContent {
+		t.Fatalf("主工作区内容未更新为 bee 改动: got=%q want=%q", string(gotBytes), beeContent)
+	}
+}

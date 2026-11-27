@@ -54,6 +54,9 @@ const leadCacheKeepaliveAfter = 50 * time.Minute
 // emptyNudgeLimit 是子代理未输出最终汇报时允许催促的最大次数。
 const emptyNudgeLimit = 3
 
+// uncommittedConflictPrefix 是未提交改动冲突时的错误与等待原因前缀。
+const uncommittedConflictPrefix = "与未提交改动冲突："
+
 // IsNotice 判断文本是否为 mcode 下发的系统通知（含汇报），兼容旧前缀。
 func IsNotice(text string) bool {
 	return strings.HasPrefix(text, strings.TrimSpace(NoticePrefix)) || strings.HasPrefix(text, legacyNoticePrefix)
@@ -2635,8 +2638,15 @@ func (m *Manager) Tick(ctx context.Context) {
 		leadThreadID string
 		beeThreadID  string
 	}
+	type conflictRetryTarget struct {
+		leadThreadID  string
+		beeThreadID   string
+		targetWorkDir string
+		changedFiles  []string
+	}
 	var targets []runningTarget
 	var approveWaits []approveWaitTarget
+	var conflictRetries []conflictRetryTarget
 	m.mu.Lock()
 	for leadID, lead := range m.leads {
 		for _, h := range lead.bees {
@@ -2654,6 +2664,17 @@ func (m *Manager) Tick(ctx context.Context) {
 				approveWaits = append(approveWaits, approveWaitTarget{
 					leadThreadID: leadID,
 					beeThreadID:  h.ThreadID,
+				})
+			} else if h.PendingMerge && h.MergeWaitSince == nil && !h.ReviewApplyPending && h.ReviewState == ReviewNeedsHuman && !h.MergeDiscarded && strings.HasPrefix(h.MergeError, uncommittedConflictPrefix) {
+				targetDir := h.TargetWorkDir
+				if targetDir == "" {
+					targetDir = lead.leadWorkDir
+				}
+				conflictRetries = append(conflictRetries, conflictRetryTarget{
+					leadThreadID:  leadID,
+					beeThreadID:   h.ThreadID,
+					targetWorkDir: targetDir,
+					changedFiles:  append([]string(nil), h.ChangedFiles...),
 				})
 			}
 		}
@@ -2692,6 +2713,39 @@ func (m *Manager) Tick(ctx context.Context) {
 			if updated {
 				m.notifyChange(w.leadThreadID)
 			}
+		}
+	}
+
+	for _, r := range conflictRetries {
+		if m.opts.Git == nil || r.targetWorkDir == "" {
+			continue
+		}
+		entries, err := m.opts.Git.Status(ctx, r.targetWorkDir)
+		if err != nil {
+			log.Printf("swarm: 查询未提交冲突状态失败 (lead=%s bee=%s): %v", r.leadThreadID, r.beeThreadID, err)
+			continue
+		}
+		dirty := make(map[string]bool, len(entries)*2)
+		for _, e := range entries {
+			if e.Path != "" {
+				dirty[e.Path] = true
+			}
+			if e.OrigPath != "" {
+				dirty[e.OrigPath] = true
+			}
+		}
+		hasDirty := false
+		for _, f := range r.changedFiles {
+			if dirty[f] {
+				hasDirty = true
+				break
+			}
+		}
+		if hasDirty {
+			continue
+		}
+		if _, err := m.approveMerge(ctx, r.leadThreadID, r.beeThreadID, false); err != nil {
+			log.Printf("swarm: 未提交冲突解除后自动重试合入失败 (lead=%s bee=%s): %v", r.leadThreadID, r.beeThreadID, err)
 		}
 	}
 
@@ -5437,10 +5491,10 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		// 只有 lead 正在编辑冲突文件时才等待主工作区落定，否则立即放弃落地并转人工处理。
 		if m.opts.LeadTouchedPaths != nil {
 			if touched, active := m.opts.LeadTouchedPaths(leadID); active && pathsIntersect(preflight.Conflicts, touched) {
-				return wait("与未提交改动冲突：" + conflictList)
+				return wait(uncommittedConflictPrefix + conflictList)
 			}
 		}
-		return fail(fmt.Errorf("与未提交改动冲突：%s，请提交或暂存这些文件后再批准", conflictList))
+		return fail(fmt.Errorf("%s%s，请提交或暂存这些文件后再批准", uncommittedConflictPrefix, conflictList))
 	}
 	paths, err := m.opts.Git.DiffTreeNames(ctx, root, oldHead, newSHA)
 	if err != nil {

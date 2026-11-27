@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -768,6 +769,21 @@ func renderSwarmCapsuleActions(c *ui.Context, s *chatState, leadID string, h Swa
 						},
 					})
 				} else if h.PendingMerge && h.ReviewState != "running" {
+					if h.ReviewState == "needs_human" {
+						approveBusy := s.swarmActionBusy("approve:" + h.ThreadID)
+						Button(c, ButtonOpts{
+							Key:      "swarm-capsule-approve-" + key,
+							Text:     "批准合并",
+							Label:    "批准合并",
+							Variant:  ButtonPrimary,
+							Size:     ControlSM,
+							Disabled: approveBusy,
+							Loading:  approveBusy,
+							OnClick: func() {
+								s.approveSwarmCapsuleMerge(leadID, h.ThreadID)
+							},
+						})
+					}
 					Button(c, ButtonOpts{
 						Key:     "swarm-capsule-discard-" + key,
 						Text:    "放弃改动",
@@ -828,4 +844,34 @@ func renderSwarmCapsuleDiscardConfirm(c *ui.Context, s *chatState, key string) {
 			s.invalidate()
 		},
 	})
+}
+
+// approveSwarmCapsuleMerge 批准胶囊对应的 bee 合并：使用胶囊自带的 leadID 和独立的忙碌态键，
+// 避免依赖合并审查面板的选中状态与错误栏。
+func (s *chatState) approveSwarmCapsuleMerge(leadID, beeID string) {
+	if s == nil || s.client == nil || beeID == "" {
+		return
+	}
+	if leadID == "" {
+		leadID = s.swarmTargetLeadID()
+	}
+	if leadID == "" {
+		return
+	}
+
+	actionKey := "approve:" + beeID
+	if !s.beginSwarmAction(actionKey) {
+		return
+	}
+	go func(lid, hid string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		defer s.endSwarmAction(actionKey)
+
+		err := s.client.ApproveSwarmMerge(ctx, lid, hid)
+		if err != nil {
+			s.setToast("批准合并失败: " + err.Error())
+		}
+		s.refreshSwarm()
+	}(leadID, beeID)
 }
