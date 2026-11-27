@@ -5433,7 +5433,14 @@ func (m *Manager) landBeeCommit(ctx context.Context, leadID, root string, h *Bee
 		return fail(err)
 	}
 	if len(preflight.Conflicts) > 0 {
-		return wait("与未提交改动冲突：" + strings.Join(preflight.Conflicts, "、"))
+		conflictList := strings.Join(preflight.Conflicts, "、")
+		// 只有 lead 正在编辑冲突文件时才等待主工作区落定，否则立即放弃落地并转人工处理。
+		if m.opts.LeadTouchedPaths != nil {
+			if touched, active := m.opts.LeadTouchedPaths(leadID); active && pathsIntersect(preflight.Conflicts, touched) {
+				return wait("与未提交改动冲突：" + conflictList)
+			}
+		}
+		return fail(fmt.Errorf("与未提交改动冲突：%s，请提交或暂存这些文件后再批准", conflictList))
 	}
 	paths, err := m.opts.Git.DiffTreeNames(ctx, root, oldHead, newSHA)
 	if err != nil {

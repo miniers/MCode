@@ -328,9 +328,16 @@ func TestManager_CommitLanding_UserChanges(t *testing.T) {
 	}
 }
 
-func TestManager_CommitLanding_UserConflictWaitsForTick(t *testing.T) {
+func TestManager_CommitLanding_UserConflictWaitsWhileLeadEditing(t *testing.T) {
 	t.Parallel()
 	m, driver, root := newCommitLandingManager(t)
+	var touchedMu sync.Mutex
+	active := true
+	m.opts.LeadTouchedPaths = func(string) ([]string, bool) {
+		touchedMu.Lock()
+		defer touchedMu.Unlock()
+		return []string{"lines.txt"}, active
+	}
 	bee := startCommitLandingBee(t, m, root, "lead-wait", 0)
 	before := gitTestRun(t, root, "rev-parse", "HEAD")
 	user := strings.Replace(landingBase, "one\n", "user\n", 1)
@@ -348,6 +355,9 @@ func TestManager_CommitLanding_UserConflictWaitsForTick(t *testing.T) {
 	}
 	assertLandingFile(t, root, user)
 	writePipelineFile(t, root, "lines.txt", landingBase)
+	touchedMu.Lock()
+	active = false
+	touchedMu.Unlock()
 	m.Tick(context.Background())
 	got = m.State("lead-wait").Bees[0]
 	assertLandingCommit(t, m, root, got)

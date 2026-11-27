@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,13 @@ func newHumanApproveLandingManager(t *testing.T) (*Manager, *fakeDriver, string)
 func TestManager_HumanApprove_ConflictWaitRetriesOnTick(t *testing.T) {
 	t.Parallel()
 	m, driver, root := newHumanApproveLandingManager(t)
+	var touchedMu sync.Mutex
+	active := true
+	m.opts.LeadTouchedPaths = func(string) ([]string, bool) {
+		touchedMu.Lock()
+		defer touchedMu.Unlock()
+		return []string{"lines.txt"}, active
+	}
 	ctx := context.Background()
 	const leadID = "lead-human-approve-wait"
 
@@ -82,6 +90,9 @@ func TestManager_HumanApprove_ConflictWaitRetriesOnTick(t *testing.T) {
 	assertLandingFile(t, root, userText)
 
 	writePipelineFile(t, root, "lines.txt", landingBase)
+	touchedMu.Lock()
+	active = false
+	touchedMu.Unlock()
 	m.Tick(ctx)
 
 	got = m.State(leadID).Bees[0]
@@ -95,6 +106,9 @@ func TestManager_HumanApprove_ConflictWaitRetriesOnTick(t *testing.T) {
 func TestManager_DiscardMerge_ClearsMergeWait(t *testing.T) {
 	t.Parallel()
 	m, driver, root := newHumanApproveLandingManager(t)
+	m.opts.LeadTouchedPaths = func(string) ([]string, bool) {
+		return []string{"lines.txt"}, true
+	}
 	ctx := context.Background()
 	const leadID = "lead-discard-wait"
 
@@ -306,6 +320,9 @@ func TestApproveWaitRetryStopsOnPermanentError(t *testing.T) {
 		t.Parallel()
 		const leadID = "lead-wait-not-settled"
 		m, _, _, root, bee := setupPendingPatchWaitBee(t, leadID)
+		m.opts.LeadTouchedPaths = func(string) ([]string, bool) {
+			return []string{"lines.txt"}, true
+		}
 
 		userText := strings.Replace(landingBase, "one\n", "user\n", 1)
 		writePipelineFile(t, root, "lines.txt", userText)

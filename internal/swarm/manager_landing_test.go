@@ -11,6 +11,7 @@ import (
 
 	"mcode/internal/config"
 	"mcode/internal/git"
+	"mcode/internal/kanban"
 )
 
 // (a) 主工作区第 1 行有未提交改动，bee 改第 3 行，落地后主工作区同时有两处改动且 Merged 为 true。
@@ -664,5 +665,136 @@ func TestManager_PrepareMergeFiltersWritePaths(t *testing.T) {
 	}
 	if !reflect.DeepEqual(staged, []string{"docs/plans/p.md"}) {
 		t.Fatalf("暂存区应只剩 docs/plans/p.md，得到 %v", staged)
+	}
+}
+
+func setupUncommittedConflictLanding(t *testing.T, leadID string, touchedFn func(string) ([]string, bool)) (*Manager, string, Bee, string) {
+	t.Helper()
+	runner, dir := initTestRepo(t)
+	ctx := context.Background()
+	clock := newTestClock()
+	driver := newFakeDriver()
+
+	initial := "line 1\nline 2\nline 3\n"
+	targetFile := filepath.Join(dir, "lines.txt")
+	if err := os.WriteFile(targetFile, []byte(initial), 0o644); err != nil {
+		t.Fatalf("写入 lines.txt 失败: %v", err)
+	}
+	gitTestRun(t, dir, "add", "lines.txt")
+	gitTestRun(t, dir, "commit", "-q", "-m", "init lines")
+
+	mgr := NewManager(Options{
+		Git:              runner,
+		Driver:           driver,
+		WorktreeDir:      t.TempDir(),
+		Now:              clock.Now,
+		LeadTouchedPaths: touchedFn,
+	})
+	mgr.SetSettingsFunc(func() Settings {
+		return Settings{
+			Enabled:       true,
+			AutoDelegate:  true,
+			WorkspaceMode: "worktree",
+			AutoMerge:     true,
+			ReviewMode:    "off",
+		}
+	})
+
+	bees, err := mgr.Dispatch(ctx, DispatchRequest{
+		LeadThreadID: leadID,
+		ProjectID:    "proj-1",
+		LeadWorkDir:  dir,
+		Bees:         []BeeSpec{{Name: "Aspen", Task: "修改第 2 行", Prompt: "修改第 2 行"}},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch 失败: %v", err)
+	}
+	bee := bees[0]
+
+	// bee 与主工作区同时修改同一行，制造未提交预检冲突。
+	if err := os.WriteFile(filepath.Join(bee.WorktreePath, "lines.txt"), []byte("line 1\nline 2 from bee\nline 3\n"), 0o644); err != nil {
+		t.Fatalf("写入 bee 工作副本失败: %v", err)
+	}
+	userContent := "line 1\nline 2 from user\nline 3\n"
+	if err := os.WriteFile(targetFile, []byte(userContent), 0o644); err != nil {
+		t.Fatalf("写入主工作区失败: %v", err)
+	}
+	driver.setSessionState(bee.ThreadID, kanban.SessionState{Running: false, LastAssistantText: "done"})
+	return mgr, dir, bee, userContent
+}
+
+func TestLandBeeCommit_UncommittedConflictNotTouchedFailsFast(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		paths  []string
+		active bool
+	}{
+		{name: "inactive", paths: nil, active: false},
+		{name: "disjoint", paths: []string{"other.txt"}, active: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			leadID := "lead-conflict-fail-fast-" + tc.name
+			mgr, dir, bee, userContent := setupUncommittedConflictLanding(t, leadID, func(string) ([]string, bool) {
+				return tc.paths, tc.active
+			})
+
+			// 不推进时钟直接 Tick，应立即落定失败而非进入等待。
+			mgr.Tick(context.Background())
+
+			h := beeByThread(t, mgr, leadID, bee.ThreadID)
+			if h.Status != StatusCompleted {
+				t.Fatalf("未在编辑冲突文件时应立即落定，实际状态=%s", h.Status)
+			}
+			if h.Merged {
+				t.Fatalf("冲突未解决前不应合入: %+v", h)
+			}
+			if h.MergeWaitSince != nil {
+				t.Fatalf("不应进入等待，MergeWaitSince 应为 nil，实际=%v", h.MergeWaitSince)
+			}
+			if !strings.Contains(h.MergeError, "与未提交改动冲突") || !strings.Contains(h.MergeError, "请提交或暂存") {
+				t.Fatalf("MergeError 不符合预期: %q", h.MergeError)
+			}
+			gotBytes, err := os.ReadFile(filepath.Join(dir, "lines.txt"))
+			if err != nil {
+				t.Fatalf("读取主工作区文件失败: %v", err)
+			}
+			if string(gotBytes) != userContent {
+				t.Fatalf("主工作区未提交改动被破坏: got=%q want=%q", string(gotBytes), userContent)
+			}
+		})
+	}
+}
+
+func TestLandBeeCommit_UncommittedConflictTouchedWaits(t *testing.T) {
+	t.Parallel()
+	const leadID = "lead-conflict-touched-waits"
+	mgr, dir, bee, userContent := setupUncommittedConflictLanding(t, leadID, func(string) ([]string, bool) {
+		return []string{"lines.txt"}, true
+	})
+
+	mgr.Tick(context.Background())
+
+	h := beeByThread(t, mgr, leadID, bee.ThreadID)
+	if h.Status != StatusRunning {
+		t.Fatalf("lead 正在编辑冲突文件时应继续等待，实际状态=%s", h.Status)
+	}
+	if h.Merged {
+		t.Fatalf("等待期间不应合入: %+v", h)
+	}
+	if h.MergeWaitSince == nil {
+		t.Fatalf("等待期间应记录 MergeWaitSince: %+v", h)
+	}
+	if !strings.Contains(h.MergeError, "与未提交改动冲突") {
+		t.Fatalf("MergeError 应包含冲突原因: %q", h.MergeError)
+	}
+	gotBytes, err := os.ReadFile(filepath.Join(dir, "lines.txt"))
+	if err != nil {
+		t.Fatalf("读取主工作区文件失败: %v", err)
+	}
+	if string(gotBytes) != userContent {
+		t.Fatalf("主工作区未提交改动被破坏: got=%q want=%q", string(gotBytes), userContent)
 	}
 }
