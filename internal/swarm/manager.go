@@ -2947,7 +2947,7 @@ func (m *Manager) Tick(ctx context.Context) {
 				// 保留半成品：停止后统计失败前的改动并写回记录，供汇报与重试使用。
 				// git 操作一律在解锁后做，避免持锁跑外部命令。
 				partial := tgt.bee
-				m.recordPartialWork(ctx, &partial)
+				_ = m.recordPartialWork(ctx, &partial)
 				m.mu.Lock()
 				if lead, ok := m.leads[tgt.leadThreadID]; ok {
 					for i := range lead.bees {
@@ -3053,28 +3053,7 @@ func (m *Manager) Tick(ctx context.Context) {
 						Files:           append([]string(nil), tgt.bee.Files...),
 					}
 					// 保留半成品：先统计失败前已有的改动，再决定是复用 worktree 接着做还是删掉重来。
-					m.recordPartialWork(ctx, &tgt.bee)
-					reusePartial := tgt.bee.WorktreePath != "" && len(tgt.bee.ChangedFiles) > 0
-					if reusePartial {
-						if _, statErr := os.Stat(tgt.bee.WorktreePath); statErr != nil {
-							reusePartial = false
-						}
-					}
-					if reusePartial {
-						// 交接：新 bee 接管旧 bee 的 worktree 与基线，prompt 里说清现状与已完成部分。
-						spec.reuseWorktree = tgt.bee.WorktreePath
-						spec.reuseBranch = tgt.bee.Branch
-						spec.reuseBaseCommit = tgt.bee.BaseCommit
-						spec.Prompt = handoffPrompt(fmt.Sprintf("因「%s」中断", st.FailureReason), tgt.bee.ChangedFiles, st.LastAssistantText, promptText)
-					} else if tgt.bee.WorktreePath != "" {
-						if m.opts.Git != nil {
-							_ = m.opts.Git.WorktreeRemove(ctx, tgt.targetWorkDir, tgt.bee.WorktreePath, true)
-							if tgt.bee.Branch != "" {
-								_ = m.opts.Git.BranchDelete(ctx, tgt.targetWorkDir, tgt.bee.Branch, true)
-							}
-						}
-						_ = os.RemoveAll(tgt.bee.WorktreePath)
-					}
+					m.preparePartialReuse(ctx, tgt.targetWorkDir, fmt.Sprintf("因「%s」中断", st.FailureReason), st.LastAssistantText, promptText, &tgt.bee, &spec)
 					newBee, err := m.startSingleBee(ctx, tgt.leadThreadID, tgt.bee.ProjectID, tgt.targetWorkDir, spec, tgt.bee.Index, leadPrefix)
 					if err == nil {
 						m.setRetryCount(newBee.ThreadID, 1)
@@ -3097,7 +3076,7 @@ func (m *Manager) Tick(ctx context.Context) {
 			}
 
 			// 保留半成品：重试失败后仍要把旧记录里已有的改动统计出来，供 lead 判断能否续做。
-			m.recordPartialWork(ctx, &tgt.bee)
+			_ = m.recordPartialWork(ctx, &tgt.bee)
 			tgt.bee.Status = StatusFailed
 			if note := formatFailureReason(st.FailureReason); note != "" {
 				tgt.bee.Summary = appendSummary(tgt.bee.Summary, note)
@@ -3138,7 +3117,7 @@ func (m *Manager) Tick(ctx context.Context) {
 				}
 			}
 
-			m.recordPartialWork(ctx, &tgt.bee)
+			_ = m.recordPartialWork(ctx, &tgt.bee)
 			tgt.bee.Status = StatusFailed
 			tgt.bee.Summary = "子代理未输出最终汇报"
 
@@ -4684,27 +4663,58 @@ func (m *Manager) recordLineStats(ctx context.Context, h *Bee) {
 }
 
 // recordPartialWork 统计失败 bee 在保留的 worktree 里已经产生的改动，写回 ChangedFiles 与增删行数，
-// 供汇报与重试复用。失败只记一行日志，不生成补丁、不合并，也不谾 MergeError/Merged，
+// 供汇报与重试复用。失败只记一行日志并返回错误，不生成补丁、不合并，也不改 MergeError/Merged，
 // 避免把半成品当成待合并成果。
-func (m *Manager) recordPartialWork(ctx context.Context, h *Bee) {
+func (m *Manager) recordPartialWork(ctx context.Context, h *Bee) error {
 	// 只读档 bee 的改动会被丢弃，没有可续做的半成品。
 	if h.ReadOnly || m.opts.Git == nil || h.WorktreePath == "" || h.BaseCommit == "" {
-		return
+		return nil
 	}
 	if _, err := os.Stat(h.WorktreePath); err != nil {
-		return
+		return nil
 	}
 	if err := m.opts.Git.AddAll(ctx, h.WorktreePath); err != nil {
 		log.Printf("swarm: 暂存子代理 %d 的半成品失败: %v", h.Index, err)
-		return
+		return err
 	}
 	names, err := m.opts.Git.DiffCachedNames(ctx, h.WorktreePath, h.BaseCommit)
 	if err != nil {
 		log.Printf("swarm: 读取子代理 %d 的半成品改动文件失败: %v", h.Index, err)
-		return
+		return err
 	}
 	h.ChangedFiles, _ = filterWritePaths(h.WritePaths, git.FilterBuildOutputs(names))
 	m.recordLineStats(ctx, h)
+	return nil
+}
+
+// preparePartialReuse 统计 bee 中断前的半成品改动并决定复用或清理 worktree：
+// 有改动或统计失败（状态未知）且目录存在时保留并交接原 worktree；确认无改动或目录已消失时再清理。
+func (m *Manager) preparePartialReuse(ctx context.Context, workDir, cause, lastOutput, promptText string, h *Bee, spec *BeeSpec) bool {
+	partialErr := m.recordPartialWork(ctx, h)
+	reusePartial := h.WorktreePath != "" && (len(h.ChangedFiles) > 0 || partialErr != nil)
+	if reusePartial {
+		if _, statErr := os.Stat(h.WorktreePath); statErr != nil {
+			reusePartial = false
+		}
+	}
+	if reusePartial {
+		// 交接：新 bee 接管旧 bee 的 worktree 与基线，prompt 里说清现状与已完成部分。
+		spec.reuseWorktree = h.WorktreePath
+		spec.reuseBranch = h.Branch
+		spec.reuseBaseCommit = h.BaseCommit
+		spec.Prompt = handoffPrompt(cause, h.ChangedFiles, lastOutput, promptText)
+		return true
+	}
+	if h.WorktreePath != "" {
+		if m.opts.Git != nil {
+			_ = m.opts.Git.WorktreeRemove(ctx, workDir, h.WorktreePath, true)
+			if h.Branch != "" {
+				_ = m.opts.Git.BranchDelete(ctx, workDir, h.Branch, true)
+			}
+		}
+		_ = os.RemoveAll(h.WorktreePath)
+	}
+	return false
 }
 
 func (m *Manager) prepareMerge(ctx context.Context, h *Bee) (patch []byte, ok bool) {
@@ -4814,6 +4824,9 @@ func (m *Manager) applyMerge(ctx context.Context, leadThreadID, targetWorkDir st
 	// 走到这里说明等待已结束（落定或超时），不再保留等待起点与上一轮的等待原因。
 	h.MergeWaitSince = nil
 	h.MergeError = ""
+
+	unlockApply := lockApply(targetWorkDir)
+	defer unlockApply()
 
 	// git apply --3way 冲突时不是原子的：冲突文件写入冲突标记，其余文件照常改动。
 	// 落地前先给补丁涉及的文件拍快照，冲突时逐字节复原，
@@ -7502,6 +7515,28 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	if resuming {
 		return 0, nil
 	}
+	resumed, notify, shouldProcessQueue, markedResuming, err := m.resumeInterruptedLocked(ctx, leadThreadID)
+	if markedResuming {
+		defer func() {
+			m.mu.Lock()
+			if lead := m.leads[leadThreadID]; lead != nil {
+				lead.resuming = false
+			}
+			m.mu.Unlock()
+		}()
+	}
+	if shouldProcessQueue {
+		// 重新入队的条目立即参与派发，但受并发上限约束，超出的继续留在队列里；
+		// 必须在释放 mergeMu 之后再调用 processQueue（持 dispatchMu），避免与 dispatchMu → mergeMu 形成 AB-BA 死锁。
+		m.processQueue(ctx)
+	}
+	if notify {
+		m.notifyChange(leadThreadID)
+	}
+	return resumed, err
+}
+
+func (m *Manager) resumeInterruptedLocked(ctx context.Context, leadThreadID string) (resumed int, notify bool, shouldProcessQueue bool, markedResuming bool, err error) {
 	// 与副本回收串行，避免续接或重派使用回收前的快照。
 	mergeMu := m.getLeadMergeMutex(leadThreadID)
 	mergeMu.Lock()
@@ -7510,11 +7545,11 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	lead, ok := m.leads[leadThreadID]
 	if !ok {
 		m.mu.Unlock()
-		return 0, ErrLeadNotFound
+		return 0, false, false, false, ErrLeadNotFound
 	}
 	if lead.resuming {
 		m.mu.Unlock()
-		return 0, nil
+		return 0, false, false, false, nil
 	}
 	var pending []Bee
 	for _, h := range lead.bees {
@@ -7525,15 +7560,10 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	held := append([]queuedBee(nil), lead.heldQueue...)
 	if len(pending) == 0 && len(held) == 0 {
 		m.mu.Unlock()
-		return 0, nil
+		return 0, false, false, false, nil
 	}
 	// 续接和出队派发会解锁并调用驱动，期间整批仍在工作中，且不能重复续跑。
 	lead.resuming = true
-	defer func() {
-		m.mu.Lock()
-		lead.resuming = false
-		m.mu.Unlock()
-	}()
 	// 取出即清空：heldQueue 里的条目要么重新入队，要么随这次调用一起消失。
 	lead.heldQueue = nil
 	if !lead.requestStartedAt.IsZero() {
@@ -7543,7 +7573,6 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 	m.mu.Unlock()
 
 	var errs []error
-	resumed := 0
 	for _, old := range pending {
 		sent, ok := m.continueInterruptedBee(ctx, leadThreadID, old)
 		if ok {
@@ -7595,15 +7624,13 @@ func (m *Manager) ResumeInterrupted(ctx context.Context, leadThreadID string) (i
 		}
 		m.mu.Unlock()
 		resumed += len(held)
-		// 重新入队的条目立即参与派发，但受并发上限约束，超出的继续留在队列里。
-		m.processQueue(ctx)
+		shouldProcessQueue = true
 	}
 
-	m.notifyChange(leadThreadID)
 	if len(errs) > 0 && resumed == 0 {
-		return 0, errors.Join(errs...)
+		return 0, true, shouldProcessQueue, true, errors.Join(errs...)
 	}
-	return resumed, nil
+	return resumed, true, shouldProcessQueue, true, nil
 }
 
 // continueInterruptedBee 返回消息是否发出及 bee 是否重新激活；未发出时可回退新会话，发出但未激活时尝试中断原会话。
@@ -7766,29 +7793,7 @@ func (m *Manager) respawnBeeWithHandoff(ctx context.Context, leadThreadID string
 	}
 	// 保留半成品：先统计中断前已有的改动，再决定是复用 worktree 接着做还是清理后重来。
 	partial := old
-	m.recordPartialWork(ctx, &partial)
-	reusePartial := partial.WorktreePath != "" && len(partial.ChangedFiles) > 0
-	if reusePartial {
-		if _, statErr := os.Stat(partial.WorktreePath); statErr != nil {
-			reusePartial = false
-		}
-	}
-	if reusePartial {
-		// 交接：新 bee 接管旧 bee 的 worktree 与基线，prompt 里说清现状与已完成部分。
-		spec.reuseWorktree = partial.WorktreePath
-		spec.reuseBranch = partial.Branch
-		spec.reuseBaseCommit = partial.BaseCommit
-		spec.Prompt = handoffPrompt(cause, partial.ChangedFiles, old.Summary, promptText)
-	} else {
-		if partial.WorktreePath != "" {
-			if m.opts.Git != nil {
-				_ = m.opts.Git.WorktreeRemove(ctx, workDir, partial.WorktreePath, true)
-				if partial.Branch != "" {
-					_ = m.opts.Git.BranchDelete(ctx, workDir, partial.Branch, true)
-				}
-			}
-			_ = os.RemoveAll(partial.WorktreePath)
-		}
+	if !m.preparePartialReuse(ctx, workDir, cause, old.Summary, promptText, &partial, &spec) {
 		if noteLostWorktree {
 			// 半成品已不存在：说清楚要从头做，避免新 bee 以为还有现场可接手。
 			spec.Prompt = fmt.Sprintf("上一个子代理%s，但它的工作副本已经不存在，之前的半成品改动无法接手，请从头完成任务。\n\n原始任务：\n%s", cause, promptText)

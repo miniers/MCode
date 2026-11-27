@@ -917,18 +917,51 @@ func (s *Store) migrate(ctx context.Context) error {
 	}
 	startuptrace.Mark("store migrations")
 
-	if err := s.ensureThreadColumns(ctx); err != nil {
+	if err := s.ensureMigratedColumns(ctx); err != nil {
 		return err
 	}
-	startuptrace.Mark("store ensureThreadColumns")
+	startuptrace.Mark("store ensureMigratedColumns")
 	return nil
 }
 
-// ensureThreadColumns 修复历史迁移插入中间或多语句迁移跳过后续列导致的缺列。
-func (s *Store) ensureThreadColumns(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(threads);")
+// ensureMigratedColumns 修复历史迁移插入中间或多语句迁移跳过后续列导致的各表缺列。
+func (s *Store) ensureMigratedColumns(ctx context.Context) error {
+	columnDDL := regexp.MustCompile(`(?i)ALTER\s+TABLE\s+"?(\w+)"?\s+ADD\s+COLUMN\s+"?(\w+)"?[^;]*;`)
+	tableColumns := make(map[string]map[string]bool)
+
+	for _, script := range migrations {
+		for _, match := range columnDDL.FindAllStringSubmatch(script, -1) {
+			table := match[1]
+			col := match[2]
+			tableKey := strings.ToLower(table)
+			colKey := strings.ToLower(col)
+
+			columns, ok := tableColumns[tableKey]
+			if !ok {
+				var err error
+				columns, err = s.readTableColumns(ctx, table)
+				if err != nil {
+					return err
+				}
+				tableColumns[tableKey] = columns
+			}
+			// 表不存在时 table_info 返回空，直接跳过。
+			if len(columns) == 0 || columns[colKey] {
+				continue
+			}
+			if _, err := s.db.ExecContext(ctx, match[0]); err != nil {
+				return fmt.Errorf("ensure %s column %s: %w", table, col, err)
+			}
+			columns[colKey] = true
+		}
+	}
+	return nil
+}
+
+func (s *Store) readTableColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s);", table))
 	if err != nil {
-		return fmt.Errorf("read threads columns: %w", err)
+		return nil, fmt.Errorf("read %s columns: %w", table, err)
 	}
 	defer rows.Close()
 
@@ -938,34 +971,21 @@ func (s *Store) ensureThreadColumns(ctx context.Context) error {
 		var name, columnType string
 		var defaultValue sql.NullString
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return fmt.Errorf("scan threads column: %w", err)
+			return nil, fmt.Errorf("scan %s column: %w", table, err)
 		}
-		columns[name] = true
+		columns[strings.ToLower(name)] = true
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read threads columns: %w", err)
+		return nil, fmt.Errorf("read %s columns: %w", table, err)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close threads columns: %w", err)
+		return nil, fmt.Errorf("close %s columns: %w", table, err)
 	}
-
-	columnDDL := regexp.MustCompile(`ALTER TABLE threads ADD COLUMN (\w+)[^;]*;`)
-	for _, script := range migrations {
-		for _, match := range columnDDL.FindAllStringSubmatch(script, -1) {
-			name := match[1]
-			if columns[name] {
-				continue
-			}
-			if _, err := s.db.ExecContext(ctx, match[0]); err != nil {
-				return fmt.Errorf("ensure threads column %s: %w", name, err)
-			}
-			columns[name] = true
-		}
-	}
-	return nil
+	return columns, nil
 }
 
 // applyMigrationsBatch 在单个事务中批量执行全新空库的全部迁移脚本，并将 user_version 推进到 targetVersion。
+// 遇到 duplicate column name 时忽略错误继续推进版本；多语句脚本中因此被跳过的 ADD COLUMN 由迁移后的 ensureMigratedColumns 补齐。
 func (s *Store) applyMigrationsBatch(ctx context.Context, scripts []string, targetVersion int) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -975,6 +995,7 @@ func (s *Store) applyMigrationsBatch(ctx context.Context, scripts []string, targ
 
 	for i, sqlScript := range scripts {
 		if _, err := tx.ExecContext(ctx, sqlScript); err != nil {
+			// 多语句脚本在首个 duplicate column name 处中止，后续缺列由 ensureMigratedColumns 补齐。
 			if !strings.Contains(err.Error(), "duplicate column name") {
 				return fmt.Errorf("apply migration v%d: %w", i+1, err)
 			}
@@ -989,6 +1010,7 @@ func (s *Store) applyMigrationsBatch(ctx context.Context, scripts []string, targ
 }
 
 // applyMigration 在单独的事务中执行一次迁移，并更新 user_version。
+// 遇到 duplicate column name 时忽略错误继续推进版本；多语句脚本中因此被跳过的 ADD COLUMN 由迁移后的 ensureMigratedColumns 补齐。
 func (s *Store) applyMigration(ctx context.Context, sqlScript string, version int) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -997,6 +1019,7 @@ func (s *Store) applyMigration(ctx context.Context, sqlScript string, version in
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, sqlScript); err != nil {
+		// 多语句脚本在首个 duplicate column name 处中止，后续缺列由 ensureMigratedColumns 补齐。
 		if !strings.Contains(err.Error(), "duplicate column name") {
 			return err
 		}

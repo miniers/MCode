@@ -147,6 +147,12 @@ func (x headlessSwarmExtras) SaveSwarmTiers(ctx context.Context, tiers []wire.Sw
 }
 
 func main() {
+	exitCode := 0
+	defer func() {
+		if exitCode != 0 {
+			os.Exit(exitCode)
+		}
+	}()
 	datadir.ClearInherited()
 	defaultDataDir := datadir.Resolve("", false)
 
@@ -566,11 +572,11 @@ projectInitialized:
 	// 与桌面端一致：看门狗盯住卡住的任务并适时中断，headless 模式同样需要它。
 	watchdog := kanban.NewWatchdog(kanbanSvc, 5*time.Second)
 	watchdog.Start()
-	defer watchdog.Stop()
 
 	dispatcher.SetKanban(kanbanSvc)
 	kanbanSvc.SetOnChange(dispatcher.NotifyKanbanChanged)
 
+	var stopSwarm func()
 	if gitRunner != nil {
 		swarmMgr := swarm.NewManager(swarm.Options{
 			Git:         gitRunner,
@@ -596,7 +602,7 @@ projectInitialized:
 			},
 		})
 		swarmMgr.Start()
-		defer swarmMgr.Stop()
+		stopSwarm = swarmMgr.Stop
 		dispatcher.SetSwarm(swarmMgr)
 		// 独立服务模式没有桌面端 Client，用只依赖管理器的实现补齐合并、只规划等扩展 RPC。
 		dispatcher.SetSwarmExtras(headlessSwarmExtras{mgr: swarmMgr, dataDir: *dataFlag})
@@ -753,7 +759,8 @@ projectInitialized:
 		log.Println("Shutting down mcode-server...")
 	case err := <-serverErrCh:
 		if err != nil {
-			log.Fatalf("server terminated unexpectedly: %v", err)
+			log.Printf("server terminated unexpectedly: %v", err)
+			exitCode = 1
 		}
 	}
 
@@ -769,6 +776,10 @@ projectInitialized:
 		log.Printf("error during server shutdown: %v", err)
 	}
 
+	if stopSwarm != nil {
+		stopSwarm()
+	}
+	watchdog.Stop()
 	goalScheduler.Stop()
 	kanbanSvc.Close()
 	hub.Close()

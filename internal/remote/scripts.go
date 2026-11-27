@@ -341,8 +341,15 @@ func setFavorites(b *MemoryBackend, root string, name string, isFavorite bool) (
 	}
 	favPath := filepath.Join(remoteDir, "script-favorites.json")
 	stored := make(map[string][]string)
-	if data, err := os.ReadFile(favPath); err == nil {
-		_ = json.Unmarshal(data, &stored)
+	if raw, err := os.ReadFile(favPath); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("读取 %s 失败：%w", favPath, err)
+		}
+	} else if err := json.Unmarshal(raw, &stored); err != nil {
+		return nil, fmt.Errorf("读取 %s 失败：%w", favPath, err)
+	}
+	if stored == nil {
+		stored = make(map[string][]string)
 	}
 
 	list := stored[root]

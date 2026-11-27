@@ -781,6 +781,7 @@ func commandSegments(command string) []string {
 	return segments
 }
 
+// 只对无参数命令或明确的子命令提取前缀；带选项或普通参数的命令返回空，避免把如 `git -C`、`find -exec` 放宽为整程序始终允许。
 func commandSegmentPrefix(segment string) string {
 	fields := strings.Fields(segment)
 	if len(fields) == 0 || commandAssignment.MatchString(fields[0]) {
@@ -794,10 +795,13 @@ func commandSegmentPrefix(segment string) string {
 	if !commandProgram.MatchString(name) {
 		return ""
 	}
-	if len(fields) > 1 && commandPrefixArg.MatchString(fields[1]) {
+	if len(fields) == 1 {
+		return name
+	}
+	if commandPrefixArg.MatchString(fields[1]) {
 		return name + " " + fields[1]
 	}
-	return name
+	return ""
 }
 
 func commandAllowPrefix(command string) string {

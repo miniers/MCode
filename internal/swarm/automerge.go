@@ -280,7 +280,14 @@ func (p *Pipeline) RunBatch(ctx context.Context, b LandedBatch, manual bool) err
 
 // OnBatchLanded 是异步入口：后台执行 RunBatch(..., false) 并记录错误。
 func (p *Pipeline) OnBatchLanded(ctx context.Context, b LandedBatch) {
+	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		log.Printf("swarm: 流水线已停止，跳过自动合并批次")
+		return
+	}
 	p.wg.Add(1)
+	p.mu.Unlock()
 	go func() {
 		defer p.wg.Done()
 		if err := p.RunBatch(ctx, b, false); err != nil {
@@ -292,7 +299,14 @@ func (p *Pipeline) OnBatchLanded(ctx context.Context, b LandedBatch) {
 // ResumeBatch 是重启后的续做入口：sha 为空时批次在本地提交前就中断了，按普通批次重做；
 // sha 不为空时跳过本地阶段，从 stage（零值时从推送阶段）继续远端阶段，不会重复提交。
 func (p *Pipeline) ResumeBatch(ctx context.Context, b LandedBatch, sha string, stage MergeStage) {
+	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		log.Printf("swarm: 流水线已停止，跳过续做合并批次")
+		return
+	}
 	p.wg.Add(1)
+	p.mu.Unlock()
 	go func() {
 		defer p.wg.Done()
 
@@ -358,9 +372,9 @@ func (p *Pipeline) Start() {
 	stopCh := make(chan struct{})
 	p.stopCh = stopCh
 	p.stopped = false
+	p.wg.Add(1)
 	p.mu.Unlock()
 
-	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
 		ticker := time.NewTicker(retrySweepInterval)
@@ -485,9 +499,21 @@ func (p *Pipeline) runLocal(ctx context.Context, b LandedBatch) (*preparedBatch,
 		}
 		unlock := lockHead(root)
 		defer unlock()
-		var err error
-		prep.sha, err = p.git.RevParse(ctx, root, "HEAD")
-		return prep, err
+		headSHA, err := p.git.RevParse(ctx, root, "HEAD")
+		if err != nil {
+			wrapped := fmt.Errorf("swarm: 读取当前 HEAD 失败: %w", err)
+			p.notifyf(b.LeadThreadID, NoticePrefix+"合并已停止（%s）：%v；需要手动处理", StageCommitting.Label(), wrapped)
+			return nil, wrapped
+		}
+		for _, c := range prep.commits {
+			if headSHA != "" && c == headSHA {
+				prep.sha = headSHA
+				return prep, nil
+			}
+		}
+		err = fmt.Errorf("swarm: HEAD 已前进到非本批次的提交 %s，已跳过自动推送", shortSHA(headSHA))
+		p.notifyf(b.LeadThreadID, NoticePrefix+"合并已停止（%s）：%v；需要手动处理", StageCommitting.Label(), err)
+		return nil, err
 	}
 	b.Bees = uncommitted
 

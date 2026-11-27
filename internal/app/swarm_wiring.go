@@ -1155,13 +1155,12 @@ func (d *swarmStreamDispatcher) enqueue(threadID, projectID string, entries []sw
 	if !ok {
 		q = &swarmDispatchQueue{wake: make(chan struct{}, 1)}
 		d.queues[threadID] = q
-		go d.runQueue(q)
+		go d.runQueue(threadID, q)
 	}
-	d.mu.Unlock()
-
 	for _, pending := range entries {
 		q.push(swarmStreamJob{leadThreadID: threadID, projectID: projectID, leadWorkDir: dir, entry: pending.entry, rec: pending.rec})
 	}
+	d.mu.Unlock()
 }
 
 // drain 等待该主会话队列清空且没有正在执行的任务：哨兵任务排在队尾，FIFO 队列保证它之前的任务都已处理。
@@ -1169,12 +1168,13 @@ func (d *swarmStreamDispatcher) enqueue(threadID, projectID string, entries []sw
 func (d *swarmStreamDispatcher) drain(threadID string, timeout time.Duration) {
 	d.mu.Lock()
 	q := d.queues[threadID]
-	d.mu.Unlock()
 	if q == nil {
+		d.mu.Unlock()
 		return
 	}
 	done := make(chan struct{})
 	q.push(swarmStreamJob{done: done})
+	d.mu.Unlock()
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -1185,13 +1185,19 @@ func (d *swarmStreamDispatcher) drain(threadID string, timeout time.Duration) {
 	}
 }
 
-// runQueue 串行消费派发队列，保证同一主会话内的条目按入队顺序派出。
-func (d *swarmStreamDispatcher) runQueue(q *swarmDispatchQueue) {
+// runQueue 串行消费派发队列，保证同一主会话内的条目按入队顺序派出，空闲时自动退出并清理队列条目。
+func (d *swarmStreamDispatcher) runQueue(threadID string, q *swarmDispatchQueue) {
 	for {
 		job, ok := q.pop()
 		if !ok {
-			<-q.wake
-			continue
+			d.mu.Lock()
+			job, ok = q.pop()
+			if !ok {
+				delete(d.queues, threadID)
+				d.mu.Unlock()
+				return
+			}
+			d.mu.Unlock()
 		}
 		if job.done != nil {
 			close(job.done)

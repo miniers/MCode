@@ -117,8 +117,15 @@ func (b *MemoryBackend) writeProjectScriptsLocked(projectID string, scripts []Pr
 	}
 	path := filepath.Join(remoteDir, projectScriptsFile)
 	stored := make(map[string][]ProjectScript)
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &stored)
+	if raw, err := os.ReadFile(path); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("读取 %s 失败：%w", path, err)
+		}
+	} else if err := json.Unmarshal(raw, &stored); err != nil {
+		return fmt.Errorf("读取 %s 失败：%w", path, err)
+	}
+	if stored == nil {
+		stored = make(map[string][]ProjectScript)
 	}
 	stored[projectID] = scripts
 

@@ -3085,7 +3085,7 @@ func TestCommandAllowPrefixes(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct{ command, prefix string }{
-		{"go test ./...", "go test"}, {"make build", "make build"}, {"ls -la", "ls"},
+		{"go test ./...", "go test"}, {"make build", "make build"}, {"ls -la", ""},
 		{"bash -c x", ""}, {"python x.py", ""}, {"X=y go test", ""},
 		{"go test >out", ""}, {"go test 2>&1", "go test"}, {"go test >/dev/null", "go test"},
 	} {
@@ -3097,6 +3097,22 @@ func TestCommandAllowPrefixes(t *testing.T) {
 			if got := alwaysAllowKey(harness.RequestKindCommand, req); got != "bash\x00"+tc.command {
 				t.Errorf("完整键 = %q", got)
 			}
+		}
+	}
+}
+
+func TestCommandSegmentPrefixRejectsNonSubcommandArg(t *testing.T) {
+	for _, tc := range []struct {
+		segment string
+		want    string
+	}{
+		{"git -C /tmp status", ""},
+		{"find . -exec rm {} ;", ""},
+		{"git status", "git status"},
+		{"pwd", "pwd"},
+	} {
+		if got := commandSegmentPrefix(tc.segment); got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.segment, got, tc.want)
 		}
 	}
 }
