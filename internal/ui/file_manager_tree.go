@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -12,9 +13,11 @@ import (
 // 文件树与内容并排所需的最小右栏宽度，以及树导航的固定宽度。
 // 窄于阈值时树与内容二选一，由返回按钮切换。
 const (
-	fileTreeSplitMinWidth float32 = 640
-	fileTreeNavWidth      float32 = 200
-	fileTreeEnterWindow           = 2 * DurBase
+	fileTreeSplitMinWidth      float32 = 640
+	fileTreeNavWidth           float32 = 200
+	fileTreeSelectionBarHeight float32 = 34
+	fileTreeSelectionBottomPad float32 = 48
+	fileTreeEnterWindow                = 2 * DurBase
 )
 
 // fileTreeState 是文件面板的树导航状态，只由 UI 线程读写；
@@ -73,6 +76,12 @@ type fileTreeState struct {
 	changedRoots     []string
 	changedChildren  map[string][]string
 	changedEntries   map[string]FileEntry
+
+	focusPending     bool
+	wasFocused       bool
+	selectAllPending bool
+	lastTreeOnlyInit bool
+	lastTreeOnly     bool
 
 	sort fileTreeSort
 }
@@ -320,6 +329,15 @@ func fileTreeForgetLocked(st *fileManagerState, tree *fileTreeState, path string
 	}
 	for _, key := range chosen {
 		tree.selection.Remove(key)
+	}
+	var changedChosen []string
+	for key := range tree.changedSelection.All() {
+		if key == path || strings.HasPrefix(key, prefix) {
+			changedChosen = append(changedChosen, key)
+		}
+	}
+	for _, key := range changedChosen {
+		tree.changedSelection.Remove(key)
 	}
 	if tree.anchor == path || strings.HasPrefix(tree.anchor, prefix) {
 		tree.anchor = ""
@@ -634,6 +652,13 @@ func (s *chatState) fileTreeClickEntry(threadID string, entry FileEntry, pin boo
 		return
 	}
 	s.fileTreeSelect(entry.Path, mods)
+	if st := getFileManagerState(s); st != nil {
+		fileManagerMu.Lock()
+		if st.tree != nil {
+			st.tree.focusPending = true
+		}
+		fileManagerMu.Unlock()
+	}
 	// 修饰键多选只更新选区，不打开文件也不切换目录展开状态。
 	if mods&(ui.Shift|ui.Cmd) != 0 {
 		return
@@ -995,8 +1020,20 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 		focusedPath = outline.Item(cursorIdx)
 	}
 	tree.rowBuilds = 0
+	selCount, selTotalSize, selHasDir, selHasProtected := fileTreeSelectionBarStatsLocked(tree)
+	renaming := st.rename.active
+	focusPending := tree.focusPending
+	tree.focusPending = false
+	selectAllPending := tree.selectAllPending
+	tree.selectAllPending = false
 	fileManagerMu.Unlock()
 
+	_, canEdit := fileOpsClient(s)
+	showSelectionBar := selCount >= 2
+	bottomPad := Space2
+	if showSelectionBar {
+		bottomPad = fileTreeSelectionBottomPad
+	}
 	treeFocused := c.Focused(outline.List.Handle)
 
 	for _, dir := range loads {
@@ -1019,140 +1056,185 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	// 缩进与箭头/加载指示在 row 回调内按路径构建，以支持按目录展示行内加载态。
 	outline.Prefix = func(r ui.OutlineRow) {}
 
-	treeEl := ui.Outline(c.Key("file-manager-tree"), outline, roots, children, func(path string) {
-		fileManagerMu.Lock()
-		entry, ok := tree.entries[path]
-		if onlyChanged {
-			entry, ok = changedEntries[path]
-		}
-		status, hasStatus := fileTreeStatusLocked(tree, path, entry.IsDir)
-		deleted := onlyChanged && hasStatus && status.Status == "D"
-		dirLoading := !onlyChanged && entry.IsDir && tree.loading[path]
-		isOpen := outline.Open.Has(path)
-		rowSelected := selection.Has(path)
-		rowFocused := treeFocused && focusedPath == path
-		tree.rowBuilds++
-		enterAnim := false
-		needJump := false
-		if ok && tree.enterDir != "" && !tree.enterAt.IsZero() && time.Since(tree.enterAt) < fileTreeEnterWindow {
-			if fileManagerParentPath(path) == tree.enterDir {
-				enterAnim = true
-				if tree.enterMounted == nil {
-					tree.enterMounted = make(map[string]struct{})
+	var treeEl ui.Element
+	ui.Column(c.Key("file-manager-tree-wrap")).
+		Grow(1).
+		FillWidth().
+		MinHeight(0).
+		ObserveInput(func(ev ui.InputEvent) {
+			if ev.Kind == ui.InputKeyDown && ev.Key == ui.KeyA && ev.Mods == ui.Cmd {
+				fileManagerMu.Lock()
+				if st.tree != nil && st.tree.wasFocused && !st.rename.active && !st.ops.open {
+					st.tree.selectAllPending = true
 				}
-				if _, mounted := tree.enterMounted[path]; !mounted {
-					tree.enterMounted[path] = struct{}{}
-					needJump = true
-				}
+				fileManagerMu.Unlock()
 			}
-		} else if tree.enterDir != "" && (tree.enterAt.IsZero() || time.Since(tree.enterAt) >= fileTreeEnterWindow) {
-			tree.enterDir = ""
-			tree.enterAt = time.Time{}
-			tree.enterMounted = nil
-		}
-		fileManagerMu.Unlock()
-		if !ok {
-			return
-		}
-
-		clip := ui.Column(c.Key("file-tree-row-clip-" + path)).
-			Grow(1).
-			MinWidth(0).
-			Shrink(0)
-		k := float32(1)
-		if enterAnim && !reduceMotion(c) {
-			if needJump {
-				clip.Jump("file-tree-row-enter", 0)
-			}
-			k = clip.AnimateTo("file-tree-row-enter", 1, ui.Animation{
-				Duration: animateDuration(c, motionUnfold),
-				Ease:     motionEaseStandard,
-			})
-		}
-		clip.Children(func() {
-			inner := ui.Row(c.Key("file-tree-row-inner-" + path)).
-				FillWidth().
-				AlignItems(ui.Center).
-				Shrink(0)
-			inner.Children(func() {
-				if depth := strings.Count(path, "/"); depth > 0 {
-					ui.Box(c).Width(float32(depth) * Space3).Shrink(0)
+		}).
+		Children(func() {
+			treeEl = ui.Outline(c.Key("file-manager-tree"), outline, roots, children, func(path string) {
+				fileManagerMu.Lock()
+				entry, ok := tree.entries[path]
+				if onlyChanged {
+					entry, ok = changedEntries[path]
 				}
-				arrow := ui.Box(c.Key("file-tree-arrow-box-"+path)).Size(IconSM, IconSM).Shrink(0).Center()
-				if entry.IsDir {
-					if dirLoading {
-						arrow.Children(func() {
-							LoadingIndicator(c, "file-tree-loading-"+path, "", IconSM, ThemeAccent(c))
-						})
-					} else {
-						arrow.Cursor(ui.CursorPointer)
-						arrow.OnClick(func() {
-							s.fileTreeToggleDir(threadID, path)
-						})
-						angle := float32(0)
-						if isOpen {
-							angle = 90
+				status, hasStatus := fileTreeStatusLocked(tree, path, entry.IsDir)
+				deleted := onlyChanged && hasStatus && status.Status == "D"
+				dirLoading := !onlyChanged && entry.IsDir && tree.loading[path]
+				isOpen := outline.Open.Has(path)
+				rowSelected := selection.Has(path)
+				rowFocused := treeFocused && focusedPath == path
+				tree.rowBuilds++
+				enterAnim := false
+				needJump := false
+				if ok && tree.enterDir != "" && !tree.enterAt.IsZero() && time.Since(tree.enterAt) < fileTreeEnterWindow {
+					if fileManagerParentPath(path) == tree.enterDir {
+						enterAnim = true
+						if tree.enterMounted == nil {
+							tree.enterMounted = make(map[string]struct{})
 						}
-						arrow.Children(func() {
-							icon := ui.Icon(c, IconChevronRight()).
-								Size(IconSM, IconSM).
-								TextColor(ThemeSecondaryText(c))
-							if reduceMotion(c) {
-								icon.Rotate(angle)
-							} else {
-								icon.Rotate(icon.AnimateTo("file-tree-arrow", angle, springSnappy))
-							}
-						})
+						if _, mounted := tree.enterMounted[path]; !mounted {
+							tree.enterMounted[path] = struct{}{}
+							needJump = true
+						}
 					}
+				} else if tree.enterDir != "" && (tree.enterAt.IsZero() || time.Since(tree.enterAt) >= fileTreeEnterWindow) {
+					tree.enterDir = ""
+					tree.enterAt = time.Time{}
+					tree.enterMounted = nil
 				}
-				ui.Box(c).Width(Space1).Shrink(0)
+				fileManagerMu.Unlock()
+				if !ok {
+					return
+				}
 
-				props := fileManagerRowProps{
-					key:       "file-tree-row-" + path,
-					icon:      fileManagerEntryIcon(entry),
-					name:      entry.Name,
-					ignored:   entry.Ignored || deleted,
-					protected: entry.Protected,
-					isDir:     entry.IsDir,
-					inTree:    true,
-					deleted:   deleted,
-					sortField: sortField,
-					selected:  rowSelected,
-					focused:   rowFocused,
-					hasGit:    hasStatus,
-					git:       status,
-					threadID:  threadID,
-					entry:     entry,
-					onOpen: func(pin bool, mods ui.Modifiers) {
-						s.fileTreeClickEntry(threadID, entry, pin, mods)
-					},
-				}
-				if deleted {
-					props.onOpen = nil
-				}
-				row := ui.Row(c.Key("file-tree-content-" + path)).
+				clip := ui.Column(c.Key("file-tree-row-clip-" + path)).
 					Grow(1).
 					MinWidth(0).
-					AlignItems(ui.Center)
-				if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
-					row.Drag(payload)
+					Shrink(0)
+				k := float32(1)
+				if enterAnim && !reduceMotion(c) {
+					if needJump {
+						clip.Jump("file-tree-row-enter", 0)
+					}
+					k = clip.AnimateTo("file-tree-row-enter", 1, ui.Animation{
+						Duration: animateDuration(c, motionUnfold),
+						Ease:     motionEaseStandard,
+					})
 				}
-				row.Children(func() {
-					renderFileManagerRow(c, s, props)
+				clip.Children(func() {
+					inner := ui.Row(c.Key("file-tree-row-inner-" + path)).
+						FillWidth().
+						AlignItems(ui.Center).
+						Shrink(0)
+					inner.Children(func() {
+						if depth := strings.Count(path, "/"); depth > 0 {
+							ui.Box(c).Width(float32(depth) * Space3).Shrink(0)
+						}
+						arrow := ui.Box(c.Key("file-tree-arrow-box-"+path)).Size(IconSM, IconSM).Shrink(0).Center()
+						if entry.IsDir {
+							if dirLoading {
+								arrow.Children(func() {
+									LoadingIndicator(c, "file-tree-loading-"+path, "", IconSM, ThemeAccent(c))
+								})
+							} else {
+								arrow.Cursor(ui.CursorPointer)
+								arrow.OnClick(func() {
+									s.fileTreeToggleDir(threadID, path)
+								})
+								angle := float32(0)
+								if isOpen {
+									angle = 90
+								}
+								arrow.Children(func() {
+									icon := ui.Icon(c, IconChevronRight()).
+										Size(IconSM, IconSM).
+										TextColor(ThemeSecondaryText(c))
+									if reduceMotion(c) {
+										icon.Rotate(angle)
+									} else {
+										icon.Rotate(icon.AnimateTo("file-tree-arrow", angle, springSnappy))
+									}
+								})
+							}
+						}
+						ui.Box(c).Width(Space1).Shrink(0)
+
+						props := fileManagerRowProps{
+							key:       "file-tree-row-" + path,
+							icon:      fileManagerEntryIcon(entry),
+							name:      entry.Name,
+							ignored:   entry.Ignored || deleted,
+							protected: entry.Protected,
+							isDir:     entry.IsDir,
+							inTree:    true,
+							deleted:   deleted,
+							sortField: sortField,
+							selected:  rowSelected,
+							focused:   rowFocused,
+							hasGit:    hasStatus,
+							git:       status,
+							threadID:  threadID,
+							entry:     entry,
+							onOpen: func(pin bool, mods ui.Modifiers) {
+								s.fileTreeClickEntry(threadID, entry, pin, mods)
+							},
+						}
+						if deleted {
+							props.onOpen = nil
+						}
+						row := ui.Row(c.Key("file-tree-content-" + path)).
+							Grow(1).
+							MinWidth(0).
+							AlignItems(ui.Center)
+						if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
+							row.Drag(payload)
+						}
+						row.Children(func() {
+							renderFileManagerRow(c, s, props)
+						})
+					})
+					if k < 1 {
+						h := inner.LayoutBounds().H
+						clip.ClipY().Height(k * h).Opacity(k)
+					}
 				})
-			})
-			if k < 1 {
-				h := inner.LayoutBounds().H
-				clip.ClipY().Height(k * h).Opacity(k)
+			}).Grow(1).FillWidth().Padding(Space2, Space2, bottomPad, Space2).ContextMenu(fileManagerDirMenu(c, s))
+
+			if showSelectionBar {
+				renderFileTreeSelectionBar(c, s, threadID, selCount, selTotalSize, selHasDir, selHasProtected, canEdit)
 			}
 		})
-	}).Grow(1).FillWidth().Padding(Space2, Space2).ContextMenu(fileManagerDirMenu(c, s))
 
-	if fileManagerGOOS == "darwin" && treeEl.Focused() && treeEl.Shortcut(0, ui.KeySpace) {
-		fileManagerQuickLookSelected(s)
+	if focusPending {
+		outline.List.Focus(c)
 	}
-	if treeEl.Submitted() || (treeEl.Focused() && treeEl.Shortcut(0, ui.KeyEnter)) {
-		fileTreeOpenSelected(s, threadID)
+	focusedNow := treeEl.Focused()
+	fileManagerMu.Lock()
+	if st.tree != nil {
+		st.tree.wasFocused = focusedNow
+	}
+	fileManagerMu.Unlock()
+	if !renaming && !fileManagerOpsOpen(s) {
+		if treeEl.Submitted() || (focusedNow && treeEl.Shortcut(0, ui.KeyEnter)) {
+			fileTreeOpenSelected(s, threadID)
+		}
+		if focusedNow {
+			if fileManagerGOOS == "darwin" && treeEl.Shortcut(0, ui.KeySpace) {
+				fileManagerQuickLookSelected(s)
+			}
+			if selectAllPending || treeEl.Shortcut(ui.Cmd, ui.KeyA) {
+				s.fileTreeSelectAll()
+			}
+			if showSelectionBar && treeEl.Shortcut(0, ui.KeyEscape) {
+				s.fileTreeCollapseSelection()
+			}
+			if treeEl.Shortcut(ui.Cmd, ui.KeyBackspace) {
+				s.fileTreeTrashSelection()
+			}
+			if treeEl.Shortcut(0, ui.KeyF2) {
+				s.fileTreeStartInlineRenameFocused()
+			}
+		}
 	}
 
 	if onlyChanged {
@@ -1248,4 +1330,105 @@ func fileTreeOpenSelected(s *chatState, threadID string) bool {
 	}
 	s.fileTreeClickEntry(threadID, entry, false, 0)
 	return true
+}
+
+// renderFileTreeSelectionBar 渲染文件树底部的浮动多选操作条。
+func renderFileTreeSelectionBar(c *ui.Context, s *chatState, threadID string, count int, totalSize int64, hasDir, hasProtected, canEdit bool) {
+	summary := fmt.Sprintf("%d 项", count)
+	if !hasDir {
+		summary = fmt.Sprintf("%d 项 · %s", count, formatFileSize(totalSize))
+	}
+
+	bar := ui.Row(c.Key("file-tree-selection-bar")).
+		Absolute().
+		Left(Space2).
+		Right(Space2).
+		Bottom(Space2).
+		Height(fileTreeSelectionBarHeight).
+		Padding(0, Space2, 0, Space3).
+		Radius(RadiusMD).
+		Background(ThemeSurfacePopover(c)).
+		Border(Hairline, ThemeBorder(c)).
+		AlignItems(ui.Center).
+		Gap(Space1).
+		Transition(motionPopover(c, motionRiseOffset))
+	bar = applyElevation(c, bar, ElevPopover)
+
+	bar.Children(func() {
+		ui.Text(c, summary).
+			FontSize(uiFont(TypeCaption)).
+			FontWeight(500).
+			FontFeatures("tnum").
+			TextColor(ThemePrimaryText(c)).
+			SingleLine().
+			MinWidth(0).
+			Grow(1)
+
+		renderBarBtn := func(key, label, tooltip string, icon *ui.SVG, danger, disabled bool, onClick func()) {
+			btn := ui.ButtonBase(c.Key(key)).
+				Label(label).
+				Tooltip(tooltip).
+				Size(ControlSM, ControlSM).
+				Radius(RadiusSM).
+				Center().
+				Shrink(0).
+				Disabled(disabled)
+			focusRing(c, btn)
+			if !disabled {
+				scale := motionPressScale(c, btn, "button-press-scale", btn.Pressed())
+				btn.Scale(scale, scale)
+				if btn.Hovered() {
+					if danger {
+						btn.Background(ThemeDanger(c).Alpha(0.10))
+					} else {
+						btn.Background(ThemeHover(c))
+					}
+				}
+				if btn.Clicked() {
+					onClick()
+				}
+			}
+			btn.Children(func() {
+				color := ThemeSecondaryText(c)
+				if disabled {
+					color = ThemeTertiaryText(c)
+				} else if danger && btn.Hovered() {
+					color = ThemeDanger(c)
+				}
+				ui.Icon(c, icon).Size(IconSM, IconSM).TextColor(color)
+			})
+		}
+
+		ui.Row(c.Key("file-tree-selection-actions")).
+			Shrink(0).
+			AlignItems(ui.Center).
+			Gap(Space0).
+			Children(func() {
+				renderBarBtn("file-tree-sel-ref", "引用", "引用到输入框", IconPaperclip(), false, false, func() {
+					if payload, ok := fileTreeSelectionDragReference(s, threadID); ok {
+						s.addInspectorFileRefs(payload.refs())
+					}
+				})
+				renderBarBtn("file-tree-sel-copy", "复制路径", "复制路径", IconCopy(), false, false, func() {
+					allPaths, _, _ := fileTreeSelectionPaths(s)
+					absPaths := make([]string, 0, len(allPaths))
+					for _, rel := range allPaths {
+						if abs := fileManagerWorkspacePath(s, threadID, rel); abs != "" {
+							absPaths = append(absPaths, abs)
+						}
+					}
+					if len(absPaths) > 0 {
+						c.WriteClipboard(fileManagerJoinClipboardPaths(absPaths))
+						s.setToast(fmt.Sprintf("已复制 %d 条路径", len(absPaths)))
+					}
+				})
+				trashLabel := trashActionLabel()
+				renderBarBtn("file-tree-sel-trash", trashLabel, trashLabel+" ("+shortcutDisplay("⌘⌫")+")", IconTrash2(), true, hasProtected || !canEdit, func() {
+					s.fileTreeTrashSelection()
+				})
+				renderBarBtn("file-tree-sel-clear", "清空", "清空选择 (Esc)", IconX(), false, false, func() {
+					s.fileTreeCollapseSelection()
+				})
+			})
+	})
 }

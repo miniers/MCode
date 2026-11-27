@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -16,6 +17,8 @@ type fileManagerTabSnapshot struct {
 	fileErr      string
 	content      string
 	totalSize    int64
+	modTime      time.Time
+	lineCount    int
 	hasMore      bool
 	limitReached bool
 	dirty        bool
@@ -28,6 +31,8 @@ type fileManagerTabSnapshot struct {
 	hlLast       int
 	reveal       bool
 	revealSeq    int
+	git          GitChangedFile
+	hasGit       bool
 }
 
 // fileManagerPanelSnapshot 是渲染用的面板快照：tab 列表、当前 tab 与拆分状态。
@@ -51,6 +56,8 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 	}
 	snap.tabs = make([]fileManagerTabSnapshot, 0, len(st.tabs))
 	for _, tab := range st.tabs {
+		modTime := fileManagerTabModTimeLocked(st.tree, tab.path)
+		git, hasGit := fileTreeStatusLocked(st.tree, tab.path, false)
 		snap.tabs = append(snap.tabs, fileManagerTabSnapshot{
 			path:         tab.path,
 			temporary:    tab.temporary,
@@ -60,6 +67,8 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			fileErr:      tab.fileErr,
 			content:      tab.content,
 			totalSize:    tab.totalSize,
+			modTime:      modTime,
+			lineCount:    tab.lineCount,
 			hasMore:      tab.hasMore,
 			limitReached: tab.limitReached,
 			dirty:        tab.dirty,
@@ -72,9 +81,29 @@ func fileManagerSnapshotLocked(st *fileManagerState) fileManagerPanelSnapshot {
 			hlLast:       tab.hlLast,
 			reveal:       tab.reveal,
 			revealSeq:    tab.revealSeq,
+			git:          git,
+			hasGit:       hasGit,
 		})
 	}
 	return snap
+}
+
+// fileManagerTabModTimeLocked 从文件树已加载的父目录子列表与条目映射中查找修改时间。
+// 调用方持 fileManagerMu。
+func fileManagerTabModTimeLocked(tree *fileTreeState, filePath string) time.Time {
+	if tree == nil || filePath == "" {
+		return time.Time{}
+	}
+	parent := fileManagerParentPath(filePath)
+	for _, childPath := range tree.children[parent] {
+		if childPath == filePath {
+			return tree.entries[filePath].ModTime
+		}
+	}
+	if entry, ok := tree.entries[filePath]; ok && !entry.IsDir {
+		return entry.ModTime
+	}
+	return time.Time{}
 }
 
 // tabByPath 按路径取快照里的 tab。
@@ -658,6 +687,7 @@ func renderFileManagerPane(c *ui.Context, s *chatState, snap fileManagerPanelSna
 		if split {
 			renderFileManagerSplitPathBar(c, snap, tab, prefix, index)
 		}
+		renderFileManagerMetaBar(c, tab, prefix)
 
 		// 代码预览自带滚动与选区，直接占满剩余空间；再套 ui.Scroll 会出现两层滚动。
 		if fileManagerCodePreviewTab(tab) {

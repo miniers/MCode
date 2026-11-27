@@ -73,10 +73,14 @@ type fileManagerState struct {
 	// 也不进入面板快照；按窗口隔离，避免多窗口共用一个状态或被别的窗口的 prune 删掉。
 	codeViews map[string]*fileManagerCodePreview
 
-	// 新建 / 重命名 / 移到废纸篓的弹窗；同一时刻只开一个。
+	// 新建 / 移到废纸篓的弹窗；同一时刻只开一个。
 	ops fileManagerOpsDialog
 	// opsSeq 是弹窗的代数计数器，只增不减：关掉再开时旧请求不会撞上新弹窗。
 	opsSeq int
+
+	// rename 是文件树与搜索列表的行内重命名状态。
+	rename    fileManagerInlineRename
+	renameSeq int
 
 	// discardConfirm 是关闭未保存标签页时的丢弃确认弹窗状态。
 	discardConfirm fileManagerDiscardConfirm
@@ -215,6 +219,7 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 	st.splitAnchor = ""
 	st.splitSide = ""
 	st.ops = fileManagerOpsDialog{}
+	st.rename = fileManagerInlineRename{}
 	st.discardConfirm = fileManagerDiscardConfirm{}
 	st.updates = nil
 	st.query = ""
@@ -356,6 +361,18 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	if narrow {
 		treeOnly = !hasActive || snap.showList
 	}
+
+	// 单栏树切换到并排导航（或关闭最后标签切回单栏树）时，树节点会随父容器重挂；
+	// 若切屏前树持有焦点，需要把焦点带回重挂后的树节点。
+	fileManagerMu.Lock()
+	if st.tree != nil {
+		if st.tree.lastTreeOnlyInit && st.tree.lastTreeOnly != treeOnly && st.tree.wasFocused {
+			st.tree.focusPending = true
+		}
+		st.tree.lastTreeOnlyInit = true
+		st.tree.lastTreeOnly = treeOnly
+	}
+	fileManagerMu.Unlock()
 
 	inspectorFollowSurface(c, s, threadID, "file-manager-panel").
 		Fill().
@@ -520,159 +537,268 @@ type fileManagerRowProps struct {
 	onOpen func(pin bool, mods ui.Modifiers)
 }
 
-// renderFileManagerRow 渲染单行条目：图标、名称、可选锁图标、Git 标记与悬停「更多操作」按钮。
+// renderFileManagerRow 渲染单行条目：图标、名称（或行内重命名输入框）、可选锁图标、Git 标记与悬停「更多操作」按钮。
 // Protected 条目点击无效（次要文字色、不绑定打开回调）。
 func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps) {
-	row := ui.Row(c.Key(props.key)).
-		FillWidth().
-		Height(RowHeightCompact).
-		Padding(0, Space2).
-		Radius(RadiusXS).
-		Gap(Space2).
-		AlignItems(ui.Center)
-	rowHovered := row.Hovered()
-	if props.selected && !props.inTree {
-		row.Selected(true)
-	} else if !props.selected && rowHovered && !props.protected {
-		row.Background(ThemeHover(c))
-	}
-	if props.scrollIntoView {
-		row.ScrollIntoView()
-	}
-
-	nameColor := ThemePrimaryText(c)
-	if props.ignored || props.protected {
-		nameColor = ThemeSecondaryText(c)
-	}
-
-	morePressed := false
-	showMore := rowHovered || props.selected || props.focused || row.FocusWithin()
-
-	// 右键菜单与行尾「更多操作」按钮共用同一套菜单项。
-	row.ContextMenu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
-
-	row.Children(func() {
-		iconColor := ThemeSecondaryText(c)
-		if props.isDir {
-			iconColor = ThemeAccent(c)
+	st := getFileManagerState(s)
+	isRenaming := false
+	renameErr := ""
+	renameBusy := false
+	if st != nil {
+		fileManagerMu.Lock()
+		if st.rename.active && st.rename.path == props.entry.Path && st.threadID == props.threadID {
+			isRenaming = true
+			renameErr = st.rename.err
+			renameBusy = st.rename.busy
 		}
-		ui.Icon(c, props.icon).Size(IconSM, IconSM).TextColor(iconColor).Shrink(0)
+		fileManagerMu.Unlock()
+	}
 
-		renderName := func(grow bool) {
-			nameText := ui.Text(c, props.name).
-				FontSize(uiFont(TypeFootnote)).
-				TextColor(nameColor).
-				SingleLine().
-				TruncateMiddle().
-				MinWidth(0)
-			if grow {
-				nameText.Grow(1)
-			} else {
-				nameText.Shrink(1)
+	buildRow := func() {
+		row := ui.Row(c.Key(props.key)).
+			FillWidth().
+			Height(RowHeightCompact).
+			Padding(0, Space2).
+			Radius(RadiusXS).
+			Gap(Space2).
+			AlignItems(ui.Center)
+		rowHovered := row.Hovered()
+		if props.selected && !props.inTree {
+			row.Selected(true)
+		} else if !props.selected && rowHovered && !props.protected && !isRenaming {
+			row.Background(ThemeHover(c))
+		}
+		if props.scrollIntoView {
+			row.ScrollIntoView()
+		}
+
+		nameColor := ThemePrimaryText(c)
+		if props.ignored || props.protected {
+			nameColor = ThemeSecondaryText(c)
+		}
+
+		morePressed := false
+		showMore := !isRenaming && (rowHovered || props.selected || props.focused || row.FocusWithin())
+
+		// 右键菜单与行尾「更多操作」按钮共用同一套菜单项；重命名编辑中不抢右键。
+		if !isRenaming {
+			row.ContextMenu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
+		}
+
+		row.Children(func() {
+			iconColor := ThemeSecondaryText(c)
+			if props.isDir {
+				iconColor = ThemeAccent(c)
 			}
-			if props.entry.Path != "" {
-				if w := nameText.LayoutBounds().W; w > 0 {
-					naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
-					if naturalW > w+Hairline {
-						nameText.Tooltip(props.entry.Path)
+			ui.Icon(c, props.icon).Size(IconSM, IconSM).TextColor(iconColor).Shrink(0)
+
+			if isRenaming && st != nil {
+				borderColor := ThemeAccent(c)
+				if renameErr != "" {
+					borderColor = ThemeDanger(c)
+				}
+				in := ui.TextInput(c.Key(props.key+"-rename-input"), &st.rename.draft).
+					Label("重命名").
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(ThemePrimaryText(c)).
+					Background(ThemeSurfaceCard(c)).
+					BorderWidth(1.5).
+					BorderColor(borderColor).
+					Radius(RadiusXS).
+					Padding(0, Space1).
+					Height(20).
+					Grow(1).
+					MinWidth(0).
+					Disabled(renameBusy).
+					AutoFocus()
+				if in.Changed() {
+					fileManagerMu.Lock()
+					if st.rename.active && st.rename.path == props.entry.Path {
+						st.rename.err = ""
+					}
+					fileManagerMu.Unlock()
+				}
+				in.OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						fileManagerMu.Lock()
+						if st.rename.active && st.rename.path == props.entry.Path {
+							st.rename.draft = k.Text()
+						}
+						fileManagerMu.Unlock()
+						s.submitFileManagerInlineRename(true)
+						return true
+					}
+					if k.Key == ui.KeyEscape {
+						s.cancelFileManagerInlineRename(true)
+						return true
+					}
+					return false
+				})
+				// 失焦提交：获得过焦点后又失去才算失焦，避免 AutoFocus 生效前的首帧误提交。
+				focused := in.Focused()
+				fileManagerMu.Lock()
+				stillRenaming := st.rename.active && st.rename.path == props.entry.Path
+				blurred := stillRenaming && !st.rename.busy && st.rename.hadFocus && !focused
+				if stillRenaming {
+					if focused {
+						if !st.rename.hadFocus && st.rename.needSelect {
+							in.SetTextSelection(0, fileManagerRenameSelectEnd(st.rename.draft, props.isDir))
+							st.rename.needSelect = false
+						}
+						st.rename.hadFocus = true
+					} else {
+						st.rename.hadFocus = false
+					}
+				}
+				fileManagerMu.Unlock()
+				if blurred {
+					s.submitFileManagerInlineRename(false)
+				}
+				return
+			}
+
+			renderName := func(grow bool) {
+				nameText := ui.Text(c, props.name).
+					FontSize(uiFont(TypeFootnote)).
+					TextColor(nameColor).
+					SingleLine().
+					TruncateMiddle().
+					MinWidth(0)
+				if grow {
+					nameText.Grow(1)
+				} else {
+					nameText.Shrink(1)
+				}
+				if props.entry.Path != "" {
+					if w := nameText.LayoutBounds().W; w > 0 {
+						naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
+						if naturalW > w+Hairline {
+							nameText.Tooltip(props.entry.Path)
+						}
 					}
 				}
 			}
-		}
-		if props.protected {
-			ui.Row(c.Key(props.key + "-name-wrap")).
-				Grow(1).
-				MinWidth(0).
-				AlignItems(ui.Center).
-				Gap(Space1).
-				Children(func() {
-					renderName(false)
-					ui.Icon(c, IconLock()).
-						Size(12, 12).
-						TextColor(ThemeSecondaryText(c)).
-						Shrink(0)
-				})
-		} else {
-			renderName(true)
-		}
-
-		metaText := ""
-		if props.inTree && !props.isDir && !props.entry.IsSymlink && !props.deleted {
-			if props.sortField == fileSortModTime {
-				if !props.entry.ModTime.IsZero() {
-					metaText = formatRelativeTime(props.entry.ModTime)
-				}
+			if props.protected {
+				ui.Row(c.Key(props.key + "-name-wrap")).
+					Grow(1).
+					MinWidth(0).
+					AlignItems(ui.Center).
+					Gap(Space1).
+					Children(func() {
+						renderName(false)
+						ui.Icon(c, IconLock()).
+							Size(12, 12).
+							TextColor(ThemeSecondaryText(c)).
+							Shrink(0)
+					})
 			} else {
-				metaText = formatFileSize(props.entry.Size)
+				renderName(true)
 			}
-		}
 
-		if metaText != "" || props.hasGit {
-			trailing := ui.Row(c.Key(props.key + "-trailing")).
-				Shrink(0).
+			metaText := ""
+			if props.inTree && !props.isDir && !props.entry.IsSymlink && !props.deleted {
+				if props.sortField == fileSortModTime {
+					if !props.entry.ModTime.IsZero() {
+						metaText = formatRelativeTime(props.entry.ModTime)
+					}
+				} else {
+					metaText = formatFileSize(props.entry.Size)
+				}
+			}
+
+			if metaText != "" || props.hasGit {
+				trailing := ui.Row(c.Key(props.key + "-trailing")).
+					Shrink(0).
+					AlignItems(ui.Center).
+					Gap(Space1)
+				if showMore {
+					trailing.Opacity(0)
+				}
+				trailing.Children(func() {
+					if metaText != "" {
+						ui.Text(c, metaText).
+							FontSize(uiFont(TypeCaption)).
+							FontFeatures("tnum").
+							TextColor(ThemeSecondaryText(c)).
+							SingleLine().
+							Shrink(0)
+					}
+					if props.hasGit {
+						renderFileTreeGitTag(c, "file-tree-git-"+props.entry.Path, props.git)
+					}
+				})
+			}
+
+			// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，所以常驻构建并用 Hidden 隐藏。
+			// 按钮叠在行尾，避免悬停时行宽与文件名截断位置跳动。
+			moreWrap := ui.Row(c.Key(props.key + "-more-wrap")).
+				Absolute().
+				Right(Space2).
+				Top(0).
+				Bottom(0).
 				AlignItems(ui.Center).
-				Gap(Space1)
-			if showMore {
-				trailing.Opacity(0)
-			}
-			trailing.Children(func() {
-				if metaText != "" {
-					ui.Text(c, metaText).
-						FontSize(uiFont(TypeCaption)).
-						FontFeatures("tnum").
-						TextColor(ThemeSecondaryText(c)).
-						SingleLine().
-						Shrink(0)
+				Hidden(!showMore)
+			moreWrap.Children(func() {
+				more := ui.ButtonBase(c.Key(props.key+"-more")).
+					Label("更多操作").
+					Tooltip("更多操作").
+					KeepFocus().
+					Radius(RadiusXS).
+					Padding(Hairline, Space1).
+					Cursor(ui.CursorPointer)
+				focusRing(c, more)
+				moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
+				more.Scale(moreScale, moreScale)
+				if more.Hovered() {
+					more.Background(ThemeSelected(c))
 				}
-				if props.hasGit {
-					renderFileTreeGitTag(c, "file-tree-git-"+props.entry.Path, props.git)
+				if more.Pressed() {
+					morePressed = true
 				}
+				more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
+				more.Children(func() {
+					ui.Icon(c, IconMoreHorizontal()).
+						Size(IconSM, IconSM).
+						TextColor(ThemeSecondaryText(c))
+				})
 			})
-		}
 
-		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，所以常驻构建并用 Hidden 隐藏。
-		// 按钮叠在行尾，避免悬停时行宽与文件名截断位置跳动。
-		moreWrap := ui.Row(c.Key(props.key + "-more-wrap")).
-			Absolute().
-			Right(Space2).
-			Top(0).
-			Bottom(0).
-			AlignItems(ui.Center).
-			Hidden(!showMore)
-		moreWrap.Children(func() {
-			more := ui.ButtonBase(c.Key(props.key+"-more")).
-				Label("更多操作").
-				Tooltip("更多操作").
-				KeepFocus().
-				Radius(RadiusXS).
-				Padding(Hairline, Space1).
-				Cursor(ui.CursorPointer)
-			focusRing(c, more)
-			moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
-			more.Scale(moreScale, moreScale)
-			if more.Hovered() {
-				more.Background(ThemeSelected(c))
+			if !props.protected && !morePressed && props.onOpen != nil {
+				// 双击固定预览，单击只开临时 tab；双击先于 Clicked 拦下。
+				if row.DoubleClicked() {
+					props.onOpen(true, 0)
+				} else if row.Clicked() {
+					props.onOpen(false, row.ClickModifiers())
+				}
 			}
-			if more.Pressed() {
-				morePressed = true
-			}
-			more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
-			more.Children(func() {
-				ui.Icon(c, IconMoreHorizontal()).
-					Size(IconSM, IconSM).
-					TextColor(ThemeSecondaryText(c))
-			})
 		})
+	}
 
-		if !props.protected && !morePressed && props.onOpen != nil {
-			// 双击固定预览，单击只开临时 tab；双击先于 Clicked 拦下。
-			if row.DoubleClicked() {
-				props.onOpen(true, 0)
-			} else if row.Clicked() {
-				props.onOpen(false, row.ClickModifiers())
+	if !isRenaming {
+		buildRow()
+		return
+	}
+
+	ui.Column(c.Key(props.key + "-rename-box")).
+		FillWidth().
+		Children(func() {
+			buildRow()
+			if renameErr != "" {
+				ui.Row(c.Key(props.key+"-rename-error")).
+					FillWidth().
+					Margin(Space0, Space2, Space1, Space7).
+					Padding(Space0, Space2).
+					Radius(RadiusXS).
+					Background(ThemeDanger(c).Alpha(0.10)).
+					Border(Hairline, ThemeDanger(c).Alpha(0.28)).
+					Children(func() {
+						ui.Text(c, renameErr).
+							FontSize(uiFont(TypeCaption)).
+							TextColor(ThemeDanger(c)).
+							Wrap()
+					})
 			}
-		}
-	})
+		})
 }
 
 // renderFileManagerTag 渲染行内单字母状态标签。

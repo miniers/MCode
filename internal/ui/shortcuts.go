@@ -96,6 +96,12 @@ var shortcutDefaultsOnce = sync.OnceValue(func() []appShortcut {
 		{id: "toggle-file-manager", title: "显示/隐藏文件", group: "窗口", keys: "⇧⌘F", mods: ui.Cmd | ui.Shift, key: ui.KeyF, bound: true, customizable: true, registered: true},
 		{id: "toggle-activity", title: "动态视图", group: "窗口", keys: "⌥⌘U", mods: ui.Cmd | ui.Alt, key: ui.KeyU, bound: true, customizable: true, registered: true},
 		{id: "add-project", title: "添加项目", group: "窗口", keys: "⇧⌘O", mods: ui.Cmd | ui.Shift, key: ui.KeyO, bound: true, customizable: true, registered: true},
+
+		// 文件树（仅树拥有焦点时生效，不全局注册以免抢占搜索框与编辑器键位）
+		{id: "file-tree-select-all", title: "全选可见文件", group: "文件树", keys: "⌘A"},
+		{id: "file-tree-clear-selection", title: "收起多选选区", group: "文件树", keys: "Esc"},
+		{id: "file-tree-rename", title: "重命名", group: "文件树", keys: "F2"},
+		{id: "file-tree-trash", title: "移到废纸篓", group: "文件树", keys: "⌘⌫"},
 	}
 })
 

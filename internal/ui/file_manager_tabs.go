@@ -25,6 +25,7 @@ type fileManagerTab struct {
 	fileErr      string
 	content      string
 	totalSize    int64
+	lineCount    int
 	nextOffset   int64
 	hasMore      bool
 	limitReached bool
@@ -97,6 +98,7 @@ func resetFileManagerTab(tab *fileManagerTab, path string) {
 	tab.fileErr = ""
 	tab.content = ""
 	tab.totalSize = 0
+	tab.lineCount = 0
 	tab.nextOffset = 0
 	tab.hasMore = false
 	tab.limitReached = false
@@ -228,6 +230,27 @@ func (st *fileManagerState) openFileManagerTabLocked(filePath string, pin bool) 
 	return tab, true
 }
 
+// fileManagerTextLineCount 计算完整文本的行数；空文本返回 0（未知）。
+func fileManagerTextLineCount(content string) int {
+	if content == "" {
+		return 0
+	}
+	return strings.Count(content, "\n") + 1
+}
+
+// updateFileManagerTabLineCountLocked 在持有 fileManagerMu 时按当前内容更新缓存的行数；
+// 仅当标签是已完整加载的文本（无 hasMore 与 limitReached）时写入正数，否则清零。
+func updateFileManagerTabLineCountLocked(tab *fileManagerTab) {
+	if tab == nil {
+		return
+	}
+	if tab.kind != "text" || tab.hasMore || tab.limitReached || tab.fileErr != "" {
+		tab.lineCount = 0
+		return
+	}
+	tab.lineCount = fileManagerTextLineCount(tab.content)
+}
+
 func fileManagerTabUsesCodePreviewLocked(tab *fileManagerTab) bool {
 	if tab == nil || tab.fileErr != "" || tab.kind == "image" || tab.kind == "binary" || tab.content == "" {
 		return false
@@ -269,6 +292,7 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 		}
 		if err != nil {
 			tab.fileErr = err.Error()
+			tab.lineCount = 0
 			tab.reveal = false
 			fileManagerMu.Unlock()
 			s.invalidate()
@@ -289,6 +313,7 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 				tab.hasMore = false
 				tab.limitReached = true
 			}
+			updateFileManagerTabLineCountLocked(tab)
 			tab.svg = svg
 			if isInspectorSVGPath(filePath) {
 				// 解析失败/超限/外链时没有可预览的内容，默认停在源码。
@@ -304,6 +329,7 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 		// 图片要按更大的分块重新读取：先清掉这次文本块的结果，再从偏移 0 开始拼接。
 		tab.kind = "image"
 		tab.totalSize = content.TotalSize
+		tab.lineCount = 0
 		tab.imageData = nil
 		tab.fileLoading = true
 		tab.reveal = false
@@ -340,6 +366,7 @@ func (s *chatState) readFileManagerTab(st *fileManagerState, tab *fileManagerTab
 					tab.imageData = nil
 					tab.imageBmp = nil
 					tab.totalSize = chunk.TotalSize
+					tab.lineCount = 0
 					tab.fileErr = ""
 					tab.content = ""
 					tab.reveal = false
@@ -428,8 +455,10 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 			if fallback {
 				// 定位时保留已读取的内容，以便回退到最后一行。
 				tab.hasMore = false
+				tab.lineCount = 0
 			} else {
 				tab.fileErr = err.Error()
+				tab.lineCount = 0
 				tab.reveal = false
 			}
 			fileManagerMu.Unlock()
@@ -450,6 +479,7 @@ func (s *chatState) loadMoreFileManagerTab(path string) {
 			tab.hasMore = false
 			tab.limitReached = true
 		}
+		updateFileManagerTabLineCountLocked(tab)
 		// 加载更多后 SVG 可能才完整读入；重新解析一次，结果仍由同一代次保护。
 		svgContent, svgTotal := "", int64(0)
 		if isInspectorSVGPath(path) && !tab.hasMore && !tab.limitReached {

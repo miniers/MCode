@@ -504,10 +504,11 @@ func TestFileManagerTreeRowCompact(t *testing.T) {
 	if _, ok := tt.Find("引用到输入框"); ok || tt.HasText("@引用") {
 		t.Fatal("紧凑树行不应包含「引用到输入框」或「@引用」按钮")
 	}
-	for _, sizeText := range []string{formatFileSize(5), formatFileSize(12), formatFileSize(2048)} {
-		if tt.HasText(sizeText) {
-			t.Fatalf("紧凑树行不应显示文件大小 %q", sizeText)
-		}
+	if !tt.HasText(formatFileSize(5)) {
+		t.Fatalf("普通文件 a.txt 应显示大小 %q", formatFileSize(5))
+	}
+	if tt.HasText(formatFileSize(2048)) {
+		t.Fatalf("符号链接 link.txt 不应显示大小 %q", formatFileSize(2048))
 	}
 	if tt.HasText("链接") {
 		t.Fatal("紧凑树行不应显示「链接」文字")

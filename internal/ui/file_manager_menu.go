@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -83,9 +84,50 @@ func openFileManagerInSplit(s *chatState, threadID, path string) {
 }
 
 // fileManagerEntryMenu 返回文件 / 目录行的菜单：行右键与行尾「更多操作」按钮共用。
+// 若目标条目位于多选选区内且选区达到 2 项或更多，则展示批量菜单；否则按单条菜单展示。
 func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry FileEntry) func(*ui.Menu) {
-	payload, canReference := fileTreeDragReference(s, threadID, entry)
 	return func(m *ui.Menu) {
+		st := getFileManagerState(s)
+		isBatch := false
+		if st != nil {
+			fileManagerMu.Lock()
+			isBatch = fileTreeSelectionContainsLocked(st, entry.Path)
+			fileManagerMu.Unlock()
+		}
+		if isBatch {
+			batchPayload, canBatchRef := fileTreeSelectionDragReference(s, threadID)
+			allPaths, actionablePaths, hasProtected := fileTreeSelectionPaths(s)
+			absPaths := make([]string, 0, len(allPaths))
+			for _, rel := range allPaths {
+				if abs := fileManagerWorkspacePath(s, threadID, rel); abs != "" {
+					absPaths = append(absPaths, abs)
+				}
+			}
+
+			m.Item("打开").Disabled(true).Trailing("仅单选")
+			m.Item("重命名…").Disabled(true).Trailing("仅单选")
+			m.Separator()
+			if m.Item("引用到输入框").Disabled(!canBatchRef).Chosen() {
+				s.addInspectorFileRefs(batchPayload.refs())
+			}
+			if m.Item("复制路径").Disabled(len(absPaths) == 0).Chosen() {
+				c.WriteClipboard(fileManagerJoinClipboardPaths(absPaths))
+				s.setToast(fmt.Sprintf("已复制 %d 条路径", len(absPaths)))
+			}
+			if m.Item("复制相对路径").Disabled(len(allPaths) == 0).Chosen() {
+				c.WriteClipboard(fileManagerJoinClipboardPaths(allPaths))
+				s.setToast(fmt.Sprintf("已复制 %d 条相对路径", len(allPaths)))
+			}
+			if _, ok := fileOpsClient(s); ok {
+				m.Separator()
+				if m.Item(trashActionLabel() + "…").Danger().Disabled(hasProtected || len(actionablePaths) == 0).Shortcut(ui.Cmd, ui.KeyBackspace).Chosen() {
+					openFileManagerBatchTrashDialog(s, actionablePaths)
+				}
+			}
+			return
+		}
+
+		payload, canReference := fileTreeDragReference(s, threadID, entry)
 		abs := fileManagerWorkspacePath(s, threadID, entry.Path)
 		root := turnFilesWorkDir(s, threadID)
 		if ps := getGitPaneState(s); ps != nil && ps.threadID == threadID {
@@ -206,7 +248,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 				}
 			}
 			if m.Item("重命名…").Chosen() {
-				openFileManagerRenameDialog(s, entry.Path)
+				s.startFileManagerInlineRename(entry.Path)
 			}
 			if !entry.IsDir {
 				if m.Item("复制一份").Chosen() {

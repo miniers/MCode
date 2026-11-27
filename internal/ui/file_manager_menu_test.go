@@ -135,7 +135,10 @@ func TestFileManagerRenameUpdatesTabPath(t *testing.T) {
 	if err := tt.ChooseMenuItem("重命名…"); err != nil {
 		t.Fatalf("choose rename failed: %v", err)
 	}
-	waitFor(t, tt, func() bool { return fileManagerOpsOpen(s) && tt.HasText("重命名") })
+	waitFor(t, tt, func() bool {
+		_, ok := tt.AccessByRole(ui.RoleTextField, "重命名")
+		return ok
+	})
 
 	tt.Command("selectAll")
 	tt.Type("c.go")
