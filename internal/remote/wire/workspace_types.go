@@ -15,6 +15,7 @@ type RemoteFileEntry struct {
 	Path      string              `json:"path"`
 	Kind      RemoteFileEntryKind `json:"kind"`
 	Size      int64               `json:"size"`
+	ModTime   int64               `json:"modTime,omitempty"`
 	Ignored   bool                `json:"ignored"`
 	Protected bool                `json:"protected"`
 }

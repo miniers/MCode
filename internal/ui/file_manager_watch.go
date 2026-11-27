@@ -503,7 +503,7 @@ var fileTreeChangedRowsBuilds atomic.Int64
 // fileTreeChangedRowsLocked 从 Git 改动列表生成只包含改动文件与必要父目录的树。
 // 数据变化时默认展开全部目录；用户手动收起的目录在数据不变时保持收起。
 func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children map[string][]string, entries map[string]FileEntry) {
-	if tree.changedCacheOK && tree.changedCacheRev == tree.gitRev {
+	if tree.changedCacheOK && tree.changedCacheRev == tree.gitRev && tree.changedCacheSort == tree.sort {
 		return tree.changedRoots, tree.changedChildren, tree.changedEntries
 	}
 	fileTreeChangedRowsBuilds.Add(1)
@@ -528,9 +528,13 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 
 	perDir := make(map[string][]FileEntry)
 	for _, filePath := range paths {
-		entries[filePath] = FileEntry{Name: path.Base(filePath), Path: filePath}
+		entry := FileEntry{Name: path.Base(filePath), Path: filePath}
+		if cached, ok := tree.entries[filePath]; ok && !cached.IsDir && tree.git[filePath].Status != "D" {
+			entry = cached
+		}
+		entries[filePath] = entry
 		parent := fileManagerParentPath(filePath)
-		perDir[parent] = append(perDir[parent], entries[filePath])
+		perDir[parent] = append(perDir[parent], entry)
 	}
 	for dir := range dirs {
 		if dir == "" {
@@ -541,7 +545,7 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 		perDir[parent] = append(perDir[parent], entries[dir])
 	}
 	for dir, list := range perDir {
-		fileTreeSortEntries(list)
+		fileTreeSortEntries(list, tree.sort)
 		kids := make([]string, 0, len(list))
 		for _, entry := range list {
 			kids = append(kids, entry.Path)
@@ -563,6 +567,7 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 	tree.changedChildren = children
 	tree.changedEntries = entries
 	tree.changedCacheRev = tree.gitRev
+	tree.changedCacheSort = tree.sort
 	tree.changedCacheOK = true
 	fileTreeBumpOutlineGenLocked(tree)
 	return tree.changedRoots, tree.changedChildren, tree.changedEntries

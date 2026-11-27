@@ -606,6 +606,46 @@ func (s *chatState) activateFileManagerTab(path string) {
 	s.invalidate()
 }
 
+// moveFileManagerTabLocked 在持有 fileManagerMu 时把下标 from 的 tab 移到下标 to。
+// 越界的 to 会夹紧到有效范围，越界的 from 或原地移动直接忽略。
+// 移动后激活标签、固定/临时状态及拆分两栏归属保持不变。
+func (st *fileManagerState) moveFileManagerTabLocked(from, to int) bool {
+	n := len(st.tabs)
+	if from < 0 || from >= n {
+		return false
+	}
+	if to < 0 {
+		to = 0
+	} else if to >= n {
+		to = n - 1
+	}
+	if from == to {
+		return false
+	}
+	tab := st.tabs[from]
+	if from < to {
+		copy(st.tabs[from:to], st.tabs[from+1:to+1])
+	} else {
+		copy(st.tabs[to+1:from+1], st.tabs[to:from])
+	}
+	st.tabs[to] = tab
+	return true
+}
+
+// moveFileManagerTab 把下标 from 的标签页移到下标 to。
+func (s *chatState) moveFileManagerTab(from, to int) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	moved := st.moveFileManagerTabLocked(from, to)
+	fileManagerMu.Unlock()
+	if moved {
+		s.invalidate()
+	}
+}
+
 // splitFileManager 把当前 tab 固定到第一栏，第二栏取列表里相邻的另一个文件；
 // 只有一个 tab 时两栏显示同一个文件。
 func (s *chatState) splitFileManager() {

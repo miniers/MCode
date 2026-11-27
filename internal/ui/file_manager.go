@@ -56,6 +56,7 @@ type fileManagerState struct {
 	// 预览 tab 与拆分状态：拆分时第一栏固定为 splitAnchor，第二栏为 splitSide；
 	// splitVertical 为 true 表示上下分栏，false（默认）表示左右分栏，取消拆分后保留这个偏好。
 	tabs          []*fileManagerTab
+	tabsScroll    ui.ScrollState
 	active        string
 	showList      bool
 	splitAnchor   string
@@ -209,6 +210,7 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 	st.showList = true
 	st.err = ""
 	st.tabs = nil
+	st.tabsScroll = ui.ScrollState{}
 	st.active = ""
 	st.splitAnchor = ""
 	st.splitSide = ""
@@ -222,9 +224,20 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 	st.searchSelected = 0
 	st.searchReveal = false
 	st.searching = false
-	// 新会话的树从空缓存开始；展开偏好等该会话自己的 InspectorPreference 恢复。
+	// 新会话的树从空缓存开始；若刚由会话偏好初始化且未加载数据，保留其恢复字段与排序设置。
+	var seeded *fileTreeState
+	if prev == "" && threadID != "" {
+		seeded = st.tree
+	}
 	st.tree = nil
-	ensureFileTreeLocked(st)
+	tree := ensureFileTreeLocked(st)
+	if seeded != nil {
+		tree.restoreExpanded = seeded.restoreExpanded
+		tree.restoreActive = seeded.restoreActive
+		tree.restoreAnchor = seeded.restoreAnchor
+		tree.anchor = seeded.anchor
+		tree.sort = seeded.sort
+	}
 	modalDragReset(modalDragFileManagerOp)
 }
 
@@ -493,6 +506,8 @@ type fileManagerRowProps struct {
 	protected      bool
 	isDir          bool
 	inTree         bool
+	deleted        bool
+	sortField      fileSortField
 	selected       bool
 	focused        bool
 	scrollIntoView bool
@@ -581,33 +596,72 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			renderName(true)
 		}
 
-		if props.hasGit {
-			renderFileTreeGitTag(c, "file-tree-git-"+props.entry.Path, props.git)
+		metaText := ""
+		if props.inTree && !props.isDir && !props.entry.IsSymlink && !props.deleted {
+			if props.sortField == fileSortModTime {
+				if !props.entry.ModTime.IsZero() {
+					metaText = formatRelativeTime(props.entry.ModTime)
+				}
+			} else {
+				metaText = formatFileSize(props.entry.Size)
+			}
+		}
+
+		if metaText != "" || props.hasGit {
+			trailing := ui.Row(c.Key(props.key + "-trailing")).
+				Shrink(0).
+				AlignItems(ui.Center).
+				Gap(Space1)
+			if showMore {
+				trailing.Opacity(0)
+			}
+			trailing.Children(func() {
+				if metaText != "" {
+					ui.Text(c, metaText).
+						FontSize(uiFont(TypeCaption)).
+						FontFeatures("tnum").
+						TextColor(ThemeSecondaryText(c)).
+						SingleLine().
+						Shrink(0)
+				}
+				if props.hasGit {
+					renderFileTreeGitTag(c, "file-tree-git-"+props.entry.Path, props.git)
+				}
+			})
 		}
 
 		// 菜单选中项只交给下一帧仍构建的按钮，指针移进菜单后行不再悬停，所以常驻构建并用 Hidden 隐藏。
-		more := ui.ButtonBase(c.Key(props.key+"-more")).
-			Label("更多操作").
-			Tooltip("更多操作").
-			Hidden(!showMore).
-			KeepFocus().
-			Radius(RadiusXS).
-			Padding(Hairline, Space1).
-			Cursor(ui.CursorPointer)
-		focusRing(c, more)
-		moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
-		more.Scale(moreScale, moreScale)
-		if more.Hovered() {
-			more.Background(ThemeSelected(c))
-		}
-		if more.Pressed() {
-			morePressed = true
-		}
-		more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
-		more.Children(func() {
-			ui.Icon(c, IconMoreHorizontal()).
-				Size(IconSM, IconSM).
-				TextColor(ThemeSecondaryText(c))
+		// 按钮叠在行尾，避免悬停时行宽与文件名截断位置跳动。
+		moreWrap := ui.Row(c.Key(props.key + "-more-wrap")).
+			Absolute().
+			Right(Space2).
+			Top(0).
+			Bottom(0).
+			AlignItems(ui.Center).
+			Hidden(!showMore)
+		moreWrap.Children(func() {
+			more := ui.ButtonBase(c.Key(props.key+"-more")).
+				Label("更多操作").
+				Tooltip("更多操作").
+				KeepFocus().
+				Radius(RadiusXS).
+				Padding(Hairline, Space1).
+				Cursor(ui.CursorPointer)
+			focusRing(c, more)
+			moreScale := motionPressScale(c, more, "button-press-scale", more.Pressed())
+			more.Scale(moreScale, moreScale)
+			if more.Hovered() {
+				more.Background(ThemeSelected(c))
+			}
+			if more.Pressed() {
+				morePressed = true
+			}
+			more.Menu(fileManagerEntryMenu(c, s, props.threadID, props.entry))
+			more.Children(func() {
+				ui.Icon(c, IconMoreHorizontal()).
+					Size(IconSM, IconSM).
+					TextColor(ThemeSecondaryText(c))
+			})
 		})
 
 		if !props.protected && !morePressed && props.onOpen != nil {

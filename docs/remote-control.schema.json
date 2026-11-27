@@ -9979,6 +9979,9 @@
         "size": {
           "type": "integer"
         },
+        "modTime": {
+          "type": "integer"
+        },
         "ignored": {
           "type": "boolean"
         },

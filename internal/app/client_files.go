@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"mcode/internal/projctx"
 	"mcode/internal/remote/wire"
@@ -37,11 +38,16 @@ func (c *Client) SearchFileEntriesIn(ctx context.Context, threadID, dir, query s
 	}
 	matches := make([]mcodeui.FileMatch, len(res.Entries))
 	for i, entry := range res.Entries {
+		var modTime time.Time
+		if entry.ModTime != 0 {
+			modTime = time.UnixMilli(entry.ModTime)
+		}
 		matches[i] = mcodeui.FileMatch{
 			Name:    entry.Name,
 			Path:    entry.Path,
 			IsDir:   entry.Kind == wire.RemoteFileEntryKindDirectory,
 			Ignored: entry.Ignored,
+			ModTime: modTime,
 		}
 	}
 	return mcodeui.FileSearchResult{Entries: matches, Truncated: res.Truncated}, nil
@@ -58,12 +64,17 @@ func (c *Client) FilesList(ctx context.Context, threadID, subpath string) (mcode
 	}
 	entries := make([]mcodeui.FileEntry, len(res.Entries))
 	for i, entry := range res.Entries {
+		var modTime time.Time
+		if entry.ModTime != 0 {
+			modTime = time.UnixMilli(entry.ModTime)
+		}
 		entries[i] = mcodeui.FileEntry{
 			Name:      entry.Name,
 			Path:      entry.Path,
 			IsDir:     entry.Kind == wire.RemoteFileEntryKindDirectory,
 			IsSymlink: entry.Kind == wire.RemoteFileEntryKindSymlink,
 			Size:      entry.Size,
+			ModTime:   modTime,
 			Ignored:   entry.Ignored,
 			Protected: entry.Protected,
 		}

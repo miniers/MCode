@@ -408,6 +408,8 @@ func IconByName(name string) *ui.SVG {
 		return iconBookOpenText
 	case "send":
 		return iconSend
+	case "sort":
+		return iconSort
 
 	default:
 		// "provider-<id>" 转交 ProviderIcon 解析
@@ -533,6 +535,7 @@ const (
 	svgPathArtifactWhiteboard    = `<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/>`
 	svgPathArtifactSheets        = `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 3v18"/>`
 	svgPathArtifactMotion        = `<polygon points="6 3 20 12 6 21 6 3"/>`
+	svgPathSort                  = `<path d="M3 6h14"/><path d="M3 12h10"/><path d="M3 18h6"/><path d="m17 15 3 3 3-3"/><path d="M20 9v9"/>`
 )
 
 var (
@@ -683,6 +686,7 @@ var (
 	iconArtifactWhiteboard    = parseLucideSVG(svgPathArtifactWhiteboard)
 	iconArtifactSheets        = parseLucideSVG(svgPathArtifactSheets)
 	iconArtifactMotion        = parseLucideSVG(svgPathArtifactMotion)
+	iconSort                  = parseLucideSVG(svgPathSort)
 )
 
 // 追加各图标快捷导出函数
@@ -773,6 +777,7 @@ func IconUserRoundCheck() *ui.SVG        { return iconUserRoundCheck }
 func IconHighlighter() *ui.SVG           { return iconHighlighter }
 func IconArrowUpRight() *ui.SVG          { return iconArrowUpRight }
 func IconBookOpenText() *ui.SVG          { return iconBookOpenText }
+func IconSort() *ui.SVG                  { return iconSort }
 
 // ProviderIcon 按 Provider ID 返回对应的 Agent 图标。
 // custom- 前缀的自定义端点回落到 globe，其余未知 ID 回落到 brain。

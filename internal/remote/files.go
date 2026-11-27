@@ -325,11 +325,13 @@ func (b *MemoryBackend) FilesList(ctx context.Context, p wire.RemoteFilesListPar
 			}
 			isWithin := err == nil && (targetCanonical == root || strings.HasPrefix(targetCanonical, root+string(filepath.Separator)))
 			isProt := !isWithin
+			modTime := lfi.ModTime().UnixMilli()
 			rawEntries = append(rawEntries, wire.RemoteFileEntry{
 				Name:      name,
 				Path:      itemRelPath,
 				Kind:      wire.RemoteFileEntryKindSymlink,
 				Size:      lfi.Size(),
+				ModTime:   modTime,
 				Ignored:   false,
 				Protected: isProt,
 			})
@@ -339,6 +341,7 @@ func (b *MemoryBackend) FilesList(ctx context.Context, p wire.RemoteFilesListPar
 				Path:      itemRelPath,
 				Kind:      wire.RemoteFileEntryKindDirectory,
 				Size:      0,
+				ModTime:   lfi.ModTime().UnixMilli(),
 				Ignored:   false,
 				Protected: false,
 			})
@@ -348,6 +351,7 @@ func (b *MemoryBackend) FilesList(ctx context.Context, p wire.RemoteFilesListPar
 				Path:      itemRelPath,
 				Kind:      wire.RemoteFileEntryKindFile,
 				Size:      lfi.Size(),
+				ModTime:   lfi.ModTime().UnixMilli(),
 				Ignored:   false,
 				Protected: false,
 			})
@@ -727,6 +731,7 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 					Path:      rel,
 					Kind:      kind,
 					Size:      size,
+					ModTime:   lfi.ModTime().UnixMilli(),
 					Ignored:   false,
 					Protected: false,
 				},

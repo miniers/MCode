@@ -503,3 +503,118 @@ func TestFileManagerMergedHeader(t *testing.T) {
 		return tt.HasText("dir1/a.go") && tt.HasText("sub/b.go")
 	})
 }
+
+func TestFileManagerTabMove(t *testing.T) {
+	st := &fileManagerState{
+		tabs: []*fileManagerTab{
+			{path: "a.txt"},
+			{path: "b.txt", temporary: true},
+			{path: "c.txt"},
+		},
+		active:      "b.txt",
+		splitAnchor: "a.txt",
+		splitSide:   "b.txt",
+	}
+	tabOrder := func() []string {
+		out := make([]string, len(st.tabs))
+		for i, tab := range st.tabs {
+			out[i] = tab.path
+		}
+		return out
+	}
+
+	// 后移：0 -> 2
+	if !st.moveFileManagerTabLocked(0, 2) {
+		t.Fatal("0 -> 2 应返回 true")
+	}
+	if got := tabOrder(); len(got) != 3 || got[0] != "b.txt" || got[1] != "c.txt" || got[2] != "a.txt" {
+		t.Fatalf("后移后顺序不符：got %v", got)
+	}
+	if st.active != "b.txt" || !st.tabs[0].temporary || st.splitAnchor != "a.txt" || st.splitSide != "b.txt" {
+		t.Fatalf("移动不应改变激活标签、临时状态或拆分归属：active=%q temp=%v anchor=%q side=%q",
+			st.active, st.tabs[0].temporary, st.splitAnchor, st.splitSide)
+	}
+
+	// 前移：2 -> 0
+	if !st.moveFileManagerTabLocked(2, 0) {
+		t.Fatal("2 -> 0 应返回 true")
+	}
+	if got := tabOrder(); len(got) != 3 || got[0] != "a.txt" || got[1] != "b.txt" || got[2] != "c.txt" {
+		t.Fatalf("前移后顺序不符：got %v", got)
+	}
+
+	// 原地不动
+	if st.moveFileManagerTabLocked(1, 1) {
+		t.Fatal("原地移动应返回 false")
+	}
+
+	// 越界下标：from 越界应忽略，to 越界应夹紧到首尾
+	if st.moveFileManagerTabLocked(-1, 1) || st.moveFileManagerTabLocked(3, 1) {
+		t.Fatal("from 越界应返回 false")
+	}
+	if !st.moveFileManagerTabLocked(0, 99) {
+		t.Fatal("to 超出末尾应夹紧并移动")
+	}
+	if got := tabOrder(); got[0] != "b.txt" || got[1] != "c.txt" || got[2] != "a.txt" {
+		t.Fatalf("to 夹紧到末尾后顺序不符：got %v", got)
+	}
+	if !st.moveFileManagerTabLocked(2, -5) {
+		t.Fatal("to 小于 0 应夹紧到 0 并移动")
+	}
+	if got := tabOrder(); got[0] != "a.txt" || got[1] != "b.txt" || got[2] != "c.txt" {
+		t.Fatalf("to 夹紧到 0 后顺序不符：got %v", got)
+	}
+	if st.active != "b.txt" {
+		t.Fatalf("多次移动后激活标签应不变，got %q", st.active)
+	}
+}
+
+func TestFileManagerTabDragReorder(t *testing.T) {
+	setAppReduceMotion(t, false)
+	fake, s, tt := openFileManagerForTest(t)
+	fake.SetFileContents(map[string]FileContent{
+		"a.txt": {Path: "a.txt", Kind: "text", Text: "hello", TotalSize: 5},
+		"b.txt": {Path: "b.txt", Kind: "text", Text: "world", TotalSize: 5},
+		"c.txt": {Path: "c.txt", Kind: "text", Text: "again", TotalSize: 5},
+	})
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") })
+
+	for _, path := range []string{"a.txt", "b.txt", "c.txt"} {
+		openTestFileManagerFile(t, s, path, true)
+	}
+	waitForFileManagerText(t, tt, s, "c.txt", "again")
+	tt.Advance(DurBase + time.Second)
+	tt.Frame()
+
+	from, ok := tt.Find("a.txt")
+	if !ok {
+		t.Fatalf("找不到标签 a.txt，当前文本 %v", tt.Texts())
+	}
+	to, ok := tt.Find("c.txt")
+	if !ok {
+		t.Fatalf("找不到标签 c.txt，当前文本 %v", tt.Texts())
+	}
+
+	x, y := from.X+from.W/2, from.Y+from.H/2
+	tx, ty := to.X+to.W*0.75, to.Y+to.H/2
+	tt.Press(x, y)
+	for step := 1; step <= 4; step++ {
+		fraction := float32(step) / 4
+		tt.Move(x+(tx-x)*fraction, y+(ty-y)*fraction)
+	}
+	tt.Release(tx, ty)
+	tt.Frame()
+
+	paths, active, _, _, _, _ := fileManagerTabsForTest(s)
+	if len(paths) != 3 || paths[0] != "b.txt" || paths[1] != "c.txt" || paths[2] != "a.txt" {
+		t.Fatalf("拖动首个标签到末尾后顺序不符：got %v", paths)
+	}
+	if active != "c.txt" {
+		t.Fatalf("拖动重排后激活标签应不变，got %q", active)
+	}
+
+	tt.Advance(DurBase + time.Second)
+	if tt.FramePending() {
+		t.Fatal("标签重排动画结束后不应继续请求下一帧")
+	}
+}

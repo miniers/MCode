@@ -98,6 +98,62 @@ func (snap fileManagerPanelSnapshot) activeTab() (fileManagerTabSnapshot, bool) 
 // fileManagerTabMaxWidth 是单个 tab 名的最大宽度。
 const fileManagerTabMaxWidth float32 = 140
 
+const (
+	fileManagerTabDragOpacity    float32 = 0.4
+	fileManagerTabDragEdgeScroll float32 = 32
+	fileManagerTabInsertLineW    float32 = 2
+)
+
+type fileManagerTabDragPayload struct {
+	owner *chatState
+	path  string
+}
+
+func fileManagerTabMoveTransition(c *ui.Context) ui.ElementTransition {
+	list := motionListItem(c)
+	if reduceMotion(c) {
+		return list
+	}
+	return motionTransition(c, ui.ElementTransition{
+		Duration: list.Duration,
+		Ease:     list.Ease,
+		Position: true,
+	})
+}
+
+func fileManagerTabInsertIndex(wrappers []ui.Element, pointerX float32) int {
+	for i, w := range wrappers {
+		r := w.LayoutBounds()
+		if r.W <= 0 {
+			continue
+		}
+		if pointerX < r.X+r.W/2 {
+			return i
+		}
+	}
+	return len(wrappers)
+}
+
+func fileManagerTabInsertLineX(wrappers []ui.Element, insertIdx int, scrollRect ui.Rect) float32 {
+	if len(wrappers) == 0 {
+		return scrollRect.X + fileManagerTabInsertLineW/2
+	}
+	var x float32
+	switch {
+	case insertIdx <= 0:
+		x = wrappers[0].LayoutBounds().X
+	case insertIdx >= len(wrappers):
+		last := wrappers[len(wrappers)-1].LayoutBounds()
+		x = last.X + last.W
+	default:
+		prev := wrappers[insertIdx-1].LayoutBounds()
+		next := wrappers[insertIdx].LayoutBounds()
+		x = (prev.X + prev.W + next.X) / 2
+	}
+	half := fileManagerTabInsertLineW / 2
+	return min(max(x, scrollRect.X+half), scrollRect.X+scrollRect.W-half)
+}
+
 // renderFileManagerContent 渲染内容区：tab 栏与预览。窄栏导航由返回按钮切换。
 func renderFileManagerContent(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, narrow, navOpen bool) {
 	ui.Column(c.Key("file-manager-content")).
@@ -157,6 +213,7 @@ func renderFileManagerNavToggle(c *ui.Context, s *chatState, narrow, navOpen boo
 
 // renderFileManagerTabBar 渲染标签栏：导航切换、可横滚标签、右侧图标动作与分栏按钮。
 func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, narrow, navOpen bool) {
+	st := getFileManagerState(s)
 	activeTab, hasActive := snap.activeTab()
 	ui.Row(c.Key("file-manager-tab-bar")).
 		FillWidth().
@@ -170,21 +227,82 @@ func renderFileManagerTabBar(c *ui.Context, s *chatState, snap fileManagerPanelS
 			renderFileManagerNavToggle(c, s, narrow, navOpen)
 
 			// tab 多了就整行左右滑动，而不是把每个 tab 压扁。
-			ui.ScrollHorizontal(c.Key("file-manager-tabs-scroll")).
+			tabsScroll := ui.ScrollHorizontal(c.Key("file-manager-tabs-scroll")).
 				Grow(1).
 				Height(RowHeightCompact).
 				MinWidth(0).
-				ClipX().
-				Children(func() {
-					ui.Row(c.Key("file-manager-tabs")).
-						Gap(Space0).
-						AlignItems(ui.Center).
-						Children(func() {
-							for _, tab := range snap.tabs {
-								renderFileManagerTabItem(c, s, snap, tab)
+				ClipX()
+			wrappers := make([]ui.Element, 0, len(snap.tabs))
+			tabsScroll.Children(func() {
+				ui.Row(c.Key("file-manager-tabs")).
+					Gap(Space0).
+					AlignItems(ui.Center).
+					Children(func() {
+						for _, tab := range snap.tabs {
+							wrappers = append(wrappers, renderFileManagerTabItem(c, s, snap, tab))
+						}
+					})
+			})
+			overPayload, isOver := ui.DragOver[fileManagerTabDragPayload](tabsScroll)
+			dropPayload, isDrop := ui.Drop[fileManagerTabDragPayload](tabsScroll)
+			overValid := isOver && overPayload.owner == s
+			dropValid := isDrop && dropPayload.owner == s
+			if (overValid || dropValid) && len(wrappers) > 0 {
+				localX, _, _ := tabsScroll.PointerPosition()
+				pointerX, _ := tabsScroll.LocalToWindow(localX, 0)
+				insertIdx := fileManagerTabInsertIndex(wrappers, pointerX)
+				dragPath := overPayload.path
+				if dropValid {
+					dragPath = dropPayload.path
+				}
+				fromIdx := -1
+				for i, tab := range snap.tabs {
+					if tab.path == dragPath {
+						fromIdx = i
+						break
+					}
+				}
+				if dropValid && fromIdx >= 0 {
+					toIdx := insertIdx
+					if insertIdx > fromIdx {
+						toIdx = insertIdx - 1
+					}
+					s.moveFileManagerTab(fromIdx, toIdx)
+				} else if overValid {
+					if st != nil && st.tabsScroll.MaxX > 0 {
+						scrollRect := tabsScroll.LayoutBounds()
+						if scrollRect.W > 0 {
+							edge := min(fileManagerTabDragEdgeScroll, scrollRect.W/4)
+							var dx float32
+							switch {
+							case localX < edge && st.tabsScroll.X > 0:
+								dx = -(edge - localX) / 2
+							case scrollRect.W-localX < edge && st.tabsScroll.X < st.tabsScroll.MaxX:
+								dx = (edge - (scrollRect.W - localX)) / 2
 							}
+							if dx != 0 {
+								nextX := min(max(st.tabsScroll.X+dx, 0), st.tabsScroll.MaxX)
+								if nextX != st.tabsScroll.X {
+									st.tabsScroll.X = nextX
+									c.Invalidate()
+								}
+							}
+						}
+					}
+					if fromIdx >= 0 && insertIdx != fromIdx && insertIdx != fromIdx+1 {
+						accent := ThemeAccent(c)
+						tabsScroll.DrawOver(func(p *ui.Painter, r ui.Rect) {
+							lineX := fileManagerTabInsertLineX(wrappers, insertIdx, r)
+							y := r.Y + Space0
+							h := max(r.H-Space0*2, 0)
+							p.Fill(ui.Rect{X: lineX - fileManagerTabInsertLineW/2, Y: y, W: fileManagerTabInsertLineW, H: h}, accent, fileManagerTabInsertLineW/2)
 						})
-				})
+					}
+				}
+			}
+			if st != nil {
+				tabsScroll.TrackScroll(&st.tabsScroll)
+			}
 
 			if hasActive {
 				renderFileManagerHeaderActions(c, s, snap, activeTab, narrow)
@@ -334,9 +452,9 @@ func renderFileManagerHeaderActions(c *ui.Context, s *chatState, snap fileManage
 		})
 }
 
-// renderFileManagerTabItem 渲染单个 tab：单击激活，双击固定，× 关闭。
+// renderFileManagerTabItem 渲染单个 tab：单击激活，双击固定，× 关闭，左右拖动重排。
 // 临时 tab 的文字更淡；拆分时另一栏可见的 tab 用悬停底色标出来。
-func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, tab fileManagerTabSnapshot) {
+func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanelSnapshot, tab fileManagerTabSnapshot) ui.Element {
 	name := fileManagerTabName(tab.path)
 	tooltip := tab.path
 	if tab.temporary {
@@ -349,6 +467,11 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 	// 关闭 ×：当前 tab 一直显示，其他 tab 只在悬停时显示；
 	// 隐藏时仍然占位（Invisible），避免悬停时 tab 宽度跳动。
 	wrapper := ui.Row(c.Key("file-manager-tab-wrapper-" + tab.path)).Shrink(0)
+	wrapper.Drag(fileManagerTabDragPayload{owner: s, path: tab.path})
+	wrapper.Transition(fileManagerTabMoveTransition(c))
+	if wrapper.Dragging() {
+		wrapper.Opacity(fileManagerTabDragOpacity)
+	}
 	wrapper.Children(func() {
 		showClose := active || wrapper.Hovered()
 		closeClicked := false
@@ -426,6 +549,7 @@ func renderFileManagerTabItem(c *ui.Context, s *chatState, snap fileManagerPanel
 			s.activateFileManagerTab(tab.path)
 		}
 	})
+	return wrapper
 }
 
 // renderFileManagerPanes 渲染预览内容区：未拆分或宽度不足时只有活动文件一栏，

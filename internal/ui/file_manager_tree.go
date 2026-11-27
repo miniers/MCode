@@ -68,10 +68,13 @@ type fileTreeState struct {
 	changedSelected  int
 	changedSelection ui.Selection[string]
 	changedCacheRev  uint64
+	changedCacheSort fileTreeSort
 	changedCacheOK   bool
 	changedRoots     []string
 	changedChildren  map[string][]string
 	changedEntries   map[string]FileEntry
+
+	sort fileTreeSort
 }
 
 // ensureFileTreeLocked 初始化树状态；调用方持 fileManagerMu。
@@ -127,6 +130,11 @@ func fileTreeSeedPreference(st *fileManagerState, pref InspectorPreference) {
 	tree.restoreActive = pref.FileActive
 	tree.restoreAnchor = pref.FileAnchor
 	tree.anchor = pref.FileAnchor
+	tree.sort = fileTreeSort{
+		Field:     normalizeFileSortField(pref.FileSort),
+		Desc:      pref.FileSortDesc,
+		DirsMixed: pref.FileDirsMixed,
+	}
 }
 
 // fileTreeAncestors 返回从根到 dir 的所有目录路径，根为空串。
@@ -151,21 +159,6 @@ func fileTreeAncestors(dir string) []string {
 		paths = append(paths, current)
 	}
 	return paths
-}
-
-// fileTreeSortEntries 目录在前、文件在后，同类按名称排序，排序稳定。
-func fileTreeSortEntries(entries []FileEntry) {
-	sort.SliceStable(entries, func(i, j int) bool {
-		a, b := entries[i], entries[j]
-		if a.IsDir != b.IsDir {
-			return a.IsDir
-		}
-		an, bn := strings.ToLower(a.Name), strings.ToLower(b.Name)
-		if an != bn {
-			return an < bn
-		}
-		return a.Name < b.Name
-	})
 }
 
 // fileTreeLoadDir 异步加载一个目录；同一目录正在加载时不重复请求，
@@ -243,7 +236,7 @@ func fileTreeApplyListingLocked(st *fileManagerState, tree *fileTreeState, dir s
 		}
 		entries = append(entries, entry)
 	}
-	fileTreeSortEntries(entries)
+	fileTreeSortEntries(entries, tree.sort)
 
 	kids := make([]string, 0, len(entries))
 	next := make(map[string]bool, len(entries))
@@ -686,16 +679,19 @@ func fileTreeOpenChanged(before map[string]struct{}, tree *fileTreeState) (bool,
 	return changed, opened
 }
 
-// fileTreePreferenceLocked 汇总需要落盘的树状态：展开路径、活动文件与滚动锚点。
+// fileTreePreferenceLocked 汇总需要落盘的树状态：展开路径、活动文件、滚动锚点与排序设置。
 // 还没加载的恢复展开路径也一并保留，避免首次切换会话时被空集合覆盖。
-func fileTreePreferenceLocked(st *fileManagerState) (expanded []string, active, anchor string) {
+func fileTreePreferenceLocked(st *fileManagerState) (expanded []string, active, anchor, fileSort string, fileSortDesc, fileDirsMixed bool) {
 	if st == nil {
-		return nil, "", ""
+		return nil, "", "", "", false, false
 	}
 	active = st.active
 	if st.tree == nil {
-		return nil, active, ""
+		return nil, active, "", "", false, false
 	}
+	fileSort = string(st.tree.sort.Field)
+	fileSortDesc = st.tree.sort.Desc
+	fileDirsMixed = st.tree.sort.DirsMixed
 	anchor = st.tree.restoreAnchor
 	seen := make(map[string]bool, st.tree.outline.Open.Len()+len(st.tree.restoreExpanded))
 	for path := range st.tree.outline.Open.All() {
@@ -716,7 +712,7 @@ func fileTreePreferenceLocked(st *fileManagerState) (expanded []string, active, 
 			expanded = append(expanded, path)
 		}
 	}
-	return expanded, active, anchor
+	return expanded, active, anchor, fileSort, fileSortDesc, fileDirsMixed
 }
 
 // renderFileManagerNavigation 渲染树导航：顶部搜索与新建，下面按模式显示树或搜索结果。
@@ -867,6 +863,32 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 					}
 					ui.Icon(c, IconFileDiff()).Size(IconSM, IconSM).TextColor(color)
 				})
+
+				sortCfg := fileTreeCurrentSort(getFileManagerState(s))
+				sortActive := !sortCfg.isDefault()
+				sortBtn := ui.ButtonBase(c.Key("file-manager-sort")).
+					Label("排序").
+					Tooltip("排序").
+					Size(ControlSM, ControlSM).
+					Radius(RadiusSM).
+					Center().
+					Shrink(0)
+				focusRing(c, sortBtn)
+				sortBtnScale := motionPressScale(c, sortBtn, "button-press-scale", sortBtn.Pressed())
+				sortBtn.Scale(sortBtnScale, sortBtnScale)
+				if sortActive {
+					sortBtn.Background(ThemeSelected(c))
+				} else if sortBtn.Hovered() {
+					sortBtn.Background(ThemeHover(c))
+				}
+				sortBtn.Menu(fileManagerSortMenu(s, sortCfg))
+				sortBtn.Children(func() {
+					color := ThemeSecondaryText(c)
+					if sortActive {
+						color = ThemeAccent(c)
+					}
+					ui.Icon(c, IconSort()).Size(IconSM, IconSM).TextColor(color)
+				})
 			}
 		})
 }
@@ -942,6 +964,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 
 	fileManagerMu.Lock()
 	tree := ensureFileTreeLocked(st)
+	sortField := tree.sort.Field
 	if tree.outlineGen == 0 {
 		tree.outlineGen = 1
 	}
@@ -1092,6 +1115,8 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 					protected: entry.Protected,
 					isDir:     entry.IsDir,
 					inTree:    true,
+					deleted:   deleted,
+					sortField: sortField,
 					selected:  rowSelected,
 					focused:   rowFocused,
 					hasGit:    hasStatus,

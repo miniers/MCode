@@ -587,6 +587,7 @@ type FileMatch struct {
 	Path    string
 	IsDir   bool
 	Ignored bool // 被 .gitignore 忽略
+	ModTime time.Time
 }
 
 // FileSearchResult 是工作区文件搜索的结果及截断状态。
@@ -612,6 +613,7 @@ type FileEntry struct {
 	IsDir     bool
 	IsSymlink bool
 	Size      int64
+	ModTime   time.Time
 	Ignored   bool
 	Protected bool
 }

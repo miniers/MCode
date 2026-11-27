@@ -132,6 +132,63 @@ func TestFilesList_SuccessAndTruncation(t *testing.T) {
 	if len(listRes.Entries) != 1000 {
 		t.Errorf("expected exactly 1000 entries, got %d", len(listRes.Entries))
 	}
+	firstFile := listRes.Entries[0]
+	fi, err := os.Stat(filepath.Join(truncDir, firstFile.Name))
+	if err != nil {
+		t.Fatalf("stat %s: %v", firstFile.Name, err)
+	}
+	if firstFile.ModTime <= 0 || firstFile.ModTime != fi.ModTime().UnixMilli() {
+		t.Errorf("expected ModTime=%d (>0), got %d", fi.ModTime().UnixMilli(), firstFile.ModTime)
+	}
+}
+
+func TestFilesListModTime(t *testing.T) {
+	ctx := context.Background()
+	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)
+
+	dirPath := filepath.Join(workDir, "sub_dir")
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(workDir, "note.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(workDir, "note.link")
+	if err := os.Symlink(filePath, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := b.FilesList(ctx, wire.RemoteFilesListParams{ThreadID: threadID})
+	if err != nil {
+		t.Fatalf("FilesList error: %v", err)
+	}
+
+	byName := make(map[string]wire.RemoteFileEntry, len(res.Entries))
+	for _, entry := range res.Entries {
+		byName[entry.Name] = entry
+	}
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "sub_dir", path: dirPath},
+		{name: "note.txt", path: filePath},
+		{name: "note.link", path: linkPath},
+	} {
+		entry, ok := byName[tc.name]
+		if !ok {
+			t.Fatalf("missing entry %s", tc.name)
+		}
+		lfi, err := os.Lstat(tc.path)
+		if err != nil {
+			t.Fatalf("lstat %s: %v", tc.name, err)
+		}
+		want := lfi.ModTime().UnixMilli()
+		if entry.ModTime <= 0 || entry.ModTime != want {
+			t.Errorf("%s ModTime = %d, want %d (>0)", tc.name, entry.ModTime, want)
+		}
+	}
 }
 
 // 2. files.read 文本 512KB 分块、图片 256KB 分块、图片超 8MB 报错及 UTF-8 边界截断回退
