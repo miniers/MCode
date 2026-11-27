@@ -157,15 +157,12 @@ func renderUserMessageAttachments(c *ui.Context, s *chatState, m Message) {
 					// 点击看大图：先用已加载的缩略图顶上，原图加载完成后由浮层替换。
 					thumbSrc := thumb
 					img.Cursor(ui.CursorPointer).OnClick(func() {
-						s.mu.Lock()
-						s.imagePreview = &imagePreviewState{
+						setImagePreview(s, &imagePreviewState{
 							src:  thumbSrc,
 							alt:  name,
 							full: &messageMediaRef{threadID: threadID, messageID: m.ID, mediaID: med.ID},
-						}
-						s.mu.Unlock()
+						})
 						prefetchMessageMedia(services, s, threadID, m.ID, med.ID, "full")
-						s.invalidate()
 					})
 					continue
 				}

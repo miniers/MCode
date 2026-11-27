@@ -2052,10 +2052,7 @@ func renderPreviewAnnotateThumb(c *ui.Context, s *chatState, item previewAnnotat
 		if s == nil {
 			return
 		}
-		s.mu.Lock()
-		s.imagePreview = &imagePreviewState{src: item.Thumb, alt: desc}
-		s.mu.Unlock()
-		s.invalidate()
+		setImagePreview(s, &imagePreviewState{src: item.Thumb, alt: desc})
 	})
 }
 

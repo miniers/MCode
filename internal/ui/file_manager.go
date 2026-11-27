@@ -548,7 +548,7 @@ type fileManagerRowProps struct {
 
 // renderFileManagerRow 渲染单行条目：图标、名称（或行内重命名输入框）、可选锁图标、Git 标记与悬停「更多操作」按钮。
 // Protected 条目点击无效（次要文字色、不绑定打开回调）。
-func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps) {
+func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps) ui.Element {
 	st := getFileManagerState(s)
 	isRenaming := false
 	renameErr := ""
@@ -563,7 +563,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 		fileManagerMu.Unlock()
 	}
 
-	buildRow := func() {
+	buildRow := func() ui.Element {
 		row := ui.Row(c.Key(props.key)).
 			FillWidth().
 			Height(RowHeightCompact).
@@ -683,13 +683,8 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 				} else {
 					nameText.Shrink(1)
 				}
-				if props.entry.Path != "" {
-					if w := nameText.LayoutBounds().W; w > 0 {
-						naturalW, _ := cachedMeasureText(c, 0, ui.Span{Text: props.name, Size: uiFont(TypeFootnote)})
-						if naturalW > w+Hairline {
-							nameText.Tooltip(props.entry.Path)
-						}
-					}
+				if props.entry.Path != "" && nameText.Truncated() {
+					nameText.Tooltip(props.entry.Path)
 				}
 			}
 			if props.protected {
@@ -786,17 +781,18 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 				}
 			}
 		})
+		return row
 	}
 
 	if !isRenaming {
-		buildRow()
-		return
+		return buildRow()
 	}
 
+	var rowEl ui.Element
 	ui.Column(c.Key(props.key + "-rename-box")).
 		FillWidth().
 		Children(func() {
-			buildRow()
+			rowEl = buildRow()
 			if renameErr != "" {
 				ui.Row(c.Key(props.key+"-rename-error")).
 					FillWidth().
@@ -813,6 +809,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 					})
 			}
 		})
+	return rowEl
 }
 
 // renderFileManagerTag 渲染行内单字母状态标签。

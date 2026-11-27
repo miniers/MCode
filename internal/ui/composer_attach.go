@@ -1828,10 +1828,7 @@ func openComposerAttachmentPreview(s *chatState, a composerAttachment) {
 		if src == nil {
 			return
 		}
-		s.mu.Lock()
-		s.imagePreview = &imagePreviewState{src: src, alt: a.Name}
-		s.mu.Unlock()
-		s.invalidate()
+		setImagePreview(s, &imagePreviewState{src: src, alt: a.Name})
 		return
 	}
 	openAttachmentPreviewForComposer(s, a.LocalID, 0)

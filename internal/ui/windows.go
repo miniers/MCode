@@ -438,7 +438,10 @@ func (s *chatState) close() {
 	s.stopBeesWatch = nil
 	stopSummary := s.stopSummaryWatch
 	s.stopSummaryWatch = nil
+	prevPreview := s.imagePreview
+	s.imagePreview = nil
 	s.mu.Unlock()
+	prevPreview.closeGIFPlayer()
 	// 关闭前同步落盘一次草稿（仅开启持久化的窗口）。
 	s.flushComposerDrafts()
 	if stop != nil {

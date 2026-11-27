@@ -180,3 +180,116 @@ func TestComposerExternalFileDropUnchanged(t *testing.T) {
 		return s.attachments[0].ID != "" && s.attachments[0].Err == "" && !s.attachments[0].Uploading
 	})
 }
+
+func TestFileTreeDragLabel(t *testing.T) {
+	client := newWatchTestClient(treeTestBase())
+	client.setChanged([]GitChangedFile{
+		{Path: "a.txt", Status: "M"},
+		{Path: "gone.go", Status: "D"},
+	})
+	s, tt := openFileTreeForTest(t, client)
+	t.Cleanup(s.close)
+	waitFor(t, tt, func() bool { return tt.HasText("a.txt") && tt.HasText("sub") })
+
+	st := getFileManagerState(s)
+	fileManagerMu.Lock()
+	st.tree.outline.Open.Add("sub")
+	fileManagerMu.Unlock()
+	waitFor(t, tt, func() bool { return tt.HasText("b.go") })
+
+	threadID := fileManagerThreadID(s)
+	fileManagerMu.Lock()
+	aIdx := fileTreeRowIndexLocked(st.tree, "a.txt")
+	subIdx := fileTreeRowIndexLocked(st.tree, "sub")
+	bIdx := fileTreeRowIndexLocked(st.tree, "sub/b.go")
+	outline := &st.tree.outline
+	fileManagerMu.Unlock()
+	if aIdx < 0 || subIdx < 0 || bIdx < 0 {
+		t.Fatalf("未找到文件树行下标：a=%d sub=%d b=%d", aIdx, subIdx, bIdx)
+	}
+
+	if got := outline.List.DragLabel([]int{bIdx}); got != "b.go" {
+		t.Fatalf("单个嵌套文件 DragLabel = %q, want %q", got, "b.go")
+	}
+	if got := outline.List.DragLabel([]int{aIdx, subIdx, bIdx}); got != "3 个项目" {
+		t.Fatalf("多选 DragLabel = %q, want %q", got, "3 个项目")
+	}
+
+	s.fileTreeToggleOnlyChanged(threadID)
+	waitFor(t, tt, func() bool { return tt.HasText("gone.go") })
+
+	fileManagerMu.Lock()
+	changedOutline := fileTreeChangedOutlineLocked(st.tree)
+	goneIdx := -1
+	changedAIdx := -1
+	for row := 0; row < changedOutline.Rows(); row++ {
+		switch changedOutline.Item(row) {
+		case "gone.go":
+			goneIdx = row
+		case "a.txt":
+			changedAIdx = row
+		}
+	}
+	fileManagerMu.Unlock()
+	if goneIdx < 0 || changedAIdx < 0 {
+		t.Fatalf("未找到只看改动视图行下标：gone=%d a=%d", goneIdx, changedAIdx)
+	}
+	if got := changedOutline.List.DragRows([]int{goneIdx}); got != nil {
+		t.Fatalf("删除态行 DragRows = %#v, want nil", got)
+	}
+	if got := changedOutline.List.DragLabel([]int{goneIdx}); got != "" {
+		t.Fatalf("删除态行 DragLabel = %q, want empty", got)
+	}
+	if got := changedOutline.List.DragLabel([]int{changedAIdx}); got != "a.txt" {
+		t.Fatalf("改动文件 DragLabel = %q, want %q", got, "a.txt")
+	}
+}
+
+func TestFileTreeDragInvalidPathsUpdateAndClear(t *testing.T) {
+	if fileTreeUpdateDragInvalidPathsLocked(nil, true, []string{"a.txt"}) {
+		t.Fatal("nil tree 更新返回 true，want false")
+	}
+
+	tree := &fileTreeState{}
+	if fileTreeUpdateDragInvalidPathsLocked(tree, false, nil) {
+		t.Fatal("初始空集合清空返回 true，want false")
+	}
+
+	if !fileTreeUpdateDragInvalidPathsLocked(tree, true, []string{"a.txt", "sub"}) {
+		t.Fatal("首次设置非法拖动路径集合返回 false，want true")
+	}
+	if len(tree.dragInvalidPaths) != 2 || !tree.dragInvalidPaths["a.txt"] || !tree.dragInvalidPaths["sub"] {
+		t.Fatalf("dragInvalidPaths = %#v, want a.txt and sub", tree.dragInvalidPaths)
+	}
+
+	if fileTreeUpdateDragInvalidPathsLocked(tree, true, []string{"sub", "a.txt", "sub"}) {
+		t.Fatal("相同路径集合重复更新返回 true，want false")
+	}
+
+	if !fileTreeUpdateDragInvalidPathsLocked(tree, true, []string{"b.go"}) {
+		t.Fatal("切换路径集合返回 false，want true")
+	}
+	if len(tree.dragInvalidPaths) != 1 || !tree.dragInvalidPaths["b.go"] || tree.dragInvalidPaths["a.txt"] {
+		t.Fatalf("dragInvalidPaths = %#v, want only b.go", tree.dragInvalidPaths)
+	}
+
+	if !fileTreeUpdateDragInvalidPathsLocked(tree, false, []string{"b.go"}) {
+		t.Fatal("目标合法时清空路径集合返回 false，want true")
+	}
+	if len(tree.dragInvalidPaths) != 0 {
+		t.Fatalf("清空后 dragInvalidPaths = %#v, want empty", tree.dragInvalidPaths)
+	}
+	if fileTreeUpdateDragInvalidPathsLocked(tree, false, nil) {
+		t.Fatal("已清空后再次清空返回 true，want false")
+	}
+
+	if !fileTreeUpdateDragInvalidPathsLocked(tree, true, []string{"c.go"}) {
+		t.Fatal("重新设置非法拖动路径集合返回 false，want true")
+	}
+	if !fileTreeUpdateDragInvalidPathsLocked(tree, true, nil) {
+		t.Fatal("空切片更新未清空旧集合，want true")
+	}
+	if len(tree.dragInvalidPaths) != 0 {
+		t.Fatalf("空切片清空后 dragInvalidPaths = %#v, want empty", tree.dragInvalidPaths)
+	}
+}

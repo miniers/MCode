@@ -122,6 +122,43 @@ func refreshReviewComments(dp *diffPanelState, key reviewDiffKey, content Review
 	}
 }
 
+// finishReviewLineDrag 跟踪同一审阅文件是否刚结束行号拖动，仅在松手那一帧返回 true。
+func finishReviewLineDrag(dp *diffPanelState, key reviewDiffKey, dragging bool) bool {
+	if dp == nil {
+		return false
+	}
+	wasDragging := dp.draggingLines[key]
+	if dragging {
+		if dp.draggingLines == nil {
+			dp.draggingLines = make(map[reviewDiffKey]bool)
+		}
+		dp.draggingLines[key] = true
+		return false
+	}
+	if wasDragging {
+		delete(dp.draggingLines, key)
+		return true
+	}
+	return false
+}
+
+func handleReviewLineDragFrame(dp *diffPanelState, key reviewDiffKey, dragging bool, selected func() (editor.DiffLineRange, bool), begin func(editor.DiffLineRange)) {
+	if finishReviewLineDrag(dp, key, dragging) {
+		if lines, ok := selected(); ok {
+			begin(lines)
+		}
+	}
+}
+
+func reviewLineSelectionHandler(dragging func() bool, begin func(editor.DiffLineRange)) func(editor.DiffLineRange) {
+	return func(lines editor.DiffLineRange) {
+		if dragging() {
+			return
+		}
+		begin(lines)
+	}
+}
+
 func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, key reviewDiffKey, content ReviewFileContent, view *reviewDiffView) {
 	refreshReviewComments(dp, key, content)
 	d := view.state
@@ -134,7 +171,9 @@ func configureReviewComments(c *ui.Context, s *chatState, dp *diffPanelState, ke
 			s.invalidate()
 		}
 	}
-	d.OnGutterButton, d.OnLineSelection = begin, begin
+	handleReviewLineDragFrame(dp, key, d.DraggingLines(), d.SelectedLines, begin)
+	d.OnGutterButton = begin
+	d.OnLineSelection = reviewLineSelectionHandler(d.DraggingLines, begin)
 	d.Annotations = nil
 	diffPanelMu.Lock()
 	comments := make(map[uint64]reviewComment)

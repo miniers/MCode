@@ -54,6 +54,7 @@ type diffPanelState struct {
 	commentDrafts map[reviewCommentDraftKey]string
 	commentSerial uint64
 	commentBatch  bool
+	draggingLines map[reviewDiffKey]bool
 	readKeys      []string
 	prefLoaded    bool
 	pendingPath   string

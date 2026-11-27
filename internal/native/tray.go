@@ -37,6 +37,7 @@ func NewTray(opts TrayOptions) (*Tray, error) {
 	menuless := opts.OnLeftClick != nil && runtime.GOOS != "linux"
 
 	trayOpts := mygo.TrayOptions{
+		ID:             "mcode",
 		Icon:           icon,
 		IconIsTemplate: true,
 		ToolTip:        tip,

@@ -607,3 +607,107 @@ func TestReviewCommentEditPopover(t *testing.T) {
 		t.Fatalf("保存编辑后草稿未清空: %+v", dp.commentDraft)
 	}
 }
+
+func TestReviewLineDragDefersOpenUntilRelease(t *testing.T) {
+	_, _, dp, keyA, _ := reviewCommentsSetup(t)
+	keyB := keyA
+	keyB.path = "b.go"
+
+	dragging := false
+	var sel editor.DiffLineRange
+	selOK := false
+	var opened []editor.DiffLineRange
+	begin := func(lines editor.DiffLineRange) {
+		opened = append(opened, lines)
+	}
+	onSelect := reviewLineSelectionHandler(func() bool { return dragging }, begin)
+	selected := func() (editor.DiffLineRange, bool) { return sel, selOK }
+
+	// 1. 拖动中：选区多次变化与跨帧期间均不打开草稿。
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	dragging = true
+	sel = editor.DiffLineRange{Side: editor.DiffNew, Start: 0, End: 0}
+	selOK = true
+	onSelect(sel)
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	handleReviewLineDragFrame(dp, keyB, false, selected, begin)
+
+	sel = editor.DiffLineRange{Side: editor.DiffNew, Start: 0, End: 1}
+	onSelect(sel)
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	if len(opened) != 0 {
+		t.Fatalf("拖动中不应打开草稿: %+v", opened)
+	}
+
+	// 2. 松手那一帧：用最终选区打开一次，之后静止帧不再重复打开。
+	dragging = false
+	handleReviewLineDragFrame(dp, keyB, false, selected, begin)
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	if want := []editor.DiffLineRange{{Side: editor.DiffNew, Start: 0, End: 1}}; !slices.Equal(opened, want) {
+		t.Fatalf("松手后打开选区错误: got=%+v want=%+v", opened, want)
+	}
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	if len(opened) != 1 {
+		t.Fatalf("松手后下一帧不应重复打开: %+v", opened)
+	}
+
+	// 3. 松手时若无有效选区，仅清理拖动状态，不打开草稿。
+	dragging = true
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	dragging = false
+	selOK = false
+	handleReviewLineDragFrame(dp, keyA, dragging, selected, begin)
+	if len(opened) != 1 {
+		t.Fatalf("无有效选区时不应打开草稿: %+v", opened)
+	}
+
+	// 4. 单击行号（非拖动）：OnLineSelection 立即打开草稿。
+	clickLine := editor.DiffLineRange{Side: editor.DiffOld, Start: 1, End: 1}
+	onSelect(clickLine)
+	if len(opened) != 2 || opened[1] != clickLine {
+		t.Fatalf("单击行号未立即打开草稿: %+v", opened)
+	}
+}
+
+func TestReviewLineDragConfigureClickAndGutter(t *testing.T) {
+	fake := NewFakeClient()
+	list, full := reviewFixture()
+	fake.SetReviewSnapshot("t1", "turn", "", "", list)
+	fake.SetReviewSnapshot("t1", "turn", "turn-1", "a.go", full)
+	_, tt, dp := newReviewTester(t, fake)
+
+	clickText(t, tt, "a.go")
+	waitFor(t, tt, func() bool { return len(dp.views) == 1 })
+	tt.Advance(DurSheet + 50*time.Millisecond)
+
+	var view *reviewDiffView
+	for _, item := range dp.views {
+		view = item
+	}
+	if view == nil || !view.state.LineSelection || view.state.OnLineSelection == nil || view.state.OnGutterButton == nil {
+		t.Fatal("没有加载 diff 视图或行选择回调")
+	}
+
+	lineNew := editor.DiffLineRange{Side: editor.DiffNew, Start: 1, End: 1}
+	view.state.OnLineSelection(lineNew)
+	tt.Frame()
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if dp.commentDraft == nil || !dp.commentDraft.open || dp.commentDraft.lines != lineNew {
+		t.Fatalf("单击行选择未立即打开草稿: %+v", dp.commentDraft)
+	}
+
+	tt.ClickAt(1, 1)
+	tt.Frame()
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if dp.commentDraft != nil && dp.commentDraft.open {
+		t.Fatal("点击外部后草稿未关闭")
+	}
+
+	lineOld := editor.DiffLineRange{Side: editor.DiffOld, Start: 1, End: 1}
+	view.state.OnGutterButton(lineOld)
+	tt.Frame()
+	tt.Advance(DurBase + 50*time.Millisecond)
+	if dp.commentDraft == nil || !dp.commentDraft.open || dp.commentDraft.lines != lineOld {
+		t.Fatalf("点击行号加号未立即打开草稿: %+v", dp.commentDraft)
+	}
+}

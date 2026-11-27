@@ -41,29 +41,46 @@ const (
 // loadLocalImage 加载本地图片文件：只接受 file:// URL 或绝对路径，
 // http、https、相对路径与其他地址一律返回错误，Markdown 会照旧显示替代文字。
 func loadLocalImage(url string) (ui.ImageSource, error) {
-	path, err := localImagePath(url)
-	if err != nil {
-		return nil, err
-	}
-	if !imagePreviewExts[strings.ToLower(filepath.Ext(path))] {
-		return nil, errImageUnsupported
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if info.IsDir() || info.Size() > imagePreviewMaxBytes {
-		return nil, errImageUnsupported
-	}
-	data, err := os.ReadFile(path)
+	path, data, err := loadLocalImageData(url)
 	if err != nil {
 		return nil, err
 	}
 	// SVG 与位图分开解码，与 markdown 包 FileImages 的做法一致。
 	if strings.EqualFold(filepath.Ext(path), ".svg") {
-		return ui.ParseSVG(data)
+		svg, parseErr := ui.ParseSVG(data)
+		if parseErr != nil || svg == nil {
+			return nil, parseErr
+		}
+		return svg, nil
 	}
-	return ui.DecodeBitmap(data)
+	bmp, decErr := ui.DecodeBitmap(data)
+	if decErr != nil || bmp == nil {
+		return nil, decErr
+	}
+	return bmp, nil
+}
+
+// loadLocalImageData 校验本地图片地址与文件上限后读取原始字节。
+func loadLocalImageData(url string) (string, []byte, error) {
+	path, err := localImagePath(url)
+	if err != nil {
+		return "", nil, err
+	}
+	if !imagePreviewExts[strings.ToLower(filepath.Ext(path))] {
+		return "", nil, errImageUnsupported
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", nil, err
+	}
+	if info.IsDir() || info.Size() > imagePreviewMaxBytes {
+		return "", nil, errImageUnsupported
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, data, nil
 }
 
 // localImagePath 把地址解析成本地绝对路径：file:// URL、绝对路径与 ~/ 开头的路径。
@@ -127,9 +144,11 @@ func resolveMarkdownImage(baseDir, rawURL string) string {
 
 // previewImageEntry 是一张图片的加载状态，异步加载完成后由重绘读取。
 type previewImageEntry struct {
-	mu  sync.Mutex
-	src ui.ImageSource
-	err error
+	mu      sync.Mutex
+	src     ui.ImageSource
+	gifData []byte
+	done    bool
+	err     error
 }
 
 // markdownImageItem 是图片段落或 HTML 图片块中要绘制的单张图片。
@@ -146,9 +165,9 @@ var imagePreviewCache sync.Map // url → *previewImageEntry
 // imagePreviewHooksInstalled 记录已装过钩子的 Markdown 选项，避免重复包装 Block。
 var imagePreviewHooksInstalled sync.Map // *markdown.Options → struct{}
 
-// cachedPreviewImage 返回已加载的图片，首次调用时在独立 goroutine 中开始加载，
+// ensurePreviewImageEntry 返回 url 对应的缓存条目，首次调用时在独立 goroutine 中开始加载，
 // 加载完成后触发重绘（与 markdown 包 viewState.image 的写法一致）。
-func cachedPreviewImage(c *ui.Context, url string) ui.ImageSource {
+func ensurePreviewImageEntry(c *ui.Context, url string) *previewImageEntry {
 	if url == "" {
 		return nil
 	}
@@ -157,13 +176,25 @@ func cachedPreviewImage(c *ui.Context, url string) ui.ImageSource {
 	if !loaded {
 		services := c.Services()
 		go func() {
-			src, err := loadLocalImage(url)
+			src, gifData, err := decodePreviewLocalImage(url)
 			e.mu.Lock()
 			e.src = src
+			e.gifData = gifData
 			e.err = err
+			e.done = true
 			e.mu.Unlock()
 			services.Invalidate()
 		}()
+	}
+	return e
+}
+
+// cachedPreviewImage 返回已加载的图片，首次调用时在独立 goroutine 中开始加载，
+// 加载完成后触发重绘（与 markdown 包 viewState.image 的写法一致）。
+func cachedPreviewImage(c *ui.Context, url string) ui.ImageSource {
+	e := ensurePreviewImageEntry(c, url)
+	if e == nil {
+		return nil
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -357,10 +388,7 @@ func renderMarkdownImages(c *ui.Context, s *chatState, items []markdownImageItem
 			// 点击看大图：记录图片来源、解析后地址与替代文字，再由重绘画出浮层。
 			previewSrc, previewAlt, previewURL := src, item.alt, item.url
 			img.Cursor(ui.CursorPointer).OnClick(func() {
-				s.mu.Lock()
-				s.imagePreview = &imagePreviewState{src: previewSrc, alt: previewAlt, url: previewURL}
-				s.mu.Unlock()
-				s.invalidate()
+				setImagePreview(s, &imagePreviewState{src: previewSrc, alt: previewAlt, url: previewURL})
 			})
 		}
 	})
@@ -374,6 +402,9 @@ type imagePreviewState struct {
 	alt  string
 	url  string
 	full *messageMediaRef
+
+	gifPlayer    *ui.VideoPlayer
+	gifAttempted bool
 
 	// zoom 是 1x–8x 的缩放比例，零值按 1x 处理；offsetX/offsetY 是屏幕坐标系里的平移量。
 	zoom    float32
@@ -426,11 +457,11 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 	snap.zoom = previewClampZoom(snap.zoom)
 	s.mu.Unlock()
 
-	src := previewImageSource(c, s, &snap)
+	src, player := previewImageMedia(c, s, pv, &snap)
 
 	winW, winH := c.Size()
 	maxW, maxH := winW*0.9, winH*0.9
-	dispW, dispH := previewFitSize(maxW, maxH, src)
+	dispW, dispH := previewDisplaySize(maxW, maxH, src, player)
 
 	// 画廊列表：从消息快照现算，输入框附件定位不到就不显示翻页。
 	items := previewGalleryFor(s)
@@ -445,10 +476,7 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 		if next == nil {
 			return
 		}
-		s.mu.Lock()
-		s.imagePreview = next
-		s.mu.Unlock()
-		s.invalidate()
+		setImagePreview(s, next)
 	}
 
 	open := true
@@ -485,7 +513,7 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 						FontSize(uiFont(TypeFootnote)).
 						TextColor(imagePreviewMutedTextColor)
 				}
-				renderImagePreviewStage(c, s, &snap, src, dispW, dispH, index, len(items), goTo)
+				renderImagePreviewStage(c, s, &snap, src, player, dispW, dispH, index, len(items), goTo)
 				if snap.alt != "" {
 					ui.Text(c.Key("image-preview-caption"), snap.alt).
 						MaxWidth(maxW).
@@ -504,14 +532,14 @@ func renderImagePreviewOverlay(c *ui.Context, s *chatState) {
 
 // renderImagePreviewStage 渲染图片区：滚轮与捏合缩放、双击切换 1x/2x、放大后拖动平移；
 // 画廊有多张时在两侧叠加上一张与下一张按钮。
-func renderImagePreviewStage(c *ui.Context, s *chatState, pv *imagePreviewState, src ui.ImageSource, dispW, dispH float32, index, total int, goTo func(int)) {
+func renderImagePreviewStage(c *ui.Context, s *chatState, pv *imagePreviewState, src ui.ImageSource, player *ui.VideoPlayer, dispW, dispH float32, index, total int, goTo func(int)) {
 	stage := ui.Box(c.Key("image-preview-stage")).
 		Width(dispW).
 		Height(dispH).
 		Clip().
 		Center()
 	stage.Children(func() {
-		if src == nil {
+		if src == nil && player == nil {
 			if pv.url != "" && previewImageError(pv.url) != nil {
 				ui.Column(c.Key("image-preview-error")).AlignItems(ui.Center).Gap(Space3).Children(func() {
 					ui.Text(c.Key("image-preview-error-text"), "图片加载失败").FontSize(uiFont(TypeBody)).TextColor(ThemeDanger(c))
@@ -526,7 +554,7 @@ func renderImagePreviewStage(c *ui.Context, s *chatState, pv *imagePreviewState,
 			return
 		}
 		zoom := previewClampZoom(pv.zoom)
-		img := ui.Image(c.Key("image-preview-image"), src).
+		img := previewStageElement(c, src, player).
 			Width(dispW).
 			Height(dispH).
 			Label(pv.alt).
@@ -670,10 +698,14 @@ func previewActionButton(c *ui.Context, key, label, tip string, onClick func()) 
 func imageSourceSize(src ui.ImageSource) (float32, float32) {
 	switch v := src.(type) {
 	case *ui.Bitmap:
-		w, h := v.Size()
-		return float32(w), float32(h)
+		if v != nil {
+			w, h := v.Size()
+			return float32(w), float32(h)
+		}
 	case *ui.SVG:
-		return v.Size()
+		if v != nil {
+			return v.Size()
+		}
 	}
 	return 0, 0
 }
@@ -699,6 +731,10 @@ func previewClampZoom(zoom float32) float32 {
 // 尺寸未知的图片直接占满最大可视区域。
 func previewFitSize(maxW, maxH float32, src ui.ImageSource) (float32, float32) {
 	natW, natH := imageSourceSize(src)
+	return previewFitDimensions(maxW, maxH, natW, natH)
+}
+
+func previewFitDimensions(maxW, maxH, natW, natH float32) (float32, float32) {
 	if natW <= 0 || natH <= 0 || maxW <= 0 || maxH <= 0 {
 		return maxW, maxH
 	}
@@ -796,13 +832,7 @@ func panPreviewImage(s *chatState, viewportW, viewportH, dx, dy float32) {
 	s.invalidate()
 }
 
-// closeImagePreview 关闭大图浮层并请求重绘。
+// closeImagePreview 关闭大图浮层、关闭 GIF 播放器并请求重绘。
 func closeImagePreview(s *chatState) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.imagePreview = nil
-	s.mu.Unlock()
-	s.invalidate()
+	setImagePreview(s, nil)
 }

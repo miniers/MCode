@@ -18,6 +18,20 @@ type fileTreeDragPayload struct {
 	Paths    []string
 }
 
+// fileTreePathAllowedLocked 判断路径是否可参与拖拽（非受保护及其子项、非只看改动中的已删除项）。
+// 调用方持 fileManagerMu。
+func fileTreePathAllowedLocked(tree *fileTreeState, path string) bool {
+	if tree.onlyChanged && tree.git[path].Status == "D" {
+		return false
+	}
+	for ancestor := path; ancestor != ""; ancestor = fileManagerParentPath(ancestor) {
+		if tree.entries[ancestor].Protected {
+			return false
+		}
+	}
+	return true
+}
+
 func fileTreeDragReference(s *chatState, threadID string, entry FileEntry) (fileTreeDragPayload, bool) {
 	ref := inspectorFileReference(s, threadID, entry.Path, 0, 0)
 	payload := fileTreeDragPayload{ThreadID: threadID, Identity: ref.Identity}
@@ -37,24 +51,13 @@ func fileTreeDragReference(s *chatState, threadID string, entry FileEntry) (file
 		outline = fileTreeChangedOutlineLocked(tree)
 		selection = &tree.changedSelection
 	}
-	allowed := func(path string) bool {
-		if tree.onlyChanged && tree.git[path].Status == "D" {
-			return false
-		}
-		for ancestor := path; ancestor != ""; ancestor = fileManagerParentPath(ancestor) {
-			if tree.entries[ancestor].Protected {
-				return false
-			}
-		}
-		return true
-	}
-	if !allowed(entry.Path) {
+	if !fileTreePathAllowedLocked(tree, entry.Path) {
 		return payload, false
 	}
 	if selection.Has(entry.Path) {
 		for row := 0; row < outline.Rows(); row++ {
 			path := outline.Item(row)
-			if selection.Has(path) && allowed(path) {
+			if selection.Has(path) && fileTreePathAllowedLocked(tree, path) {
 				payload.Paths = append(payload.Paths, path)
 			}
 		}
@@ -62,6 +65,48 @@ func fileTreeDragReference(s *chatState, threadID string, entry FileEntry) (file
 		payload.Paths = []string{entry.Path}
 	}
 	return payload, len(payload.Paths) > 0
+}
+
+// fileTreeDragRowsPayload 根据 Outline 行号切片构造拖拽载荷；无有效可拖条目时返回 false。
+func fileTreeDragRowsPayload(s *chatState, threadID string, outline *ui.OutlineState[string], rows []int) (fileTreeDragPayload, bool) {
+	if s == nil || threadID == "" || outline == nil || len(rows) == 0 {
+		return fileTreeDragPayload{}, false
+	}
+	ref := inspectorFileReference(s, threadID, "", 0, 0)
+	payload := fileTreeDragPayload{ThreadID: threadID, Identity: ref.Identity}
+	st := getFileManagerState(s)
+	if st == nil {
+		return payload, false
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	if st.threadID != threadID || st.tree == nil {
+		return payload, false
+	}
+	tree := st.tree
+	for _, row := range rows {
+		if row < 0 || row >= outline.Rows() {
+			continue
+		}
+		path := outline.Item(row)
+		if path == "" || !fileTreePathAllowedLocked(tree, path) {
+			continue
+		}
+		payload.Paths = append(payload.Paths, path)
+	}
+	return payload, len(payload.Paths) > 0
+}
+
+// fileTreeDragLabel 返回拖拽行对应的浮标文案：单项为文件名，多项为数量。
+func fileTreeDragLabel(s *chatState, threadID string, outline *ui.OutlineState[string], rows []int) string {
+	payload, ok := fileTreeDragRowsPayload(s, threadID, outline, rows)
+	if !ok || len(payload.Paths) == 0 {
+		return ""
+	}
+	if len(payload.Paths) == 1 {
+		return fileManagerTabName(payload.Paths[0])
+	}
+	return fmt.Sprintf("%d 个项目", len(payload.Paths))
 }
 
 func (p fileTreeDragPayload) refs() []inspectorFileRef {

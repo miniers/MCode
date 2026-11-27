@@ -1271,8 +1271,11 @@ func renderPlanCard(c *ui.Context, s *chatState, approval Approval, responding b
 		Padding(Space3).Gap(Space2).Children(func() {
 		ui.Row(c.Key("plan-row-" + id)).FillWidth().Gap(Space3).AlignItems(ui.Center).Children(func() {
 			ui.Icon(c, IconClipboardList()).Size(IconMD, IconMD).TextColor(ThemeAccent(c)).Shrink(0)
-			ui.Text(c, title).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).
-				MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1).Tooltip(title)
+			titleText := ui.Text(c.Key("plan-title-"+id), title).Bold().FontSize(uiFont(TypeBody)).TextColor(ThemePrimaryText(c)).
+				MaxLines(1).Ellipsis("…").MinWidth(0).Shrink(1)
+			if titleText.Truncated() {
+				titleText.Tooltip(title)
+			}
 			ui.Spacer(c)
 			Button(c, ButtonOpts{
 				Key:      declineKey,

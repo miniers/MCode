@@ -103,7 +103,10 @@ func renderCommandProcessRow(c *ui.Context, key string, i int, p commandProcessV
 		width := commandActivityFillWidth(row.LayoutBounds().W, p.cpu)
 		fill.Width(fill.AnimateTo("width", width, ui.Animation{Duration: animateDuration(c, DurBase), Ease: ui.EaseOut}))
 		ui.Text(c, p.name).FontSize(scaledFont(TypeCaption)).FontWeight(500).TextColor(ThemePrimaryText(c)).SingleLine().Selectable()
-		ui.Text(c, p.object).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Tooltip(p.object).Selectable()
+		objText := ui.Text(c.Key(fmt.Sprintf("%s-process-%d-object", key, i)), p.object).FontSize(scaledFont(TypeCaption)).TextColor(ThemeSecondaryText(c)).Grow(1).Shrink(1).MinWidth(0).SingleLine().Ellipsis("…").Selectable()
+		if p.object != "" && objText.Truncated() {
+			objText.Tooltip(p.object)
+		}
 		ui.Text(c, fmt.Sprintf("%.0f%%", p.cpu)).Font(terminalFontFamily()).FontSize(scaledFont(TypeCaption)).TextColor(cpuColor).SingleLine()
 	})
 }

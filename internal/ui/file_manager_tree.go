@@ -100,6 +100,7 @@ type fileTreeState struct {
 
 	dragHoverDir     string
 	dragHoverStarted time.Time
+	dragInvalidPaths map[string]bool
 }
 
 // ensureFileTreeLocked 初始化树状态；调用方持 fileManagerMu。
@@ -1420,9 +1421,19 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 
 	// 缩进与箭头/加载指示在 row 回调内按路径构建，以支持按目录展示行内加载态。
 	outline.Prefix = func(r ui.OutlineRow) {}
+	outline.List.DragRows = func(rows []int) any {
+		payload, ok := fileTreeDragRowsPayload(s, threadID, outline, rows)
+		if !ok {
+			return nil
+		}
+		return payload
+	}
+	outline.List.DragLabel = func(rows []int) string {
+		return fileTreeDragLabel(s, threadID, outline, rows)
+	}
 
 	var treeEl ui.Element
-	var draggingSourceEl ui.Element
+	var invalidDragPayload fileTreeDragPayload
 	var dragInvalid bool
 	var hoveredValidUnexpanded string
 	ui.Column(c.Key("file-manager-tree-wrap")).
@@ -1451,6 +1462,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 				isOpen := outline.Open.Has(path)
 				rowSelected := selection.Has(path)
 				rowFocused := treeFocused && focusedPath == path
+				rowDragInvalid := tree.dragInvalidPaths[path]
 				tree.rowBuilds++
 				enterAnim := false
 				needJump := false
@@ -1491,6 +1503,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 									}
 								} else if reason != "" {
 									dragInvalid = true
+									invalidDragPayload = payload
 								}
 							}
 						}
@@ -1581,19 +1594,25 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 						if deleted {
 							props.onOpen = nil
 						}
+						var contentRow ui.Element
 						row := ui.Row(c.Key("file-tree-content-" + path)).
 							Grow(1).
 							MinWidth(0).
 							AlignItems(ui.Center)
-						if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
-							row.Drag(payload)
-							if row.Dragging() {
-								draggingSourceEl = row
+						row.Children(func() {
+							contentRow = renderFileManagerRow(c, s, props)
+						})
+						if !deleted && rowDragInvalid {
+							if contentRow.Valid() {
+								contentRow.Cursor(ui.CursorNotAllowed)
+							}
+							if arrow.Valid() {
+								arrow.Cursor(ui.CursorNotAllowed)
+							}
+							if clip.Valid() {
+								clip.Cursor(ui.CursorNotAllowed)
 							}
 						}
-						row.Children(func() {
-							renderFileManagerRow(c, s, props)
-						})
 					})
 					if k < 1 {
 						h := inner.LayoutBounds().H
@@ -1610,6 +1629,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 							rootDropValid = true
 						} else if reason != "" {
 							dragInvalid = true
+							invalidDragPayload = payload
 						}
 					}
 				}
@@ -1633,32 +1653,35 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 						Background(ThemeAccent(c).Alpha(OverlayFaint))
 				}
 			}
-			if draggingSourceEl.Valid() && dragInvalid {
-				draggingSourceEl.Cursor(ui.CursorNotAllowed)
-			}
-
 			if showSelectionBar {
 				renderFileTreeSelectionBar(c, s, threadID, selCount, selTotalSize, selHasDir, selHasProtected, canEdit)
 			}
 		})
 
+	dragInvalidChanged := false
 	fileManagerMu.Lock()
-	if st.tree != nil && st.tree.revealPath != "" {
-		target := st.tree.revealPath
-		if idx := fileTreeRowIndexLocked(st.tree, target); idx >= 0 {
-			outline.List.ScrollIntoView(idx)
-			_, sel, selectedIdx, _ := fileTreeActiveViewsLocked(st.tree)
-			sel.Clear()
-			sel.Add(target)
-			*selectedIdx = idx
-			outline.List.Choose(idx)
-			st.tree.revealPath = ""
-			focusPending = true
-		} else if onlyChanged || (st.tree.children[""] != nil && len(st.tree.loading) == 0) {
-			st.tree.revealPath = ""
+	if st.tree != nil {
+		dragInvalidChanged = fileTreeUpdateDragInvalidPathsLocked(st.tree, dragInvalid, invalidDragPayload.Paths)
+		if st.tree.revealPath != "" {
+			target := st.tree.revealPath
+			if idx := fileTreeRowIndexLocked(st.tree, target); idx >= 0 {
+				outline.List.ScrollIntoView(idx)
+				_, sel, selectedIdx, _ := fileTreeActiveViewsLocked(st.tree)
+				sel.Clear()
+				sel.Add(target)
+				*selectedIdx = idx
+				outline.List.Choose(idx)
+				st.tree.revealPath = ""
+				focusPending = true
+			} else if onlyChanged || (st.tree.children[""] != nil && len(st.tree.loading) == 0) {
+				st.tree.revealPath = ""
+			}
 		}
 	}
 	fileManagerMu.Unlock()
+	if dragInvalidChanged {
+		s.invalidate()
+	}
 
 	if focusPending {
 		outline.List.Focus(c)
@@ -1772,6 +1795,38 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	if hoverExpandDir != "" {
 		s.fileTreeToggleDir(threadID, hoverExpandDir)
 	}
+}
+
+// fileTreeUpdateDragInvalidPathsLocked 同步上一帧拖动命中非法目标的源路径集合；调用方持 fileManagerMu。
+func fileTreeUpdateDragInvalidPathsLocked(tree *fileTreeState, dragInvalid bool, paths []string) bool {
+	if tree == nil {
+		return false
+	}
+	if !dragInvalid || len(paths) == 0 {
+		if len(tree.dragInvalidPaths) == 0 {
+			return false
+		}
+		tree.dragInvalidPaths = nil
+		return true
+	}
+	next := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		next[p] = true
+	}
+	if len(tree.dragInvalidPaths) == len(next) {
+		same := true
+		for p := range next {
+			if !tree.dragInvalidPaths[p] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return false
+		}
+	}
+	tree.dragInvalidPaths = next
+	return true
 }
 
 // fileTreeOpenSelected 用 Enter 打开当前选中文件或展开/收起当前选中目录（同点击行为）。
