@@ -182,21 +182,28 @@ func composerCapsules(c *ui.Context, s *chatState, threadID string, continueKind
 }
 
 // composerPlanView 返回待办条要显示的内容：最新一份待办清单没做完（Visible），
-// 或刚在可见状态下做完（Complete）时 ok=true。结果按 messagesRev 与运行状态缓存。
+// 或刚在可见状态下做完（Complete）时 ok=true。结果按 messagesRev、运行状态与 swarm rev 缓存。
 func composerPlanView(s *chatState, threadID string) (planPillView, bool) {
 	if s == nil {
 		return planPillView{}, false
 	}
-	// isThreadRunning 内部自己加锁，先取运行状态，再在锁内读消息快照。
+	// isThreadRunning 与 swarmStateViewFor 内部自己加锁，先取运行状态和蜂群快照，再在锁内读消息快照。
 	running := s.isThreadRunning(threadID)
+	swarmRev := -1
+	var bees []SwarmBee
+	if sv := swarmStateViewFor(s); sv != nil && sv.leadID == threadID {
+		swarmRev = sv.rev
+		bees = sv.active
+	}
 	s.mu.Lock()
 	var view planPillView
-	if s.planPillValid && s.planPillRev == s.messagesRev && s.planPillRunning == running {
+	if s.planPillValid && s.planPillRev == s.messagesRev && s.planPillRunning == running && s.planPillSwarmRev == swarmRev {
 		view = s.planPillCache
 	} else {
-		view = buildPlanPillView(s.messages, running)
+		view = overlayMergedBees(buildPlanPillView(s.messages, running), bees)
 		s.planPillRev = s.messagesRev
 		s.planPillRunning = running
+		s.planPillSwarmRev = swarmRev
 		s.planPillCache = view
 		s.planPillValid = true
 	}

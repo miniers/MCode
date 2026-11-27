@@ -302,6 +302,59 @@ func buildPlanPillView(msgs []Message, running bool) planPillView {
 	}
 }
 
+// overlayMergedBees 用已合入工作区的 bee 覆盖待办条里对应的未完成项：
+// 复制 view.Items 后将匹配到非空 Merged bee.Task 的非 completed 项置为 completed，
+// 有改动时重算进度、当前项与可见/完成状态；无改动时原样返回 view。
+func overlayMergedBees(view planPillView, bees []SwarmBee) planPillView {
+	if len(view.Items) == 0 || len(bees) == 0 {
+		return view
+	}
+	var mergedTasks map[string]struct{}
+	for _, b := range bees {
+		if !b.Merged {
+			continue
+		}
+		if task := strings.TrimSpace(b.Task); task != "" {
+			if mergedTasks == nil {
+				mergedTasks = make(map[string]struct{}, len(bees))
+			}
+			mergedTasks[task] = struct{}{}
+		}
+	}
+	if len(mergedTasks) == 0 {
+		return view
+	}
+	var items []todoItem
+	changed := false
+	for i, item := range view.Items {
+		if item.Status == "completed" {
+			continue
+		}
+		if _, ok := mergedTasks[strings.TrimSpace(item.Text)]; !ok {
+			continue
+		}
+		if !changed {
+			items = append([]todoItem(nil), view.Items...)
+			changed = true
+		}
+		items[i].Status = "completed"
+	}
+	if !changed {
+		return view
+	}
+	done, total := todoPlanProgress(items)
+	if done >= total {
+		return planPillView{Complete: true, Items: items, Done: done, Total: total}
+	}
+	view.Visible = true
+	view.Complete = false
+	view.Items = items
+	view.Done = done
+	view.Total = total
+	view.Current = todoPlanCurrentText(items)
+	return view
+}
+
 // isPlanTodoTool 判断工具消息是否属于待办清单工具本身，用于从当前步操作列表里排除。
 func isPlanTodoTool(m Message) bool {
 	if !isTodoToolMessage(m) {

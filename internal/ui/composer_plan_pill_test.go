@@ -603,3 +603,131 @@ func TestComposerPlanBarSettles(t *testing.T) {
 		})
 	}
 }
+
+func TestOverlayMergedBees(t *testing.T) {
+	t.Run("已合并bee匹配第一条in_progress待办且不改原切片", func(t *testing.T) {
+		msgs := []Message{
+			{ID: "u1", Role: "user", Text: "开工"},
+			todoToolMsg("p1", `{"todos":[{"content":"实现接口","status":"in_progress"},{"content":"补充测试","status":"in_progress"}]}`),
+		}
+		base := buildPlanPillView(msgs, true)
+		origItems := append([]todoItem(nil), base.Items...)
+		bees := []SwarmBee{
+			{ThreadID: "b1", Task: "  实现接口  ", Merged: true},
+		}
+
+		got := overlayMergedBees(base, bees)
+		if !reflect.DeepEqual(base.Items, origItems) {
+			t.Fatalf("传入的原 Items 切片不应被修改: got=%+v want=%+v", base.Items, origItems)
+		}
+		if !got.Visible || got.Complete {
+			t.Fatalf("仍有未完成项时 Visible/Complete 不对: %+v", got)
+		}
+		if got.Items[0].Status != "completed" || got.Items[1].Status != "in_progress" {
+			t.Fatalf("Items 状态不对: %+v", got.Items)
+		}
+		if got.Done != base.Done+1 || got.Total != 2 {
+			t.Fatalf("Done/Total = %d/%d, want %d/2", got.Done, got.Total, base.Done+1)
+		}
+		if got.Current != "补充测试" {
+			t.Fatalf("Current = %q, want %q", got.Current, "补充测试")
+		}
+	})
+
+	t.Run("Task不匹配或Merged为false时原样返回", func(t *testing.T) {
+		msgs := []Message{
+			{ID: "u1", Role: "user", Text: "开工"},
+			todoToolMsg("p1", `{"todos":[{"content":"第一步","status":"in_progress"},{"content":"第二步","status":"pending"}]}`),
+		}
+		base := buildPlanPillView(msgs, true)
+		cases := []struct {
+			name string
+			bees []SwarmBee
+		}{
+			{name: "Task不匹配", bees: []SwarmBee{{ThreadID: "b1", Task: "别的任务", Merged: true}}},
+			{name: "Merged为false", bees: []SwarmBee{{ThreadID: "b2", Task: "第一步", Merged: false}}},
+			{name: "Task为空", bees: []SwarmBee{{ThreadID: "b3", Task: "   ", Merged: true}}},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				got := overlayMergedBees(base, tc.bees)
+				if !reflect.DeepEqual(got, base) {
+					t.Fatalf("%s: got=%+v, want=%+v", tc.name, got, base)
+				}
+			})
+		}
+	})
+
+	t.Run("唯一未完成项被覆盖后与buildPlanPillView全部完成结果一致", func(t *testing.T) {
+		inProgressMsgs := []Message{
+			{ID: "u1", Role: "user", Text: "开工"},
+			todoToolMsg("p1", `{"todos":[{"content":"第一步","status":"completed"},{"content":"第二步","status":"in_progress"}]}`),
+		}
+		allDoneMsgs := []Message{
+			{ID: "u1", Role: "user", Text: "开工"},
+			todoToolMsg("p1", `{"todos":[{"content":"第一步","status":"completed"},{"content":"第二步","status":"completed"}]}`),
+		}
+		base := buildPlanPillView(inProgressMsgs, true)
+		got := overlayMergedBees(base, []SwarmBee{{ThreadID: "b1", Task: "第二步", Merged: true}})
+		want := buildPlanPillView(allDoneMsgs, true)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("got=%+v, want=%+v", got, want)
+		}
+	})
+
+	t.Run("composerPlanView按swarmRev失效并叠加已合并bee", func(t *testing.T) {
+		s := newChatState(NewFakeClient())
+		defer s.close()
+		s.selectedThreadID = "lead1"
+		s.threads = []Thread{{ID: "lead1", IsRunning: true}}
+		s.messages = []Message{
+			{ID: "u1", Role: "user", Text: "开工"},
+			todoToolMsg("p1", `{"todos":[{"content":"任务一","status":"in_progress"},{"content":"任务二","status":"in_progress"}]}`),
+		}
+		s.messagesRev = 1
+
+		hp := getSwarmPanelState(s)
+		swarmPanelMu.Lock()
+		hp.setStateLocked(SwarmState{
+			Available:    true,
+			Enabled:      true,
+			LeadThreadID: "lead1",
+			Bees: []SwarmBee{
+				{ThreadID: "b1", Name: "Aria", Task: "任务一", Status: "running", Merged: false},
+			},
+		})
+		swarmPanelMu.Unlock()
+
+		before := planPillBuilds.Load()
+		view, ok := composerPlanView(s, "lead1")
+		if !ok || !view.Visible || view.Done != 0 || view.Current != "任务一" {
+			t.Fatalf("合并前视图不对: ok=%v view=%+v", ok, view)
+		}
+		afterFirst := planPillBuilds.Load()
+		if afterFirst != before+1 {
+			t.Fatalf("首次构建计数 = %d, want %d", afterFirst, before+1)
+		}
+		if _, ok := composerPlanView(s, "lead1"); !ok || planPillBuilds.Load() != afterFirst {
+			t.Fatalf("swarmRev 未变时应命中缓存: builds=%d want=%d", planPillBuilds.Load(), afterFirst)
+		}
+
+		swarmPanelMu.Lock()
+		hp.setStateLocked(SwarmState{
+			Available:    true,
+			Enabled:      true,
+			LeadThreadID: "lead1",
+			Bees: []SwarmBee{
+				{ThreadID: "b1", Name: "Aria", Task: "任务一", Status: "completed", Merged: true},
+			},
+		})
+		swarmPanelMu.Unlock()
+
+		view, ok = composerPlanView(s, "lead1")
+		if !ok || !view.Visible || view.Done != 1 || view.Current != "任务二" {
+			t.Fatalf("bee 合并后应立即覆盖待办: ok=%v view=%+v", ok, view)
+		}
+		if got := planPillBuilds.Load(); got != afterFirst+1 {
+			t.Fatalf("swarmRev 变化后应重算一次: got=%d want=%d", got, afterFirst+1)
+		}
+	})
+}
