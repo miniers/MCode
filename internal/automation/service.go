@@ -988,53 +988,24 @@ func (s *Service) trigger(ctx context.Context, auto store.Automation, now time.T
 		_ = s.disableForCap(ctx, auto, cap)
 		return store.AutomationRun{}, ErrMaxRunsReached
 	}
-	var nextRunAt *time.Time
-	if next, ok := spec.Schedule.Next(now); ok {
-		nextRunAt = &next
-	}
-	auto.NextRunAt = nextRunAt
-	auto.LastRunAt = &now
-	spec.State.TotalRunCount++
-	spec.State.LastRunStatus = RunRunning
-	rawSpec, err := EncodeSpec(spec)
-	if err != nil {
-		return store.AutomationRun{}, fmt.Errorf("encode spec: %w", err)
-	}
-	auto.Schedule = rawSpec
 
-	updatedAuto, err := s.opts.Store.UpdateAutomation(ctx, auto, auto.Revision)
-	if err != nil {
-		if errors.Is(err, store.ErrRevisionConflict) {
-			latest, gerr := s.opts.Store.GetAutomation(ctx, auto.ID)
-			if gerr != nil {
-				return store.AutomationRun{}, gerr
-			}
-			auto = latest
-			spec = DecodeSpec(auto.Schedule)
-			if next, ok := spec.Schedule.Next(now); ok {
-				nextRunAt = &next
-			} else {
-				nextRunAt = nil
-			}
-			auto.NextRunAt = nextRunAt
-			auto.LastRunAt = &now
-			spec.State.TotalRunCount++
-			spec.State.LastRunStatus = RunRunning
-			rawSpec, err = EncodeSpec(spec)
-			if err != nil {
-				return store.AutomationRun{}, fmt.Errorf("encode spec: %w", err)
-			}
-			auto.Schedule = rawSpec
-			updatedAuto, err = s.opts.Store.UpdateAutomation(ctx, auto, auto.Revision)
-			if err != nil {
-				return store.AutomationRun{}, err
-			}
-		} else {
-			return store.AutomationRun{}, err
+	prepareTrigger := func(a store.Automation) (store.Automation, Spec, error) {
+		sp := DecodeSpec(a.Schedule)
+		var nextRunAt *time.Time
+		if next, ok := sp.Schedule.Next(now); ok {
+			nextRunAt = &next
 		}
+		a.NextRunAt = nextRunAt
+		a.LastRunAt = &now
+		sp.State.TotalRunCount++
+		sp.State.LastRunStatus = RunRunning
+		rawSpec, err := EncodeSpec(sp)
+		if err != nil {
+			return store.Automation{}, Spec{}, fmt.Errorf("encode spec: %w", err)
+		}
+		a.Schedule = rawSpec
+		return a, sp, nil
 	}
-	auto = updatedAuto
-	defer s.notifyChange()
 
 	runID := uuid.NewString()
 	// 新运行记录不带 read_at，即默认未读；结算时也不会写入 read_at。
@@ -1047,9 +1018,33 @@ func (s *Service) trigger(ctx context.Context, auto store.Automation, now time.T
 		StartedAt:    now,
 		Revision:     1,
 	}
-	if err := s.opts.Store.CreateAutomationRun(ctx, run); err != nil {
-		return store.AutomationRun{}, fmt.Errorf("create automation run: %w", err)
+
+	var updatedAuto store.Automation
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			latest, gerr := s.opts.Store.GetAutomation(ctx, auto.ID)
+			if gerr != nil {
+				return store.AutomationRun{}, gerr
+			}
+			auto = latest
+		}
+		var perr error
+		auto, spec, perr = prepareTrigger(auto)
+		if perr != nil {
+			return store.AutomationRun{}, perr
+		}
+		var err error
+		updatedAuto, err = s.opts.Store.StartAutomationRun(ctx, auto, auto.Revision, run)
+		if err == nil {
+			break
+		}
+		if attempt == 0 && errors.Is(err, store.ErrRevisionConflict) {
+			continue
+		}
+		return store.AutomationRun{}, err
 	}
+	auto = updatedAuto
+	defer s.notifyChange()
 
 	if auto.ProjectID == nil || *auto.ProjectID == "" {
 		s.settleRun(ctx, auto.ID, runID, RunFailed, "", "automation project ID is missing", nil, false)
@@ -1282,22 +1277,35 @@ func (s *Service) settleRun(ctx context.Context, autoID, runID, status, summary,
 	}
 
 	now := s.now()
-	run.Status = status
-	run.FinishedAt = &now
+	finishedAt := now
+	var resultSummary *string
 	if summary != "" {
-		run.ResultSummary = &summary
+		v := summary
+		resultSummary = &v
 	}
+	var runErr *string
 	if errStr != "" {
-		run.Error = &errStr
+		v := errStr
+		runErr = &v
 	}
-	run.ChangedFiles = gitChangedFiles(ctx, s.runWorkDir(ctx, autoID))
+	changedFiles := gitChangedFiles(ctx, s.runWorkDir(ctx, autoID))
 
-	updatedRun, err := s.opts.Store.UpdateAutomationRun(ctx, run, run.Revision)
-	if err != nil {
-		return false
+	applyRunSettlement := func(r store.AutomationRun) store.AutomationRun {
+		r.Status = status
+		r.FinishedAt = &finishedAt
+		if resultSummary != nil {
+			r.ResultSummary = resultSummary
+		}
+		if runErr != nil {
+			r.Error = runErr
+		}
+		r.ChangedFiles = changedFiles
+		return r
 	}
-	defer s.notifyChange()
+	run = applyRunSettlement(run)
 
+	var updatedRun store.AutomationRun
+	var runWritten bool
 	var auto store.Automation
 	var spec Spec
 	for attempt := 0; attempt < 3; attempt++ {
@@ -1361,15 +1369,31 @@ func (s *Service) settleRun(ctx context.Context, autoID, runID, status, summary,
 		}
 		auto.Schedule = rawSpec
 
-		updatedAuto, upErr := s.opts.Store.UpdateAutomation(ctx, auto, auto.Revision)
+		uRun, uAuto, upErr := s.opts.Store.SettleAutomationRun(ctx, run, run.Revision, auto, auto.Revision)
 		if upErr == nil {
-			auto = updatedAuto
+			updatedRun = uRun
+			auto = uAuto
+			runWritten = true
 			break
 		}
 		if !errors.Is(upErr, store.ErrRevisionConflict) {
 			break
 		}
+		latestRun, gerr := s.opts.Store.GetAutomationRun(ctx, runID)
+		if gerr != nil || latestRun.Status != RunRunning {
+			return false
+		}
+		run = applyRunSettlement(latestRun)
 	}
+
+	// 读任务失败、编码失败或连续冲突时退回仅更新运行记录，避免运行一直卡在 running。
+	if !runWritten {
+		updatedRun, err = s.opts.Store.UpdateAutomationRun(ctx, run, run.Revision)
+		if err != nil {
+			return false
+		}
+	}
+	defer s.notifyChange()
 
 	s.inFlightMu.Lock()
 	delete(s.inFlight, autoID)

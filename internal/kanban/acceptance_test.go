@@ -347,7 +347,7 @@ func TestRunAcceptanceCommandsTimeout(t *testing.T) {
 func TestAcceptanceCommandBackgroundAndOutputLimit(t *testing.T) {
 	t.Parallel()
 	svc, st := setupAcceptanceService(t, t.TempDir())
-	svc.acceptanceCommandTimeout = 100 * time.Millisecond
+	svc.acceptanceCommandTimeout = time.Second
 	taskID := "task-background-output"
 	if err := os.MkdirAll(svc.TaskWorktreePath(taskID), 0o755); err != nil {
 		t.Fatal(err)

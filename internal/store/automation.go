@@ -310,6 +310,24 @@ func (s *Store) ListAutomations(ctx context.Context, projectID string) ([]Automa
 // UpdateAutomation 执行 CAS 乐观并发更新。
 // 更新成功时版本号自增 1 并返回新记录。受影响行数为 0 时检查是否存在：不存在返回 ErrNotFound，存在则返回 ErrRevisionConflict。
 func (s *Store) UpdateAutomation(ctx context.Context, a Automation, expectedRevision int) (Automation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Automation{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	updated, err := updateAutomationTx(ctx, tx, a, expectedRevision)
+	if err != nil {
+		return Automation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Automation{}, fmt.Errorf("commit update automation %s: %w", a.ID, err)
+	}
+	return updated, nil
+}
+
+// updateAutomationTx 在调用方事务内执行 Automation 的 CAS 乐观并发更新。
+func updateAutomationTx(ctx context.Context, tx *sql.Tx, a Automation, expectedRevision int) (Automation, error) {
 	now := time.Now().UTC()
 	a.UpdatedAt = now
 
@@ -345,7 +363,7 @@ func (s *Store) UpdateAutomation(ctx context.Context, a Automation, expectedRevi
 	RETURNING created_at
 	`
 	var createdAt string
-	err := s.db.QueryRowContext(ctx, query,
+	err := tx.QueryRowContext(ctx, query,
 		a.ProjectID,
 		a.Name,
 		a.Prompt,
@@ -364,7 +382,7 @@ func (s *Store) UpdateAutomation(ctx context.Context, a Automation, expectedRevi
 
 	if errors.Is(err, sql.ErrNoRows) {
 		var exists int
-		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM automations WHERE id = ?", a.ID).Scan(&exists)
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM automations WHERE id = ?", a.ID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Automation{}, ErrNotFound
 		}
@@ -477,6 +495,23 @@ func (s *Store) ListDueAutomations(ctx context.Context, now time.Time) ([]Automa
 
 // CreateAutomationRun 创建自动化运行记录，初始版本号置为 1。
 func (s *Store) CreateAutomationRun(ctx context.Context, r AutomationRun) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := createAutomationRunTx(ctx, tx, r); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit create automation run %s: %w", r.ID, err)
+	}
+	return nil
+}
+
+// createAutomationRunTx 在调用方事务内插入一条自动化运行记录，初始版本号置为 1。
+func createAutomationRunTx(ctx context.Context, tx *sql.Tx, r AutomationRun) error {
 	now := time.Now().UTC()
 	if r.StartedAt.IsZero() {
 		r.StartedAt = now
@@ -512,7 +547,7 @@ func (s *Store) CreateAutomationRun(ctx context.Context, r AutomationRun) error 
 		error, changed_files, read_at, archived, revision
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := s.db.ExecContext(ctx, query,
+	_, err := tx.ExecContext(ctx, query,
 		r.ID,
 		r.AutomationID,
 		r.ThreadID,
@@ -550,6 +585,24 @@ func (s *Store) GetAutomationRun(ctx context.Context, id string) (AutomationRun,
 // UpdateAutomationRun 执行 CAS 乐观并发更新。
 // 更新成功时版本号自增 1 并返回新记录。受影响行数为 0 时检查是否存在：不存在返回 ErrNotFound，存在则返回 ErrRevisionConflict。
 func (s *Store) UpdateAutomationRun(ctx context.Context, r AutomationRun, expectedRevision int) (AutomationRun, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AutomationRun{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	updated, err := updateAutomationRunTx(ctx, tx, r, expectedRevision)
+	if err != nil {
+		return AutomationRun{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AutomationRun{}, fmt.Errorf("commit update automation run %s: %w", r.ID, err)
+	}
+	return updated, nil
+}
+
+// updateAutomationRunTx 在调用方事务内执行 AutomationRun 的 CAS 乐观并发更新。
+func updateAutomationRunTx(ctx context.Context, tx *sql.Tx, r AutomationRun, expectedRevision int) (AutomationRun, error) {
 	var finishedAtStr *string
 	if r.FinishedAt != nil {
 		s := formatTime(*r.FinishedAt)
@@ -577,7 +630,7 @@ func (s *Store) UpdateAutomationRun(ctx context.Context, r AutomationRun, expect
 	var startedAt string
 	var readAtStr *string
 	var archivedInt int
-	err := s.db.QueryRowContext(ctx, query,
+	err := tx.QueryRowContext(ctx, query,
 		r.ThreadID,
 		r.Status,
 		r.Trigger,
@@ -595,7 +648,7 @@ func (s *Store) UpdateAutomationRun(ctx context.Context, r AutomationRun, expect
 
 	if errors.Is(err, sql.ErrNoRows) {
 		var exists int
-		err := s.db.QueryRowContext(ctx, "SELECT 1 FROM automation_runs WHERE id = ?", r.ID).Scan(&exists)
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM automation_runs WHERE id = ?", r.ID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			return AutomationRun{}, ErrNotFound
 		}
@@ -619,6 +672,49 @@ func (s *Store) UpdateAutomationRun(ctx context.Context, r AutomationRun, expect
 	r.Archived = archivedInt != 0
 	r.Revision = expectedRevision + 1
 	return r, nil
+}
+
+// StartAutomationRun 在单事务内 CAS 更新自动化任务并插入对应的运行记录，任一步失败整体回滚。
+func (s *Store) StartAutomationRun(ctx context.Context, a Automation, expectedRevision int, r AutomationRun) (Automation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Automation{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	updatedAuto, err := updateAutomationTx(ctx, tx, a, expectedRevision)
+	if err != nil {
+		return Automation{}, err
+	}
+	if err := createAutomationRunTx(ctx, tx, r); err != nil {
+		return Automation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Automation{}, fmt.Errorf("commit start automation run %s: %w", r.ID, err)
+	}
+	return updatedAuto, nil
+}
+
+// SettleAutomationRun 在单事务内 CAS 更新运行记录与自动化任务，任一步失败整体回滚。
+func (s *Store) SettleAutomationRun(ctx context.Context, r AutomationRun, runExpectedRevision int, a Automation, autoExpectedRevision int) (AutomationRun, Automation, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AutomationRun{}, Automation{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	updatedRun, err := updateAutomationRunTx(ctx, tx, r, runExpectedRevision)
+	if err != nil {
+		return AutomationRun{}, Automation{}, err
+	}
+	updatedAuto, err := updateAutomationTx(ctx, tx, a, autoExpectedRevision)
+	if err != nil {
+		return AutomationRun{}, Automation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AutomationRun{}, Automation{}, fmt.Errorf("commit settle automation run %s: %w", r.ID, err)
+	}
+	return updatedRun, updatedAuto, nil
 }
 
 // DeleteAutomationRun 删除单次运行记录，不存在时返回 ErrNotFound。

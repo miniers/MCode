@@ -251,7 +251,7 @@ func runGitClone(ctx context.Context, url, dir string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	cmd := procattr.HideWindow(exec.CommandContext(ctx, gitPath, "clone", url, dir))
+	cmd := procattr.HideWindow(exec.CommandContext(ctx, gitPath, "clone", "--", url, dir))
 	// git 依赖登录环境里的 GIT_* 变量与 credentials 配置。
 	cmd.Env = loginenv.Environ()
 	var stderr bytes.Buffer

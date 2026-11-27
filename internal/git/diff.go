@@ -83,7 +83,7 @@ func (r *Runner) captureWorkingTree(ctx context.Context, root string) (string, e
 const maxPathspecChunk = 400
 
 // diffArgs 构造 git diff 参数。paths 非空时在子命令前加 --literal-pathspecs（按字面量匹配路径），
-// 并在两个版本之后追加 "--" 与路径列表；paths 为空时保持原有行为。
+// 在选项之后追加 "--end-of-options" 与两个版本（to 为空时不追加），再在版本之后追加 "--" 与路径列表。
 func diffArgs(from, to string, paths []string, numstat bool) []string {
 	args := make([]string, 0, 12+len(paths))
 	if len(paths) > 0 {
@@ -95,7 +95,10 @@ func diffArgs(from, to string, paths []string, numstat bool) []string {
 	} else {
 		args = append(args, "--unified=3")
 	}
-	args = append(args, from, to)
+	args = append(args, "--end-of-options", from)
+	if to != "" {
+		args = append(args, to)
+	}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)

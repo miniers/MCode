@@ -91,7 +91,7 @@ func (r *Runner) PullCurrentFastForward(ctx context.Context, root string) error 
 	if _, err := r.run(ctx, root, nil, "fetch", "--", remote, "refs/heads/"+remoteBranch+":refs/remotes/"+ref); err != nil {
 		return fmt.Errorf("fetch %s: %w", ref, err)
 	}
-	if _, err := r.run(ctx, root, nil, "merge", "--ff-only", ref); err != nil {
+	if _, err := r.run(ctx, root, nil, "merge", "--ff-only", "--end-of-options", ref); err != nil {
 		return fmt.Errorf("fast-forward merge %s: %w", ref, err)
 	}
 	return nil
