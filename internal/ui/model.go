@@ -624,8 +624,9 @@ type chatState struct {
 	chatScroll        ui.ScrollState // 只用于「跳到最新」的平滑滚动
 	mdOpts            markdown.Options
 	mdStaticOpts      markdown.Options
-	imagePreview      *imagePreviewState // 正在放大的本地图片，nil 表示没有大图浮层
-	mermaidShowSource map[string]bool    // 内联 Mermaid 图表与源码切换状态（受 s.mu 保护）
+	imagePreview      *imagePreviewState      // 正在放大的本地图片，nil 表示没有大图浮层
+	attachmentPreview *attachmentPreviewState // 正在预览的附件分类弹窗，nil 表示未初始化
+	mermaidShowSource map[string]bool         // 内联 Mermaid 图表与源码切换状态（受 s.mu 保护）
 	lastLiveID        string
 
 	// toolOutputScroll 按工具消息 ID 记录详情正文滚动区的位置（仅 UI 线程读写）；

@@ -123,12 +123,12 @@ func TestComposerContextDraftClassifyAndPreview(t *testing.T) {
 	tt := composerTester(s)
 	waitFor(t, tt, func() bool {
 		_, okBtn := tt.Find("打开上下文草稿区")
-		_, okChip := tt.Find("预览上下文 评论.txt")
+		_, okChip := tt.Find("附件 评论.txt")
 		return okBtn && okChip
 	})
 
-	if err := tt.Click("预览上下文 评论.txt"); err != nil {
-		t.Fatalf("点击文本上下文胶囊失败: %v", err)
+	if err := tt.Click("打开上下文草稿区"); err != nil {
+		t.Fatalf("点击打开上下文草稿区失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("关闭上下文草稿区")
@@ -339,10 +339,10 @@ func TestComposerContextDraftThreadSwitchIsolation(t *testing.T) {
 	}, 900, 500)
 
 	waitFor(t, tt, func() bool {
-		_, ok := tt.Find("预览上下文 评论.txt")
+		_, ok := tt.Find("打开上下文草稿区")
 		return ok
 	})
-	if err := tt.Click("预览上下文 评论.txt"); err != nil {
+	if err := tt.Click("打开上下文草稿区"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, tt, func() bool {

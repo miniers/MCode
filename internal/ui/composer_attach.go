@@ -116,6 +116,8 @@ type composerAttachment struct {
 	ContextKind string
 	// PreviewText 保存非图片可读文本附件的 UTF-8 快照（上限 256KB），用于草稿区预览与编辑。
 	PreviewText string
+	// SourcePath 保存从磁盘添加的原始绝对路径；粘贴字节或内存生成附件时为空。
+	SourcePath string
 }
 
 func (a composerAttachment) uploadName() string {
@@ -1231,6 +1233,10 @@ func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttac
 		}
 
 		localID := nextLocalAttachmentID()
+		sourcePath := p
+		if abs, absErr := filepath.Abs(p); absErr == nil {
+			sourcePath = abs
+		}
 		att := composerAttachment{
 			LocalID:     localID,
 			Name:        name,
@@ -1242,6 +1248,7 @@ func (s *chatState) readAttachmentFiles(paths []string, rejected []rejectedAttac
 			RetryData:   data,
 			ContextKind: classifyContextAttachment(name, mime, nil),
 			PreviewText: snapshotAttachmentPreviewText(name, mime, data, nil),
+			SourcePath:  sourcePath,
 		}
 		s.attachments = append(s.attachments, att)
 		threadID := s.selectedThreadID
@@ -1495,7 +1502,7 @@ const (
 )
 
 func classifyAttachment(name, mime string) (attCategory, string) {
-	ext := strings.ToLower(filepath.Ext(name))
+	ext := strings.ToLower(filepath.Ext(stripLineRangeSuffix(name)))
 	if isAllowedImageMime(mime) || ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".tiff" || ext == ".tif" {
 		return categoryImage, "IMG"
 	}
@@ -1782,23 +1789,29 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 	return card
 }
 
-// openComposerAttachmentPreview 打开附件缩略图的放大浮层：
-// 用附件原始数据解码一张全尺寸图源，解码失败时退回缩略图。
-// 图源在点击时只生成一次并存进浮层状态，避免每帧重复解码。
+// openComposerAttachmentPreview 打开附件预览：
+// 图片保持放大浮层（点击时只解码一次并存进浮层状态），非图片打开分类预览弹窗。
 func openComposerAttachmentPreview(s *chatState, a composerAttachment) {
-	var src ui.ImageSource
-	if img := decodeAttachmentImage(a.MimeType, a.Data); img != nil {
-		src = ui.NewBitmap(img)
-	} else if a.Thumb != nil {
-		src = a.Thumb
-	}
-	if src == nil || s == nil {
+	if s == nil {
 		return
 	}
-	s.mu.Lock()
-	s.imagePreview = &imagePreviewState{src: src, alt: a.Name}
-	s.mu.Unlock()
-	s.invalidate()
+	if a.InspectorRef == nil && isAllowedImageMime(a.MimeType) {
+		var src ui.ImageSource
+		if img := decodeAttachmentImage(a.MimeType, a.Data); img != nil {
+			src = ui.NewBitmap(img)
+		} else if a.Thumb != nil {
+			src = a.Thumb
+		}
+		if src == nil {
+			return
+		}
+		s.mu.Lock()
+		s.imagePreview = &imagePreviewState{src: src, alt: a.Name}
+		s.mu.Unlock()
+		s.invalidate()
+		return
+	}
+	openAttachmentPreviewForComposer(s, a.LocalID, 0)
 }
 
 func categoryColor(c *ui.Context, cat attCategory) ui.Color {
@@ -1883,14 +1896,9 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 	tip := a.Name
 	if a.Err != "" {
 		tip = a.Name + "\n" + a.Err
-	} else if a.PreviewText != "" {
-		tip = "点击预览或编辑上下文\n" + a.Name
 	}
 
 	label := "附件 " + a.Name
-	if a.PreviewText != "" {
-		label = "预览上下文 " + a.Name
-	}
 
 	card := ui.ButtonBase(c.Key("composer-attach-" + a.LocalID)).
 		Label(label).
@@ -1902,10 +1910,6 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 		Cursor(ui.CursorPointer).
 		Tooltip(tip).
 		OnClick(func() {
-			if a.PreviewText != "" {
-				openComposerContextDraftForAttachment(s, a.LocalID)
-				return
-			}
 			openComposerAttachmentPreview(s, a)
 		})
 
@@ -2464,6 +2468,7 @@ func renderAttachments(c *ui.Context, s *chatState) {
 	if notice == "" && !showTokenNotice && !hasItems {
 		renderComposerContextDraftModal(c, s)
 		renderAttachmentManageModal(c, s)
+		renderAttachmentPreviewModal(c, s)
 		return
 	}
 
@@ -2657,4 +2662,5 @@ func renderAttachments(c *ui.Context, s *chatState) {
 		})
 	renderComposerContextDraftModal(c, s)
 	renderAttachmentManageModal(c, s)
+	renderAttachmentPreviewModal(c, s)
 }

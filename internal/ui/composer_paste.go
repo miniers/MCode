@@ -212,14 +212,7 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 		Radius(RadiusLG).
 		Border(Hairline, ThemeBorder(c)).
 		OnClick(func() {
-			s.mu.Lock()
-			if s.snippetPreviewID == sn.ID {
-				s.snippetPreviewID = 0
-			} else {
-				s.snippetPreviewID = sn.ID
-			}
-			s.mu.Unlock()
-			s.invalidate()
+			openAttachmentPreviewForComposer(s, "", sn.ID)
 		})
 	if previewOpen || chip.Hovered() {
 		chip.Background(ThemeBorder(c).Over(ThemeSurface(c)))
@@ -247,46 +240,6 @@ func renderSnippetChip(c *ui.Context, s *chatState, sn composerSnippet, previewO
 				pressButton0.Children(func() {
 					ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeSecondaryText(c))
 				})
-			})
-	})
-
-	open := previewOpen
-	appPopoverAbove(c.Key(key+"-preview"), chip, &open, func() {
-		s.mu.Lock()
-		if s.snippetPreviewID == sn.ID {
-			s.snippetPreviewID = 0
-		}
-		s.mu.Unlock()
-		s.invalidate()
-	}, func() {
-		popoverCard(c, ui.Column(c.Key(key+"-preview-card")).
-			MaxWidth(snippetPreviewWidth).
-			Padding(Space3).
-			Gap(Space2)).
-			Children(func() {
-				ui.Scroll(c.Key(key + "-preview-scroll")).
-					FillWidth().
-					MaxHeight(snippetPreviewHeight).
-					Children(func() {
-						ui.Text(c, snippetPreview(sn.Text)).
-							FillWidth().
-							FontSize(uiFont(TypeFootnote)).
-							TextColor(ThemePrimaryText(c)).
-							Selectable()
-					})
-				ui.Row(c.Key(key + "-preview-actions")).
-					FillWidth().
-					Justify(ui.End).
-					Children(func() {
-						Button(c.Key(key+"-expand"), ButtonOpts{
-							Text:     "放入输入框",
-							Label:    "把粘贴的文本放入输入框",
-							Size:     ControlXS,
-							Variant:  ButtonSecondary,
-							Disabled: sending,
-							OnClick:  func() { s.expandSnippet(sn.ID) },
-						})
-					})
 			})
 	})
 }

@@ -265,7 +265,7 @@ func renderUserMessageImagePlaceholder(c *ui.Context, s *chatState, m Message, i
 
 // renderUserMessageFileCapsule 在用户气泡顶部为非图片附件渲染文件胶囊：
 // 显示文件图标与文件名（或解析出的工作区引用路径），完整名称放 hover 提示，
-// 挂上右键菜单，引用为文件时支持左键单击打开。
+// 挂上右键菜单，左键点击打开只读附件预览弹窗。
 func renderUserMessageFileCapsule(c *ui.Context, s *chatState, threadID string, m Message, idx int, med MessageMedia) {
 	prefetchTimelineAttachmentRef(s, threadID, m.ID, med)
 	ref := cachedTimelineAttachmentRef(threadID, m.ID, med.ID)
@@ -277,14 +277,13 @@ func renderUserMessageFileCapsule(c *ui.Context, s *chatState, threadID string, 
 		Background(ThemeHover(c)).
 		Border(1, ThemeBorder(c)).
 		AlignItems(ui.Center).
+		Label("预览附件 " + name).
 		Tooltip(name).
+		Cursor(ui.CursorPointer).
+		OnClick(func() {
+			openTimelineAttachmentPreview(s, threadID, m, idx)
+		}).
 		ContextMenu(timelineFileCapsuleMenu(c, s, threadID, m, med))
-	if ref != nil && !ref.isDir {
-		targetRef := *ref
-		row.Cursor(ui.CursorPointer).OnClick(func() {
-			openTimelineInspectorRef(s, threadID, targetRef)
-		})
-	}
 	row.Children(func() {
 		ui.Icon(c, IconFile()).Size(11, 11).TextColor(ThemeSecondaryText(c))
 		ui.Text(c, truncateAttachmentName(name, 18)).
