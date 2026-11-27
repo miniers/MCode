@@ -303,11 +303,6 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 		Cursor(ui.CursorResizeEW)
 
 	hovered := handle.Hovered()
-	elapsed, wait := sidePaneHandles.observe(c, p.splitKey, c.Now(), hovered)
-	if wait > 0 {
-		// 悬停还没满 motionHoverDelay：到点时请求一帧，把高亮线亮起来。
-		c.After(wait)
-	}
 
 	dx, _, held := handle.Dragged()
 	_, _, released := handle.DragEnded()
@@ -345,6 +340,16 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 		inspectorRemember(s)
 	})
 
+	renderSplitterHandleLines(c, handle, key, p.splitKey, hovered, held, inspectorTopInset(c), sidePaneHandleHighlightLabel)
+}
+
+// renderSplitterHandleLines 渲染垂直分栏手柄的悬停延迟、1 DIP 常驻线与 2 DIP 高亮竖线。
+func renderSplitterHandleLines(c *ui.Context, handle ui.Element, key, observeKey string, hovered, held bool, topInset float32, highlightLabel string) {
+	elapsed, wait := sidePaneHandles.observe(c, observeKey, c.Now(), hovered)
+	if wait > 0 {
+		// 悬停还没满 motionHoverDelay：到点时请求一帧，把高亮线亮起来。
+		c.After(wait)
+	}
 	ink := handle.AnimateTo("ink", sidePaneHandleInkTarget(hovered, held, elapsed), ui.Animation{Duration: animateDuration(c, motionFast), Ease: motionEaseStandard})
 	handle.Children(func() {
 		// 常驻 1 DIP 分割线，垂直居中。
@@ -356,7 +361,7 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 			Width(1).
 			Background(ThemeBorder(c))
 		// 右栏让出标题栏时，顶部横线从竖线接到面板，与面板的顶部分割线连成一体。
-		if inspectorTopInset(c) > 0 {
+		if topInset > 0 {
 			ui.Box(c.Key(key + "/top")).
 				Absolute().
 				Top(0).
@@ -367,14 +372,16 @@ func renderSidePaneHandle(c *ui.Context, s *chatState, p *sidePane, width *float
 		}
 		// 高亮竖线：2 DIP，透明度由动画值驱动，淡到 0 后不再建节点。
 		if ink > 0 {
-			ui.Box(c.Key(key + "/ink")).
+			inkBox := ui.Box(c.Key(key + "/ink")).
 				Absolute().
 				Top(0).
 				Bottom(0).
 				Left((sidePaneHandleWidth - motionHandleLine) / 2).
 				Width(motionHandleLine).
-				Background(ThemeAccent(c).Alpha(ink)).
-				Label(sidePaneHandleHighlightLabel)
+				Background(ThemeAccent(c).Alpha(ink))
+			if highlightLabel != "" {
+				inkBox.Label(highlightLabel)
+			}
 		}
 	})
 }

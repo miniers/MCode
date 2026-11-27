@@ -503,7 +503,7 @@ var fileTreeChangedRowsBuilds atomic.Int64
 // fileTreeChangedRowsLocked 从 Git 改动列表生成只包含改动文件与必要父目录的树。
 // 数据变化时默认展开全部目录；用户手动收起的目录在数据不变时保持收起。
 func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children map[string][]string, entries map[string]FileEntry) {
-	if tree.changedCacheOK && tree.changedCacheRev == tree.gitRev && tree.changedCacheSort == tree.sort {
+	if tree.changedCacheOK && tree.changedCacheRev == tree.gitRev && tree.changedCacheSort == tree.sort && tree.changedCacheHideIgnored == tree.hideIgnored {
 		return tree.changedRoots, tree.changedChildren, tree.changedEntries
 	}
 	fileTreeChangedRowsBuilds.Add(1)
@@ -512,8 +512,11 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 	entries = make(map[string]FileEntry)
 	dirs := map[string]bool{"": true}
 	paths := make([]string, 0, len(tree.git))
-	for path := range tree.git {
-		paths = append(paths, path)
+	for filePath := range tree.git {
+		if tree.hideIgnored && fileTreePathIgnoredLocked(tree, filePath) {
+			continue
+		}
+		paths = append(paths, filePath)
 	}
 	sort.Strings(paths)
 
@@ -568,6 +571,7 @@ func fileTreeChangedRowsLocked(tree *fileTreeState) (roots []string, children ma
 	tree.changedEntries = entries
 	tree.changedCacheRev = tree.gitRev
 	tree.changedCacheSort = tree.sort
+	tree.changedCacheHideIgnored = tree.hideIgnored
 	tree.changedCacheOK = true
 	fileTreeBumpOutlineGenLocked(tree)
 	return tree.changedRoots, tree.changedChildren, tree.changedEntries

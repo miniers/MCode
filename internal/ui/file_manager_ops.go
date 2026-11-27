@@ -128,8 +128,8 @@ func openFileManagerNewDialog(s *chatState, parentDir string, dir bool) {
 	s.openFileManagerOpsDialog(kind, parentDir, "")
 }
 
-// fileManagerCollapseTrashPaths 去重并折叠嵌套路径：同时包含目录及其内部条目时只保留目录。
-func fileManagerCollapseTrashPaths(paths []string) []string {
+// fileManagerCollapseNestedPaths 去重并折叠嵌套路径：同时包含目录及其内部条目时只保留目录。
+func fileManagerCollapseNestedPaths(paths []string) []string {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -159,6 +159,11 @@ func fileManagerCollapseTrashPaths(paths []string) []string {
 		collapsed = append(collapsed, p)
 	}
 	return collapsed
+}
+
+// fileManagerCollapseTrashPaths 去重并折叠待删路径：同时包含目录及其内部条目时只保留目录。
+func fileManagerCollapseTrashPaths(paths []string) []string {
+	return fileManagerCollapseNestedPaths(paths)
 }
 
 // openFileManagerTrashDialog 打开单个条目的「移到废纸篓」确认弹窗。

@@ -3,6 +3,8 @@ package mcodeui
 import (
 	"context"
 	"fmt"
+	"math"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -10,11 +12,16 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// 文件树与内容并排所需的最小右栏宽度，以及树导航的固定宽度。
+// 文件树与内容并排所需的最小右栏宽度，以及树导航的默认宽度与调整范围。
 // 窄于阈值时树与内容二选一，由返回按钮切换。
 const (
-	fileTreeSplitMinWidth      float32 = 640
+	fileTreeSplitMinWidth      float32 = 560
 	fileTreeNavWidth           float32 = 200
+	fileTreeNavMinWidth        float32 = 160
+	fileTreeNavMaxWidth        float32 = 360
+	fileTreeNavContentMinWidth float32 = 320
+	fileTreeNavHandleKey               = "file-manager-nav-handle"
+	fileTreeNavHandleLabel             = "调整文件导航宽度"
 	fileTreeSelectionBarHeight float32 = 34
 	fileTreeSelectionBottomPad float32 = 48
 	fileTreeEnterWindow                = 2 * DurBase
@@ -28,13 +35,15 @@ type fileTreeState struct {
 	selected   int
 	selection  ui.Selection[string]
 
-	// children 按目录缓存排好序的子路径；nil 表示未加载，空切片表示空目录。
-	children map[string][]string
-	entries  map[string]FileEntry
-	loading  map[string]bool
-	stale    map[string]bool
-	dirGen   map[string]int
-	gen      int
+	// children 按目录缓存过滤后可见且排好序的子路径；rawChildren 保留过滤前全量路径，
+	// 便于切换「显示忽略的文件」时不重新读盘；nil 表示未加载，空切片表示空目录。
+	children    map[string][]string
+	rawChildren map[string][]string
+	entries     map[string]FileEntry
+	loading     map[string]bool
+	stale       map[string]bool
+	dirGen      map[string]int
+	gen         int
 
 	// 恢复偏好：展开路径在目录真正加载并确认存在后才写入 outline.Open。
 	restoreExpanded map[string]bool
@@ -65,17 +74,18 @@ type fileTreeState struct {
 	gitRev      uint64
 
 	// onlyChanged 打开时用 Git 改动列表生成独立树；changedOutline 与完整树状态互不影响。
-	onlyChanged      bool
-	changedOutline   *ui.OutlineState[string]
-	changedSig       string
-	changedSelected  int
-	changedSelection ui.Selection[string]
-	changedCacheRev  uint64
-	changedCacheSort fileTreeSort
-	changedCacheOK   bool
-	changedRoots     []string
-	changedChildren  map[string][]string
-	changedEntries   map[string]FileEntry
+	onlyChanged             bool
+	changedOutline          *ui.OutlineState[string]
+	changedSig              string
+	changedSelected         int
+	changedSelection        ui.Selection[string]
+	changedCacheRev         uint64
+	changedCacheSort        fileTreeSort
+	changedCacheHideIgnored bool
+	changedCacheOK          bool
+	changedRoots            []string
+	changedChildren         map[string][]string
+	changedEntries          map[string]FileEntry
 
 	focusPending     bool
 	wasFocused       bool
@@ -83,7 +93,13 @@ type fileTreeState struct {
 	lastTreeOnlyInit bool
 	lastTreeOnly     bool
 
-	sort fileTreeSort
+	sort        fileTreeSort
+	navWidth    float32
+	hideIgnored bool
+	revealPath  string
+
+	dragHoverDir     string
+	dragHoverStarted time.Time
 }
 
 // ensureFileTreeLocked 初始化树状态；调用方持 fileManagerMu。
@@ -94,6 +110,7 @@ func ensureFileTreeLocked(st *fileManagerState) *fileTreeState {
 	tree := &fileTreeState{
 		outlineGen:      1,
 		children:        make(map[string][]string),
+		rawChildren:     make(map[string][]string),
 		entries:         make(map[string]FileEntry),
 		loading:         make(map[string]bool),
 		stale:           make(map[string]bool),
@@ -144,6 +161,8 @@ func fileTreeSeedPreference(st *fileManagerState, pref InspectorPreference) {
 		Desc:      pref.FileSortDesc,
 		DirsMixed: pref.FileDirsMixed,
 	}
+	tree.navWidth = pref.FileNavWidth
+	tree.hideIgnored = pref.FileHideIgnored
 }
 
 // fileTreeAncestors 返回从根到 dir 的所有目录路径，根为空串。
@@ -237,7 +256,13 @@ func (s *chatState) fileTreeLoadDir(threadID, dir string) {
 // fileTreeApplyListingLocked 用新目录结果替换缓存，并返回需要继续加载的新展开目录。
 // 旧子项按路径清理，展开、选中与滚动锚点只保留仍然存在的路径。
 func fileTreeApplyListingLocked(st *fileManagerState, tree *fileTreeState, dir string, listing FileListing) (opened []string, openFile string) {
-	previous := tree.children[dir]
+	if tree.rawChildren == nil {
+		tree.rawChildren = make(map[string][]string)
+	}
+	previous := tree.rawChildren[dir]
+	if previous == nil {
+		previous = tree.children[dir]
+	}
 	entries := make([]FileEntry, 0, len(listing.Entries))
 	for _, entry := range listing.Entries {
 		if entry.Path == "" {
@@ -247,13 +272,13 @@ func fileTreeApplyListingLocked(st *fileManagerState, tree *fileTreeState, dir s
 	}
 	fileTreeSortEntries(entries, tree.sort)
 
-	kids := make([]string, 0, len(entries))
+	allKids, visibleKids := fileTreeBuildKidsLocked(tree, entries)
 	next := make(map[string]bool, len(entries))
 	for _, entry := range entries {
-		kids = append(kids, entry.Path)
 		next[entry.Path] = true
 		tree.entries[entry.Path] = entry
-		if entry.IsDir {
+		hidden := tree.hideIgnored && entry.Ignored
+		if entry.IsDir && !hidden {
 			if tree.restoreExpanded[entry.Path] {
 				tree.outline.Open.Add(entry.Path)
 				delete(tree.restoreExpanded, entry.Path)
@@ -261,7 +286,7 @@ func fileTreeApplyListingLocked(st *fileManagerState, tree *fileTreeState, dir s
 			if tree.outline.Open.Has(entry.Path) && tree.children[entry.Path] == nil && !tree.loading[entry.Path] {
 				opened = append(opened, entry.Path)
 			}
-		} else if tree.restoreActive == entry.Path {
+		} else if !entry.IsDir && tree.restoreActive == entry.Path {
 			tree.restoreActive = ""
 			tree.pendingOpen = entry.Path
 			openFile = entry.Path
@@ -275,13 +300,17 @@ func fileTreeApplyListingLocked(st *fileManagerState, tree *fileTreeState, dir s
 		fileTreeForgetLocked(st, tree, old)
 	}
 	// 恢复偏好里属于本目录、但已经不存在的直接子项直接丢弃。
-	for path := range tree.restoreExpanded {
-		if fileManagerParentPath(path) == dir && !next[path] {
-			delete(tree.restoreExpanded, path)
+	for p := range tree.restoreExpanded {
+		if fileManagerParentPath(p) == dir && !next[p] {
+			delete(tree.restoreExpanded, p)
 		}
 	}
 
-	tree.children[dir] = kids
+	tree.rawChildren[dir] = allKids
+	tree.children[dir] = visibleKids
+	if tree.hideIgnored {
+		fileTreePruneIgnoredSelectionLocked(tree)
+	}
 	if dir == "" {
 		tree.rootTruncated = listing.Truncated
 		st.err = ""
@@ -304,6 +333,11 @@ func fileTreeForgetLocked(st *fileManagerState, tree *fileTreeState, path string
 	for key := range tree.children {
 		if key == path || strings.HasPrefix(key, prefix) {
 			delete(tree.children, key)
+		}
+	}
+	for key := range tree.rawChildren {
+		if key == path || strings.HasPrefix(key, prefix) {
+			delete(tree.rawChildren, key)
 		}
 	}
 	for key := range tree.loading {
@@ -350,6 +384,9 @@ func fileTreeForgetLocked(st *fileManagerState, tree *fileTreeState, path string
 	}
 	if tree.restoreAnchor == path || strings.HasPrefix(tree.restoreAnchor, prefix) {
 		tree.restoreAnchor = ""
+	}
+	if tree.revealPath == path || strings.HasPrefix(tree.revealPath, prefix) {
+		tree.revealPath = ""
 	}
 	if tree.enterDir == path || strings.HasPrefix(tree.enterDir, prefix) {
 		tree.enterDir = ""
@@ -740,6 +777,295 @@ func fileTreePreferenceLocked(st *fileManagerState) (expanded []string, active, 
 	return expanded, active, anchor, fileSort, fileSortDesc, fileDirsMixed
 }
 
+// fileTreeViewPreferenceLocked 返回树导航宽度与忽略文件开关偏好。调用方持 fileManagerMu。
+func fileTreeViewPreferenceLocked(st *fileManagerState) (navWidth float32, hideIgnored bool) {
+	if st == nil || st.tree == nil {
+		return 0, false
+	}
+	return st.tree.navWidth, st.tree.hideIgnored
+}
+
+// fileTreeClampNavWidth 计算当前面板宽度下有效的导航栏宽度：
+// 默认 200，最小 160，最大取 360 和（面板宽度 - 320 - 手柄宽度）的较小值。
+func fileTreeClampNavWidth(navWidth, panelWidth float32) float32 {
+	if navWidth <= 0 || math.IsNaN(float64(navWidth)) || math.IsInf(float64(navWidth), 0) {
+		navWidth = fileTreeNavWidth
+	}
+	maxWidth := fileTreeNavMaxWidth
+	if panelWidth > 0 {
+		maxWidth = min(maxWidth, panelWidth-fileTreeNavContentMinWidth-sidePaneHandleWidth)
+	}
+	if maxWidth < fileTreeNavMinWidth {
+		maxWidth = fileTreeNavMinWidth
+	}
+	return min(max(navWidth, fileTreeNavMinWidth), maxWidth)
+}
+
+// fileTreeBuildKidsLocked 根据隐藏忽略文件开关生成全量与可见子路径列表。调用方持 fileManagerMu。
+func fileTreeBuildKidsLocked(tree *fileTreeState, entries []FileEntry) (allKids, visibleKids []string) {
+	allKids = make([]string, 0, len(entries))
+	visibleKids = make([]string, 0, len(entries))
+	for _, entry := range entries {
+		allKids = append(allKids, entry.Path)
+		if !tree.hideIgnored || !entry.Ignored {
+			visibleKids = append(visibleKids, entry.Path)
+		}
+	}
+	return allKids, visibleKids
+}
+
+// fileTreeRebuildAllDirsLocked 按当前排序与忽略文件开关重建所有已加载目录的 children；
+// resort 为 true 时重新按 tree.sort 排序。调用方持 fileManagerMu。
+func fileTreeRebuildAllDirsLocked(tree *fileTreeState, resort bool) {
+	if tree == nil {
+		return
+	}
+	if tree.rawChildren == nil {
+		tree.rawChildren = make(map[string][]string)
+	}
+	for dir, kids := range tree.children {
+		if _, ok := tree.rawChildren[dir]; !ok && kids != nil {
+			tree.rawChildren[dir] = append([]string(nil), kids...)
+		}
+	}
+	for dir, raw := range tree.rawChildren {
+		entries := make([]FileEntry, 0, len(raw))
+		for _, p := range raw {
+			entry, ok := tree.entries[p]
+			if !ok {
+				entry = FileEntry{Name: path.Base(p), Path: p}
+			}
+			entries = append(entries, entry)
+		}
+		if resort {
+			fileTreeSortEntries(entries, tree.sort)
+		}
+		allKids, visibleKids := fileTreeBuildKidsLocked(tree, entries)
+		tree.rawChildren[dir] = allKids
+		tree.children[dir] = visibleKids
+	}
+}
+
+// fileTreePathIgnoredLocked 判断路径本身或其任一已知祖先目录是否被 .gitignore 忽略。调用方持 fileManagerMu。
+func fileTreePathIgnoredLocked(tree *fileTreeState, p string) bool {
+	if tree == nil || p == "" {
+		return false
+	}
+	for cur := p; cur != ""; cur = fileManagerParentPath(cur) {
+		if tree.entries[cur].Ignored {
+			return true
+		}
+	}
+	return false
+}
+
+// fileTreePruneIgnoredSelectionLocked 把当前被隐藏的忽略条目移出普通树与只看改动选区。调用方持 fileManagerMu。
+func fileTreePruneIgnoredSelectionLocked(tree *fileTreeState) {
+	if tree == nil {
+		return
+	}
+	for _, sel := range []*ui.Selection[string]{&tree.selection, &tree.changedSelection} {
+		var remove []string
+		for p := range sel.All() {
+			if fileTreePathIgnoredLocked(tree, p) {
+				remove = append(remove, p)
+			}
+		}
+		for _, p := range remove {
+			sel.Remove(p)
+		}
+	}
+}
+
+// fileTreeCollapseAll 折叠当前视图里所有已展开目录，并保存偏好。
+func (s *chatState) fileTreeCollapseAll() {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	tree := ensureFileTreeLocked(st)
+	outline := fileTreeActiveOutlineLocked(tree)
+	if outline.Open.Len() == 0 {
+		fileManagerMu.Unlock()
+		return
+	}
+	outline.Open.Clear()
+	tree.enterDir = ""
+	tree.enterAt = time.Time{}
+	tree.enterMounted = nil
+	if !tree.onlyChanged {
+		clear(tree.restoreExpanded)
+	}
+	fileTreeBumpOutlineGenLocked(tree)
+	fileManagerMu.Unlock()
+
+	inspectorRemember(s)
+	s.invalidate()
+}
+
+// fileTreeRevealActiveFile 在文件树里展开并定位到当前激活标签页对应的文件。
+func (s *chatState) fileTreeRevealActiveFile(threadID string) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	active := st.active
+	if active == "" || st.findTabLocked(active) == nil {
+		fileManagerMu.Unlock()
+		return
+	}
+	if threadID == "" {
+		threadID = st.threadID
+	}
+	narrow := st.width < fileTreeSplitMinWidth
+	tree := ensureFileTreeLocked(st)
+	if tree.onlyChanged {
+		_, inChanged := tree.git[active]
+		if !inChanged || (tree.hideIgnored && fileTreePathIgnoredLocked(tree, active)) {
+			tree.onlyChanged = false
+		}
+	}
+	parent := fileManagerParentPath(active)
+	ancestors := fileTreeAncestors(parent)
+	outline := fileTreeActiveOutlineLocked(tree)
+	for _, p := range ancestors {
+		if p != "" {
+			outline.Open.Add(p)
+		}
+	}
+	if !tree.onlyChanged {
+		st.dir = parent
+	}
+	_, sel, selectedIdx, _ := fileTreeActiveViewsLocked(tree)
+	sel.Clear()
+	sel.Add(active)
+	if idx := fileTreeRowIndexLocked(tree, active); idx >= 0 {
+		*selectedIdx = idx
+	} else {
+		*selectedIdx = -1
+	}
+	tree.revealPath = active
+	onlyChanged := tree.onlyChanged
+	fileTreeBumpOutlineGenLocked(tree)
+	fileManagerMu.Unlock()
+
+	inspectorFollowPause(s, threadID)
+	if narrow {
+		s.showFileManagerList()
+	}
+	s.fileManagerSearch(threadID, "")
+	if !onlyChanged && threadID != "" {
+		for _, p := range ancestors {
+			s.fileTreeLoadDir(threadID, p)
+		}
+	}
+	inspectorRemember(s)
+	s.invalidate()
+}
+
+// setFileTreeHideIgnored 切换是否隐藏 .gitignore 忽略的条目，不重新读盘并保存偏好。
+func (s *chatState) setFileTreeHideIgnored(hide bool) {
+	st := getFileManagerState(s)
+	if st == nil {
+		return
+	}
+	fileManagerMu.Lock()
+	tree := ensureFileTreeLocked(st)
+	if tree.hideIgnored == hide {
+		fileManagerMu.Unlock()
+		return
+	}
+	tree.hideIgnored = hide
+	fileTreeRebuildAllDirsLocked(tree, false)
+	if hide {
+		fileTreePruneIgnoredSelectionLocked(tree)
+	}
+	tree.changedCacheOK = false
+	fileTreeBumpOutlineGenLocked(tree)
+	fileManagerMu.Unlock()
+
+	inspectorRemember(s)
+	s.invalidate()
+}
+
+// fileManagerMoreMenu 构建树顶部的「···」更多操作菜单。
+func fileManagerMoreMenu(s *chatState, threadID string, hasActive, hasOpen, hideIgnored bool) func(*ui.Menu) {
+	return func(m *ui.Menu) {
+		if m.Item("定位当前文件").Disabled(!hasActive).Chosen() {
+			s.fileTreeRevealActiveFile(threadID)
+		}
+		if m.Item("全部折叠").Disabled(!hasOpen).Chosen() {
+			s.fileTreeCollapseAll()
+		}
+		m.Separator()
+		if m.Item("显示忽略的文件").Checked(!hideIgnored).Chosen() {
+			s.setFileTreeHideIgnored(!hideIgnored)
+		}
+	}
+}
+
+// renderFileManagerNavHandle 渲染文件导航栏与正文之间的拖拽调宽手柄，
+// 复用侧栏手柄的悬停高亮、拖动与左右方向键语义，并在拖动结束或按键调整时持久化。
+func renderFileManagerNavHandle(c *ui.Context, s *chatState, panelWidth float32, navCol ui.Element) {
+	handle := ui.Box(c.Key(fileTreeNavHandleKey)).
+		Width(sidePaneHandleWidth).
+		FillHeight().
+		Shrink(0).
+		Focusable().
+		Role(ui.RoleSplitter).
+		Label(fileTreeNavHandleLabel).
+		Cursor(ui.CursorResizeEW)
+
+	hovered := handle.Hovered()
+	dx, _, held := handle.Dragged()
+	_, _, released := handle.DragEnded()
+	updateWidth := func(delta float32, persist bool) {
+		st := getFileManagerState(s)
+		if st == nil {
+			return
+		}
+		fileManagerMu.Lock()
+		tree := ensureFileTreeLocked(st)
+		cur := fileTreeClampNavWidth(tree.navWidth, panelWidth)
+		next := fileTreeClampNavWidth(cur+delta, panelWidth)
+		tree.navWidth = next
+		fileManagerMu.Unlock()
+		if navCol.Valid() {
+			navCol.Width(next)
+		}
+		if persist {
+			inspectorRemember(s)
+		}
+		s.invalidate()
+	}
+	switch {
+	case held:
+		if dx != 0 {
+			updateWidth(dx, false)
+		}
+	case released:
+		st := getFileManagerState(s)
+		if st != nil {
+			fileManagerMu.Lock()
+			tree := ensureFileTreeLocked(st)
+			if tree.navWidth > 0 {
+				tree.navWidth = fileTreeClampNavWidth(tree.navWidth, panelWidth)
+			}
+			fileManagerMu.Unlock()
+			inspectorRemember(s)
+		}
+	}
+	handle.OnShortcut(0, ui.KeyLeft, func() {
+		updateWidth(-sidePaneHandleStep, true)
+	})
+	handle.OnShortcut(0, ui.KeyRight, func() {
+		updateWidth(sidePaneHandleStep, true)
+	})
+	renderSplitterHandleLines(c, handle, fileTreeNavHandleKey, fileTreeNavHandleKey, hovered, held, 0, "")
+}
+
 // renderFileManagerNavigation 渲染树导航：顶部搜索与新建，下面按模式显示树或搜索结果。
 func renderFileManagerNavigation(c *ui.Context, s *chatState, threadID, workDir string) {
 	st := getFileManagerState(s)
@@ -841,7 +1167,7 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 				OnKeyDown: func(k ui.TextKey) bool {
 					return handleFileManagerSearchKey(s, threadID, k)
 				},
-			})
+			}).MinWidth(0)
 			if _, ok := fileOpsClient(s); ok {
 				newBtn := ui.ButtonBase(c.Key("file-manager-new-btn")).
 					Label("新建文件或文件夹").
@@ -913,6 +1239,44 @@ func renderFileManagerTreeHeader(c *ui.Context, s *chatState, query *string, thr
 						color = ThemeAccent(c)
 					}
 					ui.Icon(c, IconSort()).Size(IconSM, IconSM).TextColor(color)
+				})
+
+				st := getFileManagerState(s)
+				hasActive := false
+				hasOpen := false
+				hideIgnored := false
+				if st != nil {
+					fileManagerMu.Lock()
+					hasActive = st.active != "" && st.findTabLocked(st.active) != nil
+					if st.tree != nil {
+						hasOpen = fileTreeActiveOutlineLocked(st.tree).Open.Len() > 0
+						hideIgnored = st.tree.hideIgnored
+					}
+					fileManagerMu.Unlock()
+				}
+				moreActive := hideIgnored
+				moreBtn := ui.ButtonBase(c.Key("file-manager-more")).
+					Label("更多").
+					Tooltip("更多").
+					Size(ControlSM, ControlSM).
+					Radius(RadiusSM).
+					Center().
+					Shrink(0)
+				focusRing(c, moreBtn)
+				moreBtnScale := motionPressScale(c, moreBtn, "button-press-scale", moreBtn.Pressed())
+				moreBtn.Scale(moreBtnScale, moreBtnScale)
+				if moreActive {
+					moreBtn.Background(ThemeSelected(c))
+				} else if moreBtn.Hovered() {
+					moreBtn.Background(ThemeHover(c))
+				}
+				moreBtn.Menu(fileManagerMoreMenu(s, threadID, hasActive, hasOpen, hideIgnored))
+				moreBtn.Children(func() {
+					color := ThemeSecondaryText(c)
+					if moreActive {
+						color = ThemeAccent(c)
+					}
+					ui.Icon(c, IconMoreHorizontal()).Size(IconSM, IconSM).TextColor(color)
 				})
 			}
 		})
@@ -1029,6 +1393,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	fileManagerMu.Unlock()
 
 	_, canEdit := fileOpsClient(s)
+	canDropMove := !onlyChanged && !renaming && canEdit
 	showSelectionBar := selCount >= 2
 	bottomPad := Space2
 	if showSelectionBar {
@@ -1057,6 +1422,9 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	outline.Prefix = func(r ui.OutlineRow) {}
 
 	var treeEl ui.Element
+	var draggingSourceEl ui.Element
+	var dragInvalid bool
+	var hoveredValidUnexpanded string
 	ui.Column(c.Key("file-manager-tree-wrap")).
 		Grow(1).
 		FillWidth().
@@ -1111,6 +1479,36 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 					Grow(1).
 					MinWidth(0).
 					Shrink(0)
+				dropValid := false
+				if canDropMove {
+					if entry.IsDir {
+						if payload, over := ui.DragOver[fileTreeDragPayload](clip); over {
+							if _, reason, valid, matched := fileTreeEvaluateDrop(s, threadID, payload, path); matched {
+								if valid {
+									dropValid = true
+									if !isOpen {
+										hoveredValidUnexpanded = path
+									}
+								} else if reason != "" {
+									dragInvalid = true
+								}
+							}
+						}
+						if payload, ok := ui.Drop[fileTreeDragPayload](clip); ok {
+							if movePaths, reason, valid, matched := fileTreeEvaluateDrop(s, threadID, payload, path); matched {
+								if valid {
+									s.moveFileTreePaths(threadID, movePaths, path)
+								} else if reason != "" {
+									s.setToast(reason)
+								}
+							}
+						}
+					} else {
+						// 普通文件行不是目标：拦截文件行上的拖放事件，避免落到外层根目录空白区。
+						_, _ = ui.DragOver[fileTreeDragPayload](clip)
+						_, _ = ui.Drop[fileTreeDragPayload](clip)
+					}
+				}
 				k := float32(1)
 				if enterAnim && !reduceMotion(c) {
 					if needJump {
@@ -1168,6 +1566,7 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 							isDir:     entry.IsDir,
 							inTree:    true,
 							deleted:   deleted,
+							dropValid: dropValid,
 							sortField: sortField,
 							selected:  rowSelected,
 							focused:   rowFocused,
@@ -1188,6 +1587,9 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 							AlignItems(ui.Center)
 						if payload, ok := fileTreeDragReference(s, threadID, entry); ok && !deleted {
 							row.Drag(payload)
+							if row.Dragging() {
+								draggingSourceEl = row
+							}
 						}
 						row.Children(func() {
 							renderFileManagerRow(c, s, props)
@@ -1200,10 +1602,63 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 				})
 			}).Grow(1).FillWidth().Padding(Space2, Space2, bottomPad, Space2).ContextMenu(fileManagerDirMenu(c, s))
 
+			rootDropValid := false
+			if canDropMove {
+				if payload, over := ui.DragOver[fileTreeDragPayload](treeEl); over {
+					if _, reason, valid, matched := fileTreeEvaluateDrop(s, threadID, payload, ""); matched {
+						if valid {
+							rootDropValid = true
+						} else if reason != "" {
+							dragInvalid = true
+						}
+					}
+				}
+				if payload, ok := ui.Drop[fileTreeDragPayload](treeEl); ok {
+					if movePaths, reason, valid, matched := fileTreeEvaluateDrop(s, threadID, payload, ""); matched {
+						if valid {
+							s.moveFileTreePaths(threadID, movePaths, "")
+						} else if reason != "" {
+							s.setToast(reason)
+						}
+					}
+				}
+			}
+			if !onlyChanged {
+				treeEl.Radius(RadiusXS).
+					BorderWidth(1.5).
+					BorderColor(ui.Color{}).
+					Transition(motionFeedback(c))
+				if rootDropValid {
+					treeEl.BorderColor(ThemeAccent(c)).
+						Background(ThemeAccent(c).Alpha(OverlayFaint))
+				}
+			}
+			if draggingSourceEl.Valid() && dragInvalid {
+				draggingSourceEl.Cursor(ui.CursorNotAllowed)
+			}
+
 			if showSelectionBar {
 				renderFileTreeSelectionBar(c, s, threadID, selCount, selTotalSize, selHasDir, selHasProtected, canEdit)
 			}
 		})
+
+	fileManagerMu.Lock()
+	if st.tree != nil && st.tree.revealPath != "" {
+		target := st.tree.revealPath
+		if idx := fileTreeRowIndexLocked(st.tree, target); idx >= 0 {
+			outline.List.ScrollIntoView(idx)
+			_, sel, selectedIdx, _ := fileTreeActiveViewsLocked(st.tree)
+			sel.Clear()
+			sel.Add(target)
+			*selectedIdx = idx
+			outline.List.Choose(idx)
+			st.tree.revealPath = ""
+			focusPending = true
+		} else if onlyChanged || (st.tree.children[""] != nil && len(st.tree.loading) == 0) {
+			st.tree.revealPath = ""
+		}
+	}
+	fileManagerMu.Unlock()
 
 	if focusPending {
 		outline.List.Focus(c)
@@ -1238,6 +1693,12 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	}
 
 	if onlyChanged {
+		fileManagerMu.Lock()
+		if st.tree != nil {
+			st.tree.dragHoverDir = ""
+			st.tree.dragHoverStarted = time.Time{}
+		}
+		fileManagerMu.Unlock()
 		return
 	}
 
@@ -1282,6 +1743,34 @@ func renderFileManagerTree(c *ui.Context, s *chatState, threadID string) {
 	}
 	if pendingOpen != "" {
 		s.openFileManagerFile(threadID, pendingOpen, true)
+	}
+
+	var hoverExpandDir string
+	fileManagerMu.Lock()
+	if st.tree != nil {
+		if !canDropMove || hoveredValidUnexpanded == "" {
+			st.tree.dragHoverDir = ""
+			st.tree.dragHoverStarted = time.Time{}
+		} else if st.tree.dragHoverDir != hoveredValidUnexpanded {
+			st.tree.dragHoverDir = hoveredValidUnexpanded
+			st.tree.dragHoverStarted = c.Now()
+			c.After(fileTreeHoverExpandDelay)
+		} else {
+			elapsed := c.Now().Sub(st.tree.dragHoverStarted)
+			if elapsed >= fileTreeHoverExpandDelay {
+				if !st.tree.outline.Open.Has(hoveredValidUnexpanded) {
+					hoverExpandDir = hoveredValidUnexpanded
+				}
+				st.tree.dragHoverDir = ""
+				st.tree.dragHoverStarted = time.Time{}
+			} else {
+				c.After(fileTreeHoverExpandDelay - elapsed)
+			}
+		}
+	}
+	fileManagerMu.Unlock()
+	if hoverExpandDir != "" {
+		s.fileTreeToggleDir(threadID, hoverExpandDir)
 	}
 }
 

@@ -120,7 +120,7 @@ func fileManagerEntryMenu(c *ui.Context, s *chatState, threadID string, entry Fi
 			}
 			if _, ok := fileOpsClient(s); ok {
 				m.Separator()
-				if m.Item(trashActionLabel() + "…").Danger().Disabled(hasProtected || len(actionablePaths) == 0).Shortcut(ui.Cmd, ui.KeyBackspace).Chosen() {
+				if m.Item(trashActionLabel()+"…").Danger().Disabled(hasProtected || len(actionablePaths) == 0).Shortcut(ui.Cmd, ui.KeyBackspace).Chosen() {
 					openFileManagerBatchTrashDialog(s, actionablePaths)
 				}
 			}

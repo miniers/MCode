@@ -242,6 +242,8 @@ func fileManagerResetForThreadLocked(st *fileManagerState, threadID string) {
 		tree.restoreAnchor = seeded.restoreAnchor
 		tree.anchor = seeded.anchor
 		tree.sort = seeded.sort
+		tree.navWidth = seeded.navWidth
+		tree.hideIgnored = seeded.hideIgnored
 	}
 	modalDragReset(modalDragFileManagerOp)
 }
@@ -328,7 +330,7 @@ func (s *chatState) fileManagerSearch(threadID, query string) {
 }
 
 // renderFileManagerPanel 渲染右侧只读文件管理面板。
-// 宽于 640 DIP 且用户展开导航时，树与内容并排；窄栏两者二选一，由内容头部的返回按钮切换。
+// 宽于 560 DIP 且用户展开导航时，树与内容并排；窄栏两者二选一，由内容头部的返回按钮切换。
 func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	if s == nil {
 		return
@@ -349,6 +351,10 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 	syncFileManagerDirtyLocked(st)
 	width := st.width
 	navOpen := st.treeNavOpen
+	rawNavWidth := float32(0)
+	if st.tree != nil {
+		rawNavWidth = st.tree.navWidth
+	}
 	snap := fileManagerSnapshotLocked(st)
 	fileManagerMu.Unlock()
 
@@ -391,18 +397,18 @@ func renderFileManagerPanel(c *ui.Context, s *chatState) {
 					FillHeight().
 					Children(func() {
 						if navOpen {
-							ui.Column(c.Key("file-manager-nav-column")).
+							navWidth := fileTreeClampNavWidth(rawNavWidth, width)
+							navCol := ui.Column(c.Key("file-manager-nav-column")).
 								Label("文件导航").
-								Width(fileTreeNavWidth).
+								Width(navWidth).
 								Shrink(0).
 								FillHeight().
 								Clip().
-								BorderWidth(0, 0, 0, Hairline).
-								BorderColor(ThemeBorder(c)).
 								Transition(motionCollapse(c)).
 								Children(func() {
 									renderFileManagerNavigation(c, s, threadID, workDir)
 								})
+							renderFileManagerNavHandle(c, s, width, navCol)
 						}
 						ui.Column(c.Key("file-manager-content-column")).
 							Grow(1).
@@ -524,6 +530,7 @@ type fileManagerRowProps struct {
 	isDir          bool
 	inTree         bool
 	deleted        bool
+	dropValid      bool
 	sortField      fileSortField
 	selected       bool
 	focused        bool
@@ -563,7 +570,12 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 			Gap(Space2).
 			AlignItems(ui.Center)
 		rowHovered := row.Hovered()
-		if props.selected && !props.inTree {
+		if props.inTree && !props.deleted {
+			row.BorderWidth(1.5).BorderColor(ui.Color{}).Transition(motionFeedback(c))
+		}
+		if props.dropValid {
+			row.Background(ThemeAccentSubtle(c)).BorderColor(ThemeAccent(c))
+		} else if props.selected && !props.inTree {
 			row.Selected(true)
 		} else if !props.selected && rowHovered && !props.protected && !isRenaming {
 			row.Background(ThemeHover(c))
@@ -606,7 +618,7 @@ func renderFileManagerRow(c *ui.Context, s *chatState, props fileManagerRowProps
 					BorderColor(borderColor).
 					Radius(RadiusXS).
 					Padding(0, Space1).
-					Height(20).
+					Height(ControlXS).
 					Grow(1).
 					MinWidth(0).
 					Disabled(renameBusy).

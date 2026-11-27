@@ -141,25 +141,7 @@ func (s *chatState) setFileTreeSort(next fileTreeSort) {
 		return
 	}
 	tree.sort = next
-	for dir, kids := range tree.children {
-		if len(kids) <= 1 {
-			continue
-		}
-		entries := make([]FileEntry, 0, len(kids))
-		for _, p := range kids {
-			entry, ok := tree.entries[p]
-			if !ok {
-				entry = FileEntry{Name: path.Base(p), Path: p}
-			}
-			entries = append(entries, entry)
-		}
-		fileTreeSortEntries(entries, tree.sort)
-		sorted := make([]string, len(entries))
-		for i, entry := range entries {
-			sorted[i] = entry.Path
-		}
-		tree.children[dir] = sorted
-	}
+	fileTreeRebuildAllDirsLocked(tree, true)
 	tree.changedCacheOK = false
 	fileTreeBumpOutlineGenLocked(tree)
 	fileManagerMu.Unlock()

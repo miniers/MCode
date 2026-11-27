@@ -315,6 +315,7 @@ func (s *chatState) finishFileManagerSave(st *fileManagerState, tab *fileManager
 	}
 	tab.content = savedContent
 	tab.totalSize = int64(len(savedContent))
+	updateFileManagerTabLineCountLocked(tab)
 	tab.temporary = false
 	fileManagerMu.Unlock()
 

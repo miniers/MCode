@@ -98,6 +98,9 @@ type InspectorPreference struct {
 	FileSort      string `json:"file_sort,omitempty"`
 	FileSortDesc  bool   `json:"file_sort_desc,omitempty"`
 	FileDirsMixed bool   `json:"file_dirs_mixed,omitempty"`
+	// 文件导航栏宽度与忽略文件过滤：0 表示默认宽度，false 表示显示忽略文件。
+	FileNavWidth    float32 `json:"file_nav_width,omitempty"`
+	FileHideIgnored bool    `json:"file_hide_ignored,omitempty"`
 }
 
 // legacySidePaneDiffID 是合并进 Git Tab 前旧版「改动」面板的持久化 ID，只在读盘兼容时映射为 sidePaneGitID。
@@ -120,6 +123,9 @@ func normalizeInspectorPreference(pref InspectorPreference) InspectorPreference 
 	pref.FileActive = normalizeInspectorPath(pref.FileActive)
 	pref.FileAnchor = normalizeInspectorPath(pref.FileAnchor)
 	pref.FileSort = string(normalizeFileSortField(pref.FileSort))
+	if pref.FileNavWidth < 0 || math.IsNaN(float64(pref.FileNavWidth)) || math.IsInf(float64(pref.FileNavWidth), 0) {
+		pref.FileNavWidth = 0
+	}
 	return pref
 }
 

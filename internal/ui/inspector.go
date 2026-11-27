@@ -218,10 +218,12 @@ func inspectorPersistSession(s *chatState, tid string, st *inspectorSessionState
 	}
 	var fileExpanded []string
 	var fileActive, fileAnchor, fileSort string
-	var fileSortDesc, fileDirsMixed bool
+	var fileSortDesc, fileDirsMixed, fileHideIgnored bool
+	var fileNavWidth float32
 	if st != nil {
 		fileManagerMu.Lock()
 		fileExpanded, fileActive, fileAnchor, fileSort, fileSortDesc, fileDirsMixed = fileTreePreferenceLocked(st.Files)
+		fileNavWidth, fileHideIgnored = fileTreeViewPreferenceLocked(st.Files)
 		fileManagerMu.Unlock()
 	}
 	change := pendingInspectorPreference{Delete: st == nil}
@@ -236,6 +238,7 @@ func inspectorPersistSession(s *chatState, tid string, st *inspectorSessionState
 			Open: st.Open, Active: st.Active, Width: st.Width,
 			FileExpanded: fileExpanded, FileActive: fileActive, FileAnchor: fileAnchor,
 			FileSort: fileSort, FileSortDesc: fileSortDesc, FileDirsMixed: fileDirsMixed,
+			FileNavWidth: fileNavWidth, FileHideIgnored: fileHideIgnored,
 		})
 		if s.inspector.Preferences == nil {
 			s.inspector.Preferences = make(map[string]InspectorPreference)

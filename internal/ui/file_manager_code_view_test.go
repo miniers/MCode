@@ -2,6 +2,7 @@ package mcodeui
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
@@ -227,4 +228,35 @@ func TestFileManagerCodeRevealBounded(t *testing.T) {
 	if got2 <= 0 || got2 > fileManagerRevealMaxRetries {
 		t.Fatalf("新 revealSeq 触发重绘 %d 次，期望 1..%d", got2, fileManagerRevealMaxRetries)
 	}
+}
+
+func TestFileManagerSaveUpdatesLineCount(t *testing.T) {
+	fake, s, tt := openFileManagerForTest(t)
+	fake.SetFileContents(map[string]FileContent{
+		"a.txt": {Path: "a.txt", Kind: "text", Text: "line1\nline2", TotalSize: 11},
+	})
+	openTestFileManagerFileExternal(t, s, "a.txt")
+	waitForFileManagerText(t, tt, s, "a.txt", "line1\nline2")
+	waitFor(t, tt, func() bool { return tt.HasText("11 B · 2 行") })
+
+	st := getFileManagerState(s)
+	var preview *fileManagerCodePreview
+	waitFor(t, tt, func() bool {
+		preview = st.codeViews["file-manager-pane-0-a.txt"]
+		return preview != nil && preview.state != nil && preview.state.Buffer != nil
+	})
+	preview.state.Buffer.Edit(editor.Edit{Start: len("line1\nline2"), End: len("line1\nline2"), Text: "\nline3"})
+	waitFor(t, tt, func() bool {
+		_, hasSave := tt.Find("保存")
+		return hasSave && preview.state.Buffer.Modified()
+	})
+	tt.Advance(DurBase + 50*time.Millisecond)
+
+	if err := tt.Click("保存"); err != nil {
+		t.Fatalf("点击保存失败: %v", err)
+	}
+	waitFor(t, tt, func() bool {
+		return !preview.state.Buffer.Modified() && fileManagerTabText(s, "a.txt") == "line1\nline2\nline3"
+	})
+	waitFor(t, tt, func() bool { return tt.HasText("17 B · 3 行") })
 }
