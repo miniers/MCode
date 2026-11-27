@@ -39,7 +39,6 @@ func TestRemotePreview_ServesWithSandboxCSP(t *testing.T) {
 	writeInspectorPreviewTestFile(t, root, "sub/index.html", htmlBody)
 	writeInspectorPreviewTestFile(t, root, "sub/style.css", cssBody)
 	writeInspectorPreviewTestFile(t, root, ".git/config", "[core]")
-	writeInspectorPreviewTestFile(t, root, ".env", "SECRET=1")
 	outside := writeInspectorPreviewTestFile(t, base, "outside.txt", "outside")
 	if err := os.Symlink(outside, filepath.Join(root, "escape.txt")); err != nil {
 		t.Fatal(err)
@@ -113,7 +112,7 @@ func TestRemotePreview_ServesWithSandboxCSP(t *testing.T) {
 		t.Fatalf("同目录资源读取失败: status=%d body=%q", cssResp.StatusCode, string(cssGot))
 	}
 
-	// 目录外的路径、符号链接逃逸与受保护文件必须被拒绝
+	// 目录外的路径、符号链接逃逸与 .git 内部必须被拒绝
 	rootPrefix := strings.TrimSuffix(openRes.URL, "sub/index.html")
 	for _, rel := range []string{
 		"../outside.txt",
@@ -121,7 +120,6 @@ func TestRemotePreview_ServesWithSandboxCSP(t *testing.T) {
 		"%2e%2e%2Foutside.txt",
 		"escape.txt",
 		".git/config",
-		".env",
 		"%2fetc/passwd",
 	} {
 		badResp, _ := fetchInspectorPreview(t, ts.URL+rootPrefix+rel, nil)

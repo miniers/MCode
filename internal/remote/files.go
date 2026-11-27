@@ -127,57 +127,6 @@ func resolveWorkspacePath(root, rel string) (string, error) {
 	return evalPath, nil
 }
 
-// isSensitiveFileName 检查文件名是否包含密钥、证书或环境配置等敏感信息。
-func isSensitiveFileName(name string) bool {
-	lower := strings.ToLower(name)
-	if lower == ".env" || strings.HasPrefix(lower, ".env.") || strings.HasPrefix(lower, ".env_") || strings.HasPrefix(lower, ".env-") {
-		return true
-	}
-	if strings.HasPrefix(lower, "id_rsa") || strings.HasPrefix(lower, "id_ed25519") {
-		return true
-	}
-	suffixes := []string{".pem", ".key", ".p12", ".pfx", ".crt", ".cer"}
-	for _, s := range suffixes {
-		if strings.HasSuffix(lower, s) {
-			return true
-		}
-	}
-	return false
-}
-
-// isCredentialDirectoryName 检查目录名是否为凭据敏感目录（.ssh、.aws、.gnupg）。
-func isCredentialDirectoryName(name string) bool {
-	lower := strings.ToLower(name)
-	return lower == ".ssh" || lower == ".aws" || lower == ".gnupg"
-}
-
-// isProtectedPathString 检查路径字符串的各层级中是否包含敏感凭据目录或敏感文件。
-func isProtectedPathString(path string) bool {
-	parts := strings.FieldsFunc(path, func(r rune) bool {
-		return r == '/' || r == filepath.Separator
-	})
-	for _, p := range parts {
-		if isCredentialDirectoryName(p) {
-			return true
-		}
-	}
-	if len(parts) > 0 && isSensitiveFileName(parts[len(parts)-1]) {
-		return true
-	}
-	return false
-}
-
-// isProtected 综合相对路径与物理绝对路径判断该条目是否受保护。
-func isProtected(relPath, canonicalPath string) bool {
-	if isProtectedPathString(relPath) {
-		return true
-	}
-	if canonicalPath != "" && isProtectedPathString(canonicalPath) {
-		return true
-	}
-	return false
-}
-
 // isGitRelated 检查相对路径或物理路径是否涉及 .git 内部结构。
 func isGitRelated(relPath, canonicalPath string) bool {
 	parts := strings.FieldsFunc(relPath, func(r rune) bool {
@@ -375,7 +324,7 @@ func (b *MemoryBackend) FilesList(ctx context.Context, p wire.RemoteFilesListPar
 				continue
 			}
 			isWithin := err == nil && (targetCanonical == root || strings.HasPrefix(targetCanonical, root+string(filepath.Separator)))
-			isProt := !isWithin || isProtected(itemRelPath, targetCanonical)
+			isProt := !isWithin
 			rawEntries = append(rawEntries, wire.RemoteFileEntry{
 				Name:      name,
 				Path:      itemRelPath,
@@ -385,24 +334,22 @@ func (b *MemoryBackend) FilesList(ctx context.Context, p wire.RemoteFilesListPar
 				Protected: isProt,
 			})
 		} else if lfi.IsDir() {
-			isProt := isProtected(itemRelPath, itemAbsPath)
 			rawEntries = append(rawEntries, wire.RemoteFileEntry{
 				Name:      name,
 				Path:      itemRelPath,
 				Kind:      wire.RemoteFileEntryKindDirectory,
 				Size:      0,
 				Ignored:   false,
-				Protected: isProt,
+				Protected: false,
 			})
 		} else {
-			isProt := isProtected(itemRelPath, itemAbsPath)
 			rawEntries = append(rawEntries, wire.RemoteFileEntry{
 				Name:      name,
 				Path:      itemRelPath,
 				Kind:      wire.RemoteFileEntryKindFile,
 				Size:      lfi.Size(),
 				Ignored:   false,
-				Protected: isProt,
+				Protected: false,
 			})
 		}
 	}
@@ -463,13 +410,6 @@ func (b *MemoryBackend) FilesRead(ctx context.Context, p wire.RemoteFilesReadPar
 		return wire.RemoteFilesReadResult{}, &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "cannot read .git internals",
-		}
-	}
-
-	if isProtected(p.Path, targetFile) {
-		return wire.RemoteFilesReadResult{}, &wire.RPCError{
-			Code:    wire.InvalidParams,
-			Message: "File is protected and cannot be read",
 		}
 	}
 
@@ -752,12 +692,12 @@ func (b *MemoryBackend) FilesSearch(ctx context.Context, p wire.RemoteFilesSearc
 		}
 
 		if d.IsDir() {
-			if name == ".git" || name == "node_modules" || (name == "worktrees" && filepath.Base(filepath.Dir(path)) == ".mcode") || isCredentialDirectoryName(name) || isProtectedPathString(rel) {
+			if name == ".git" || name == "node_modules" || (name == "worktrees" && filepath.Base(filepath.Dir(path)) == ".mcode") {
 				return filepath.SkipDir
 			}
 		}
 
-		if isProtected(rel, path) || isGitRelated(rel, path) {
+		if isGitRelated(rel, path) {
 			return nil
 		}
 

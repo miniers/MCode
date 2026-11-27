@@ -21,7 +21,7 @@ import (
 // 读取入口是 files.read（internal/remote/files.go），这里刻意复用同一套工作区定位与路径校验：
 //   - threadWorkspaceRoot 定位会话工作区；
 //   - resolveWorkspacePath 拒绝绝对路径、~、..、越界与指向工作区外的符号链接；
-//   - isGitRelated / isProtected 与读取保持一致，.git 内部与凭据类文件既不可读也不可写。
+//   - isGitRelated 与读取保持一致，.git 内部文件既不可读也不可写。
 //
 // 只覆盖「已存在的普通文本文件」：不创建新文件、不写目录、不写二进制，
 // 内容上限与 files.read 的文本分块上限一致（512 KiB），保证读出来的内容一定写得回去。
@@ -96,12 +96,6 @@ func (b *MemoryBackend) FilesWrite(ctx context.Context, p wire.FilesWriteExtPara
 		return wire.FilesWriteExtResult{}, &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "cannot write .git internals",
-		}
-	}
-	if isProtected(p.Path, targetFile) {
-		return wire.FilesWriteExtResult{}, &wire.RPCError{
-			Code:    wire.InvalidParams,
-			Message: "File is protected and cannot be written",
 		}
 	}
 

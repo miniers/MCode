@@ -97,7 +97,7 @@ func TestFilesCreate_RejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestFilesCreate_RejectsGitAndProtectedPaths(t *testing.T) {
+func TestFilesCreate_RejectsGitPaths(t *testing.T) {
 	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)
 	ctx := context.Background()
 
@@ -106,9 +106,6 @@ func TestFilesCreate_RejectsGitAndProtectedPaths(t *testing.T) {
 	}
 	if _, err := b.FilesCreate(ctx, wire.FilesCreateParams{ThreadID: threadID, Path: ".git/new.txt"}); err == nil {
 		t.Fatalf("creating inside .git must be rejected")
-	}
-	if _, err := b.FilesCreate(ctx, wire.FilesCreateParams{ThreadID: threadID, Path: ".env"}); err == nil {
-		t.Fatalf("creating a protected file must be rejected")
 	}
 }
 
@@ -229,7 +226,7 @@ func TestFilesDuplicate_RejectsDirectory(t *testing.T) {
 	}
 }
 
-func TestFilesDuplicate_RejectsGitAndProtectedPaths(t *testing.T) {
+func TestFilesDuplicate_RejectsGitPaths(t *testing.T) {
 	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)
 	ctx := context.Background()
 
@@ -241,13 +238,6 @@ func TestFilesDuplicate_RejectsGitAndProtectedPaths(t *testing.T) {
 	}
 	if _, err := b.FilesDuplicate(ctx, wire.FilesDuplicateParams{ThreadID: threadID, Path: ".git/config"}); err == nil {
 		t.Fatalf("duplicating .git internals must be rejected")
-	}
-
-	if err := os.WriteFile(filepath.Join(workDir, ".env"), []byte("SECRET=1"), 0o644); err != nil {
-		t.Fatalf("seed .env: %v", err)
-	}
-	if _, err := b.FilesDuplicate(ctx, wire.FilesDuplicateParams{ThreadID: threadID, Path: ".env"}); err == nil {
-		t.Fatalf("duplicating a protected file must be rejected")
 	}
 }
 

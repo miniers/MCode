@@ -590,3 +590,64 @@ func TestGitStatusAndBranches(t *testing.T) {
 		t.Errorf("expected to find feature-test branch in local list: %+v", repoBranches.Local)
 	}
 }
+
+func TestFilesSensitiveNamesNotProtected(t *testing.T) {
+	ctx := context.Background()
+	b, _, workDir, _, threadID := setupWorkspaceTestEnv(t)
+
+	if err := os.WriteFile(filepath.Join(workDir, ".env"), []byte("SECRET=1"), 0o644); err != nil {
+		t.Fatalf("seed .env: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".env.example"), []byte("EXAMPLE=1"), 0o644); err != nil {
+		t.Fatalf("seed .env.example: %v", err)
+	}
+
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+	if err := os.Symlink(outsideFile, filepath.Join(workDir, "escape.txt")); err != nil {
+		t.Fatalf("seed outside symlink: %v", err)
+	}
+
+	listRes, err := b.FilesList(ctx, wire.RemoteFilesListParams{ThreadID: threadID})
+	if err != nil {
+		t.Fatalf("FilesList failed: %v", err)
+	}
+	entryByName := make(map[string]wire.RemoteFileEntry, len(listRes.Entries))
+	for _, entry := range listRes.Entries {
+		entryByName[entry.Name] = entry
+	}
+	for _, name := range []string{".env", ".env.example"} {
+		entry, ok := entryByName[name]
+		if !ok {
+			t.Fatalf("expected %s in FilesList entries, got %+v", name, listRes.Entries)
+		}
+		if entry.Protected {
+			t.Errorf("expected %s to have Protected=false, got true", name)
+		}
+	}
+	escapeEntry, ok := entryByName["escape.txt"]
+	if !ok {
+		t.Fatalf("expected escape.txt in FilesList entries, got %+v", listRes.Entries)
+	}
+	if !escapeEntry.Protected {
+		t.Errorf("expected outside symlink escape.txt to have Protected=true, got false")
+	}
+
+	readRes, err := b.FilesRead(ctx, wire.RemoteFilesReadParams{
+		ThreadID: threadID,
+		Path:     ".env",
+	})
+	if err != nil {
+		t.Fatalf("FilesRead .env failed: %v", err)
+	}
+	if readRes.Text == nil || !strings.Contains(*readRes.Text, "SECRET=1") {
+		t.Fatalf("expected .env content to contain SECRET=1, got %v", readRes.Text)
+	}
+
+	if _, err := b.InspectorPreviewURL(ctx, threadID, ".env"); err != nil {
+		t.Fatalf("InspectorPreviewURL .env failed: %v", err)
+	}
+}

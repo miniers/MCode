@@ -18,7 +18,7 @@ import (
 //   - threadWorkspaceRoot 定位会话工作区；
 //   - resolveWorkspacePath 解析已存在的路径，拒绝绝对路径、~、..、越界与指向工作区外的符号链接；
 //   - resolveWorkspaceNewPath 解析尚不存在的目标，改为校验父目录，规则与上面一致；
-//   - isGitRelated / isProtected 拒绝 .git 内部与凭据类文件。
+//   - isGitRelated 拒绝 .git 内部路径。
 //
 // 删除只允许移到系统废纸篓（macOS 的 ~/.Trash），绝不直接删文件。
 
@@ -340,18 +340,12 @@ func resolveWorkspaceNewPath(root, rel string) (string, error) {
 	return target, nil
 }
 
-// ensureWorkspaceMutablePath 拒绝 .git 内部与受保护凭据路径，读写两侧规则保持一致。
+// ensureWorkspaceMutablePath 拒绝 .git 内部路径，读写两侧规则保持一致。
 func ensureWorkspaceMutablePath(relPath, canonicalPath string) error {
 	if isGitRelated(relPath, canonicalPath) {
 		return &wire.RPCError{
 			Code:    wire.InvalidParams,
 			Message: "cannot modify .git internals",
-		}
-	}
-	if isProtected(relPath, canonicalPath) {
-		return &wire.RPCError{
-			Code:    wire.InvalidParams,
-			Message: "File is protected and cannot be modified",
 		}
 	}
 	return nil

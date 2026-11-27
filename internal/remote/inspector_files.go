@@ -160,9 +160,6 @@ func (b *MemoryBackend) resolvePreviewTarget(ctx context.Context, threadID, relP
 	if isGitRelated(relPath, target) {
 		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "cannot preview .git internals"}
 	}
-	if isProtected(relPath, target) {
-		return "", "", &wire.RPCError{Code: wire.InvalidParams, Message: "file is protected and cannot be previewed"}
-	}
 	info, err := os.Stat(target)
 	if err != nil {
 		return "", "", &wire.RPCError{Code: wire.ErrCodeFileNotFound, Message: fmt.Sprintf("file not found: %s", relPath)}
@@ -360,7 +357,7 @@ func (b *MemoryBackend) servePreview(w http.ResponseWriter, r *http.Request, rem
 		inspectorPreviewError(w, http.StatusNotFound, "not found")
 		return
 	}
-	if isGitRelated(rel, target) || isProtected(rel, target) {
+	if isGitRelated(rel, target) {
 		inspectorPreviewError(w, http.StatusNotFound, "not found")
 		return
 	}

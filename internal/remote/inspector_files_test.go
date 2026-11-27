@@ -101,7 +101,7 @@ func expectInspectorPreviewStatus(t *testing.T, target string, want int) {
 	}
 }
 
-func TestInspectorPreviewRejectsTraversalSymlinkProtected(t *testing.T) {
+func TestInspectorPreviewRejectsTraversalSymlink(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "workspace")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -109,7 +109,6 @@ func TestInspectorPreviewRejectsTraversalSymlinkProtected(t *testing.T) {
 	}
 	writeInspectorPreviewTestFile(t, root, "docs/index.html", "<html>ok</html>")
 	writeInspectorPreviewTestFile(t, root, ".git/config", "[core]")
-	writeInspectorPreviewTestFile(t, root, ".env", "SECRET=1")
 	outside := writeInspectorPreviewTestFile(t, base, "outside.txt", "outside")
 	if err := os.Symlink(outside, filepath.Join(root, "escape.txt")); err != nil {
 		t.Fatal(err)
@@ -131,7 +130,6 @@ func TestInspectorPreviewRejectsTraversalSymlinkProtected(t *testing.T) {
 		{"encoded slash parent", prefix + "%2e%2e%2Foutside.txt"},
 		{"symlink out of root", prefix + "escape.txt"},
 		{"git", prefix + ".git/config"},
-		{"protected", prefix + ".env"},
 		{"absolute", prefix + "%2fetc/passwd"},
 	}
 	for _, tc := range cases {
@@ -148,9 +146,6 @@ func TestInspectorPreviewRejectsTraversalSymlinkProtected(t *testing.T) {
 	}
 	if _, err := b.InspectorPreviewURL(context.Background(), "thread-a", ".git/config"); err == nil {
 		t.Fatal("为 .git 内容签发了 Token")
-	}
-	if _, err := b.InspectorPreviewURL(context.Background(), "thread-a", ".env"); err == nil {
-		t.Fatal("为受保护文件签发了 Token")
 	}
 }
 
