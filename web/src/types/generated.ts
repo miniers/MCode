@@ -2565,6 +2565,7 @@ export type RemoteFileEntry = {
   path: string;
   kind: RemoteFileEntryKind;
   size: number;
+  modTime?: number;
   ignored: boolean;
   protected: boolean;
 };
