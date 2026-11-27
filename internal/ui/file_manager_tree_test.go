@@ -557,3 +557,113 @@ func TestFileTreeLoadingIndicatorStops(t *testing.T) {
 		t.Fatal("目录加载完成后不应继续请求下一帧")
 	}
 }
+
+func treeSelectionSnapshotForTest(s *chatState) map[string]bool {
+	st := getFileManagerState(s)
+	result := make(map[string]bool)
+	if st == nil {
+		return result
+	}
+	fileManagerMu.Lock()
+	defer fileManagerMu.Unlock()
+	if st.tree == nil {
+		return result
+	}
+	for path := range st.tree.selection.All() {
+		result[path] = true
+	}
+	return result
+}
+
+func TestFileTreeModifierClickSelectsWithoutOpening(t *testing.T) {
+	tree := map[string][]FileEntry{
+		"": {
+			{Name: "a.txt", Path: "a.txt", Size: 5},
+			{Name: "b.txt", Path: "b.txt", Size: 5},
+			{Name: "c.txt", Path: "c.txt", Size: 5},
+			{Name: "sub", Path: "sub", IsDir: true},
+		},
+		"sub": {
+			{Name: "d.go", Path: "sub/d.go", Size: 5},
+		},
+	}
+	fake := treeTestBase()
+	fake.SetFileTree(tree)
+	fake.SetFileContents(map[string]FileContent{
+		"a.txt": {Path: "a.txt", Kind: "text", Text: "alpha", TotalSize: 5},
+		"b.txt": {Path: "b.txt", Kind: "text", Text: "beta", TotalSize: 4},
+		"c.txt": {Path: "c.txt", Kind: "text", Text: "gamma", TotalSize: 5},
+	})
+	s, tt := openFileTreeForTest(t, newTreeListRecorder(fake, tree))
+	waitFor(t, tt, func() bool {
+		return tt.HasText("a.txt") && tt.HasText("b.txt") && tt.HasText("c.txt") && tt.HasText("sub")
+	})
+
+	inspectorSession(s).Width = 800
+	s.invalidate()
+	tt.Advance(DurSheet + 50*time.Millisecond)
+
+	// (a) 普通点击文件 A：打开 A，选区只有 A。
+	if err := tt.Click("a.txt"); err != nil {
+		t.Fatalf("click a.txt failed: %v", err)
+	}
+	waitForFileManagerText(t, tt, s, "a.txt", "alpha")
+	tt.Advance(motionUnfold + time.Second)
+
+	sel := treeSelectionSnapshotForTest(s)
+	if len(sel) != 1 || !sel["a.txt"] {
+		t.Fatalf("点击 a.txt 后选区应只有 a.txt，得到 %v", sel)
+	}
+	paths, active, _, _, _, _ := fileManagerTabsForTest(s)
+	if len(paths) != 1 || paths[0] != "a.txt" || active != "a.txt" {
+		t.Fatalf("点击 a.txt 后应只打开 a.txt：paths=%v active=%q", paths, active)
+	}
+
+	if err := tt.Click("展开文件导航"); err != nil {
+		t.Fatalf("click expand nav failed: %v", err)
+	}
+	tt.Advance(DurBase + time.Second)
+	waitFor(t, tt, func() bool { return tt.HasText("b.txt") && tt.HasText("c.txt") && tt.HasText("sub") })
+
+	// (b) Cmd 点击文件 B：选区变为 A、B，不打开 B。
+	if err := tt.ClickWith(ui.Cmd, "b.txt"); err != nil {
+		t.Fatalf("cmd click b.txt failed: %v", err)
+	}
+	tt.Frame()
+	sel = treeSelectionSnapshotForTest(s)
+	if len(sel) != 2 || !sel["a.txt"] || !sel["b.txt"] {
+		t.Fatalf("Cmd 点击 b.txt 后选区应为 a.txt 与 b.txt，得到 %v", sel)
+	}
+	paths, active, _, _, _, _ = fileManagerTabsForTest(s)
+	if len(paths) != 1 || paths[0] != "a.txt" || active != "a.txt" {
+		t.Fatalf("Cmd 点击 b.txt 不应打开新标签：paths=%v active=%q", paths, active)
+	}
+
+	// (c) Shift 点击文件 C：选区变为该区间，不打开 C。
+	if err := tt.ClickWith(ui.Shift, "c.txt"); err != nil {
+		t.Fatalf("shift click c.txt failed: %v", err)
+	}
+	tt.Frame()
+	sel = treeSelectionSnapshotForTest(s)
+	if len(sel) != 2 || !sel["b.txt"] || !sel["c.txt"] {
+		t.Fatalf("Shift 点击 c.txt 后选区应为 b.txt 与 c.txt，得到 %v", sel)
+	}
+	paths, active, _, _, _, _ = fileManagerTabsForTest(s)
+	if len(paths) != 1 || paths[0] != "a.txt" || active != "a.txt" {
+		t.Fatalf("Shift 点击 c.txt 不应打开新标签：paths=%v active=%q", paths, active)
+	}
+
+	// (d) Cmd 点击目录：展开状态不变。
+	openBefore := treeOpenForTest(s)
+	if err := tt.ClickWith(ui.Cmd, "sub"); err != nil {
+		t.Fatalf("cmd click sub failed: %v", err)
+	}
+	tt.Frame()
+	openAfter := treeOpenForTest(s)
+	if len(openAfter) != len(openBefore) || openAfter["sub"] {
+		t.Fatalf("Cmd 点击目录不应改变展开状态：before=%v after=%v", openBefore, openAfter)
+	}
+	if tt.HasText("d.go") {
+		t.Fatal("Cmd 点击未展开目录不应显示子项 d.go")
+	}
+}

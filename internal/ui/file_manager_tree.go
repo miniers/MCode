@@ -641,6 +641,10 @@ func (s *chatState) fileTreeClickEntry(threadID string, entry FileEntry, pin boo
 		return
 	}
 	s.fileTreeSelect(entry.Path, mods)
+	// 修饰键多选只更新选区，不打开文件也不切换目录展开状态。
+	if mods&(ui.Shift|ui.Cmd) != 0 {
+		return
+	}
 	if entry.IsDir {
 		// 双击目录时第一击已经切换过展开状态，第二击不再反向切换。
 		if !pin {
