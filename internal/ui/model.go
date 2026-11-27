@@ -2003,13 +2003,17 @@ func newThreadOptionsForProject(projectID string, provider string, providers []P
 		providerEnabled = enabled[0]
 	}
 	// 记忆里的 provider 已在设置里停用时整条跳过。
-	// 项目记忆优先于全局「上次确认的选择」；项目里没有完整记录时 lastSelectionForProject 自己退回全局。
+	// 项目场景：项目记忆优先于 last_model；快速对话：先读 last_model_quick，缺失时退回 last_model。
+	isQuick := strings.TrimSpace(projectID) == ""
 	var last ModelSelection
 	var hasLast bool
-	if strings.TrimSpace(projectID) != "" {
+	if !isQuick {
 		last, hasLast = lastSelectionForProject(projectID)
 	} else {
-		last, hasLast = loadLastModelSelection()
+		last, hasLast = loadLastModelQuickSelection()
+		if !hasLast {
+			last, hasLast = loadLastModelSelection()
+		}
 	}
 	if hasLast && !providerDisabled(providerEnabled, last.Provider) {
 		if len(providers) == 0 {
@@ -2024,8 +2028,9 @@ func newThreadOptionsForProject(projectID string, provider string, providers []P
 			opts.Fast = last.Fast
 		}
 	}
-	// 上次的 Swarm 开关与执行侧选择跨项目沿用；执行侧模型已不可用时保持跟随主导。
-	swarm := loadLastSwarmSelection()
+	// 编排开关与执行侧选择按场景沿用（项目场景读 last_swarm 且默认开，快速对话读 last_swarm_quick 且默认关）；
+	// 执行侧模型已不可用时保持跟随主导。
+	swarm := loadLastSwarmSelectionForScene(isQuick)
 	if h := swarm.Bees; h != nil {
 		followsLead := h.Provider == "" && h.Model == ""
 		switch {
@@ -2051,6 +2056,8 @@ func newThreadOptionsForProject(projectID string, provider string, providers []P
 	}
 	if swarm.Enabled != nil {
 		opts.SwarmEnabled = *swarm.Enabled
+	} else {
+		opts.SwarmEnabled = !isQuick
 	}
 	if opts.Model == "" {
 		if prov, found := findProviderInfo(providers, opts.Provider); found && len(prov.Models) > 0 {
@@ -2089,6 +2096,10 @@ func (s *chatState) newThreadOptions(projectID ...string) NewThreadOptions {
 	project := ""
 	if len(projectID) > 0 {
 		project = projectID[0]
+	}
+	// 内置「对话」项目归为快速对话场景，在持锁外取 chats ID 并归一为空串。
+	if chatsID := s.chatsProjectID(); chatsID != "" && project == chatsID {
+		project = ""
 	}
 	opts := NewThreadOptions{Provider: provider}
 	if st := getChatSettings(s); st != nil {

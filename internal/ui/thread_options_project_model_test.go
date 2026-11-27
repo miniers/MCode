@@ -36,12 +36,13 @@ func TestNewThreadOptionsUsesProjectModel(t *testing.T) {
 	}
 
 	gotB := newThreadOptionsForProject("proj-b", "claude", providers, nil)
-	if gotB.Provider != "claude" || gotB.Model != "sonnet" {
-		t.Fatalf("项目 B 无记录时应退回全局 claude/sonnet，got %+v", gotB)
+	if gotB.Provider != "claude" || gotB.Model != "sonnet" || !gotB.SwarmEnabled {
+		t.Fatalf("项目 B 无记录时应退回全局 claude/sonnet 且默认开启编排，got %+v", gotB)
 	}
 
-	// 项目桶有完整记录时优先于全局（gotA 已覆盖）；不带项目上下文时只用全局记忆。
-	if blank := newThreadOptionsForProject("", "claude", providers, nil); blank != gotB {
-		t.Fatalf("空项目 ID 应只用全局记忆，got %+v，want %+v", blank, gotB)
+	// 项目桶有完整记录时优先于全局（gotA 已覆盖）；快速对话（空项目 ID）主导模型退回全局，编排默认关闭。
+	blank := newThreadOptionsForProject("", "claude", providers, nil)
+	if blank.Provider != gotB.Provider || blank.Model != gotB.Model || blank.Effort != gotB.Effort || blank.Fast != gotB.Fast || blank.SwarmEnabled {
+		t.Fatalf("空项目 ID 应沿用全局主导模型且编排默认关，got %+v，gotB=%+v", blank, gotB)
 	}
 }

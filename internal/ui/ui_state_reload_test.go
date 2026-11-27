@@ -18,7 +18,9 @@ func resetLastSelectionCacheForReload(t *testing.T, dataDir string) string {
 	lastModelSelectionPath = ""
 	lastModelSelectionLoaded = false
 	lastModelSelectionCache = nil
+	lastModelQuickCache = nil
 	lastSwarmSelectionCache = nil
+	lastSwarmQuickCache = nil
 	lastModelSelectionModTime = time.Time{}
 	lastModelSelectionCheckedAt = time.Time{}
 	lastSelectionWritesPending = 0
@@ -93,7 +95,7 @@ func TestSaveLastModelSelectionSurvivesReload(t *testing.T) {
 	}
 
 	want := ModelSelection{Provider: "pi", Model: "default", Effort: "high", Fast: true}
-	saveLastModelSelection(want)
+	saveLastModelSelection("p1", want)
 
 	// 写盘尚未完成时读取：待写计数大于零，不会读回磁盘上的旧值。
 	if sel, ok := loadLastModelSelection(); !ok || sel != want {
@@ -229,7 +231,7 @@ func TestLastSelectionStatLocalWriteVisible(t *testing.T) {
 	}
 
 	want := ModelSelection{Provider: "pi", Model: "default", Effort: "high", Fast: true}
-	saveLastModelSelection(want)
+	saveLastModelSelection("p1", want)
 	if sel, ok := loadLastModelSelection(); !ok || sel != want {
 		t.Fatalf("写入后应立刻读到 %+v, got %+v ok=%v", want, sel, ok)
 	}

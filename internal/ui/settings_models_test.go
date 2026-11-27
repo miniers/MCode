@@ -23,7 +23,9 @@ func setLastModelSelection(sel *ModelSelection) {
 	lastModelSelectionPath = path
 	lastModelSelectionLoaded = true
 	lastModelSelectionCache = sel
+	lastModelQuickCache = nil
 	lastSwarmSelectionCache = nil
+	lastSwarmQuickCache = nil
 	// 把记录的修改时间对齐磁盘现状（文件不存在则清零），
 	// 避免 ui_state.go 的“按修改时间发现外部改动”逻辑把注入的缓存当成过期而重读盘覆盖。
 	lastModelSelectionModTime = time.Time{}
@@ -37,6 +39,13 @@ func setLastModelSelection(sel *ModelSelection) {
 func setLastSwarmSelection(h *LastSwarmSelection) {
 	lastModelSelectionMu.Lock()
 	lastSwarmSelectionCache = h
+	lastModelSelectionMu.Unlock()
+}
+
+// setLastSwarmQuickSelection 在测试里直接写入快速对话“上次 Swarm 选择”的进程内缓存，h 为 nil 表示清空。
+func setLastSwarmQuickSelection(h *LastSwarmSelection) {
+	lastModelSelectionMu.Lock()
+	lastSwarmQuickCache = h
 	lastModelSelectionMu.Unlock()
 }
 
@@ -162,7 +171,7 @@ func TestNewThreadOptionsForProject_Global(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			setLastModelSelection(tc.last)
-			setLastSwarmSelection(tc.swarm)
+			setLastSwarmQuickSelection(tc.swarm)
 			defer setLastModelSelection(nil)
 			curProviders := providers
 			if tc.emptyProv {

@@ -18,12 +18,17 @@ func clearLastSelectionGlobals() {
 	lastModelSelectionPath = ""
 	lastModelSelectionLoaded = false
 	lastModelSelectionCache = nil
+	lastModelQuickCache = nil
 	lastSwarmSelectionCache = nil
+	lastSwarmQuickCache = nil
 	lastModelSelectionModTime = time.Time{}
 	lastSelectionWritesPending = 0
 	lastModelDirty = false
+	lastModelQuickDirty = false
 	lastSwarmEnabledDirty = false
 	lastSwarmBeesDirty = false
+	lastSwarmQuickEnabledDirty = false
+	lastSwarmQuickBeesDirty = false
 	lastSelectionPendingSidebar = pendingUISidebarState{}
 	lastModelSelectionMu.Unlock()
 }
@@ -84,7 +89,7 @@ func TestSaveLastModelSelectionKeepsLatest(t *testing.T) {
 		{Provider: "pi", Model: "default", Effort: "high", Fast: true},
 	}
 	for _, sel := range selections {
-		saveLastModelSelection(sel)
+		saveLastModelSelection("p1", sel)
 	}
 	waitUIStateWrites()
 
@@ -106,7 +111,7 @@ func TestPersistUIStateAndModelSaveKeepBoth(t *testing.T) {
 	WithUIStatePersistence()(s)
 
 	for i := 0; i < 3; i++ {
-		saveLastModelSelection(ModelSelection{Provider: "pi", Model: fmt.Sprintf("model-%d", i)})
+		saveLastModelSelection("p1", ModelSelection{Provider: "pi", Model: fmt.Sprintf("model-%d", i)})
 		s.mu.Lock()
 		s.sidebarWidth = float32(300 + i)
 		s.mu.Unlock()
@@ -139,7 +144,7 @@ func TestFlushKeepsWritesArrivingDuringDiskWrite(t *testing.T) {
 	var once sync.Once
 	uiStateBeforeWriteHook = func() {
 		once.Do(func() {
-			saveLastModelSelection(late)
+			saveLastModelSelection("p1", late)
 			s.mu.Lock()
 			s.sidebarWidth = 302
 			s.mu.Unlock()
@@ -149,7 +154,7 @@ func TestFlushKeepsWritesArrivingDuringDiskWrite(t *testing.T) {
 	t.Cleanup(func() { uiStateBeforeWriteHook = nil })
 
 	// 第一次写盘的快照里只有 first，写盘期间才进来 late 与新宽度。
-	saveLastModelSelection(first)
+	saveLastModelSelection("p1", first)
 	waitUIStateWrites()
 
 	file := mustReadUIStateFile(t, path)
@@ -195,7 +200,7 @@ func TestSaveModelKeepsExternalSwarmHeads(t *testing.T) {
 	}, base.Add(time.Minute))
 
 	wantModel := ModelSelection{Provider: "pi", Model: "default", Effort: "high"}
-	saveLastModelSelection(wantModel)
+	saveLastModelSelection("p1", wantModel)
 	waitUIStateWrites()
 
 	file := mustReadUIStateFile(t, path)
@@ -222,7 +227,7 @@ func TestSaveModelWithCorruptFileDoesNotZero(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	saveLastModelSelection(ModelSelection{Provider: "pi", Model: "default"})
+	saveLastModelSelection("p1", ModelSelection{Provider: "pi", Model: "default"})
 	waitUIStateWrites()
 
 	got, err := os.ReadFile(path)
@@ -252,7 +257,7 @@ func TestLegacyHydraKeyMigratesToSwarm(t *testing.T) {
 	}
 
 	wantModel := ModelSelection{Provider: "pi", Model: "default"}
-	saveLastModelSelection(wantModel)
+	saveLastModelSelection("p1", wantModel)
 	waitUIStateWrites()
 
 	file := mustReadUIStateFile(t, path)

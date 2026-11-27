@@ -313,12 +313,16 @@ type uiStateFile struct {
 	// PreviewDesignBees 记录本地设计稿路径 -> 设计子代理会话 ID，重启后据此恢复定稿入口。
 	PreviewDesignBees map[string]string `json:"preview_design_bees,omitempty"`
 	Onboarding        string            `json:"onboarding,omitempty"`
-	// LastModel 是最近一次在模型选择组件中确认的模型选择（provider + model + 推理强度 + 快速模式），
-	// 新建会话或组件初始化时优先使用该记录；零值表示还没有记录。
+	// LastModel 是项目场景下最近一次在模型选择组件中确认的模型选择（provider + model + 推理强度 + 快速模式），
+	// 新建项目会话或组件初始化时优先使用该记录；零值表示还没有记录。
 	LastModel ModelSelection `json:"last_model,omitempty"`
-	// LastSwarm 是最近一次确认的编排开关与执行侧选择，新建会话时沿用；nil 表示还没有记录。
+	// LastModelQuick 是快速对话（projectID 为空）最近一次确认的模型选择；nil 表示还没有记录。
+	LastModelQuick *ModelSelection `json:"last_model_quick,omitempty"`
+	// LastSwarm 是项目场景下最近一次确认的编排开关与执行侧选择，新建项目会话时沿用；nil 表示还没有记录。
 	// 落盘键名是 last_swarm，每次保存只写新键。
 	LastSwarm *LastSwarmSelection `json:"last_swarm,omitempty"`
+	// LastSwarmQuick 是快速对话（projectID 为空）最近一次确认的编排开关与执行侧选择；nil 表示还没有记录。
+	LastSwarmQuick *LastSwarmSelection `json:"last_swarm_quick,omitempty"`
 	// LegacyLastSwarm 是改名前的旧键 last_hydra，只在读取旧文件做迁移时使用；保存时始终写回 nil。
 	LegacyLastSwarm *LastSwarmSelection `json:"last_hydra,omitempty"`
 	// ProjectModels 是按项目记住的模型与交互模式选择（项目键 -> 选择）：键为项目 ID，
@@ -544,10 +548,12 @@ var (
 	lastModelSelectionPath     string
 	lastModelSelectionLoaded   bool
 	lastModelSelectionCache    *ModelSelection
+	lastModelQuickCache        *ModelSelection
 	tasksDetailWidthCache      float32
 	tasksDetailWidthDirty      bool
 	tasksDetailWidthGeneration uint64
 	lastSwarmSelectionCache    *LastSwarmSelection
+	lastSwarmQuickCache        *LastSwarmSelection
 	// lastModelSelectionModTime 记录上次从磁盘加载或本进程写盘完成时 ui-state.json 的修改时间，
 	// 用于发现其它进程对该文件的改动（为零值时表示上次加载时文件还不存在）。
 	lastModelSelectionModTime time.Time
@@ -565,9 +571,12 @@ var (
 
 	// 以下脏标记记录本进程改过、但还没落盘的字段：写盘时只把这些字段覆盖到磁盘内容上，
 	// 其它字段仍以磁盘为准，避免把别的写者（外部进程、手改文件）改过的字段冲掉。
-	lastModelDirty        bool
-	lastSwarmEnabledDirty bool
-	lastSwarmBeesDirty    bool
+	lastModelDirty             bool
+	lastModelQuickDirty        bool
+	lastSwarmEnabledDirty      bool
+	lastSwarmBeesDirty         bool
+	lastSwarmQuickEnabledDirty bool
+	lastSwarmQuickBeesDirty    bool
 	// continueDismissedCache/continueDismissedDirty 是继续胶囊忽略记录的内存缓存与脏标记，
 	// 与模型记忆共用同一把锁与同一个写者。
 	continueDismissedCache map[string]string
@@ -591,13 +600,16 @@ var (
 	// persistUIState 都加一。写者在锁内取快照后要放开锁写盘，这期间可能有新的写入进来；
 	// 写盘完成后只有 generation 没变的字段才可以清脏、才可以用合并结果回填缓存，
 	// 否则新值会被这次写盘清脏并覆盖掉，后续写者再把磁盘旧值写回缓存。
-	lastModelGeneration         uint64
-	lastSwarmEnabledGeneration  uint64
-	lastSwarmBeesGeneration     uint64
-	lastSidebarGeneration       uint64
-	continueDismissedGeneration uint64
-	swarmFailedSeenGeneration   uint64
-	previewDesignBeesGeneration uint64
+	lastModelGeneration             uint64
+	lastModelQuickGeneration        uint64
+	lastSwarmEnabledGeneration      uint64
+	lastSwarmBeesGeneration         uint64
+	lastSwarmQuickEnabledGeneration uint64
+	lastSwarmQuickBeesGeneration    uint64
+	lastSidebarGeneration           uint64
+	continueDismissedGeneration     uint64
+	swarmFailedSeenGeneration       uint64
+	previewDesignBeesGeneration     uint64
 )
 
 // uiStateBeforeWriteHook 仅供测试注入：在 flushUIStateLocked 于锁内取完快照、释放锁、
@@ -681,7 +693,13 @@ func reloadLastSelectionLocked(path string) {
 		sel := merged.model
 		lastModelSelectionCache = &sel
 	}
+	lastModelQuickCache = nil
+	if merged.modelQuick != nil && (merged.modelQuick.Provider != "" || merged.modelQuick.Model != "") {
+		sel := *merged.modelQuick
+		lastModelQuickCache = &sel
+	}
 	lastSwarmSelectionCache = merged.swarm
+	lastSwarmQuickCache = merged.swarmQuick
 	continueDismissedCache = copyStringMap(merged.continueDismissed)
 	swarmFailedSeenCache = copyNestedStringMap(merged.swarmFailedSeen)
 	previewDesignBeesCache = copyStringMap(merged.previewDesignBees)
@@ -719,11 +737,16 @@ func rememberTasksDetailWidth(ks *kanbanState, width float32) {
 // lastSelectionMerge 是一次按字段合并的结果：swarm 为新键 last_swarm 的值（无记录时为 nil），
 // *Applied 标记该字段来自本进程标脏的缓存（写盘成功后据此清除脏标记）。
 type lastSelectionMerge struct {
-	model               ModelSelection
-	swarm               *LastSwarmSelection
-	modelApplied        bool
-	swarmEnabledApplied bool
-	swarmBeesApplied    bool
+	model                    ModelSelection
+	modelQuick               *ModelSelection
+	swarm                    *LastSwarmSelection
+	swarmQuick               *LastSwarmSelection
+	modelApplied             bool
+	modelQuickApplied        bool
+	swarmEnabledApplied      bool
+	swarmBeesApplied         bool
+	swarmQuickEnabledApplied bool
+	swarmQuickBeesApplied    bool
 	// continueDismissed 是合并后的继续胶囊忽略记录，continueDismissedApplied 标记它来自本进程的脏缓存。
 	continueDismissed        map[string]string
 	continueDismissedApplied bool
@@ -744,6 +767,7 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 	merged := lastSelectionMerge{
 		model:                    file.LastModel,
 		modelApplied:             lastModelDirty,
+		modelQuickApplied:        lastModelQuickDirty,
 		continueDismissed:        copyStringMap(file.ContinueDismissed),
 		continueDismissedApplied: continueDismissedDirty,
 		swarmFailedSeen:          copyNestedStringMap(file.SwarmFailedSeen),
@@ -752,6 +776,8 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 		previewDesignBeesApplied: previewDesignBeesDirty,
 		swarmEnabledApplied:      lastSwarmEnabledDirty,
 		swarmBeesApplied:         lastSwarmBeesDirty,
+		swarmQuickEnabledApplied: lastSwarmQuickEnabledDirty,
+		swarmQuickBeesApplied:    lastSwarmQuickBeesDirty,
 	}
 	if continueDismissedDirty {
 		// 本进程标脏时以内存缓存为准，忽略记录整体覆盖，不做逐条合并。
@@ -781,27 +807,42 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 	if lastModelDirty && lastModelSelectionCache != nil {
 		merged.model = *lastModelSelectionCache
 	}
+	if file.LastModelQuick != nil && (file.LastModelQuick.Provider != "" || file.LastModelQuick.Model != "") {
+		sel := *file.LastModelQuick
+		merged.modelQuick = &sel
+	}
+	if lastModelQuickDirty && lastModelQuickCache != nil {
+		sel := *lastModelQuickCache
+		merged.modelQuick = &sel
+	}
 	// 新键优先；旧文件只有 last_hydra 时以旧值为底，写回时迁移成新键。
 	base := file.LastSwarm
 	if base == nil {
 		base = file.LegacyLastSwarm
 	}
+	merged.swarm = mergeSwarmSelection(base, lastSwarmSelectionCache, merged.swarmEnabledApplied, merged.swarmBeesApplied)
+	merged.swarmQuick = mergeSwarmSelection(file.LastSwarmQuick, lastSwarmQuickCache, merged.swarmQuickEnabledApplied, merged.swarmQuickBeesApplied)
+	return merged
+}
+
+// mergeSwarmSelection 以磁盘上的 Swarm 记录为底，按字段只覆盖本进程标脏的开关或执行侧。
+func mergeSwarmSelection(disk, cache *LastSwarmSelection, enabledDirty, beesDirty bool) *LastSwarmSelection {
 	swarm := LastSwarmSelection{}
-	if base != nil {
-		swarm = *base
+	if disk != nil {
+		swarm = *disk
 	}
-	if lastSwarmSelectionCache != nil {
-		if merged.swarmEnabledApplied {
-			swarm.Enabled = lastSwarmSelectionCache.Enabled
+	if cache != nil {
+		if enabledDirty {
+			swarm.Enabled = cache.Enabled
 		}
-		if merged.swarmBeesApplied {
-			swarm.Bees = lastSwarmSelectionCache.Bees
+		if beesDirty {
+			swarm.Bees = cache.Bees
 		}
 	}
 	if swarm.Enabled != nil || swarm.Bees != nil {
-		merged.swarm = &swarm
+		return &swarm
 	}
-	return merged
+	return nil
 }
 
 // finishLastSelectionWrite 在写盘结束后调用：减少待写计数；写成功时记录本次写入的修改时间
@@ -818,35 +859,52 @@ func finishLastSelectionWrite(modTime time.Time, writeErr error) {
 	lastModelSelectionModTime = modTime
 }
 
-// loadLastModelSelection 读取最近一次模型选择：优先使用进程内缓存，未命中时从 ui-state.json 读取；
+// loadLastModelSelection 读取项目场景最近一次模型选择：优先使用进程内缓存，未命中时从 ui-state.json 读取；
 // 没有记录时返回零值与 false。
 func loadLastModelSelection() (ModelSelection, bool) {
+	return loadCachedModelSelection(&lastModelSelectionCache)
+}
+
+// loadLastModelQuickSelection 读取快速对话（projectID 为空）最近一次模型选择；没有记录时返回零值与 false。
+func loadLastModelQuickSelection() (ModelSelection, bool) {
+	return loadCachedModelSelection(&lastModelQuickCache)
+}
+
+func loadCachedModelSelection(cache **ModelSelection) (ModelSelection, bool) {
 	lastModelSelectionMu.Lock()
 	defer lastModelSelectionMu.Unlock()
 	ensureLastSelectionLoadedLocked()
-	if lastModelSelectionCache == nil {
+	if *cache == nil {
 		return ModelSelection{}, false
 	}
-	sel := *lastModelSelectionCache
+	sel := **cache
 	if sel.Provider == "" && sel.Model == "" {
 		return ModelSelection{}, false
 	}
 	return sel, true
 }
 
-// saveLastModelSelection 记录最近一次模型选择并写入 ui-state.json；写盘放在后台 goroutine，失败静默。
+// saveLastModelSelection 按场景记录最近一次模型选择并写入 ui-state.json；写盘放在后台 goroutine，失败静默。
+// projectID 为空表示快速对话（写入 last_model_quick），非空表示项目场景（写入 last_model）。
 // 主导记忆要求 provider 与 model 都非空：模型选择组件在 provider 不在当前目录里时解析结果只有
 // provider（见 resolveModelPickerSelection），把这种半成品写进“上次使用”会让新建会话拿到空模型。
 // 这里统一忽略，不标脏、不触发写盘。
-func saveLastModelSelection(sel ModelSelection) {
+func saveLastModelSelection(projectID string, sel ModelSelection) {
 	if sel.Provider == "" || sel.Model == "" {
 		return
 	}
+	quick := strings.TrimSpace(projectID) == ""
 	lastModelSelectionMu.Lock()
 	ensureLastSelectionLoadedLocked()
-	lastModelSelectionCache = &sel
-	lastModelDirty = true
-	lastModelGeneration++
+	if quick {
+		lastModelQuickCache = &sel
+		lastModelQuickDirty = true
+		lastModelQuickGeneration++
+	} else {
+		lastModelSelectionCache = &sel
+		lastModelDirty = true
+		lastModelGeneration++
+	}
 	lastSelectionWritesPending++
 	lastModelSelectionMu.Unlock()
 	writeLastSelections(nil)
@@ -931,47 +989,71 @@ func copyProjectSelections(m map[string]ProjectModelSelection) map[string]Projec
 	return cp
 }
 
-// loadLastSwarmSelection 返回最近一次 Swarm 记录的副本；没有记录时返回零值。
+// loadLastSwarmSelection 返回项目场景最近一次 Swarm 记录的副本；没有记录时返回零值。
 func loadLastSwarmSelection() LastSwarmSelection {
+	return loadLastSwarmSelectionForScene(false)
+}
+
+// loadLastSwarmQuickSelection 返回快速对话（projectID 为空）最近一次 Swarm 记录的副本；没有记录时返回零值。
+func loadLastSwarmQuickSelection() LastSwarmSelection {
+	return loadLastSwarmSelectionForScene(true)
+}
+
+func loadLastSwarmSelectionForScene(quick bool) LastSwarmSelection {
 	lastModelSelectionMu.Lock()
 	defer lastModelSelectionMu.Unlock()
 	ensureLastSelectionLoadedLocked()
-	if lastSwarmSelectionCache == nil {
+	src := lastSwarmSelectionCache
+	if quick {
+		src = lastSwarmQuickCache
+	}
+	if src == nil {
 		return LastSwarmSelection{}
 	}
-	return *lastSwarmSelectionCache
+	return *src
 }
 
-// rememberSwarmEnabled 记录最近一次 Swarm 开关选择。
-func rememberSwarmEnabled(on bool) {
-	updateLastSwarmSelection(true, func(h *LastSwarmSelection) { h.Enabled = &on })
+// rememberSwarmEnabled 按场景记录最近一次 Swarm 开关选择（projectID 为空表示快速对话）。
+func rememberSwarmEnabled(projectID string, on bool) {
+	updateLastSwarmSelection(strings.TrimSpace(projectID) == "", true, func(h *LastSwarmSelection) { h.Enabled = &on })
 }
 
-// rememberSwarmBees 记录最近一次执行侧选择（provider/model 为空表示跟随主导）。
-func rememberSwarmBees(provider, model, effort string) {
-	updateLastSwarmSelection(false, func(h *LastSwarmSelection) {
+// rememberSwarmBees 按场景记录最近一次执行侧选择（projectID 为空表示快速对话；provider/model 为空表示跟随主导）。
+func rememberSwarmBees(projectID, provider, model, effort string) {
+	updateLastSwarmSelection(strings.TrimSpace(projectID) == "", false, func(h *LastSwarmSelection) {
 		h.Bees = &ModelSelection{Provider: provider, Model: model, Effort: effort}
 	})
 }
 
-// updateLastSwarmSelection 更新内存中的 Swarm 记录并按字段标脏：enabled 为 true 表示这次只改开关，
-// 否则只改执行侧（Bees），这样写盘时不会顺带覆盖另一项的外部改动。
-func updateLastSwarmSelection(enabled bool, mutate func(h *LastSwarmSelection)) {
+// updateLastSwarmSelection 更新内存中的 Swarm 记录并按场景与字段标脏：quick 区分快速对话与项目场景，
+// enabled 为 true 表示这次只改开关，否则只改执行侧（Bees），这样写盘时不会顺带覆盖另一项的外部改动。
+func updateLastSwarmSelection(quick, enabled bool, mutate func(h *LastSwarmSelection)) {
 	lastModelSelectionMu.Lock()
 	ensureLastSelectionLoadedLocked()
+	cache := &lastSwarmSelectionCache
+	dirty := &lastSwarmBeesDirty
+	gen := &lastSwarmBeesGeneration
+	if enabled {
+		dirty = &lastSwarmEnabledDirty
+		gen = &lastSwarmEnabledGeneration
+	}
+	if quick {
+		cache = &lastSwarmQuickCache
+		dirty = &lastSwarmQuickBeesDirty
+		gen = &lastSwarmQuickBeesGeneration
+		if enabled {
+			dirty = &lastSwarmQuickEnabledDirty
+			gen = &lastSwarmQuickEnabledGeneration
+		}
+	}
 	next := LastSwarmSelection{}
-	if lastSwarmSelectionCache != nil {
-		next = *lastSwarmSelectionCache
+	if *cache != nil {
+		next = **cache
 	}
 	mutate(&next)
-	lastSwarmSelectionCache = &next
-	if enabled {
-		lastSwarmEnabledDirty = true
-		lastSwarmEnabledGeneration++
-	} else {
-		lastSwarmBeesDirty = true
-		lastSwarmBeesGeneration++
-	}
+	*cache = &next
+	*dirty = true
+	*gen++
 	lastSelectionWritesPending++
 	lastModelSelectionMu.Unlock()
 	writeLastSelections(nil)
@@ -1018,8 +1100,11 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	file.SwarmFailedSeen = merged.swarmFailedSeen
 	file.PreviewDesignBees = merged.previewDesignBees
 	modelGeneration := lastModelGeneration
+	modelQuickGeneration := lastModelQuickGeneration
 	swarmEnabledGeneration := lastSwarmEnabledGeneration
 	swarmBeesGeneration := lastSwarmBeesGeneration
+	swarmQuickEnabledGeneration := lastSwarmQuickEnabledGeneration
+	swarmQuickBeesGeneration := lastSwarmQuickBeesGeneration
 	sidebarGeneration := lastSidebarGeneration
 	// 上次会话以磁盘为底，只有本进程待写时才覆盖，避免侧栏写盘把磁盘记录冲掉。
 	lastThreadMu.Lock()
@@ -1040,7 +1125,9 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 		projectGenerations[key] = projectModelGeneration[key]
 	}
 	file.LastModel = merged.model
+	file.LastModelQuick = merged.modelQuick
 	file.LastSwarm = merged.swarm
+	file.LastSwarmQuick = merged.swarmQuick
 	file.ProjectModels = merged.projects
 	// 只写新键，读到旧文件时顺手把 last_hydra 迁移掉。
 	file.LegacyLastSwarm = nil
@@ -1153,6 +1240,17 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 			lastModelDirty = false
 		}
 	}
+	if modelQuickGeneration == lastModelQuickGeneration {
+		if merged.modelQuick != nil && (merged.modelQuick.Provider != "" || merged.modelQuick.Model != "") {
+			sel := *merged.modelQuick
+			lastModelQuickCache = &sel
+		} else {
+			lastModelQuickCache = nil
+		}
+		if merged.modelQuickApplied {
+			lastModelQuickDirty = false
+		}
+	}
 	if swarmEnabledGeneration == lastSwarmEnabledGeneration && merged.swarmEnabledApplied {
 		lastSwarmEnabledDirty = false
 	}
@@ -1161,6 +1259,15 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	}
 	if swarmEnabledGeneration == lastSwarmEnabledGeneration && swarmBeesGeneration == lastSwarmBeesGeneration {
 		lastSwarmSelectionCache = merged.swarm
+	}
+	if swarmQuickEnabledGeneration == lastSwarmQuickEnabledGeneration && merged.swarmQuickEnabledApplied {
+		lastSwarmQuickEnabledDirty = false
+	}
+	if swarmQuickBeesGeneration == lastSwarmQuickBeesGeneration && merged.swarmQuickBeesApplied {
+		lastSwarmQuickBeesDirty = false
+	}
+	if swarmQuickEnabledGeneration == lastSwarmQuickEnabledGeneration && swarmQuickBeesGeneration == lastSwarmQuickBeesGeneration {
+		lastSwarmQuickCache = merged.swarmQuick
 	}
 	if sidebarConsumed && sidebarGeneration == lastSidebarGeneration {
 		lastSelectionPendingSidebar = pendingUISidebarState{}
@@ -1719,14 +1826,18 @@ func LoadLastModelSelection() (ModelSelection, bool) { return loadLastModelSelec
 // LoadLastSwarmSelection 返回最近一次确认的编排开关与执行侧选择。
 func LoadLastSwarmSelection() LastSwarmSelection { return loadLastSwarmSelection() }
 
-// SaveLastModelSelection 记录最近一次模型选择并写回 ui-state.json。
-func SaveLastModelSelection(sel ModelSelection) { saveLastModelSelection(sel) }
+// SaveLastModelSelection 按场景记录最近一次模型选择并写回 ui-state.json（projectID 为空表示快速对话）。
+func SaveLastModelSelection(projectID string, sel ModelSelection) {
+	saveLastModelSelection(projectID, sel)
+}
 
-// RememberSwarmEnabled 记录最近一次编排总开关选择。
-func RememberSwarmEnabled(on bool) { rememberSwarmEnabled(on) }
+// RememberSwarmEnabled 按场景记录最近一次编排总开关选择（projectID 为空表示快速对话）。
+func RememberSwarmEnabled(projectID string, on bool) { rememberSwarmEnabled(projectID, on) }
 
-// RememberSwarmBees 记录最近一次执行侧选择（provider/model 为空表示跟随主导）。
-func RememberSwarmBees(provider, model, effort string) { rememberSwarmBees(provider, model, effort) }
+// RememberSwarmBees 按场景记录最近一次执行侧选择（projectID 为空表示快速对话；provider/model 为空表示跟随主导）。
+func RememberSwarmBees(projectID, provider, model, effort string) {
+	rememberSwarmBees(projectID, provider, model, effort)
+}
 
 // ProviderEnabledMap 返回配置里各 provider 的启用状态（键为 provider kind，false 表示已关闭）。
 // 与桌面模型选择器使用的同一张表，供远程端过滤已关闭的 provider。

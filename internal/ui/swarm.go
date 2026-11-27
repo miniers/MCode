@@ -492,7 +492,10 @@ func (s *chatState) setSwarmEnabled(enabled bool) {
 		if err != nil {
 			s.setToast("设置编排失败: " + err.Error())
 		} else {
-			rememberSwarmEnabled(enabled)
+			s.mu.Lock()
+			projectID := s.projectIDForRememberLocked(lid)
+			s.mu.Unlock()
+			rememberSwarmEnabled(projectID, enabled)
 		}
 		s.refreshSwarm()
 	}(lead)

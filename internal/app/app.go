@@ -1118,9 +1118,6 @@ func Open(opts Options) (*App, error) {
 		return remoteDraftDefaults(c)
 	})
 
-	// 用户在远程端主动确认的模型与编排选择写回同一份模型记忆，桌面下次新建会话据此初始化。
-	backend.SetRememberSelectionFunc(rememberRemoteSelection)
-
 	wireAutoTitle(backend, opts.DataDir)
 	// Dispatcher 在 remote_service.go / cmd 中构造，这里通过包级回退注入标题重生成回调。
 	remote.DefaultTitleRegenerator = func(ctx context.Context, threadID string) (string, error) {
@@ -1384,6 +1381,11 @@ func Open(opts Options) (*App, error) {
 	}
 
 	client := NewClient(backend)
+	// 用户在远程端主动确认的模型与编排选择写回同一份模型记忆，桌面下次新建会话据此初始化；
+	// 放在 NewClient 之后（且在远程服务启动前）才能读取内置「对话」项目 ID 并归一。
+	backend.SetRememberSelectionFunc(func(p wire.ProvidersRememberSelectionParams) {
+		rememberRemoteSelection(p, client.ChatsProjectID())
+	})
 	client.updateChecker = &UpdateChecker{
 		FeedURL: UpdateFeedURL, CurrentVersion: AppVersion,
 		Enabled: func() bool {
@@ -2389,9 +2391,13 @@ func remoteDraftDefaults(c config.Config) wire.ComposerDraftDefaults {
 // 字段与桌面新建会话时的写回（internal/ui 的 rememberModelSelection 与 rememberSwarm*）一致。
 // 主导 provider 与 model 都非空时才写主导记忆（effort 为空表示默认档位）；
 // 子代理三字段任一非 nil 时整组写入（空串表示跟随主导）；编排开关非 nil 时写开关。
-func rememberRemoteSelection(p wire.ProvidersRememberSelectionParams) {
+func rememberRemoteSelection(p wire.ProvidersRememberSelectionParams, chatsProjectID string) {
+	projectID := derefDraftString(p.ProjectID)
+	if chatsProjectID != "" && projectID == chatsProjectID {
+		projectID = ""
+	}
 	if provider, model := derefDraftString(p.Provider), derefDraftString(p.Model); provider != "" && model != "" {
-		mcodeui.SaveLastModelSelection(mcodeui.ModelSelection{
+		mcodeui.SaveLastModelSelection(projectID, mcodeui.ModelSelection{
 			Provider: provider,
 			Model:    model,
 			Effort:   derefDraftString(p.Effort),
@@ -2400,13 +2406,14 @@ func rememberRemoteSelection(p wire.ProvidersRememberSelectionParams) {
 	}
 	if p.SwarmBeesProvider != nil || p.SwarmBeesModel != nil || p.SwarmBeesEffort != nil {
 		mcodeui.RememberSwarmBees(
+			projectID,
 			derefDraftString(p.SwarmBeesProvider),
 			derefDraftString(p.SwarmBeesModel),
 			derefDraftString(p.SwarmBeesEffort),
 		)
 	}
 	if p.SwarmEnabled != nil {
-		mcodeui.RememberSwarmEnabled(*p.SwarmEnabled)
+		mcodeui.RememberSwarmEnabled(projectID, *p.SwarmEnabled)
 	}
 }
 

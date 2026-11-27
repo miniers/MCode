@@ -51,7 +51,7 @@ func TestTasksWindowPersistenceMerge(t *testing.T) {
 	s.sidebarWidth = 300
 	storeSidebarProjectOrder(s, []string{"a", "b"})
 	rememberTasksDetailWidth(ks, 510)
-	saveLastModelSelection(ModelSelection{Provider: "p", Model: "m"})
+	saveLastModelSelection("p1", ModelSelection{Provider: "p", Model: "m"})
 	persistUIState(s)
 	rememberTasksDetailWidth(ks, 550)
 	waitUIStateWrites()
@@ -103,7 +103,7 @@ func TestTasksWindowPersistenceFailureAndHeadless(t *testing.T) {
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	saveLastModelSelection(ModelSelection{Provider: "p", Model: "m"})
+	saveLastModelSelection("p1", ModelSelection{Provider: "p", Model: "m"})
 	waitUIStateWrites()
 	if got := mustReadUIStateFile(t, path).TasksDetailWidth; got != 520 {
 		t.Fatal(got)
@@ -124,7 +124,7 @@ func TestTasksWindowPersistenceFailureAndHeadless(t *testing.T) {
 	if err := os.Mkdir(parent, 0700); err != nil {
 		t.Fatal(err)
 	}
-	saveLastModelSelection(ModelSelection{Provider: "p", Model: "retry"})
+	saveLastModelSelection("p1", ModelSelection{Provider: "p", Model: "retry"})
 	waitUIStateWrites()
 	if got := mustReadUIStateFile(t, filepath.Join(parent, uiStateFileName)).TasksDetailWidth; got != 610 {
 		t.Fatal(got)

@@ -1233,7 +1233,7 @@ func (s *chatState) runLocalSlashCommand(threadID, draft string) bool {
 		fast := s.toggleModelFastModeNow(pin)
 		// 用户主动翻转主导侧快速模式：只在这一刻写入“上次使用”。
 		if provider != "" && model != "" {
-			rememberModelSelection(ModelSelection{Provider: provider, Model: model, Effort: effort, Fast: fast})
+			s.rememberModelSelectionForThread(tid, ModelSelection{Provider: provider, Model: model, Effort: effort, Fast: fast})
 		}
 		s.clearDraftAndCompletion()
 		return true

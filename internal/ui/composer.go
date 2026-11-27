@@ -1838,11 +1838,12 @@ func (s *chatState) updateComposerPrefsWith(threadID string, mutate func(p *Comp
 		} else {
 			s.applyComposerPrefsLocked(threadID, next)
 		}
+		projectID := s.projectIDForRememberLocked(threadID)
 		s.mu.Unlock()
 		s.invalidate()
 		// 执行侧的模型与强度只能从这里改（选模型、调强度、跟随主导、配对、重置），统一在这里记下供新建会话沿用。
 		if err == nil && (next.BeesProvider != prev.BeesProvider || next.BeesModel != prev.BeesModel || next.BeesEffort != prev.BeesEffort) {
-			rememberSwarmBees(next.BeesProvider, next.BeesModel, next.BeesEffort)
+			rememberSwarmBees(projectID, next.BeesProvider, next.BeesModel, next.BeesEffort)
 		}
 		if err == nil && onSaved != nil {
 			onSaved(next)
@@ -2327,7 +2328,10 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 			if side == ModelPickerSideBees {
 				tab = "bees"
 				pin = beesPin
-				rememberSwarmBees("", "", "")
+				s.mu.Lock()
+				projectID := s.projectIDForRememberLocked(threadID)
+				s.mu.Unlock()
+				rememberSwarmBees(projectID, "", "", "")
 			} else {
 				// 重置会清空强度与快速模式偏好，记录也随之回到默认。
 				rememberLead(ModelSelection{Provider: leadSelection.Provider, Model: leadSelection.Model})
@@ -2451,30 +2455,29 @@ func renderModelSelector(c *ui.Context, s *chatState, currentThread *Thread, pro
 	}))
 }
 
-// rememberModelSelection 记录最近一次在模型选择组件中确认的选择，供新建会话与组件初始化复用。
-func rememberModelSelection(sel ModelSelection) {
-	saveLastModelSelection(sel)
-}
-
-// rememberModelSelectionForThread 记录“上次使用”的模型选择：全局一份，同时按该会话所属项目记一份。
+// rememberModelSelectionForThread 按场景记录“上次使用”的模型选择：
+// 项目非空时写项目场景记录 last_model 与项目桶，项目为空（快速对话）时只写 last_model_quick。
 func (s *chatState) rememberModelSelectionForThread(threadID string, sel ModelSelection) {
-	rememberModelSelection(sel)
-	if s == nil {
-		return
+	projectID := ""
+	if s != nil {
+		s.mu.Lock()
+		projectID = s.projectIDForRememberLocked(threadID)
+		s.mu.Unlock()
 	}
-	s.mu.Lock()
-	projectID := s.projectIDForRememberLocked(threadID)
-	s.mu.Unlock()
-	saveProjectModelSelection(projectID, sel)
+	saveLastModelSelection(projectID, sel)
+	if strings.TrimSpace(projectID) != "" {
+		saveProjectModelSelection(projectID, sel)
+	}
 }
 
 // projectIDForRememberLocked 返回会话所属项目，调用方需持有 s.mu。
+// 内置「对话」项目归为快速对话场景，返回空串以写入 quick 记忆。
 func (s *chatState) projectIDForRememberLocked(threadID string) string {
-	if threadID != "" {
-		if id := s.projectIDForThreadLocked(threadID); id != "" {
-			return id
+	if th, ok := s.threadSnapshotLocked(threadID); ok {
+		if chatsID := s.chatsProjectID(); chatsID != "" && th.ProjectID == chatsID {
+			return ""
 		}
-		return ""
+		return th.ProjectID
 	}
 	return ""
 }

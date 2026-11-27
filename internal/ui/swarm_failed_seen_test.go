@@ -199,7 +199,7 @@ func TestSwarmFailedBadgeSeenSingleBeeAndPersistence(t *testing.T) {
 	}
 
 	// 其它写盘路径（如 saveLastModelSelection）不得冲掉 swarm_failed_seen。
-	saveLastModelSelection(ModelSelection{Provider: "codex", Model: "gpt-5.5"})
+	saveLastModelSelection("p1", ModelSelection{Provider: "codex", Model: "gpt-5.5"})
 	waitUIStateWrites()
 
 	// 清空内存模拟重启，通过 applyUIState 从磁盘恢复。
