@@ -21,9 +21,10 @@ func (r *Runner) AddAll(ctx context.Context, root string) error {
 	return err
 }
 
-// DiffCachedBinary 执行 git diff --cached --binary <base>，生成暂存区与 base 之间的二进制差异补丁。
+// DiffCachedBinary 执行 git diff --cached --binary --full-index <base>，生成暂存区与 base 之间的二进制差异补丁。
+// 固定完整哈希，补丁字节不随仓库对象数增长而变化，审查时与批准时可按字节比较。
 func (r *Runner) DiffCachedBinary(ctx context.Context, root, base string) ([]byte, error) {
-	args := []string{"diff", "--cached", "--binary"}
+	args := []string{"diff", "--cached", "--binary", "--full-index"}
 	if base != "" {
 		args = append(args, base)
 	}

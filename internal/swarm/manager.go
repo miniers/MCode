@@ -2663,6 +2663,35 @@ func (m *Manager) Tick(ctx context.Context) {
 	for _, w := range approveWaits {
 		if _, err := m.approveMerge(ctx, w.leadThreadID, w.beeThreadID, false); err != nil {
 			log.Printf("swarm: 重试批准合并等待失败 (lead=%s bee=%s): %v", w.leadThreadID, w.beeThreadID, err)
+			if errors.Is(err, errMergeNotSettled) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+				continue
+			}
+			// 永久错误：停止后续 tick 重试，交由人工裁决并落盘通知。
+			// 仅当仍在待合入等待态且未重新进入审查（ReviewRunning）时更新，避免覆盖刚重进 L0 审查的状态。
+			updated := false
+			m.mu.Lock()
+			if lead, ok := m.leads[w.leadThreadID]; ok {
+				for i := range lead.bees {
+					b := &lead.bees[i]
+					if b.ThreadID != w.beeThreadID {
+						continue
+					}
+					if b.PendingMerge && b.MergeWaitSince != nil && b.ReviewState != ReviewRunning {
+						h := b.clone()
+						h.MergeWaitSince = nil
+						h.MergeError = err.Error()
+						h.ReviewState = ReviewNeedsHuman
+						h.ReviewReason = err.Error()
+						m.replaceBeeLocked(w.leadThreadID, h)
+						updated = true
+					}
+					break
+				}
+			}
+			m.mu.Unlock()
+			if updated {
+				m.notifyChange(w.leadThreadID)
+			}
 		}
 	}
 
@@ -6300,7 +6329,57 @@ func (m *Manager) approveMerge(ctx context.Context, leadThreadID, beeThreadID st
 		if m.canLandBeeCommit(ctx, targetDir, &h) {
 			// 审查通过后仍须确认当前暂存内容就是获批补丁。
 			current, err := m.opts.Git.DiffCachedBinary(ctx, h.WorktreePath, h.BaseCommit)
-			if err != nil || !bytes.Equal(current, h.MergePatch) {
+			if err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+					return h.clone(), err
+				}
+				errMsg := fmt.Sprintf("读取暂存补丁失败：%v", err)
+				h.MergeWaitSince = nil
+				h.MergeError = errMsg
+				h.ReviewState = ReviewNeedsHuman
+				h.ReviewReason = errMsg
+				m.mu.Lock()
+				m.replaceBeeLocked(leadThreadID, h)
+				m.mu.Unlock()
+				m.notifyChange(leadThreadID)
+				return h.clone(), errors.New(errMsg)
+			}
+			if !bytes.Equal(current, h.MergePatch) {
+				// 暂存补丁已变化：用当前补丁重新进入审查并清零上一轮 L0/L2 调度状态。
+				h.MergePatch = current
+				h.MergeWaitSince = nil
+				h.MergeError = ""
+				h.ReviewConcerns = nil
+				h.ReviewApplyPending = false
+				h.ReviewStartedAt = nil
+				h.ReviewThreadID = ""
+				h.ReviewPatchPath = ""
+				h.ReviewPatchSHA = ""
+				h.ReviewFingerprint = ""
+				h.ReviewProvider = ""
+				h.ReviewModel = ""
+				h.ReviewEffort = ""
+				h.ReviewTokens = 0
+				h.ReviewTokensEstimated = false
+				h.ReviewAttempts = 0
+				if m.reviewMode() == reviewModeHuman && len(h.Acceptance) == 0 {
+					h.ReviewState = ReviewNeedsHuman
+					h.ReviewStage = ""
+					h.ReviewLayer = "human"
+					h.ReviewReason = "暂存补丁与获批补丁不一致，需重新审查"
+					h.ReviewQueuedAt = nil
+				} else {
+					now := m.now()
+					h.ReviewState = ReviewRunning
+					h.ReviewStage = ReviewStageL0
+					h.ReviewLayer = ""
+					h.ReviewReason = ""
+					h.ReviewQueuedAt = &now
+				}
+				m.mu.Lock()
+				m.replaceBeeLocked(leadThreadID, h)
+				m.mu.Unlock()
+				m.notifyChange(leadThreadID)
 				return h.clone(), errors.New("审查补丁已变化，请重新审查")
 			}
 			done, fallback := m.landBeeCommit(ctx, leadThreadID, targetDir, &h, h.MergePatch)

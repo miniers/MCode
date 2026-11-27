@@ -1,9 +1,11 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -351,5 +353,65 @@ func TestScanConflictMarkers(t *testing.T) {
 		if conflicts[i] != expected[i] {
 			t.Errorf("conflict[%d] mismatch: got %s, want %s", i, conflicts[i], expected[i])
 		}
+	}
+}
+
+func TestDiffCachedBinaryFullIndex(t *testing.T) {
+	t.Parallel()
+	runner, dir := initGitRepo(t)
+	ctx := context.Background()
+
+	textPath := filepath.Join(dir, "text.txt")
+	if err := os.WriteFile(textPath, []byte("line 1\nline 2\n"), 0644); err != nil {
+		t.Fatalf("write text file: %v", err)
+	}
+	if err := runner.AddAll(ctx, dir); err != nil {
+		t.Fatalf("AddAll failed: %v", err)
+	}
+	if _, err := runner.run(ctx, dir, nil, "commit", "-m", "initial commit"); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	baseCommit, err := runner.RevParse(ctx, dir, "HEAD")
+	if err != nil {
+		t.Fatalf("rev-parse failed: %v", err)
+	}
+
+	if err := os.WriteFile(textPath, []byte("line 1\nline 2 updated\n"), 0644); err != nil {
+		t.Fatalf("update text file: %v", err)
+	}
+	binPath := filepath.Join(dir, "blob.bin")
+	if err := os.WriteFile(binPath, []byte{0x00, 0x01, 0x02, 0xff, 0x00, 'm', 'c', 'o', 'd', 'e'}, 0644); err != nil {
+		t.Fatalf("write binary file: %v", err)
+	}
+	if err := runner.AddAll(ctx, dir); err != nil {
+		t.Fatalf("AddAll failed: %v", err)
+	}
+
+	patch1, err := runner.DiffCachedBinary(ctx, dir, baseCommit)
+	if err != nil {
+		t.Fatalf("DiffCachedBinary first call failed: %v", err)
+	}
+
+	indexRe := regexp.MustCompile(`^index [0-9a-f]{40,64}\.\.[0-9a-f]{40,64}`)
+	indexCount := 0
+	for _, line := range strings.Split(string(patch1), "\n") {
+		if strings.HasPrefix(line, "index ") {
+			indexCount++
+			if !indexRe.MatchString(line) {
+				t.Fatalf("expected full index hash line, got %q", line)
+			}
+		}
+	}
+	if indexCount == 0 {
+		t.Fatalf("expected at least one index line in patch:\n%s", string(patch1))
+	}
+
+	patch2, err := runner.DiffCachedBinary(ctx, dir, baseCommit)
+	if err != nil {
+		t.Fatalf("DiffCachedBinary second call failed: %v", err)
+	}
+	if !bytes.Equal(patch1, patch2) {
+		t.Fatalf("expected identical patch bytes across consecutive calls")
 	}
 }
