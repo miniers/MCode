@@ -227,8 +227,8 @@ func TestUIReview9TrimmedLabelsAndAttachmentTags(t *testing.T) {
 		return s.composerFocused
 	})
 
-	if tt.HasText("GO") {
-		t.Fatalf("带扩展名的非图片附件不应重复显示格式 tag，texts=%v", tt.Texts())
+	if !tt.HasText("GO") {
+		t.Fatalf("带扩展名的非图片附件应显示扩展名色标 GO，texts=%v", tt.Texts())
 	}
 	if !tt.HasText("FILE") {
 		t.Fatalf("无扩展名的非图片附件应保留 FILE tag，texts=%v", tt.Texts())

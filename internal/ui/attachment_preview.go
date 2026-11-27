@@ -83,22 +83,23 @@ type attachPreviewItem struct {
 	ReadOnly  bool
 
 	// 打开或后台加载时计算好的内容快照
-	Text             string
-	Lines            []string
-	ErrorCount       int
-	Truncated        bool
-	RawBytes         []byte
-	ImageSrc         ui.ImageSource
-	SHA256           string
-	SHA256Loading    bool
-	Loading          bool
-	LoadErr          string
-	ArchiveEntries   []archiveEntry
-	ArchiveTree      []*archiveTreeNode
-	ArchiveTruncated bool
-	ArchiveLoaded    bool
-	ArchiveSelected  map[string]bool
-	ArchiveCollapsed map[string]bool
+	Text              string
+	Lines             []string
+	ErrorCount        int
+	Truncated         bool
+	RawBytes          []byte
+	ImageSrc          ui.ImageSource
+	SHA256            string
+	SHA256Loading     bool
+	Loading           bool
+	LoadErr           string
+	ArchiveEntries    []archiveEntry
+	ArchiveTree       []*archiveTreeNode
+	ArchiveTruncated  bool
+	ArchiveLoaded     bool
+	ArchiveSelected   map[string]bool
+	ArchiveCollapsed  map[string]bool
+	ArchiveRows       []archiveTreeRow
 	ArchiveExtracting bool
 }
 
@@ -764,6 +765,7 @@ func loadPendingArchivePreview(s *chatState, st *attachmentPreviewState, gen uin
 		cur.ArchiveEntries = entries
 		cur.ArchiveTree = tree
 		cur.ArchiveTruncated = truncated
+		cur.ArchiveRows = flattenArchiveTree(tree, cur.ArchiveCollapsed)
 	}
 	st.mu.Unlock()
 	s.invalidate()
@@ -883,6 +885,7 @@ func loadSentAttachmentPreview(s *chatState, st *attachmentPreviewState, gen uin
 		cur.ArchiveTree = archiveTree
 		cur.ArchiveTruncated = archiveTruncated
 		cur.ArchiveLoaded = archiveLoaded
+		cur.ArchiveRows = flattenArchiveTree(archiveTree, cur.ArchiveCollapsed)
 	}
 	st.mu.Unlock()
 	s.invalidate()
@@ -1053,7 +1056,7 @@ func renderAttachmentPreviewModal(c *ui.Context, s *chatState) {
 		}
 
 		ui.Column(c.Key("attach-preview-modal")).
-			Label("附件预览 " + item.Name).
+			Label("附件预览 "+item.Name).
 			Width(cardW).
 			Height(cardH).
 			Background(ThemeSurface(c)).
@@ -1390,7 +1393,7 @@ func renderAttachPreviewCode(c *ui.Context, s *chatState, st *attachmentPreviewS
 				selected := hasSel && lineNum >= lo && lineNum <= hi
 				row := ui.Row(c.Key(fmt.Sprintf("attach-preview-code-row-%d-%d", snap.index, lineNum))).
 					FillWidth().
-					Padding(1, Space3, 1, Space2).
+					Padding(Hairline, Space3, Hairline, Space2).
 					Gap(Space3).
 					AlignItems(ui.Start)
 				if selected {
@@ -1416,13 +1419,13 @@ func renderAttachPreviewCode(c *ui.Context, s *chatState, st *attachmentPreviewS
 					lnBtn.Children(func() {
 						ui.Text(c, strconv.Itoa(lineNum)).
 							Font(fontFam).
-							FontSize(scaledFont(codeSz)).
+							FontSize(uiFont(codeSz)).
 							TextColor(lnCol).
 							SingleLine()
 					})
 					ui.Text(c, lineText).
 						Font(fontFam).
-						FontSize(scaledFont(codeSz)).
+						FontSize(uiFont(codeSz)).
 						LineHeight(1.5).
 						TextColor(ThemePrimaryText(c)).
 						Grow(1).
@@ -1546,7 +1549,7 @@ func renderAttachPreviewMarkdown(c *ui.Context, s *chatState, st *attachmentPrev
 					MinHeight(0).
 					FillWidth().
 					Font(fontFam).
-					FontSize(scaledFont(codeSz)).
+					FontSize(uiFont(codeSz)).
 					TextColor(ThemePrimaryText(c)).
 					Background(ThemeSurfaceMain(c)).
 					Border(Hairline, ThemeBorder(c)).
@@ -1573,7 +1576,7 @@ func renderAttachPreviewMarkdown(c *ui.Context, s *chatState, st *attachmentPrev
 					ui.Text(c, item.Text).
 						FillWidth().
 						Font(fontFam).
-						FontSize(scaledFont(codeSz)).
+						FontSize(uiFont(codeSz)).
 						LineHeight(1.5).
 						TextColor(ThemePrimaryText(c)).
 						Selectable()
@@ -1664,7 +1667,7 @@ func renderAttachPreviewLog(c *ui.Context, s *chatState, st *attachmentPreviewSt
 				isErr := strings.Contains(lineText, "ERROR")
 				row := ui.Row(c.Key(fmt.Sprintf("attach-preview-log-row-%d-%d", snap.index, lineNum))).
 					FillWidth().
-					Padding(1, Space3, 1, Space2).
+					Padding(Hairline, Space3, Hairline, Space2).
 					Gap(Space3).
 					AlignItems(ui.Start)
 				if isErr {
@@ -1686,14 +1689,14 @@ func renderAttachPreviewLog(c *ui.Context, s *chatState, st *attachmentPreviewSt
 						Children(func() {
 							ui.Text(c, strconv.Itoa(lineNum)).
 								Font(fontFam).
-								FontSize(scaledFont(codeSz)).
+								FontSize(uiFont(codeSz)).
 								FontWeight(lnWeight).
 								TextColor(lnColor).
 								SingleLine()
 						})
 					ui.Text(c, lineText).
 						Font(fontFam).
-						FontSize(scaledFont(codeSz)).
+						FontSize(uiFont(codeSz)).
 						LineHeight(1.5).
 						TextColor(txtColor).
 						Grow(1).
@@ -1764,7 +1767,7 @@ func renderAttachPreviewSnippet(c *ui.Context, s *chatState, st *attachmentPrevi
 				ui.Text(c, item.Text).
 					FillWidth().
 					Font(fontFam).
-					FontSize(scaledFont(codeSz)).
+					FontSize(uiFont(codeSz)).
 					LineHeight(1.5).
 					TextColor(ThemePrimaryText(c)).
 					Selectable()
@@ -1912,7 +1915,7 @@ func renderAttachPreviewKVRow(c *ui.Context, key, label, val, fontFam string, co
 				Shrink(0)
 			ui.Text(c, val).
 				Font(fontFam).
-				FontSize(scaledFont(codeSz)).
+				FontSize(uiFont(codeSz)).
 				TextColor(ThemePrimaryText(c)).
 				Grow(1).
 				MinWidth(0).
@@ -2097,6 +2100,7 @@ func toggleArchiveDirCollapsed(s *chatState, st *attachmentPreviewState, idx int
 		} else {
 			cur.ArchiveCollapsed[dirPath] = true
 		}
+		cur.ArchiveRows = flattenArchiveTree(cur.ArchiveTree, cur.ArchiveCollapsed)
 	}
 	st.mu.Unlock()
 	if s != nil {
@@ -2239,7 +2243,7 @@ func extractSelectedArchiveEntries(s *chatState, st *attachmentPreviewState, gen
 }
 
 func renderAttachPreviewArchive(c *ui.Context, s *chatState, st *attachmentPreviewState, bodyWrap ui.Element, snap attachPreviewSnapshot, item attachPreviewItem, sending bool) {
-	rows := flattenArchiveTree(item.ArchiveTree, item.ArchiveCollapsed)
+	rows := item.ArchiveRows
 	selectedCount := len(item.ArchiveSelected)
 
 	canReveal := item.SourcePath != ""
@@ -2293,6 +2297,7 @@ func renderAttachPreviewArchive(c *ui.Context, s *chatState, st *attachmentPrevi
 			ui.List(c.Key(fmt.Sprintf("attach-preview-archive-list-%d", snap.index)), &st.archiveList, len(rows), func(i int) {
 				row := rows[i]
 				indent := float32(row.Depth) * FolderIndent
+				padLeft := Space3 + indent
 				if row.IsDir {
 					dirPath := row.Path
 					collapsed := item.ArchiveCollapsed[dirPath]
@@ -2301,7 +2306,7 @@ func renderAttachPreviewArchive(c *ui.Context, s *chatState, st *attachmentPrevi
 						Label(row.Name).
 						FillWidth().
 						MinHeight(RowHeightCompact).
-						Padding(Space0, Space3, Space0, Space3+indent).
+						Padding(Space0, Space3, Space0, padLeft).
 						Gap(Space2).
 						AlignItems(ui.Center).
 						Radius(RadiusSM).
@@ -2356,7 +2361,7 @@ func renderAttachPreviewArchive(c *ui.Context, s *chatState, st *attachmentPrevi
 				fileRow := ui.Row(c.Key(fileKey)).
 					FillWidth().
 					MinHeight(RowHeightCompact).
-					Padding(Space0, Space3, Space0, Space3+indent).
+					Padding(Space0, Space3, Space0, padLeft).
 					Gap(Space2).
 					AlignItems(ui.Center).
 					Radius(RadiusSM).

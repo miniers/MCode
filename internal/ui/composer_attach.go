@@ -1562,8 +1562,8 @@ func renderAttachmentSpinner(c *ui.Context, key string, size float32, color ui.C
 // renderAttachmentRemoveButton 渲染附件卡片上的 × 删除按钮；overlay 为 true 时叠放在图片缩略图右上角，
 // 平时透明、卡片悬停或按钮获得键盘焦点时淡入（透明时仍可点击与聚焦）。
 func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachment, sending, overlay, reveal bool, fade float32) ui.Element {
-	btn := ui.ButtonBase(c.Key("composer-attach-remove-"+a.LocalID)).
-		Label("删除附件 "+a.Name).
+	btn := ui.ButtonBase(c.Key("composer-attach-remove-" + a.LocalID)).
+		Label("删除附件 " + a.Name).
 		Disabled(sending).
 		OnClick(func() {
 			s.removeAttachment(a.LocalID)
@@ -1584,15 +1584,25 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 		} else {
 			op = btn.AnimateTo("remove-fade", target, ui.Animation{Duration: DurFast, Ease: EaseOut})
 		}
-		btn.Size(ControlKbd, ControlKbd).
+		btn.Size(ControlSM, ControlSM).
+			Padding(0).
 			Radius(RadiusPill).
 			Absolute().
-			Top(Space0).
-			Right(Space0).
+			Top(-Space1).
+			Right(-Space1).
 			Opacity(op).
-			Background(composerAttachScrim).
+			Background(ui.Transparent).
+			AlignItems(ui.Center).
+			Justify(ui.Center).
 			Children(func() {
-				ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
+				ui.Box(c.Key("composer-attach-remove-pill-"+a.LocalID)).
+					Size(ControlKbd, ControlKbd).
+					Radius(RadiusPill).
+					Background(composerAttachScrim).
+					Center().
+					Children(func() {
+						ui.Text(c, "×").FontSize(uiFont(TypeFootnote)).TextColor(ThemeOnAccent(c))
+					})
 			})
 		return btn
 	}
@@ -1602,7 +1612,7 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 		bg = ThemeHover(c)
 		fg = ThemePrimaryText(c)
 	}
-	btn.Size(ControlXS, ControlXS).
+	btn.Size(ControlSM, ControlSM).
 		Radius(RadiusXS).
 		Absolute().
 		Top(0).
@@ -1614,6 +1624,9 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 				FontSize(uiFont(TypeFootnote)).
 				TextColor(fg)
 		})
+	if a.Err != "" {
+		btn.IgnoreInput(!reveal)
+	}
 	return btn
 }
 
@@ -1621,8 +1634,8 @@ func renderAttachmentRemoveButton(c *ui.Context, s *chatState, a composerAttachm
 // overlay 为 true 时居中叠在图片缩略图遮罩上，为 false 时内联在胶囊右侧。
 // 点击清掉 Err 并复用首次上传路径重新上传，悬停提示给出失败原因。
 func renderAttachmentRetryButton(c *ui.Context, s *chatState, a composerAttachment, overlay bool) ui.Element {
-	btn := ui.ButtonBase(c.Key("composer-attach-retry-"+a.LocalID)).
-		Label("重试上传 "+a.Name).
+	btn := ui.ButtonBase(c.Key("composer-attach-retry-" + a.LocalID)).
+		Label("重试上传 " + a.Name).
 		Tooltip(a.Err).
 		OnClick(func() {
 			s.retryAttachment(a.LocalID)
@@ -1648,7 +1661,7 @@ func renderAttachmentRetryButton(c *ui.Context, s *chatState, a composerAttachme
 	if btn.Hovered() {
 		bg = ThemeSelected(c)
 	}
-	btn.Size(ControlXS, ControlXS).
+	btn.Size(ControlSM, ControlSM).
 		Radius(RadiusXS).
 		Background(bg).
 		Children(func() {
@@ -1669,7 +1682,7 @@ func renderAttachmentUploadBar(c *ui.Context, a composerAttachment) {
 	}
 
 	const railHeight float32 = 3
-	bar := ui.Row(c.Key("composer-attach-progress-"+a.LocalID)).
+	bar := ui.Row(c.Key("composer-attach-progress-" + a.LocalID)).
 		Absolute().
 		Left(0).
 		Right(0).
@@ -1710,7 +1723,6 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 		Height(composerAttachThumbSize).
 		Radius(RadiusMD).
 		Background(ThemeSurfaceRaised(c)).
-		Clip().
 		Tooltip(tip).
 		AlignItems(ui.Center).
 		Justify(ui.Center)
@@ -1723,64 +1735,75 @@ func renderImageAttachmentCard(c *ui.Context, s *chatState, a composerAttachment
 		card.Border(Hairline, ThemeBorder(c))
 	}
 	card.Children(func() {
-		// 缩略图铺满卡片；解码失败时退回回形针图标。
-		if a.Thumb != nil {
-			// 点击缩略图放大：与消息内图片共用同一个浮层。× 删除按钮是后绘制的兄弟节点，
-			// 命中检测自顶向下，点 × 只删除附件不会触发这里的放大。
-			previewBtn := ui.ButtonBase(c.Key("composer-attach-preview-" + a.LocalID)).
-				Label("放大预览 " + a.Name).
-				Padding(0).
-				Width(composerAttachThumbSize).
-				Height(composerAttachThumbSize).
-				Radius(RadiusMD).
-				Background(ui.Transparent).
-				Cursor(ui.CursorPointer).
-				Tooltip("点击放大\n" + tip)
-			scale := motionPressScale(c, previewBtn, "button-press-scale", previewBtn.Pressed())
-			previewBtn.Scale(scale, scale)
-			previewBtn.Children(func() {
-				ui.Image(c, a.Thumb).
-					Key("composer-attach-thumb-" + a.LocalID).
-					Width(composerAttachThumbSize).
-					Height(composerAttachThumbSize)
-			})
-			previewBtn.OnClick(func() {
-				openComposerAttachmentPreview(s, a)
-			})
-		} else {
-			ui.Icon(c, IconPaperclip()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
-		}
+		ui.Box(c.Key("composer-attach-clip-" + a.LocalID)).
+			Absolute().
+			Left(0).
+			Top(0).
+			Right(0).
+			Bottom(0).
+			Radius(RadiusMD).
+			Clip().
+			Center().
+			Children(func() {
+				// 缩略图铺满卡片；解码失败时退回回形针图标。
+				if a.Thumb != nil {
+					// 点击缩略图放大：与消息内图片共用同一个浮层。× 删除按钮是后绘制的兄弟节点，
+					// 命中检测自顶向下，点 × 只删除附件不会触发这里的放大。
+					previewBtn := ui.ButtonBase(c.Key("composer-attach-preview-" + a.LocalID)).
+						Label("放大预览 " + a.Name).
+						Padding(0).
+						Width(composerAttachThumbSize).
+						Height(composerAttachThumbSize).
+						Radius(RadiusMD).
+						Background(ui.Transparent).
+						Cursor(ui.CursorPointer).
+						Tooltip("点击放大\n" + tip)
+					scale := motionPressScale(c, previewBtn, "button-press-scale", previewBtn.Pressed())
+					previewBtn.Scale(scale, scale)
+					previewBtn.Children(func() {
+						ui.Image(c, a.Thumb).
+							Key("composer-attach-thumb-" + a.LocalID).
+							Width(composerAttachThumbSize).
+							Height(composerAttachThumbSize)
+					})
+					previewBtn.OnClick(func() {
+						openComposerAttachmentPreview(s, a)
+					})
+				} else {
+					ui.Icon(c, IconPaperclip()).Size(IconSM, IconSM).TextColor(ThemeSecondaryText(c))
+				}
 
-		// 上传中：整卡压暗、居中轻量转圈，底部显示 3px 进度条。
-		if a.Uploading {
-			ui.Box(c.Key("composer-attach-uploading-" + a.LocalID)).
-				Absolute().
-				Left(0).
-				Top(0).
-				Right(0).
-				Bottom(0).
-				Background(composerAttachDim).
-				Center().
-				Children(func() {
-					renderAttachmentSpinner(c, "composer-attach-spinner-"+a.LocalID, IconSM, ThemeOnAccent(c), "上传中")
-				})
-			renderAttachmentUploadBar(c, a)
-		}
+				// 上传中：整卡压暗、居中轻量转圈，底部显示 3px 进度条。
+				if a.Uploading {
+					ui.Box(c.Key("composer-attach-uploading-" + a.LocalID)).
+						Absolute().
+						Left(0).
+						Top(0).
+						Right(0).
+						Bottom(0).
+						Background(composerAttachDim).
+						Center().
+						Children(func() {
+							renderAttachmentSpinner(c, "composer-attach-spinner-"+a.LocalID, IconSM, ThemeOnAccent(c), "上传中")
+						})
+					renderAttachmentUploadBar(c, a)
+				}
 
-		// 上传失败：居中显示重试按钮，悬停提示错误原因。
-		if a.Err != "" {
-			ui.Box(c.Key("composer-attach-err-overlay-" + a.LocalID)).
-				Absolute().
-				Left(0).
-				Top(0).
-				Right(0).
-				Bottom(0).
-				Background(composerAttachScrim).
-				Center().
-				Children(func() {
-					renderAttachmentRetryButton(c, s, a, true)
-				})
-		}
+				// 上传失败：居中显示重试按钮，悬停提示错误原因。
+				if a.Err != "" {
+					ui.Box(c.Key("composer-attach-err-overlay-" + a.LocalID)).
+						Absolute().
+						Left(0).
+						Top(0).
+						Right(0).
+						Bottom(0).
+						Background(composerAttachScrim).
+						Center().
+						Children(func() {
+							renderAttachmentRetryButton(c, s, a, true)
+						})
+				}
+			})
 
 		// 删除按钮随卡片悬停、获得焦点或失败时淡入，平时透明但仍可点击与聚焦。
 		reveal := card.Hovered() || card.FocusWithin() || a.Err != ""
@@ -1879,12 +1902,12 @@ func renderAttachmentExtBadge(c *ui.Context, key string, cat attCategory, tag st
 }
 
 const (
-	composerFileChipMaxWidth     float32 = 240
-	composerAttachMoreReserve    float32 = 64
-	composerAttachDraftReserve   float32 = 72
-	composerAttachManageWidth    float32 = 520
-	composerAttachManageMaxH     float32 = 440
-	composerAttachErrReasonMaxW  float32 = 84
+	composerFileChipMaxWidth    float32 = 240
+	composerAttachMoreReserve   float32 = 64
+	composerAttachDraftReserve  float32 = 72
+	composerAttachManageWidth   float32 = 520
+	composerAttachManageMaxH    float32 = 440
+	composerAttachErrReasonMaxW float32 = 84
 )
 
 // renderFileAttachmentChip 渲染非图片附件紧凑横条胶囊：
@@ -1900,7 +1923,7 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 
 	label := "附件 " + a.Name
 
-	card := ui.ButtonBase(c.Key("composer-attach-" + a.LocalID)).
+	card := ui.ButtonBase(c.Key("composer-attach-"+a.LocalID)).
 		Label(label).
 		Transition(motionCapsule(c)).
 		Height(ControlLG).
@@ -1923,7 +1946,7 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 			Background(ThemeHover(c).Over(ThemeSurface(c)))
 	default:
 		card.Border(Hairline, ThemeBorder(c)).
-			Background(ThemeHover(c).Alpha(0.6).Over(ThemeSurface(c)))
+			Background(ThemeHover(c).Over(ThemeSurface(c)))
 	}
 	focusRing(c, card)
 	scale := motionPressScale(c, card, "button-press-scale", card.Pressed())
@@ -1973,7 +1996,7 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 					Shrink(1)
 
 				if a.Err != "" {
-					shift := ControlXS + Space0
+					shift := ControlSM + Space0
 					ui.Row(c.Key("composer-attach-err-slot-" + a.LocalID)).
 						AlignItems(ui.Center).
 						Gap(Space0).
@@ -1984,6 +2007,7 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 								MaxWidth(composerAttachErrReasonMaxW).
 								Justify(ui.End).
 								AlignItems(ui.Center).
+								PassThrough().
 								Opacity(1 - fade).
 								Children(func() {
 									ui.Text(c, a.Err).
@@ -1994,14 +2018,17 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 										MinWidth(0).
 										Shrink(1)
 								})
-							// 先放 × 再放重试按钮：平时重试按钮覆盖在最前可点击；悬停时重试左移让出 ×。
-							ui.Box(c.Key("composer-attach-err-actions-" + a.LocalID)).
-								Size(ControlXS, ControlXS).
+							// 先放 × 再放重试按钮：平时 × 不可见且不接收输入，重试按钮同层覆盖在最前；悬停时重试左移让出 ×。
+							ui.Box(c.Key("composer-attach-err-actions-"+a.LocalID)).
+								Size(ControlSM, ControlSM).
 								AlignItems(ui.Center).
 								Justify(ui.Center).
 								Children(func() {
 									renderAttachmentRemoveButton(c, s, a, sending, false, reveal, fade)
-									retryBtn := renderAttachmentRetryButton(c, s, a, false)
+									retryBtn := renderAttachmentRetryButton(c, s, a, false).
+										Absolute().
+										Top(0).
+										Right(0)
 									if fade > 0 {
 										retryBtn.Translate(-fade*shift, 0)
 									}
@@ -2015,8 +2042,8 @@ func renderFileAttachmentChip(c *ui.Context, s *chatState, a composerAttachment,
 					sizeStr = formatFileSize(int64(a.Size))
 				}
 				ui.Box(c.Key("composer-attach-meta-slot-" + a.LocalID)).
-					MinWidth(ControlXS).
-					Height(ControlXS).
+					MinWidth(ControlSM).
+					Height(ControlSM).
 					AlignItems(ui.Center).
 					Justify(ui.End).
 					Shrink(0).
@@ -2057,11 +2084,11 @@ func estimateAttachItemWidth(item attachTrayItem) float32 {
 	}
 	badgeW := float32(utf8.RuneCountInString(tag))*6.5 + Space1*2
 	nameW := float32(utf8.RuneCountInString(a.Name)) * 7
-	rightW := ControlXS
+	rightW := ControlSM
 	if a.Err != "" {
-		rightW = min(composerAttachErrReasonMaxW, max(ControlXS+Space0, float32(utf8.RuneCountInString(a.Err))*6.5)) + Space0 + ControlXS
+		rightW = min(composerAttachErrReasonMaxW, max(ControlSM+Space0, float32(utf8.RuneCountInString(a.Err))*6.5)) + Space0 + ControlSM
 	} else if a.Size > 0 && a.InspectorRef == nil {
-		rightW = max(ControlXS, float32(len(formatFileSize(int64(a.Size))))*6.5)
+		rightW = max(ControlSM, float32(len(formatFileSize(int64(a.Size))))*6.5)
 	}
 	extra := float32(0)
 	if a.Uploading {
@@ -2167,7 +2194,7 @@ func renderAttachmentNoticeBar(c *ui.Context, key, closeLabel, text string, onCl
 				Grow(1).
 				Shrink(1).
 				MinWidth(0)
-			closeBtn := ui.ButtonBase(c.Key(key + "-close")).
+			closeBtn := ui.ButtonBase(c.Key(key+"-close")).
 				Label(closeLabel).
 				Tooltip("关闭提示").
 				Size(ControlXS, ControlXS).

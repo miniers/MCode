@@ -720,3 +720,75 @@ func TestAttachPreviewArchiveMissingPathAndTruncated(t *testing.T) {
 		return tt.HasText("已截断")
 	})
 }
+
+func TestAttachPreviewArchiveFlattenCached(t *testing.T) {
+	testenv.TempHome(t)
+	setAppReduceMotion(t, true)
+
+	fake := NewFakeClient()
+	s := newChatState(fake)
+	t.Cleanup(s.close)
+	s.selectedThreadID = "t1"
+	s.threads = []Thread{{ID: "t1"}}
+
+	zipBytes := buildTestZip(t, []testArchiveItem{
+		{name: "docs/readme.md", body: []byte("# Docs\n")},
+		{name: "docs/guide.md", body: []byte("# Guide\n")},
+		{name: "src/main.go", body: []byte("package main\n")},
+	})
+	zipPath := filepath.Join(t.TempDir(), "cached.zip")
+	if err := os.WriteFile(zipPath, zipBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s.addAttachmentFiles([]string{zipPath})
+	waitAttachmentsUploaded(t, s, 1)
+
+	tt := composerTester(s)
+	waitFor(t, tt, func() bool {
+		_, ok := tt.Find("附件 cached.zip")
+		return ok
+	})
+	if err := tt.Click("附件 cached.zip"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("readme.md") && tt.HasText("guide.md") && tt.HasText("main.go")
+	})
+
+	st := s.getOrCreateAttachmentPreviewState()
+	st.mu.Lock()
+	expandedCount := len(st.items[0].ArchiveRows)
+	st.mu.Unlock()
+	if expandedCount != 5 {
+		t.Fatalf("expanded ArchiveRows = %d, want 5", expandedCount)
+	}
+
+	if err := tt.Click("docs"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return !tt.HasText("readme.md") && !tt.HasText("guide.md") && tt.HasText("main.go")
+	})
+
+	st.mu.Lock()
+	collapsedCount := len(st.items[0].ArchiveRows)
+	st.mu.Unlock()
+	if collapsedCount != 3 {
+		t.Fatalf("collapsed ArchiveRows = %d, want 3", collapsedCount)
+	}
+
+	if err := tt.Click("docs"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, tt, func() bool {
+		return tt.HasText("readme.md") && tt.HasText("guide.md")
+	})
+
+	st.mu.Lock()
+	reexpandedCount := len(st.items[0].ArchiveRows)
+	st.mu.Unlock()
+	if reexpandedCount != 5 {
+		t.Fatalf("re-expanded ArchiveRows = %d, want 5", reexpandedCount)
+	}
+}
