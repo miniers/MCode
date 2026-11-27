@@ -132,6 +132,7 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 	}
 
 	fake := newGitFakeClient()
+	fake.gitState.Changes = 2
 	s := newChatState(fake)
 	t.Cleanup(func() {
 		closeTerminals(s)
@@ -184,6 +185,12 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 		t.Fatal("窄窗折叠级别下分支胶囊右半不应直接留在顶栏")
 	}
 
+	if inspectorRect, ok := tt.Find("右栏"); !ok || inspectorRect.X < moreRect.X+moreRect.W || inspectorRect.X+inspectorRect.W > narrowW+0.5 {
+		t.Fatalf("窄窗下右栏按钮应在「…」右侧且不越界: %+v", inspectorRect)
+	}
+	// 分支胶囊收进「…」后，改动提示落到右栏按钮的小点上。
+	waitFor(t, tt, func() bool { _, ok := tt.Find("2 个文件有改动"); return ok })
+
 	if err := tt.Click("更多头部操作"); err != nil {
 		t.Fatalf("打开「更多头部操作」失败: %v", err)
 	}
@@ -192,7 +199,7 @@ func TestNarrowLayoutP1ChatHeaderNarrow(t *testing.T) {
 		_, hasBranch := tt.Find("切换分支与同步")
 		return hasPane && hasBranch
 	})
-	for _, label := range []string{"Git 面板 (feature/login)", "切换分支与同步", "外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
+	for _, label := range []string{"Git 面板 (feature/login)", "切换分支与同步", "外部打开", "运行", "终端", "项目文档", memoryEntryLabel(s.client)} {
 		if _, ok := tt.AccessByRole(ui.RoleButton, label); !ok {
 			t.Fatalf("打开「更多头部操作」后缺少折叠项 %q", label)
 		}

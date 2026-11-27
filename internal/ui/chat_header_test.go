@@ -1406,7 +1406,7 @@ func TestHeaderCollapseLevelBoundary(t *testing.T) {
 }
 
 // TestChatHeaderLeftClusterOrder 验证头部左右布局：编排与分支胶囊依次排在标题左侧，
-// 右侧顺序为外部打开、运行脚本、终端、右栏、更多，均统一为 ControlMD Ghost 按钮且无胶囊底板。
+// 右侧顺序为外部打开、运行脚本、终端、更多、右栏，均统一为 ControlMD Ghost 按钮且无胶囊底板。
 func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	testenv.TempHome(t)
 	stubTerminals(t)
@@ -1423,20 +1423,16 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("头部缺少编排按钮")
 	}
-	paneBtn, ok := tt.Find("Git 面板")
-	if !ok {
-		t.Fatal("头部缺少分支胶囊左半「Git 面板」")
-	}
 	branch, ok := tt.Find("切换分支与同步")
 	if !ok {
-		t.Fatal("头部缺少分支胶囊右半「切换分支与同步」")
+		t.Fatal("头部缺少分支胶囊「切换分支与同步」")
 	}
 	title, ok := tt.Find("会话标题拖动区")
 	if !ok {
 		t.Fatal("头部缺少会话标题")
 	}
-	if !(swarm.X < paneBtn.X && paneBtn.X+paneBtn.W <= branch.X && branch.X+branch.W <= title.X) {
-		t.Fatalf("编排/分支应依次排在标题左侧：编排 %+v 面板 %+v 分支 %+v 标题 %+v", swarm, paneBtn, branch, title)
+	if !(swarm.X < branch.X && branch.X+branch.W <= title.X) {
+		t.Fatalf("编排/分支应依次排在标题左侧：编排 %+v 分支 %+v 标题 %+v", swarm, branch, title)
 	}
 
 	openIn, ok := tt.Find("在其它应用中打开")
@@ -1459,7 +1455,7 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("右侧缺少更多按钮")
 	}
-	if !(title.X+title.W <= openIn.X && openIn.X+openIn.W <= scripts.X && scripts.X+scripts.W <= termBtn.X && termBtn.X+termBtn.W <= inspectorBtn.X && inspectorBtn.X+inspectorBtn.W <= moreBtn.X) {
+	if !(title.X+title.W <= openIn.X && openIn.X+openIn.W <= scripts.X && scripts.X+scripts.W <= termBtn.X && termBtn.X+termBtn.W <= moreBtn.X && moreBtn.X+moreBtn.W <= inspectorBtn.X) {
 		t.Fatalf("右侧按钮顺序异常：title=%+v openIn=%+v scripts=%+v term=%+v inspector=%+v more=%+v", title, openIn, scripts, termBtn, inspectorBtn, moreBtn)
 	}
 	for name, r := range map[string]ui.Rect{
@@ -1487,33 +1483,25 @@ func TestChatHeaderLeftClusterOrder(t *testing.T) {
 	}
 }
 
-// TestChatHeaderCommitBadgeFollowsSetting 验证设置页关掉「显示改动数角标」后右栏按钮不再叠改动数。
+// TestChatHeaderCommitBadgeFollowsSetting 验证设置页关掉「显示改动数角标」后右栏按钮不再叠改动小点。
 func TestChatHeaderCommitBadgeFollowsSetting(t *testing.T) {
-	s, ps, _ := gitPaneTestState(t)
+	s, _, _ := gitPaneTestState(t)
 	on, off := true, false
 	st := &SettingsState{cfg: config.Config{SourceControl: config.SourceControlConfig{ShowChangeBadge: &off}}}
 	setChatSettings(s, st)
 	t.Cleanup(func() { setChatSettings(s, nil) })
 
-	hs := getChatHeaderState(s)
-	chatHeaderMu.Lock()
-	hs.git[ps.threadID] = GitState{Changes: 27}
-	chatHeaderMu.Unlock()
-	s.mu.Lock()
-	s.selectedThreadID = ps.threadID
-	s.mu.Unlock()
-
 	tt := ui.NewTester(func(c *ui.Context) {
-		renderChatHeaderAuxGroup(c, s)
+		renderChatHeaderInspectorButton(c, s, 27)
 	}, 400, 100)
-	if tt.HasText("27") {
-		t.Fatalf("关掉角标后仍渲染出改动数: %v", tt.Texts())
+	if _, ok := tt.Find("27 个文件有改动"); ok {
+		t.Fatal("关掉角标后仍渲染出改动小点")
 	}
 
 	st.cfg.SourceControl.ShowChangeBadge = &on
 	tt.Frame()
-	if !tt.HasText("27") {
-		t.Fatalf("打开角标后没有渲染出改动数: %v", tt.Texts())
+	if _, ok := tt.Find("27 个文件有改动"); !ok {
+		t.Fatal("打开角标后没有渲染出改动小点")
 	}
 }
 
@@ -2023,20 +2011,12 @@ func TestChatHeaderRedesign(t *testing.T) {
 		t.Fatal("标题栏不应直接显示创建 PR 按钮")
 	}
 
-	// 右栏按钮右上角带改动数角标。
-	inspectorRect, ok := tt.Find("右栏")
-	if !ok {
+	// 改动数只在分支胶囊里显示，右栏按钮不再叠角标。
+	if _, ok := tt.Find("右栏"); !ok {
 		t.Fatal("缺少右栏按钮")
 	}
-	foundInspectorBadge := false
-	for _, node := range tt.AccessAll() {
-		if node.Name == "5" && node.Bounds.X >= inspectorRect.X && node.Bounds.X <= inspectorRect.X+inspectorRect.W+8 {
-			foundInspectorBadge = true
-			break
-		}
-	}
-	if !foundInspectorBadge {
-		t.Fatalf("右栏按钮缺少改动数角标或未定位在右上角, inspector=%+v texts=%q", inspectorRect, tt.Texts())
+	if _, ok := tt.Find("5 个文件有改动"); ok {
+		t.Fatal("分支胶囊可见时右栏按钮不应再叠改动小点")
 	}
 
 	// 标题右键菜单含「转发到新会话」并触发转发。
@@ -2075,11 +2055,15 @@ func TestChatHeaderRedesign(t *testing.T) {
 	if _, ok := narrowTT.Find("更多工具"); ok {
 		t.Fatal("窄屏顶栏不应存在第二个「…」按钮")
 	}
+	moreRect, _ := narrowTT.Find("更多头部操作")
+	if inspectorRect, ok := narrowTT.Find("右栏"); !ok || inspectorRect.X < moreRect.X+moreRect.W {
+		t.Fatalf("窄屏右栏按钮应留在顶栏最右端: inspector=%+v more=%+v", inspectorRect, moreRect)
+	}
 	if err := narrowTT.Click("更多头部操作"); err != nil {
 		t.Fatalf("打开窄屏「…」失败: %v", err)
 	}
 	waitFor(t, narrowTT, func() bool { return narrowTT.HasText("外部打开") })
-	for _, label := range []string{"外部打开", "运行", "终端", "右栏", "项目文档", memoryEntryLabel(s.client)} {
+	for _, label := range []string{"外部打开", "运行", "终端", "项目文档", memoryEntryLabel(s.client)} {
 		if _, ok := narrowTT.AccessByRole(ui.RoleButton, label); !ok {
 			t.Fatalf("窄屏「…」弹层缺少平铺项 %q", label)
 		}
@@ -2103,29 +2087,19 @@ func TestChatHeaderGitDirtyPill(t *testing.T) {
 
 	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool {
-		_, hasPane := tt.Find("Git 面板")
+		_, hasBranch := tt.Find("切换分支与同步")
 		_, hasInspector := tt.Find("右栏")
-		return hasPane && hasInspector && tt.HasText("3")
+		return hasBranch && hasInspector && tt.HasText("3")
 	})
 
 	texts := tt.Texts()
-	branchIdx := slices.Index(texts, "feature/login")
-	caretIdx := slices.Index(texts, "切换分支与同步")
-	hasLeftPill := branchIdx >= 0 && caretIdx > branchIdx && slices.Contains(texts[branchIdx+1:caretIdx], "3")
-
-	inspectorRect, _ := tt.Find("右栏")
-	hasRightBadge := false
-	for _, node := range tt.AccessAll() {
-		if node.Name == "3" && node.Bounds.X >= inspectorRect.X && node.Bounds.X <= inspectorRect.X+inspectorRect.W+8 {
-			hasRightBadge = true
-			break
-		}
+	capsuleIdx := slices.Index(texts, "切换分支与同步")
+	titleIdx := slices.Index(texts, "会话标题拖动区")
+	if capsuleIdx < 0 || titleIdx <= capsuleIdx || !slices.Contains(texts[capsuleIdx+1:titleIdx], "3") {
+		t.Fatalf("分支胶囊缺少未提交改动数小药丸: texts=%q", texts)
 	}
-	if !hasLeftPill {
-		t.Fatalf("分支胶囊左半缺少未提交改动数小药丸: texts=%q", texts)
-	}
-	if !hasRightBadge {
-		t.Fatalf("右栏按钮缺少改动数角标: inspector=%+v texts=%q", inspectorRect, texts)
+	if _, ok := tt.Find("3 个文件有改动"); ok {
+		t.Fatal("分支胶囊可见时右栏按钮不应再叠改动小点")
 	}
 
 	fake.mu.Lock()

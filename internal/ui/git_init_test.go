@@ -14,7 +14,8 @@ import (
 	"mcode/internal/testenv"
 )
 
-func TestChatHeaderGitCapsuleSplit(t *testing.T) {
+// TestChatHeaderGitCapsuleOpensBranchMenu 验证分支胶囊整体是一个按钮：点开分支浮层，不动右栏。
+func TestChatHeaderGitCapsuleOpensBranchMenu(t *testing.T) {
 	testenv.TempHome(t)
 	stubTerminals(t)
 
@@ -29,43 +30,25 @@ func TestChatHeaderGitCapsuleSplit(t *testing.T) {
 
 	tt := ui.NewTester(root, 1200, 700)
 	waitFor(t, tt, func() bool {
-		_, hasPaneBtn := tt.Find("Git 面板")
 		_, hasBranchBtn := tt.Find("切换分支与同步")
-		return hasPaneBtn && hasBranchBtn && tt.HasText("feature/login")
+		return hasBranchBtn && tt.HasText("feature/login")
 	})
-
+	if _, ok := tt.Find("Git 面板"); ok {
+		t.Fatal("分支胶囊不应再拆出「Git 面板」半边")
+	}
 	if !tt.HasText("↑2") || !tt.HasText("↓1") {
-		t.Fatalf("胶囊左半缺少领先/落后标识: texts=%q", tt.Texts())
+		t.Fatalf("胶囊缺少领先/落后标识: texts=%q", tt.Texts())
 	}
-
-	if err := tt.Click("Git 面板"); err != nil {
-		t.Fatalf("点击胶囊左半失败: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		st := inspectorSession(s)
-		return st != nil && st.Open && st.Active == sidePaneGitID
-	})
-	if _, ok := tt.Find("分支列表"); ok {
-		t.Fatal("点击胶囊左半不应打开分支浮层")
-	}
-
-	if err := tt.Click("Git 面板"); err != nil {
-		t.Fatalf("再次点击胶囊左半失败: %v", err)
-	}
-	waitFor(t, tt, func() bool {
-		st := inspectorSession(s)
-		return st != nil && !st.Open
-	})
 
 	if err := tt.Click("切换分支与同步"); err != nil {
-		t.Fatalf("点击胶囊右半失败: %v", err)
+		t.Fatalf("点击分支胶囊失败: %v", err)
 	}
 	waitFor(t, tt, func() bool {
 		_, ok := tt.Find("分支列表")
 		return ok
 	})
 	if st := inspectorSession(s); st != nil && st.Open {
-		t.Fatalf("点击胶囊右半不应改变右栏关闭状态: open=%v active=%q", st.Open, st.Active)
+		t.Fatalf("点击分支胶囊不应打开右栏: open=%v active=%q", st.Open, st.Active)
 	}
 }
 
@@ -153,7 +136,7 @@ func TestChatHeaderGitInit(t *testing.T) {
 	releaseInit()
 
 	waitFor(t, tt, func() bool {
-		_, hasCapsule := tt.Find("Git 面板")
+		_, hasCapsule := tt.Find("切换分支与同步")
 		st := inspectorSession(s)
 		return hasCapsule && tt.HasText("main") && st != nil && st.Open && st.Active == sidePaneGitID
 	})

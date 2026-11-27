@@ -30,19 +30,18 @@ func TestChatHeaderPanelButtonsResponsive(t *testing.T) {
 				_, ok := tt.Find("显示/隐藏侧边栏 " + shortcutDisplay("⌘B"))
 				return ok
 			})
-			labels := []string{"终端", "右栏", "更多工具"}
-			var first ui.Rect
-			for i, label := range labels {
+			// 右栏开关始终留在最右端，终端和更多在收起时进「…」。
+			inspector, ok := tt.Find("右栏")
+			if !ok {
+				t.Fatal("右栏按钮应始终可见")
+			}
+			for _, label := range []string{"终端", "更多工具"} {
 				r, ok := tt.Find(label)
 				if ok == tc.collapsed {
 					t.Fatalf("按钮 %q 的可见状态 = %v，收起 = %v", label, ok, tc.collapsed)
 				}
-				if ok {
-					if i == 0 {
-						first = r
-					} else if r.W != first.W || r.H != first.H {
-						t.Fatalf("按钮 %q 尺寸 = %v，首个按钮尺寸 = %v", label, r, first)
-					}
+				if ok && (r.W != inspector.W || r.H != inspector.H) {
+					t.Fatalf("按钮 %q 尺寸 = %v，右栏按钮尺寸 = %v", label, r, inspector)
 				}
 			}
 			if _, ok := tt.Find("更多头部操作"); ok != tc.collapsed {
