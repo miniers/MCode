@@ -1,6 +1,7 @@
 package mcodeui
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -286,5 +287,77 @@ func TestGitHubClonePanelOpensFromEmptyState(t *testing.T) {
 	})
 	if cs := getGitHubCloneState(state); cs == nil || !cs.open {
 		t.Fatalf("空态入口应打开克隆面板")
+	}
+}
+
+// TestGitHubCloneRemembersParentDir 验证克隆父目录持久化的恢复、失效目录忽略与克隆后保持父目录。
+func TestGitHubCloneRemembersParentDir(t *testing.T) {
+	dataDir := t.TempDir()
+	SetUIStateDataDir(dataDir)
+	t.Cleanup(func() {
+		waitUIStateWrites()
+		SetUIStateDataDir("")
+	})
+
+	parentDir := t.TempDir()
+	s1 := newChatState(NewFakeClient())
+	WithUIStatePersistence()(s1)
+	t.Cleanup(s1.close)
+
+	cs1 := getGitHubCloneState(s1)
+	cs1.results <- githubCloneResult{kind: "dir", dir: parentDir}
+	drainGitHubCloneResults(s1, cs1)
+	if cs1.parentDir != parentDir {
+		t.Fatalf("选择目录后 parentDir = %q, want %q", cs1.parentDir, parentDir)
+	}
+
+	// 验证 "cloned" 结果不会把 parentDir 改写为刚克隆出的子目录。
+	clonedDir := filepath.Join(parentDir, "mcode")
+	cs1.results <- githubCloneResult{kind: "cloned", dir: clonedDir, fullName: "ada/mcode"}
+	drainGitHubCloneResults(s1, cs1)
+	if cs1.parentDir != parentDir {
+		t.Fatalf("克隆完成后 parentDir = %q, 应保持原父目录 %q", cs1.parentDir, parentDir)
+	}
+
+	waitUIStateWrites()
+
+	// 验证已写入 ui-state.json 的 last_clone_dir 字段。
+	raw, err := os.ReadFile(filepath.Join(dataDir, uiStateFileName))
+	if err != nil {
+		t.Fatalf("读取 ui-state.json 失败: %v", err)
+	}
+	var disk struct {
+		LastCloneDir string `json:"last_clone_dir"`
+	}
+	if err := json.Unmarshal(raw, &disk); err != nil {
+		t.Fatalf("解析 ui-state.json 失败: %v", err)
+	}
+	if disk.LastCloneDir != parentDir {
+		t.Fatalf("落盘 last_clone_dir = %q, want %q", disk.LastCloneDir, parentDir)
+	}
+
+	// 新建 chatState（模拟重启）打开面板时恢复上次父目录。
+	s2 := newChatState(NewFakeClient())
+	WithUIStatePersistence()(s2)
+	t.Cleanup(s2.close)
+	cs2 := getGitHubCloneState(s2)
+	cs2.reposLoaded = true
+	openGitHubClonePanel(s2)
+	if cs2.parentDir != parentDir {
+		t.Fatalf("重启后打开面板应恢复 parentDir = %q, got %q", parentDir, cs2.parentDir)
+	}
+
+	// 记录的目录不存在时，打开面板不恢复，保持为空。
+	if err := os.RemoveAll(parentDir); err != nil {
+		t.Fatal(err)
+	}
+	s3 := newChatState(NewFakeClient())
+	WithUIStatePersistence()(s3)
+	t.Cleanup(s3.close)
+	cs3 := getGitHubCloneState(s3)
+	cs3.reposLoaded = true
+	openGitHubClonePanel(s3)
+	if cs3.parentDir != "" {
+		t.Fatalf("目录不存在时不应恢复 parentDir, got %q", cs3.parentDir)
 	}
 }

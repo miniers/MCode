@@ -329,6 +329,8 @@ type uiStateFile struct {
 	// ProjectModels 是按项目记住的模型与交互模式选择（项目键 -> 选择）：键为项目 ID，
 	// 没有项目归属的新会话用 projectSelectionNoneKey。新建会话时优先按所属项目恢复。
 	ProjectModels map[string]ProjectModelSelection `json:"project_models,omitempty"`
+	// LastCloneDir 是「从 GitHub 克隆」面板上次选择的父目录。
+	LastCloneDir string `json:"last_clone_dir,omitempty"`
 }
 
 // ProjectModelSelection 是某个项目下记住的模型选择。
@@ -497,6 +499,37 @@ func persistContinueDismissed(s *chatState, records map[string]string) {
 	saveContinueDismissed(records)
 }
 
+// loadLastCloneDir 读取 ui-state.json 中保存的上次克隆父目录。
+func loadLastCloneDir() string {
+	file, ok := loadUIStateFile()
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(file.LastCloneDir)
+}
+
+// saveLastCloneDir 保存克隆父目录：先写内存缓存并标脏，再交给统一的写者落盘。
+// 写盘时以磁盘内容为底只覆盖该字段，不会冲掉模型记忆、项目顺序等其它字段。
+func saveLastCloneDir(dir string) {
+	dir = strings.TrimSpace(dir)
+	lastModelSelectionMu.Lock()
+	ensureLastSelectionLoadedLocked()
+	lastCloneDirCache = dir
+	lastCloneDirDirty = true
+	lastCloneDirGeneration++
+	lastSelectionWritesPending++
+	lastModelSelectionMu.Unlock()
+	writeLastSelections(nil)
+}
+
+// persistLastCloneDir 在开启界面持久化的窗口里保存克隆父目录；测试与浮动面板窗口只改内存。
+func persistLastCloneDir(s *chatState, dir string) {
+	if s == nil || !uiStatePersistenceEnabled(s) {
+		return
+	}
+	saveLastCloneDir(dir)
+}
+
 // loadSwarmFailedSeen 读取 ui-state.json 中保存的已查看失败子代理记录（主会话 ID -> 子代理 ID -> FinishedAt）。
 func loadSwarmFailedSeen() map[string]map[string]string {
 	file, ok := loadUIStateFile()
@@ -582,6 +615,10 @@ var (
 	// 与模型记忆共用同一把锁与同一个写者。
 	continueDismissedCache map[string]string
 	continueDismissedDirty bool
+	// lastCloneDirCache/lastCloneDirDirty 是上次克隆父目录的内存缓存与脏标记，
+	// 与模型记忆共用同一把锁与同一个写者。
+	lastCloneDirCache string
+	lastCloneDirDirty bool
 	// swarmFailedSeenCache/swarmFailedSeenDirty 是已查看失败子代理记录的持久化缓存与脏标记，
 	// 与模型记忆共用同一把锁与同一个写者。
 	swarmFailedSeenCache map[string]map[string]string
@@ -609,6 +646,7 @@ var (
 	lastSwarmQuickBeesGeneration    uint64
 	lastSidebarGeneration           uint64
 	continueDismissedGeneration     uint64
+	lastCloneDirGeneration          uint64
 	swarmFailedSeenGeneration       uint64
 	previewDesignBeesGeneration     uint64
 )
@@ -750,6 +788,7 @@ func reloadLastSelectionLocked(path string) {
 	lastSwarmSelectionCache = merged.swarm
 	lastSwarmQuickCache = merged.swarmQuick
 	continueDismissedCache = copyStringMap(merged.continueDismissed)
+	lastCloneDirCache = merged.lastCloneDir
 	swarmFailedSeenCache = copyNestedStringMap(merged.swarmFailedSeen)
 	previewDesignBeesCache = copyStringMap(merged.previewDesignBees)
 	projectModelCache = copyProjectSelections(merged.projects)
@@ -799,6 +838,9 @@ type lastSelectionMerge struct {
 	// continueDismissed 是合并后的继续胶囊忽略记录，continueDismissedApplied 标记它来自本进程的脏缓存。
 	continueDismissed        map[string]string
 	continueDismissedApplied bool
+	// lastCloneDir 是合并后的上次克隆父目录，lastCloneDirApplied 标记它来自本进程的脏缓存。
+	lastCloneDir        string
+	lastCloneDirApplied bool
 	// swarmFailedSeen 是合并后的已查看失败子代理记录，swarmFailedSeenApplied 标记它来自本进程的脏缓存。
 	swarmFailedSeen        map[string]map[string]string
 	swarmFailedSeenApplied bool
@@ -819,6 +861,8 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 		modelQuickApplied:        lastModelQuickDirty,
 		continueDismissed:        copyStringMap(file.ContinueDismissed),
 		continueDismissedApplied: continueDismissedDirty,
+		lastCloneDir:             strings.TrimSpace(file.LastCloneDir),
+		lastCloneDirApplied:      lastCloneDirDirty,
 		swarmFailedSeen:          copyNestedStringMap(file.SwarmFailedSeen),
 		swarmFailedSeenApplied:   swarmFailedSeenDirty,
 		previewDesignBees:        copyStringMap(file.PreviewDesignBees),
@@ -831,6 +875,10 @@ func mergeLastSelectionsLocked(file uiStateFile) lastSelectionMerge {
 	if continueDismissedDirty {
 		// 本进程标脏时以内存缓存为准，忽略记录整体覆盖，不做逐条合并。
 		merged.continueDismissed = copyStringMap(continueDismissedCache)
+	}
+	if lastCloneDirDirty {
+		// 本进程标脏时以内存缓存为准，覆盖磁盘上的上次克隆父目录。
+		merged.lastCloneDir = lastCloneDirCache
 	}
 	if swarmFailedSeenDirty {
 		// 本进程标脏时以内存缓存为准，已查看失败记录整体覆盖，不做逐条合并。
@@ -1176,6 +1224,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	// 对应字段的 generation 会变大，写完后就不能清脏、不能回填旧快照。
 	// 继续胶囊忽略记录与已查看失败子代理记录同样只在本进程标脏时覆盖磁盘内容。
 	file.ContinueDismissed = merged.continueDismissed
+	file.LastCloneDir = merged.lastCloneDir
 	file.SwarmFailedSeen = merged.swarmFailedSeen
 	file.PreviewDesignBees = merged.previewDesignBees
 	modelGeneration := lastModelGeneration
@@ -1191,6 +1240,7 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 	threadApplied := lastThreadPending
 	lastThreadMu.Unlock()
 	continueGeneration := continueDismissedGeneration
+	lastCloneDirGen := lastCloneDirGeneration
 	swarmFailedSeenGen := swarmFailedSeenGeneration
 	previewDesignBeesGen := previewDesignBeesGeneration
 	tasksGeneration := tasksDetailWidthGeneration
@@ -1357,6 +1407,12 @@ func flushUIStateLocked(uiOverride *UIState) (time.Time, error) {
 		}
 		// 合并结果包含磁盘上的外部改动，回填缓存正好把忽略记录的外部改动也同步进来。
 		continueDismissedCache = copyStringMap(merged.continueDismissed)
+	}
+	if lastCloneDirGen == lastCloneDirGeneration {
+		if merged.lastCloneDirApplied {
+			lastCloneDirDirty = false
+		}
+		lastCloneDirCache = merged.lastCloneDir
 	}
 	if swarmFailedSeenGen == swarmFailedSeenGeneration {
 		if merged.swarmFailedSeenApplied {

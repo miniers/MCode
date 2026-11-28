@@ -75,6 +75,13 @@ func openGitHubClonePanel(s *chatState) {
 	if cs == nil {
 		return
 	}
+	if strings.TrimSpace(cs.parentDir) == "" && uiStatePersistenceEnabled(s) {
+		if dir := loadLastCloneDir(); dir != "" {
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				cs.parentDir = dir
+			}
+		}
+	}
 	cs.open = true
 	cs.errMsg = ""
 	cs.gitMissing = false
@@ -391,13 +398,13 @@ func drainGitHubCloneResults(s *chatState, cs *githubCloneState) {
 				}
 			case "dir":
 				cs.parentDir = res.dir
+				persistLastCloneDir(s, res.dir)
 			case "cloned":
 				cs.cloning = false
 				cs.cloningName = ""
 				cs.open = false
 				cs.search = ""
 				cs.errMsg = ""
-				cs.parentDir = res.dir
 				// 添加项目并切换到该项目下的新会话
 				s.loadProjects()
 				if res.project.ID != "" {
