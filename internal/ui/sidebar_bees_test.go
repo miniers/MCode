@@ -122,40 +122,40 @@ func TestBeeFoldSummary(t *testing.T) {
 	}
 }
 
-// TestBeeFoldState 验证折叠状态的默认展开、切换与重置。
+// TestBeeFoldState 验证折叠状态默认折叠、切换与重置。
 func TestBeeFoldState(t *testing.T) {
 	ResetBeeFolded()
 	defer ResetBeeFolded()
 
 	parentID := "lead-fold-test"
 
-	// 默认状态应为展开 (false)
-	if IsBeeFolded(parentID) {
-		t.Errorf("默认状态期望展开 (false)，实际为折叠 (true)")
-	}
-
-	// 切换为折叠
-	ToggleBeeFold(parentID)
+	// 未记录时默认折叠
 	if !IsBeeFolded(parentID) {
-		t.Errorf("切换后状态期望折叠 (true)，实际为展开 (false)")
+		t.Errorf("默认状态期望折叠 (true)，实际为展开 (false)")
 	}
 
-	// 再次切换恢复展开
+	// 第一次切换变为展开
 	ToggleBeeFold(parentID)
 	if IsBeeFolded(parentID) {
-		t.Errorf("再次切换后期望恢复展开 (false)")
+		t.Errorf("切换后状态期望展开 (false)，实际为折叠 (true)")
 	}
 
-	// 手动设为折叠
-	SetBeeFolded(parentID, true)
+	// 再次切换恢复折叠
+	ToggleBeeFold(parentID)
 	if !IsBeeFolded(parentID) {
-		t.Errorf("SetBeeFolded(true) 后期望为折叠 (true)")
+		t.Errorf("再次切换后期望恢复折叠 (true)")
 	}
 
-	// 重置
+	// 手动设为展开
+	SetBeeFolded(parentID, false)
+	if IsBeeFolded(parentID) {
+		t.Errorf("SetBeeFolded(false) 后期望为展开 (false)")
+	}
+
+	// 重置后恢复默认折叠
 	ResetBeeFolded()
-	if IsBeeFolded(parentID) {
-		t.Errorf("重置后期望恢复默认展开 (false)")
+	if !IsBeeFolded(parentID) {
+		t.Errorf("重置后期望恢复默认折叠 (true)")
 	}
 }
 
@@ -405,7 +405,7 @@ func TestBeeAvatarSettled(t *testing.T) {
 		{name: "idle", status: swarmStatusIdle, want: true},
 		{name: "running", status: swarmStatusRunning, want: false},
 		{name: "waiting_review", status: swarmStatusWaitingReview, want: false},
-		{name: "errored", status: swarmStatusErrored, want: false},
+		{name: "errored", status: swarmStatusErrored, want: true},
 		{name: "empty", status: "", want: false},
 	}
 
@@ -447,6 +447,37 @@ func newFlatBeeRowSidebar(t *testing.T, threads []Thread, reduced bool) (*chatSt
 	return state, tt
 }
 
+// TestSidebarBeeRowDefaultFolded 验证未显式展开时，子代理头像默认收成一行摘要，行尾「+」点开后才出现头像。
+func TestSidebarBeeRowDefaultFolded(t *testing.T) {
+	now := time.Now()
+	_, tt := newFlatBeeRowSidebar(t, []Thread{
+		{ID: "lead-1", ProjectID: "p1", Title: "默认折叠主会话", UpdatedAt: now},
+		{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 已完成", ParentThreadID: "lead-1", IsHelper: true, LastStatus: "completed", UpdatedAt: now},
+		{ID: "bee-2", ProjectID: "p1", Title: "Birch: 已完成", ParentThreadID: "lead-1", IsHelper: true, LastStatus: "completed", UpdatedAt: now.Add(-time.Second)},
+	}, true)
+
+	if _, ok := tt.Find("Aspen"); ok {
+		t.Fatalf("全部已结束时折叠行不应逐枚显示 Aspen，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("+2"); !ok {
+		t.Fatalf("折叠行尾应有「+2」，texts: %q", tt.Texts())
+	}
+
+	if err := tt.Click("+2"); err != nil {
+		t.Fatalf("点击「+2」失败: %v", err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("Aspen"); !ok {
+		t.Fatalf("点「+」后应显示 Aspen，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Birch"); !ok {
+		t.Fatalf("点「+」后应显示 Birch，texts: %q", tt.Texts())
+	}
+	if IsBeeFolded("lead-1") {
+		t.Fatalf("点「+」后应记为展开")
+	}
+}
+
 // TestSidebarBeeRowFlat 验证侧栏子代理行改为无外框缩进样式后的行为：
 // (a) 子行不再渲染 bee-connector-btn-* 和 bee-container-box-* 这两个 key；
 // (b) 通过新入口触发收起时，会调用 ToggleBeeFold，父行下的子行随之收起（含键盘聚焦触发）；
@@ -466,20 +497,28 @@ func TestSidebarBeeRowFlat(t *testing.T) {
 			{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 运行任务", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now},
 			{ID: "bee-2", ProjectID: "p1", Title: "Birch: 运行任务", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now.Add(-time.Second)},
 		}, true)
+		SetBeeFolded("lead-1", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
 
 		aspenRect, ok := tt.Find("Aspen")
 		if !ok {
 			t.Fatalf("子行应渲染子代理头像 Aspen，texts: %q", tt.Texts())
 		}
-		if _, ok := tt.Find("Birch"); !ok {
+		birchRect, ok := tt.Find("Birch")
+		if !ok {
 			t.Fatalf("子行应渲染子代理头像 Birch，texts: %q", tt.Texts())
 		}
 		foldRect, ok := tt.Find("收起子会话")
 		if !ok {
-			t.Fatalf("子行应渲染新收起入口 '收起子会话'，texts: %q", tt.Texts())
+			t.Fatalf("展开态行尾应有「收起子会话」芯片，texts: %q", tt.Texts())
 		}
-		if foldRect.X < aspenRect.X+aspenRect.W {
-			t.Fatalf("新收起入口应位于头像右侧空白处，foldRect=%+v, aspenRect=%+v", foldRect, aspenRect)
+		last := aspenRect
+		if birchRect.X+birchRect.W > last.X+last.W || birchRect.Y > last.Y {
+			last = birchRect
+		}
+		if foldRect.X < last.X || foldRect.X > last.X+last.W+24 {
+			t.Fatalf("收起芯片应紧跟最后一个头像，foldRect=%+v, last=%+v", foldRect, last)
 		}
 	})
 
@@ -491,28 +530,32 @@ func TestSidebarBeeRowFlat(t *testing.T) {
 			{ID: "bee-2", ProjectID: "p1", Title: "Birch: 子任务 2", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now.Add(-time.Second)},
 		}, true)
 
-		if IsBeeFolded("lead-1") {
-			t.Fatalf("初始状态应为展开")
+		if !IsBeeFolded("lead-1") {
+			t.Fatalf("初始状态应为折叠")
 		}
+		SetBeeFolded("lead-1", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
 		if err := tt.Click("收起子会话"); err != nil {
-			t.Fatalf("点击新收起入口失败: %v", err)
+			t.Fatalf("点击「收起子会话」芯片失败: %v", err)
 		}
 		tt.Frame()
 
 		if !IsBeeFolded("lead-1") {
-			t.Fatalf("点击新收起入口后应调用 ToggleBeeFold 标记为折叠")
+			t.Fatalf("点击「收起子会话」后应标记为折叠")
 		}
-		if !tt.HasText("2 个子代理") {
-			t.Fatalf("收起后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+		if tt.HasText("+2") {
+			t.Fatalf("运行中的子代理不应被收进「+N」，texts: %q", tt.Texts())
 		}
-		if _, ok := tt.Find("Aspen"); ok {
-			t.Fatalf("收起后不应再显示子代理头像 Aspen，texts: %q", tt.Texts())
+		if _, ok := tt.Find("Aspen"); !ok {
+			t.Fatalf("收起后运行中的子代理头像应保留，texts: %q", tt.Texts())
+		}
+		if _, ok := tt.Find("Birch"); !ok {
+			t.Fatalf("收起后运行中的子代理头像应保留，texts: %q", tt.Texts())
 		}
 
-		// 重新展开后验证新入口可键盘聚焦并通过 Enter 触发收起
-		if err := tt.Click("2 个子代理"); err != nil {
-			t.Fatalf("点击 '2 个子代理' 重新展开失败: %v", err)
-		}
+		// 运行中的子代理没有可收起的数量，重新展开直接切状态，再验证「收起子会话」芯片可键盘聚焦并通过 Enter 触发收起
+		SetBeeFolded("lead-1", false)
 		tt.Frame()
 		if IsBeeFolded("lead-1") {
 			t.Fatalf("重新展开后应恢复展开状态")
@@ -522,19 +565,19 @@ func TestSidebarBeeRowFlat(t *testing.T) {
 			tt.Key(0, ui.KeyTab)
 		}
 		if !tt.Focused("收起子会话") {
-			t.Fatalf("新收起入口应支持键盘 Tab 聚焦")
+			t.Fatalf("「收起子会话」芯片应支持键盘 Tab 聚焦")
 		}
 		tt.Key(0, ui.KeyEnter)
 		tt.Frame()
 
 		if !IsBeeFolded("lead-1") {
-			t.Fatalf("键盘触发新收起入口后应折叠子行")
+			t.Fatalf("键盘触发「收起子会话」后应折叠子行")
 		}
-		if !tt.HasText("2 个子代理") {
-			t.Fatalf("键盘收起后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+		if tt.HasText("+2") {
+			t.Fatalf("运行中的子代理不应被收进「+N」，texts: %q", tt.Texts())
 		}
-		if _, ok := tt.Find("Aspen"); ok {
-			t.Fatalf("键盘收起后不应再显示子代理头像 Aspen，texts: %q", tt.Texts())
+		if _, ok := tt.Find("Aspen"); !ok {
+			t.Fatalf("键盘收起后运行中的子代理头像应保留，texts: %q", tt.Texts())
 		}
 	})
 
@@ -544,6 +587,9 @@ func TestSidebarBeeRowFlat(t *testing.T) {
 			{ID: "lead-1", ProjectID: "p1", Title: "减少动效主会话", UpdatedAt: now},
 			{ID: "bee-1", ProjectID: "p1", Title: "Aspen: 运行中", ParentThreadID: "lead-1", IsHelper: true, IsRunning: true, UpdatedAt: now},
 		}, true)
+		SetBeeFolded("lead-1", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
 
 		aspenRect, ok := tt.Find("Aspen")
 		if !ok {

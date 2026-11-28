@@ -183,16 +183,22 @@ func TestSidebarBeeSubRowStillRendersBees(t *testing.T) {
 	if !tt.HasText("派生出来的会话") {
 		t.Fatalf("派生会话应作为顶层行渲染，texts: %q", tt.Texts())
 	}
+	SetBeeFolded("t1", false)
+	tt.Advance(DurBase + 50*time.Millisecond)
+	tt.Frame()
 	if _, ok := tt.Find("Aspen"); !ok {
 		t.Fatalf("bee 头像应仍渲染（以人设名作为可点击标签），texts: %q", tt.Texts())
 	}
 
-	if err := tt.Click("收起子会话"); err != nil {
-		t.Fatalf("点击连接线折叠按钮失败: %v", err)
+	if err := tt.Click("来源会话"); err != nil {
+		t.Fatalf("点击父会话标题收起失败: %v", err)
 	}
 	tt.Frame()
-	if !tt.HasText("1 个子代理") {
-		t.Fatalf("折叠行应统计子代理，texts: %q", tt.Texts())
+	if tt.HasText("+1") {
+		t.Fatalf("运行中的子代理不应被收进「+N」，texts: %q", tt.Texts())
+	}
+	if _, ok := tt.Find("Aspen"); !ok {
+		t.Fatalf("折叠后运行中的子代理头像应保留，texts: %q", tt.Texts())
 	}
 	if tt.HasText("个派生会话") {
 		t.Fatalf("折叠行不应再统计派生会话，texts: %q", tt.Texts())

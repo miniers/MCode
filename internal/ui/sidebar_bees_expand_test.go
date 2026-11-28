@@ -56,8 +56,11 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 		if IsBeeShowAll("lead-1") {
 			t.Fatalf("选中全空闲父会话直接展开时不应写入手动 ShowAll 状态")
 		}
+		SetBeeFolded("lead-1", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
 		if tt.HasText("2 个子代理") {
-			t.Fatalf("选中全空闲父会话后不应再显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+			t.Fatalf("展开后不应再显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
 		}
 		for _, txt := range tt.Texts() {
 			if txt == "收起" {
@@ -87,16 +90,16 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 		waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "lead-1" })
 
 		if err := tt.Click("收起子会话"); err != nil {
-			t.Fatalf("点击收起子会话入口失败: %v", err)
+			t.Fatalf("点击「收起子会话」失败: %v", err)
 		}
 		tt.Advance(DurSlow + 50*time.Millisecond)
 		tt.Frame()
 
 		if !IsBeeFolded("lead-1") {
-			t.Fatalf("点击收起子会话后应标记为折叠状态")
+			t.Fatalf("点击「收起子会话」后应标记为折叠状态")
 		}
-		if !tt.HasText("2 个子代理") {
-			t.Fatalf("折叠后应显示 '2 个子代理' 摘要行，texts: %q", tt.Texts())
+		if _, ok := tt.Find("+2"); !ok {
+			t.Fatalf("折叠后应显示「+2」，texts: %q", tt.Texts())
 		}
 		if _, ok := tt.Find("Aspen"); ok {
 			t.Fatalf("折叠后不应再显示空闲子代理 Aspen，texts: %q", tt.Texts())
@@ -105,8 +108,8 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 			t.Fatalf("折叠后不应再显示空闲子代理 Birch，texts: %q", tt.Texts())
 		}
 
-		if err := tt.Click("2 个子代理"); err != nil {
-			t.Fatalf("点击 '2 个子代理' 重新展开失败: %v", err)
+		if err := tt.Click("+2"); err != nil {
+			t.Fatalf("点击「+2」重新展开失败: %v", err)
 		}
 		tt.Advance(DurSlow + 50*time.Millisecond)
 		tt.Frame()
@@ -131,6 +134,9 @@ func TestSidebarIdleBeesExpand(t *testing.T) {
 			{ID: "bee-idle-2", ProjectID: "p1", Title: "Birch: 已停止任务", ParentThreadID: "lead-2", IsHelper: true, LastStatus: "stopped", UpdatedAt: now.Add(-2 * time.Minute)},
 		})
 
+		SetBeeFolded("lead-2", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
+		tt.Frame()
 		if _, ok := tt.Find("Cove"); !ok {
 			t.Fatalf("运行中子代理 Cove 应可见，texts: %q", tt.Texts())
 		}
@@ -255,14 +261,16 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 				t.Fatalf("点击全空闲主会话失败: %v", err)
 			}
 			waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "lead-1" })
+			SetBeeFolded("lead-1", false)
 			tt.Move(0, 0)
 			tt.Advance(DurSlow + 200*time.Millisecond)
+			tt.Advance(DurBase + 50*time.Millisecond)
 			tt.Frame()
 			if tt.FramePending() {
 				t.Fatalf("展开过渡结束后不应持续请求下一帧")
 			}
 			if tt.HasText("2 个子代理") {
-				t.Fatalf("选中全空闲父会话后不应显示 '2 个子代理'，texts: %q", tt.Texts())
+				t.Fatalf("展开后不应显示 '2 个子代理'，texts: %q", tt.Texts())
 			}
 			if _, ok := tt.Find("Aspen"); !ok {
 				t.Fatalf("选中父会话后应直接显示 Aspen，texts: %q", tt.Texts())
@@ -287,7 +295,7 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 			}
 			waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "lead-1" })
 			if err := tt.Click("收起子会话"); err != nil {
-				t.Fatalf("点击收起子会话失败: %v", err)
+				t.Fatalf("点击「收起子会话」失败: %v", err)
 			}
 			tt.Move(0, 0)
 			tt.Advance(DurSlow + 200*time.Millisecond)
@@ -295,8 +303,8 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 			if tt.FramePending() {
 				t.Fatalf("折叠过渡结束后不应持续请求下一帧")
 			}
-			if !tt.HasText("2 个子代理") {
-				t.Fatalf("折叠后应显示 '2 个子代理'，texts: %q", tt.Texts())
+			if _, ok := tt.Find("+2"); !ok {
+				t.Fatalf("折叠后应显示「+2」，texts: %q", tt.Texts())
 			}
 			if _, ok := tt.Find("Aspen"); ok {
 				t.Fatalf("折叠后不应再显示 Aspen，texts: %q", tt.Texts())
@@ -305,8 +313,8 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 				t.Fatalf("折叠后不应再显示 Birch，texts: %q", tt.Texts())
 			}
 
-			if err := tt.Click("2 个子代理"); err != nil {
-				t.Fatalf("点击 '2 个子代理' 展开失败: %v", err)
+			if err := tt.Click("+2"); err != nil {
+				t.Fatalf("点击「+2」展开失败: %v", err)
 			}
 			tt.Move(0, 0)
 			tt.Advance(DurSlow + 200*time.Millisecond)
@@ -377,6 +385,8 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 		})
 		// 不通过鼠标悬停切会话，避免 sidebar_hover_card 宽限期干扰 ReduceMotion 的零帧等待断言
 		state.selectThreadState("lead-1", true, nil)
+		SetBeeFolded("lead-1", false)
+		tt.Advance(DurBase + 50*time.Millisecond)
 		tt.Frame()
 		if tt.FramePending() {
 			t.Fatalf("ReduceMotion 下展开头像条不应请求下一帧")
@@ -391,8 +401,8 @@ func TestSidebarIdleBeesHiddenUntilSelected(t *testing.T) {
 		if tt.FramePending() {
 			t.Fatalf("ReduceMotion 下折叠头像条不应请求下一帧")
 		}
-		if !tt.HasText("2 个子代理") {
-			t.Fatalf("ReduceMotion 下折叠后应立即显示 '2 个子代理'，texts: %q", tt.Texts())
+		if _, ok := tt.Find("+2"); !ok {
+			t.Fatalf("ReduceMotion 下折叠后应立即显示「+2」，texts: %q", tt.Texts())
 		}
 
 		ToggleBeeFold("lead-1")

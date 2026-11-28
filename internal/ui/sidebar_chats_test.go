@@ -1200,12 +1200,14 @@ func TestSidebarChatsIdleBeesHiddenUntilSelected(t *testing.T) {
 		t.Fatalf("点击对话主会话失败: %v", err)
 	}
 	waitFor(t, tt, func() bool { return selectedThreadIDOf(state) == "c-lead" })
+	SetBeeFolded("c-lead", false)
 	tt.Move(0, 0)
 	tt.Advance(DurSlow + 200*time.Millisecond)
+	tt.Advance(DurBase + 50*time.Millisecond)
 	tt.Frame()
 
 	if tt.HasText("2 个子代理") {
-		t.Fatalf("选中对话主会话后不应显示 '2 个子代理'，texts: %q", tt.Texts())
+		t.Fatalf("展开后不应显示 '2 个子代理'，texts: %q", tt.Texts())
 	}
 	if _, ok := tt.Find("Aspen"); !ok {
 		t.Fatalf("选中对话主会话后应直接显示 Aspen，texts: %q", tt.Texts())
