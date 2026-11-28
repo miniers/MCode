@@ -3,6 +3,7 @@ package mcodeui
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,11 +20,16 @@ var (
 // sidebarBeeGlyphRadius 是状态徽章里 3px 白色方块的圆角：只磨掉一丝棱角，仍读作方块。
 const sidebarBeeGlyphRadius = float32(0.5)
 
-// IsBeeFolded 判断指定父会话的 bees 是否折叠。默认展开（返回 false）。
+// IsBeeFolded 判断指定父会话的 bees 是否折叠。
+// 未显式记录时默认折叠：侧边栏只留一行摘要和「+」，点开再展开头像。
 func IsBeeFolded(parentID string) bool {
 	sidebarBeesMu.Lock()
 	defer sidebarBeesMu.Unlock()
-	return sidebarBeeFolded[parentID]
+	folded, ok := sidebarBeeFolded[parentID]
+	if !ok {
+		return true
+	}
+	return folded
 }
 
 // SetBeeFolded 设置指定父会话的 bees 折叠状态。
@@ -33,10 +39,14 @@ func SetBeeFolded(parentID string, folded bool) {
 	sidebarBeesMu.Unlock()
 }
 
-// ToggleBeeFold 切换指定父会话的 bees 折叠状态。
+// ToggleBeeFold 切换指定父会话的 bees 折叠状态。未记录时默认折叠，第一次切换变为展开。
 func ToggleBeeFold(parentID string) {
 	sidebarBeesMu.Lock()
-	sidebarBeeFolded[parentID] = !sidebarBeeFolded[parentID]
+	folded, ok := sidebarBeeFolded[parentID]
+	if !ok {
+		folded = true
+	}
+	sidebarBeeFolded[parentID] = !folded
 	sidebarBeesMu.Unlock()
 }
 
@@ -597,7 +607,8 @@ func renderRunningGlyph(c *ui.Context, key string, size float32, color ui.Color)
 		})
 }
 
-// beesEffectivelyFolded 返回子行容器当前是否折叠：选中其中某个 bee 时强制展开保持可见。
+// beesEffectivelyFolded 返回子行容器当前是否折叠。
+// 未显式记录时默认折叠；选中其中某个 bee 时强制展开，避免当前会话被藏起来。
 // children 是父行下的全部子行；折叠状态仍按 parentID 记一份。
 func beesEffectivelyFolded(s *chatState, parentID string, children []Thread) bool {
 	if !IsBeeFolded(parentID) {
@@ -662,14 +673,77 @@ func renderSidebarBeeSummaryLine(c *ui.Context, s *chatState, o sidebarThreadRow
 	})
 }
 
-// renderSidebarBeeFoldLine 渲染折叠态的单行摘要（"› N 个子代理"），点击展开；
-// 有运行中的子行时右侧显示动态图标。
-func renderSidebarBeeFoldLine(c *ui.Context, s *chatState, o sidebarThreadRowOptions) {
+// renderSidebarBeeFoldAvatars 渲染折叠态头像行：
+// 有未结束的子代理时平铺它们的头像；全部已结束时只留一枚灰色 bee 图标。
+// 收起的数量由行尾已有的「+N」芯片表示（自动隐藏空闲子代理的入口），这里不再另放箭头或数字。
+func renderSidebarBeeFoldAvatars(c *ui.Context, s *chatState, o sidebarThreadRowOptions, selectedID string) {
 	parentID := o.thread.ID
-	_, hasRunning, label := BeeFoldSummary(o.bees)
-	renderSidebarBeeSummaryLine(c, s, o, "bee-fold", label, "展开子代理", hasRunning, func() {
-		ToggleBeeFold(parentID)
+	active, settled := sidebarFoldBees(s, parentID, o.bees, selectedID)
+	if len(active) == 0 && len(settled) == 0 {
+		return
+	}
+	expand := func() { SetBeeFolded(parentID, false) }
+
+	row := ui.Row(c.Key("bee-fold-avatars-"+o.projectID+"-"+parentID)).
+		Margin(0, ListInset, Space1, ListInset+o.indent+Space3+Space2).
+		Gap(Space2).
+		AlignItems(ui.Center)
+	row.Children(func() {
+		ui.Row(c.Key("bee-fold-avatars-row-" + o.projectID + "-" + parentID)).
+			Wrap().
+			Gap(Space2).
+			AlignItems(ui.Center).
+			Shrink(1).
+			Children(func() {
+				if len(active) > 0 {
+					for _, bee := range active {
+						hVal := bee
+						renderSidebarSingleBeeAvatar(c, s, parentID, hVal, resolveBeeStatus(s, parentID, hVal), selectedID == hVal.ID)
+					}
+				} else {
+					renderSidebarSettledBeeGlyph(c, "bee-fold-settled-"+o.projectID+"-"+parentID)
+				}
+				if len(settled) > 0 && o.hiddenBeeCount == 0 {
+					label := fmt.Sprintf("+%d", len(settled))
+					renderSidebarBeeActionChip(c, s, "bee-fold-chip-"+o.projectID+"-"+parentID, label, "展开子代理", "展开 "+label+" 个已结束子代理", expand)
+				}
+			})
 	})
+}
+
+// sidebarFoldBees 把折叠行要展示的子代理分成未结束与已结束两组。
+// 未结束是运行中、待审查、待定稿或当前选中的子代理；其余归入已结束。
+func sidebarFoldBees(s *chatState, parentID string, bees []Thread, selectedID string) (active, settled []Thread) {
+	for _, bee := range bees {
+		if bee.ID == selectedID || !beeAvatarSettled(resolveBeeStatus(s, parentID, bee)) {
+			active = append(active, bee)
+			continue
+		}
+		settled = append(settled, bee)
+	}
+	return active, settled
+}
+
+// renderSidebarSettledBeeGlyph 渲染全部子代理已结束时的灰色占位：一枚中性灰圆环里三个灰点。
+func renderSidebarSettledBeeGlyph(c *ui.Context, key string) {
+	const size float32 = IconSM
+	gray := ThemeSecondaryText(c)
+	ui.Box(c.Key(key)).
+		Size(size, size).
+		Radius(size/2).
+		Border(1, gray.Alpha(0.35)).
+		Justify(ui.Center).
+		AlignItems(ui.Center).
+		Children(func() {
+			ui.Row(c.Key(key + "-dots")).Gap(1).AlignItems(ui.Center).Children(func() {
+				for i := 0; i < 3; i++ {
+					ui.Box(c.Key(key+"-dot-"+strconv.Itoa(i))).
+						Size(2, 2).
+						Radius(RadiusPill).
+						Background(gray.Alpha(0.7))
+				}
+			})
+		})
 }
 
 // renderSidebarBeeActionChip 渲染子代理容器末尾的紧凑胶囊按钮（如 "+N" 与 "收起"）。
@@ -733,16 +807,16 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 	}
 
 	if beesEffectivelyFolded(s, parentID, bees) {
-		renderSidebarBeeFoldLine(c, s, o)
+		renderSidebarBeeFoldAvatars(c, s, o, selectedID)
 		return
 	}
 
 	// 无外框缩进头像行：头像与操作胶囊内联排列，右侧空白处可点击或键盘聚焦收起子会话。
+	// 不挂入场折叠动画：默认就是折叠态，展开是一次状态切换，动画会把首帧高度压成 0，点击落空。
 	row := ui.Row(c.Key("bee-subrow-"+o.projectID+"-"+parentID)).
 		Margin(0, ListInset, Space1, ListInset+o.indent+Space3+Space2).
 		Gap(Space2).
-		AlignItems(ui.Center).
-		Transition(motionCollapse(c))
+		AlignItems(ui.Center)
 
 	row.Children(func() {
 		ui.Row(c.Key("bee-avatars-row-" + o.projectID + "-" + parentID)).
@@ -767,33 +841,17 @@ func renderSidebarBeeSubRow(c *ui.Context, s *chatState, o sidebarThreadRowOptio
 						SetBeeShowAll(parentID, false)
 					})
 				}
+				renderSidebarBeeActionChip(c, s, "bee-fold-btn-"+o.projectID+"-"+parentID, "收起子会话", "收起子会话", "收起子会话", func() {
+					SetBeeFolded(parentID, true)
+				})
 			})
-
-		foldBtn := ui.ButtonBase(c.Key("bee-fold-btn-" + o.projectID + "-" + parentID)).
-			Grow(1).
-			Shrink(0).
-			MinWidth(ControlKbd).
-			Height(ControlKbd).
-			Radius(RadiusXS).
-			Label("收起子会话").
-			Tooltip("收起子会话").
-			Focusable()
-		if foldBtn.Hovered() {
-			foldBtn.Background(ThemeHover(c))
-		}
-		focusRing(c, foldBtn)
-		if foldBtn.Clicked() {
-			ToggleBeeFold(parentID)
-			if s != nil {
-				s.invalidate()
-			}
-		}
 	})
 }
 
-// beeAvatarSettled 判断子代理头像是否应退成中性灰（已完成或空闲态）。
+// beeAvatarSettled 判断子代理是否已结束、折叠行里可以收进灰色占位：
+// 已完成、失败、空闲都算结束；运行中、待审查、待定稿仍要单独露出头像。
 func beeAvatarSettled(status string) bool {
-	return status == swarmStatusCompleted || status == swarmStatusIdle
+	return status == swarmStatusCompleted || status == swarmStatusErrored || status == swarmStatusIdle
 }
 
 // renderSidebarSingleBeeAvatar 渲染单个 bee 的约 14pt 头像及约 8pt 带描边的状态角标。
@@ -875,7 +933,7 @@ func renderSidebarBeeBadge(c *ui.Context, keyPrefix string, status string) {
 
 	switch status {
 	case swarmStatusRunning:
-		// 运行中：深色底与描边，内部点阵扫光动画（自绘，200ms 一帧，不用 ui.Spinner）
+		// 运行中：深色底与描边，内部点阵动画（自绘，200ms 一帧，不用 ui.Spinner）
 		box.Background(ThemeSurface(c)).
 			Children(func() {
 				renderRunningGlyph(c, badgeKey+"-run", badgeSize-1, ThemeAccent(c))
